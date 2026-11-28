@@ -72,7 +72,7 @@ test.describe('Drop confirm-payout — edge cases (AC5)', () => {
       await loginViaApi(page, dropEmail)
       const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 1000 })
 
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, txId)
 
       // task-drop-payout-company-account (backlog item 131/139): validate no
@@ -157,7 +157,7 @@ test.describe('Drop confirm-payout — edge cases (AC5)', () => {
       await loginViaApi(page, dropEmail)
       const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 1000 })
 
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, txId)
 
       await loginViaApi(page, dropEmail)

@@ -57,7 +57,7 @@ describe('canAccessResume — §4 access table', () => {
     })
   })
 
-  describe.each(['JUNIOR', 'ACCOUNTANT', 'DROP'] as const)('%s — no access at all', (role) => {
+  describe.each(['JUNIOR', 'DROP'] as const)('%s — no access at all', (role) => {
     const viewer = { id: `${role.toLowerCase()}-1`, role }
     it('cannot read a foreign resume', () => {
       expect(canAccessResume(viewer, SENIOR_A.id, 'read')).toBe(false)

@@ -388,7 +388,6 @@ function seedSeniorWithTeamAndProjects(store: FakeStore) {
   store.users.push(
     { id: 'senior-1', email: 's@x.com', displayName: 'Senior', role: 'SENIOR', archivedAt: null },
     { id: 'hr-1', email: 'h@x.com', displayName: 'HR', role: 'HR', archivedAt: null },
-    { id: 'acc-1', email: 'a@x.com', displayName: 'Acc', role: 'ACCOUNTANT', archivedAt: null },
     { id: 'junior-1', email: 'j1@x.com', displayName: 'J1', role: 'JUNIOR', archivedAt: null },
     { id: 'junior-2', email: 'j2@x.com', displayName: 'J2', role: 'JUNIOR', archivedAt: null },
   )
@@ -556,11 +555,11 @@ vi.mock('drizzle-orm', async (importOriginal) => {
 describe('UsersService.archive — SENIOR (pair cascade)', () => {
   // task-archive-pending-modal (AC9, owner decision 2026-08-19): a SENIOR/DROP
   // cascade archive touches the TEAM and the PROJECTS — never the membership
-  // of a third party sitting on them. HR/ACCOUNTANT/JUNIOR keep earning off
+  // of a third party sitting on them. HR/JUNIOR keep earning off
   // their own `archivedAt` (see the salary cron), so leaving `leftAt` alone
   // here is what keeps that true. Renamed from the pre-AC9 title, which
   // asserted the opposite.
-  it('archives senior + team + projects; HR/Acc/Junior membership is left untouched', async () => {
+  it('archives senior + team + projects; HR/Junior membership is left untouched', async () => {
     const store = emptyStore()
     seedSeniorWithTeamAndProjects(store)
     const { service } = buildService(store)
@@ -572,7 +571,7 @@ describe('UsersService.archive — SENIOR (pair cascade)', () => {
     expect(store.projects.find((p) => p.id === 'proj-1')?.archivedAt).toBeInstanceOf(Date)
     expect(store.projects.find((p) => p.id === 'proj-2')?.archivedAt).toBeInstanceOf(Date)
 
-    // AC9: HR + ACCOUNTANT team_members stay active — archiving the team is
+    // AC9: HR team_members stay active — archiving the team is
     // not archiving them.
     expect(store.teamMembers.find((m) => m.userId === 'hr-1')?.leftAt).toBeNull()
     expect(store.teamMembers.find((m) => m.userId === 'acc-1')?.leftAt).toBeNull()
@@ -682,7 +681,7 @@ describe('UsersService.archive — SENIOR (pair cascade)', () => {
   })
 })
 
-describe('UsersService.archive — HR / ACCOUNTANT / JUNIOR / ADMIN', () => {
+describe('UsersService.archive — HR / JUNIOR / ADMIN', () => {
   it('HR: archives user + sets leftAt on team_members; no project_members touched', async () => {
     const store = emptyStore()
     store.users.push({ id: 'hr-1', role: 'HR', displayName: 'HR1', archivedAt: null })
@@ -772,7 +771,7 @@ describe('UsersService.unarchive — SENIOR (pair restore)', () => {
   // task-archive-pending-modal (AC9): HR/Acc membership was never closed by
   // archive() any more, so "NOT restored" is now simply "never touched" —
   // title + body updated to say so instead of the pre-AC9 claim.
-  it('restores senior + team; leaves projects archived; HR/Acc/Junior membership was never touched', async () => {
+  it('restores senior + team; leaves projects archived; HR/Junior membership was never touched', async () => {
     const store = emptyStore()
     seedSeniorWithTeamAndProjects(store)
     const { service } = buildService(store)

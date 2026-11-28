@@ -51,7 +51,7 @@ export function resolveCompanyDebit(args: {
 }): { useCompanyAccount: boolean; debitsCompanyAccount: boolean } {
   const { funding, isDropObligation, sourceDropCascadeOrigin } = args
   // task-senior-settle-owner: the senior IOU is now paid via the SAME funding
-  // selection as a SALARY — the ADMIN/ACCOUNTANT picks AT PAY TIME whether the
+  // selection as a SALARY — the ADMIN picks AT PAY TIME whether the
   // money leaves the shared company account (COMPANY_ACCOUNT) or an admin
   // partner's personal account (ADMIN_PERSONAL). Mirrors paySalary exactly.
   //
@@ -88,7 +88,7 @@ export function resolveCompanyDebit(args: {
   // guarantee (declareUsdtProjectIncome can also route to a SPECIFIC
   // admin's personal wallet, toCompanyPool=false — see the column comment
   // in schema.ts, corrected round 5). Which pot actually pays a
-  // `false`-marked obligation is decided by the ADMIN/ACCOUNTANT's
+  // `false`-marked obligation is decided by the ADMIN's
   // funding-source choice below, same as it already is for the analogous
   // senior obligation — unchanged by this PR.
   //
@@ -287,7 +287,7 @@ export function convertDropPayoutAmount(
   // in — do not assume this comment still enumerates them all.
   //
   // Refuse case (b) rather than silently commit a possibly
-  // wrong amount to money that cannot be un-paid. The ADMIN/ACCOUNTANT
+  // wrong amount to money that cannot be un-paid. The ADMIN
   // can retry once NBU recovers, or settle in the obligation's own
   // currency (USDT) right now, which never needs a rate at all.
   if (rates.stale && rates.rateDate === undefined) {

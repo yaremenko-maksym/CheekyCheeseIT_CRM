@@ -631,7 +631,7 @@ export class EmployeeContractsService {
         case 'sharePercent':
         case 'companySharePercent':
           // For SENIOR/DROP: empty only when the share value is missing.
-          // For other roles (HR, JUNIOR, ACCOUNTANT): sharePercent is not
+          // For other roles (HR, JUNIOR): sharePercent is not
           // applicable — it should never block the "mark ready" gate even if
           // the token was accidentally inserted in a template for that role.
           if (user.role === 'SENIOR') return false

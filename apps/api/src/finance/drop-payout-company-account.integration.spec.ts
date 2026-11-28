@@ -46,7 +46,7 @@ import { resolveTransactionDate } from './transaction-date.util'
  *       pending_obligation (creditor=senior, COMPANY) for income * seniorShare%.
  *     - ZERO PAYOUT_ADMIN (the legacy 50/50 split is gone).
  *
- *   settleByCompany (ADMIN/ACCOUNTANT) then closes each obligation in place:
+ *   settleByCompany (ADMIN) then closes each obligation in place:
  *     - senior: SENIOR_PENDING_PAYOUT → SENIOR_INCOME (PAID), company −= s%.
  *     - drop:   DROP_PENDING_PAYOUT → PAYOUT_DROP (PAID), credits the drop.
  *       Settled here with ADMIN_PERSONAL funding — the drop's slice never
@@ -77,7 +77,7 @@ import { resolveTransactionDate } from './transaction-date.util'
  *         rejected (400) — the money never touched the company pool; company
  *         balance is unchanged by the rejected attempt.
  *   RBAC  DROP cannot bundle another's DROP_INCOME (createPayoutRequest → 400);
- *         settleByCompany only ADMIN/ACCOUNTANT (DROP/SENIOR → 403).
+ *         settleByCompany only ADMIN (DROP/SENIOR → 403).
  *
  * Etherscan is a controllable fake (per-hash scripted verification); NBU is a
  * fixed identity stub (USDT-only). The DB, the cascade, the obligation, the
@@ -114,14 +114,6 @@ const DROP_B: SessionUser = {
   displayName: 'DPCA Drop B',
   role: 'DROP',
 }
-const ACCOUNTANT: SessionUser = {
-  ...SENIOR,
-  id: 'cb330000-0000-4000-bb00-000000000006',
-  email: 'dpca-accountant@test.spec',
-  displayName: 'DPCA Accountant',
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-}
 // Seed admins (cascade hardcoded ids) — kept as ADMIN so a (now-removed) split
 // loop would have SUCCEEDED, making the "0 PAYOUT_ADMIN" assertion a real guard.
 const ADMIN_MAKSYM: SessionUser = {
@@ -139,7 +131,7 @@ const ADMIN_KOSTYA: SessionUser = {
   displayName: 'DPCA Kostya',
 }
 
-const TEST_OWN_USERS = [SENIOR, DROP_A, DROP_B, ACCOUNTANT]
+const TEST_OWN_USERS = [SENIOR, DROP_A, DROP_B]
 const TEST_OWN_USER_IDS = TEST_OWN_USERS.map((u) => u.id)
 const SEED_ADMINS = [ADMIN_MAKSYM, ADMIN_KOSTYA]
 const ACCOUNT_ID = 'cb330000-0000-4000-cc00-000000000001'
@@ -533,7 +525,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
       // task-drop-share-pending-parity: the drop's slice is NOT an instant
       // PAYOUT_DROP anymore — it is a PENDING_PAYMENT COMPANY debt, same shape
-      // as the senior's, until an ADMIN/ACCOUNTANT settles it with a receipt.
+      // as the senior's, until an ADMIN settles it with a receipt.
       expect(await rowsByType(pr.id, 'PAYOUT_DROP')).toHaveLength(0)
       const dropPendingRows = await rowsByType(pr.id, 'DROP_PENDING_PAYOUT')
       expect(dropPendingRows).toHaveLength(1)
@@ -581,13 +573,13 @@ describe.skipIf(!hasDatabaseUrl())(
       const afterPayout = await displayBalance()
       const seniorShare = (I * SENIOR_SHARE) / 100
 
-      // Close the obligation as ACCOUNTANT.
+      // Close the obligation as ADMIN.
       const [obligation] = await pendingObligationsFor(SENIOR.id)
       expect(obligation).toBeTruthy()
       const obRow = await dbSvc.db.query.pendingObligations.findFirst({
         where: eq(pendingObligations.sourceTransactionId, obligation!.sourceTransactionId),
       })
-      const settled = await settleSvc.settleByCompany(obRow!.id, ACCOUNTANT)
+      const settled = await settleSvc.settleByCompany(obRow!.id, ADMIN_MAKSYM)
       expect(settled.obligation.status).toBe('PAID')
 
       // Senior received a SENIOR_INCOME (PAID) of exactly seniorShare.
@@ -632,7 +624,7 @@ describe.skipIf(!hasDatabaseUrl())(
       // Sanity: BEFORE settle, the live relation already surfaces the
       // cascade-booked SENIOR_PENDING_PAYOUT obligation (payoutRequestId is
       // still set at this point — settle has not run yet).
-      const beforeSettle = await svc.findPayoutRequest(pr.id, ACCOUNTANT)
+      const beforeSettle = await svc.findPayoutRequest(pr.id, ADMIN_MAKSYM)
       const pendingObligationTx = beforeSettle.transactions.find(
         (t) => t.type === 'SENIOR_PENDING_PAYOUT',
       )
@@ -644,7 +636,7 @@ describe.skipIf(!hasDatabaseUrl())(
       const obRow = await dbSvc.db.query.pendingObligations.findFirst({
         where: eq(pendingObligations.sourceTransactionId, obligation!.sourceTransactionId),
       })
-      const settled = await settleSvc.settleByCompany(obRow!.id, ACCOUNTANT)
+      const settled = await settleSvc.settleByCompany(obRow!.id, ADMIN_MAKSYM)
       const flippedId = settled.created.find((c) => c.type === 'SENIOR_INCOME')!.id
 
       // The flip reuses the SAME row id (task-settle-in-place) — its OWN
@@ -660,7 +652,7 @@ describe.skipIf(!hasDatabaseUrl())(
       // pending_obligations.payoutRequestId (a separate column, never reset)
       // — the payout's detail read no longer looks like it produced zero
       // obligations. Without this fix, `recovered` is `undefined` here.
-      const afterSettle = await svc.findPayoutRequest(pr.id, ACCOUNTANT)
+      const afterSettle = await svc.findPayoutRequest(pr.id, ADMIN_MAKSYM)
       const recovered = afterSettle.transactions.find((t) => t.id === flippedId)
       expect(recovered).toBeTruthy()
       expect(recovered!.type).toBe('SENIOR_INCOME')
@@ -680,7 +672,7 @@ describe.skipIf(!hasDatabaseUrl())(
     // client's isIncomeTransaction filter (wrong type) and was never
     // rendered to DROP_A — recovering it via findPayoutRequest must not be
     // the FIRST time DROP_A sees the senior's name + share amount. AC4 only
-    // reads through ACCOUNTANT's eyes, the one viewer who never had a
+    // reads through ADMIN's eyes, the one viewer who never had a
     // question here; this test reads through DROP_A's — the viewer the leak
     // actually affects — and additionally proves DROP_A DOES still see
     // their OWN settled obligation (the narrowing is per-creditor, not a
@@ -705,14 +697,14 @@ describe.skipIf(!hasDatabaseUrl())(
       const seniorObRow = await dbSvc.db.query.pendingObligations.findFirst({
         where: eq(pendingObligations.sourceTransactionId, seniorObligation!.sourceTransactionId),
       })
-      const seniorSettled = await settleSvc.settleByCompany(seniorObRow!.id, ACCOUNTANT)
+      const seniorSettled = await settleSvc.settleByCompany(seniorObRow!.id, ADMIN_MAKSYM)
       const seniorFlippedId = seniorSettled.created.find((c) => c.type === 'SENIOR_INCOME')!.id
 
       const [dropObligation] = await pendingObligationsFor(DROP_A.id)
       const dropObRow = await dbSvc.db.query.pendingObligations.findFirst({
         where: eq(pendingObligations.sourceTransactionId, dropObligation!.sourceTransactionId),
       })
-      const dropSettled = await settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT, {
+      const dropSettled = await settleSvc.settleByCompany(dropObRow!.id, ADMIN_MAKSYM, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_MAKSYM.id,
         receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountmed1001',
@@ -727,10 +719,10 @@ describe.skipIf(!hasDatabaseUrl())(
       // (the narrowing is per-creditor, not a blanket hide of recovered rows).
       expect(asDropOwner.transactions.find((t) => t.id === dropFlippedId)).toBeTruthy()
 
-      // ACCOUNTANT (privileged) sees both regardless of who the creditor is.
-      const asAccountant = await svc.findPayoutRequest(pr.id, ACCOUNTANT)
-      expect(asAccountant.transactions.find((t) => t.id === seniorFlippedId)).toBeTruthy()
-      expect(asAccountant.transactions.find((t) => t.id === dropFlippedId)).toBeTruthy()
+      // ADMIN (privileged) sees both regardless of who the creditor is.
+      const asAdmin = await svc.findPayoutRequest(pr.id, ADMIN_MAKSYM)
+      expect(asAdmin.transactions.find((t) => t.id === seniorFlippedId)).toBeTruthy()
+      expect(asAdmin.transactions.find((t) => t.id === dropFlippedId)).toBeTruthy()
     })
 
     // ── backlog 168 (security-review on #590, found as pre-existing — #590
@@ -747,8 +739,8 @@ describe.skipIf(!hasDatabaseUrl())(
     // so the leak reaches the DROP caller in the very same response that
     // confirms their payment, not on some later re-fetch.
     //
-    // Deliberately read through DROP_A's eyes, not ACCOUNTANT's — on #590 the
-    // original test for this exact function read as ACCOUNTANT, the one
+    // Deliberately read through DROP_A's eyes, not ADMIN's — on #590 the
+    // original test for this exact function read as the one
     // viewer who never had a question to ask, and the defect survived review.
     it('backlog 168 findPayoutRequest does NOT leak the live SENIOR_PENDING_PAYOUT row to the DROP payout owner before settle, but DOES show the DROP their own live rows', async () => {
       const I = 1000
@@ -803,10 +795,10 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(asDropOwner.transactions.some((t) => t.type === 'DROP_PENDING_PAYOUT')).toBe(true)
       expect(asDropOwner.transactions.some((t) => t.type === 'PAYOUT')).toBe(true)
 
-      // AC3 — privileged (ACCOUNTANT) sees the SAME set they always did,
+      // AC3 — privileged (ADMIN) sees the SAME set they always did,
       // including the senior row — the narrowing must not touch this side.
-      const asAccountant = await svc.findPayoutRequest(pr.id, ACCOUNTANT)
-      expect(asAccountant.transactions.find((t) => t.id === seniorPendingRow!.id)).toBeTruthy()
+      const asAdmin = await svc.findPayoutRequest(pr.id, ADMIN_MAKSYM)
+      expect(asAdmin.transactions.find((t) => t.id === seniorPendingRow!.id)).toBeTruthy()
     })
 
     // ── INV2b (task-drop-share-pending-parity, AC1-3): drop settle → PAYOUT_DROP,
@@ -842,7 +834,7 @@ describe.skipIf(!hasDatabaseUrl())(
       // ADMIN_PERSONAL — see the file-header note: the drop's slice never
       // touched the company pool, so this is the funding choice that matches
       // reality and keeps the shared balance untouched.
-      const settled = await settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT, {
+      const settled = await settleSvc.settleByCompany(dropObRow!.id, ADMIN_MAKSYM, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_MAKSYM.id,
         receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountinv2b001',
@@ -892,7 +884,7 @@ describe.skipIf(!hasDatabaseUrl())(
       // `zodErrorBadRequest` (task-i18n-stage4-lessons-701, lesson 2 —
       // assert `code` + `statusCode`, never the translated text).
       await expect(
-        settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT, {
+        settleSvc.settleByCompany(dropObRow!.id, ADMIN_MAKSYM, {
           fundingSource: 'ADMIN_PERSONAL',
           payerAdminId: ADMIN_MAKSYM.id,
         }),
@@ -938,7 +930,7 @@ describe.skipIf(!hasDatabaseUrl())(
       // Explicit COMPANY_ACCOUNT (WITH a valid receipt — the receipt gate is
       // NOT what should block this; the HIGH-1 guard runs before it).
       await expect(
-        settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT, {
+        settleSvc.settleByCompany(dropObRow!.id, ADMIN_MAKSYM, {
           fundingSource: 'COMPANY_ACCOUNT',
           receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccounthigh1001',
         }),
@@ -951,7 +943,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
       // Legacy no-funding call ALSO defaults to COMPANY_ACCOUNT for a COMPANY
       // debt (useCompanyAccount=isCompanyDebt) — the guard covers this branch too.
-      await expect(settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT)).rejects.toMatchObject({
+      await expect(settleSvc.settleByCompany(dropObRow!.id, ADMIN_MAKSYM)).rejects.toMatchObject({
         response: expect.objectContaining({
           code: 'FINANCE_DROP_SHARE_NOT_VIA_COMPANY_ACCOUNT',
           statusCode: 400,
@@ -968,7 +960,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
       // Sanity: the SAME obligation settles fine via ADMIN_PERSONAL (the guard
       // targets the funding CHOICE, not the obligation itself).
-      const settled = await settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT, {
+      const settled = await settleSvc.settleByCompany(dropObRow!.id, ADMIN_MAKSYM, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_MAKSYM.id,
         receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccounthigh1002',
@@ -1025,7 +1017,7 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(sourceAfterFkLoss!.dropCascadeOrigin).toBe(true)
 
       await expect(
-        settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT, {
+        settleSvc.settleByCompany(dropObRow!.id, ADMIN_MAKSYM, {
           fundingSource: 'COMPANY_ACCOUNT',
           receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountmed1r3001',
         }),
@@ -1067,7 +1059,7 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(sourceTx!.dropCascadeOrigin).toBeNull()
 
       await expect(
-        settleSvc.settleByCompany(obligationId, ACCOUNTANT, {
+        settleSvc.settleByCompany(obligationId, ADMIN_MAKSYM, {
           fundingSource: 'COMPANY_ACCOUNT',
           receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountmed2r4001',
         }),
@@ -1101,7 +1093,7 @@ describe.skipIf(!hasDatabaseUrl())(
         amount: '1000',
         currency: 'USDT',
         senderLabel: 'MED-2 test funding',
-        createdBy: ACCOUNTANT.id,
+        createdBy: ADMIN_MAKSYM.id,
         txDate: resolveTransactionDate(null),
       })
       await dbSvc.db
@@ -1109,7 +1101,7 @@ describe.skipIf(!hasDatabaseUrl())(
         .set({ dropCascadeOrigin: false })
         .where(eq(transactions.id, row!.sourceTransactionId))
       const beforeSecondSettle = await displayBalance()
-      const settled = await settleSvc.settleByCompany(obligationId, ACCOUNTANT, {
+      const settled = await settleSvc.settleByCompany(obligationId, ADMIN_MAKSYM, {
         fundingSource: 'COMPANY_ACCOUNT',
         receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountmed2r4002',
       })
@@ -1156,7 +1148,7 @@ describe.skipIf(!hasDatabaseUrl())(
       })
     })
 
-    // ── RBAC: settleByCompany only ADMIN/ACCOUNTANT
+    // ── RBAC: settleByCompany only ADMIN
     it('RBAC settleByCompany rejects DROP and SENIOR (403)', async () => {
       const I = 1000
       const incomeId = await seedValidatedDropIncome(DROP_PROJECT_A, DROP_A, String(I))

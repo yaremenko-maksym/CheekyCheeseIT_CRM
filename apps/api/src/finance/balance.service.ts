@@ -299,14 +299,14 @@ export class BalanceService {
   /**
    * Lifetime «всего заработано с нами» — the cumulative amount the COMPANY has
    * actually PAID this user across the whole history, surfaced on the employee
-   * profile «Финансы» tab for ADMIN / ACCOUNTANT viewers.
+   * profile «Финансы» tab for ADMIN viewers.
    *
    * Definition (task-profile-earned-balance, USER-confirmed): the accumulated
    * money that the company *actually paid out* to this user. We therefore sum
    * only PAID transaction rows where the user is the REAL money recipient,
    * mapped per the user's role:
    *
-   *   - JUNIOR / HR / ACCOUNTANT → SALARY rows (status=PAID, receiverId=user).
+   *   - JUNIOR / HR → SALARY rows (status=PAID, receiverId=user).
    *     Salary is the only channel the company pays these roles.
    *   - SENIOR → PAID SENIOR_INCOME only (the share the senior earned through
    *     the platform; recipient = receiverId ?? senderId for legacy rows).
@@ -333,7 +333,7 @@ export class BalanceService {
     currency: BalanceCurrency = 'USD',
   ): Promise<{
     userId: string
-    role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
+    role: SessionUser['role']
     totalEarned: number
     currency: BalanceCurrency
     breakdown: Record<string, number>
@@ -353,7 +353,7 @@ export class BalanceService {
     // Only money that has actually moved counts — PAID is the single gate.
     const paidTxs = allTxs.filter((tx) => tx.status === 'PAID')
 
-    const role = target.role as 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
+    const role = target.role as SessionUser['role']
     // C-4 (AC9/AC10): accumulate in scaled integers (breakdownScaled), convert
     // to float only once at read time — same technique as every other reader
     // in this file after the C-4 fix, and as getSummary/computeDropAggregate
@@ -370,7 +370,7 @@ export class BalanceService {
       const recipient = tx.recipientId ?? tx.receiverId
       const converted = convertToBase(amt, tx.currency as BalanceCurrency, currency, rates)
 
-      if (role === 'JUNIOR' || role === 'HR' || role === 'ACCOUNTANT') {
+      if (role === 'JUNIOR' || role === 'HR') {
         // Company pays these roles only via SALARY.
         if (tx.type === 'SALARY' && tx.receiverId === targetUserId) add('salary', converted)
       } else if (role === 'SENIOR') {
@@ -498,56 +498,54 @@ export class BalanceService {
   // ── RBAC helpers ──────────────────────────────────────────────────────────
 
   /**
-   * /api/balances/admin/:id — ADMIN can read only their OWN balance breakdown;
-   * ACCOUNTANT is the privileged finance reader and can read any admin's balance.
+   * /api/balances/admin/:id — ADMIN can read only their OWN balance breakdown.
    * Other roles are forbidden.
    *
    * SEC-13 fix: the previous implementation allowed any ADMIN to read another
    * admin's personal balance breakdown (cashIncome / cryptoIncome / dividends /
    * expenses). This is an information-disclosure gap — one partner should not
-   * freely inspect the other's ledger split. ACCOUNTANT already exists precisely
-   * to provide that oversight role, so it retains unrestricted access.
+   * freely inspect the other's ledger split. (The retired oversight role's
+   * any-admin read was deleted with it, not folded into ADMIN.)
    *
    * /crm/stats (formerly /crm/finance) only requests the calling admin's own
    * balance; the fetch is keyed by the viewer's id, so this change does not
    * break the stats page.
    */
   assertCanReadAdminBalance(viewer: SessionUser, targetAdminId: string): void {
-    if (viewer.role === 'ACCOUNTANT') return
     if (viewer.role === 'ADMIN' && viewer.id === targetAdminId) return
     throw apiError('FINANCE_ADMIN_BALANCE_FORBIDDEN', HttpStatus.FORBIDDEN)
   }
 
   /**
-   * /api/balances/senior/:id — SENIOR can read only their own; ADMIN /
-   * ACCOUNTANT can read any. JUNIOR / HR / DROP forbidden.
+   * /api/balances/senior/:id — SENIOR can read only their own; ADMIN can read
+   * any. JUNIOR / HR / DROP forbidden.
    */
   assertCanReadSeniorBalance(viewer: SessionUser, targetSeniorId: string): void {
-    if (viewer.role === 'ADMIN' || viewer.role === 'ACCOUNTANT') return
+    if (viewer.role === 'ADMIN') return
     if (viewer.role === 'SENIOR' && viewer.id === targetSeniorId) return
     throw apiError('FINANCE_SENIOR_BALANCE_FORBIDDEN', HttpStatus.FORBIDDEN)
   }
 
   /**
    * /api/balances/total-earned/:id — the lifetime «всего заработано» metric is
-   * a privileged financial figure: only ADMIN and ACCOUNTANT may read it, for
+   * a privileged financial figure: only ADMIN may read it, for
    * ANY target user. Every other role (incl. the target viewing their own
    * profile, and SENIOR/JUNIOR/HR/DROP) is forbidden — the figure is never
    * surfaced to non-privileged viewers (AC2/AC3). No self-view exception by
    * design: the metric exists for finance oversight, not self-reporting.
    */
   assertCanReadTotalEarned(viewer: SessionUser): void {
-    if (viewer.role === 'ADMIN' || viewer.role === 'ACCOUNTANT') return
+    if (viewer.role === 'ADMIN') return
     throw apiError('FINANCE_TOTAL_EARNED_FORBIDDEN', HttpStatus.FORBIDDEN)
   }
 
   /**
-   * /api/pending-obligations — SENIOR sees only `creditor=self`; ADMIN /
-   * ACCOUNTANT see all. The controller forces creditorUserId=self for the
+   * /api/pending-obligations — SENIOR sees only `creditor=self`; ADMIN sees
+   * all. The controller forces creditorUserId=self for the
    * SENIOR caller before delegating here.
    */
   assertCanListPendingObligations(viewer: SessionUser): void {
-    if (viewer.role !== 'ADMIN' && viewer.role !== 'ACCOUNTANT' && viewer.role !== 'SENIOR') {
+    if (viewer.role !== 'ADMIN' && viewer.role !== 'SENIOR') {
       throw apiError('FINANCE_PENDING_OBLIGATIONS_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
   }

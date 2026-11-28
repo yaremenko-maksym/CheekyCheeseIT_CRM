@@ -79,7 +79,7 @@ describe('ProjectAccessService.getHrScope', () => {
 
 describe('ProjectAccessService.assertHrCanManageProject', () => {
   it('is a no-op for non-HR roles without touching the db', async () => {
-    for (const role of ['ADMIN', 'ACCOUNTANT', 'SENIOR', 'JUNIOR', 'DROP'] as const) {
+    for (const role of ['ADMIN', 'SENIOR', 'JUNIOR', 'DROP'] as const) {
       const { svc, select } = makeService()
       await expect(
         svc.assertHrCanManageProject({ seniorId: null, dropId: null }, user(role)),
@@ -122,7 +122,7 @@ describe('ProjectAccessService.assertHrCanManageProject', () => {
 
 describe('ProjectAccessService.assertAccess — non-ACTIVE (existence-oracle 404)', () => {
   for (const status of ['DRAFT', 'REJECTED']) {
-    for (const role of ['ACCOUNTANT', 'SENIOR', 'HR', 'JUNIOR', 'DROP'] as const) {
+    for (const role of ['SENIOR', 'HR', 'JUNIOR', 'DROP'] as const) {
       it(`${status}: uninvited ${role} gets 404, not 403`, async () => {
         const { svc, isApprover } = makeService({ invited: false })
         const err = await svc
@@ -152,10 +152,9 @@ describe('ProjectAccessService.assertAccess — non-ACTIVE (existence-oracle 404
 })
 
 describe('ProjectAccessService.assertAccess — ACTIVE role matrix', () => {
-  it('ADMIN and ACCOUNTANT pass', async () => {
+  it('ADMIN pass', async () => {
     const { svc } = makeService()
     await expect(svc.assertAccess(project(), user('ADMIN'))).resolves.toBeUndefined()
-    await expect(svc.assertAccess(project(), user('ACCOUNTANT'))).resolves.toBeUndefined()
   })
 
   it('SENIOR passes only for own project, otherwise 403', async () => {

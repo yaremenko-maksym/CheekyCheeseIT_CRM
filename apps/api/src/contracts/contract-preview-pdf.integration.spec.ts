@@ -46,12 +46,6 @@ const base: SessionUser = {
   legalFullName: null,
 }
 const ADMIN = base
-const ACCOUNTANT: SessionUser = {
-  ...base,
-  id: 'c0111111-0000-4000-a000-000000000002',
-  email: 'cp-acct@test.spec',
-  role: 'ACCOUNTANT',
-}
 const SENIOR: SessionUser = {
   ...base,
   id: 'c0111111-0000-4000-a000-000000000003',
@@ -167,7 +161,7 @@ describe('POST /contracts/templates/preview-pdf — ADMIN-only PDF preview (real
     expect(dbMock.db.query.companyAccount.findFirst).toHaveBeenCalledTimes(1)
   })
 
-  for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
+  for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
     it(`${persona.role} → 403`, async () => {
       const res = await app.inject({
         method: 'POST',

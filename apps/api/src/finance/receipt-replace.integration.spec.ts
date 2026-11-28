@@ -27,7 +27,7 @@
  *   - ADMIN:      yaremenkomaksym99@gmail.com  (a8f4d3b1-...)
  *   - SENIOR:     artem.kravchenko             (d8f9e0b1-...)
  *   - SENIOR2:    dmytro.marchenko             (d2f3e4b5-...)
- *   - ACCOUNTANT: mykola.savchenko             (c7e8d9a0-...)
+ *   - ADMIN: mykola.savchenko             (c7e8d9a0-...)
  *
  * SETUP: inserts test documents + transactions in beforeAll, cleans up in afterAll.
  *
@@ -86,16 +86,6 @@ const DMYTRO: SessionUser = {
   role: 'SENIOR',
   seniorSharePercent: 26,
   legalFullName: 'Марченко Дмитро Олексійович',
-}
-
-const ACCOUNTANT: SessionUser = {
-  id: 'c7e8d9a0-b1c2-4d3e-8f5a-6b7c8d9e0fbb',
-  email: 'mykola.savchenko@cheekycheese.dev',
-  displayName: 'Mykola Savchenko',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 26,
-  legalFullName: null,
 }
 
 // ---------------------------------------------------------------------------
@@ -487,14 +477,14 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('AC3 — validate still works after resubmit (confirmation unchanged)', async () => {
-      // tx is now PENDING (from AC1). ACCOUNTANT validates it.
-      await transactionsService.validateTransaction(TX_ID, 'validate', null, ACCOUNTANT)
+      // tx is now PENDING (from AC1). ADMIN validates it.
+      await transactionsService.validateTransaction(TX_ID, 'validate', null, ADMIN)
 
       const txRow = await db.query.transactions.findFirst({
         where: eq(transactions.id, TX_ID),
       })
       expect(txRow?.status).toBe('VALIDATED')
-      expect(txRow?.validatedBy).toBe(ACCOUNTANT.id)
+      expect(txRow?.validatedBy).toBe(ADMIN.id)
       expect(txRow?.validatedAt).toBeDefined()
     })
 

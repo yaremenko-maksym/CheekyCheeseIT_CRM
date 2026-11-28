@@ -49,13 +49,7 @@ export class TeamsService {
     return fetchAllProjectsRead(this.db.db)
   }
 
-  async create(
-    name: string,
-    seniorId: string,
-    hrIds: string[],
-    accountantId: string | null,
-    currentUser: SessionUser,
-  ) {
+  async create(name: string, seniorId: string, hrIds: string[], currentUser: SessionUser) {
     // HIGH-2 (security-review #328): POST /api/teams is ADMIN-only.
     // HR creates senior+team via POST /api/users (HrCreateSeniorDialog) — that is
     // the established HR workflow and is NOT this endpoint. Restricting to ADMIN
@@ -71,9 +65,6 @@ export class TeamsService {
     await this.assertUserRole(seniorId, 'SENIOR')
     for (const hrId of hrIds) {
       await this.assertUserRole(hrId, 'HR')
-    }
-    if (accountantId !== null) {
-      await this.assertUserRole(accountantId, 'ACCOUNTANT')
     }
 
     // Dual-active-senior guard: a SENIOR may only belong to ONE active team at
@@ -93,7 +84,7 @@ export class TeamsService {
       const [inserted] = await tx.insert(teams).values({ name }).returning()
       if (!inserted) throw new Error('Failed to create team')
 
-      const memberIds = [seniorId, ...hrIds, ...(accountantId ? [accountantId] : [])]
+      const memberIds = [seniorId, ...hrIds]
       for (const userId of memberIds) {
         await tx.insert(teamMembers).values({ teamId: inserted.id, userId })
       }
@@ -131,7 +122,7 @@ export class TeamsService {
     } else if (currentUser.role === 'DROP') {
       // Drop role - phase 1 (task-drop-1-backend AC1). EXPLICIT branch: a DROP
       // sees ONLY teams where they are a current static member (their own
-      // drop-team — created by `createDropTeam` with drop + HR + ACCOUNTANT).
+      // drop-team — created by `createDropTeam` with drop + HR).
       // The JUNIOR project-derivation below MUST NOT apply to DROP (a drop is
       // never derived into another senior's team via a project), so this
       // branch is kept separate and deliberately narrow. Contract pinned by
@@ -142,7 +133,7 @@ export class TeamsService {
       filtered = allTeams.filter((t) =>
         t.members.some((m) => m.userId === currentUser.id && m.leftAt === null),
       )
-    } else if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    } else if (currentUser.role !== 'ADMIN') {
       // SENIOR/JUNIOR: show teams where they are a static member
       // For JUNIORs derived from projects, also include teams where their senior is
       // HIGH-1: `leftAt === null` — a soft-deleted (removed) static membership
@@ -201,14 +192,8 @@ export class TeamsService {
       seniorSharePercentOverride?: number | null | undefined
     },
   ) {
-    // ACCOUNTANT is allowed to set the override but not REQUIRED to be a team
-    // member (they have cross-team financial authority). For all other general
-    // mutations we still require ADMIN or HR.
-    if (
-      currentUser.role !== 'ADMIN' &&
-      currentUser.role !== 'HR' &&
-      currentUser.role !== 'ACCOUNTANT'
-    ) {
+    // General mutations require ADMIN or HR.
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') {
       throw new ForbiddenException()
     }
 
@@ -219,7 +204,6 @@ export class TeamsService {
     if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // HR scope check: HR may only update teams they are a member of.
-    // ACCOUNTANT is exempt from this check — their authority is cross-team.
     if (currentUser.role === 'HR' && !isHrOfTeam(team, currentUser.id)) {
       throw new ForbiddenException()
     }
@@ -246,7 +230,7 @@ export class TeamsService {
     // direct financial impact. Mirrors the project-level override guard in
     // ProjectsService (~:610-618). HR may update name/notes/telegram but
     // CANNOT change the financial override.
-    if (overrideChanged && currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    if (overrideChanged && currentUser.role !== 'ADMIN') {
       throw apiError('TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
@@ -337,7 +321,7 @@ export class TeamsService {
 
   private async assertUserRole(
     userId: string,
-    expectedRole: 'DROP' | 'SENIOR' | 'HR' | 'ACCOUNTANT',
+    expectedRole: 'DROP' | 'SENIOR' | 'HR',
     tx?: DrizzleTx,
     genericMessage = false,
   ): Promise<void> {
@@ -352,8 +336,6 @@ export class TeamsService {
    * Validations:
    *  - `dropId.role === 'DROP'`
    *  - `hrIds.length >= 1` and every hrId has `role === 'HR'`
-   *  - `accountantId` is OPTIONAL (nullable); when supplied it must have
-   *    `role === 'ACCOUNTANT'`. A drop-team without an accountant is valid.
    *
    * Telegram channel is stored on `teams.telegram_channel` (column already
    * exists from 0007). No standalone `telegram` field on the drop-team —
@@ -362,7 +344,6 @@ export class TeamsService {
   async createDropTeam(
     dropId: string,
     hrIds: string[],
-    accountantId: string | null,
     telegramChannel: string | null,
     tx?: DrizzleTx,
   ): Promise<typeof teams.$inferSelect> {
@@ -372,11 +353,6 @@ export class TeamsService {
     const handle = tx ?? this.db.db
     await this.assertUserRole(dropId, 'DROP', tx)
     for (const hrId of hrIds) await this.assertUserRole(hrId, 'HR', tx)
-    // Accountant is OPTIONAL for a drop-team (mirrors the senior `create`
-    // path). Only validate the role when one was actually supplied.
-    if (accountantId !== null) {
-      await this.assertUserRole(accountantId, 'ACCOUNTANT', tx)
-    }
 
     const dropUser = await handle
       .select()
@@ -396,7 +372,7 @@ export class TeamsService {
     const team = inserted[0]
     if (!team) throw new Error('Failed to create drop team')
 
-    const memberIds = [dropId, ...hrIds, ...(accountantId ? [accountantId] : [])]
+    const memberIds = [dropId, ...hrIds]
     for (const userId of memberIds) {
       await handle.insert(teamMembers).values({ teamId: team.id, userId })
     }
@@ -416,7 +392,7 @@ export class TeamsService {
    *    Pre-existing rotation mechanic, unrelated to AC9 — a senior is never a
    *    project_member/team_member the salary cron reads for THIS person's own
    *    pay (their income comes via `projects.seniorId`, not team membership).
-   *  - HR + ACCOUNTANT in this team, and JUNIOR on the drop-projects, are
+   *  - HR in this team, and JUNIOR on the drop-projects, are
    *    LEFT ALONE (owner decision 2026-08-19, AC9): archiving the drop's
    *    team/projects is not archiving them — their own `archivedAt` is what
    *    the salary cron reads, and the cascade never touches it. An earlier
@@ -521,7 +497,7 @@ export class TeamsService {
       }
     }
 
-    // AC9: HR/ACCOUNTANT team_members are NOT detached any more — see the
+    // AC9: HR team_members are NOT detached any more — see the
     // docblock above. (SENIOR was already detached above — pre-existing,
     // unrelated rotation mechanic.)
 

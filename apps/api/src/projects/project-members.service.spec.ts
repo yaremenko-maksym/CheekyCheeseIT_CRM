@@ -46,7 +46,7 @@ function make(opts: { project?: unknown; target?: unknown; activeMember?: unknow
 const project = { id: 'p1', seniorId: 'sen-1', companyName: 'Acme', members: [] }
 
 describe('ProjectMembersService authorization gate', () => {
-  it.each(['SENIOR', 'JUNIOR', 'ACCOUNTANT'] as const)(
+  it.each(['SENIOR', 'JUNIOR'] as const)(
     'rejects %s before any db read (add + remove)',
     async (role) => {
       const h = make({ project })

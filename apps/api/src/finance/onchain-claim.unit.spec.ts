@@ -47,7 +47,6 @@ const ADMIN: SessionUser = {
   avatarUrl: null,
   seniorSharePercent: 0,
 }
-const ACCOUNTANT: SessionUser = { ...ADMIN, id: 'acc-actor', role: 'ACCOUNTANT' }
 const SENIOR: SessionUser = { ...ADMIN, id: 'senior-actor', role: 'SENIOR' }
 const JUNIOR: SessionUser = { ...ADMIN, id: 'junior-actor', role: 'JUNIOR' }
 const HR: SessionUser = { ...ADMIN, id: 'hr-actor', role: 'HR' }
@@ -160,7 +159,6 @@ describe('releaseOnChainHash', () => {
     ['SENIOR', SENIOR],
     ['JUNIOR', JUNIOR],
     ['HR', HR],
-    ['ACCOUNTANT', ACCOUNTANT],
     ['DROP', DROP],
   ])('%s is forbidden before any db work', async (_n, user) => {
     const h = makeHarness()
@@ -355,10 +353,7 @@ describe('inspectOnChainHash', () => {
     expect(h.consumedFindMany).not.toHaveBeenCalled()
   })
 
-  it.each([
-    ['ADMIN', ADMIN],
-    ['ACCOUNTANT', ACCOUNTANT],
-  ])(
+  it.each([['ADMIN', ADMIN]])(
     '%s may inspect; unknown hash → { txHash (normalized), claimed:false } and nothing else',
     async (_n, user) => {
       const h = makeHarness({ consumedFindMany: [] })
@@ -425,7 +420,7 @@ describe('inspectOnChainHash', () => {
         },
       ],
     })
-    const res = await h.svc.inspectOnChainHash(H1, ACCOUNTANT)
+    const res = await h.svc.inspectOnChainHash(H1, ADMIN)
     expect(res).toEqual({
       txHash: H1,
       claimed: false,

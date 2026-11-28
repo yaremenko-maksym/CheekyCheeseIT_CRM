@@ -77,7 +77,7 @@ export class PayoutSettlementService {
   // can never re-credit it (no balance double-count). Design intent:
   //   payPayoutRequest    — the on-chain HAPPY PATH (SENIOR/DROP self-service,
   //                         Etherscan-verified recipient/amount/confirmations).
-  //   manualConfirmPayout — the ADMIN/ACCOUNTANT ESCAPE HATCH for settlements
+  //   manualConfirmPayout — the ADMIN ESCAPE HATCH for settlements
   //                         that happened off the on-chain path.
   // RBAC intent (code-review MED): SENIOR initiates AND pays SENIOR-project
   // payouts (they own the payout flow). DROP is additionally allowed here for
@@ -253,7 +253,7 @@ export class PayoutSettlementService {
 
   // ── Manual payout confirmation (Phase 8 v2) ──────────────────────────────
   //
-  // ADMIN/ACCOUNTANT escape hatch for payouts settled OFF the on-chain happy
+  // ADMIN escape hatch for payouts settled OFF the on-chain happy
   // path. `method` decides whether the company balance moves:
   //   COMPANY_ACCOUNT → credited (fundingSource marker, same as on-chain).
   //   ADMIN_USDT / CASH → NOT credited (money landed off the company account);
@@ -273,14 +273,14 @@ export class PayoutSettlementService {
       note?: string | null
       txHash?: string | null
       txDate?: string | null
-      // SR-809-H-1 / D-2: travels with txDate. ADMIN/ACCOUNTANT may exceed the
+      // SR-809-H-1 / D-2: travels with txDate. ADMIN may exceed the
       // backdating window with a stated reason, recorded in the audit metadata.
       backdateReason?: string | null
     } = {},
   ) {
-    // RBAC: ADMIN/ACCOUNTANT only (NOT SENIOR/DROP). Real 403 enforced here AND
+    // RBAC: ADMIN only (NOT SENIOR/DROP). Real 403 enforced here AND
     // by the controller RolesGuard (defense-in-depth).
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    if (currentUser.role !== 'ADMIN') {
       throw new ForbiddenException()
     }
 
@@ -330,7 +330,7 @@ export class PayoutSettlementService {
     // ── SECURITY (H1 + LOW #6): txHash-reuse guard, now TWO layers.
     // When the manual confirmation CREDITS the company account (COMPANY_ACCOUNT)
     // and references a REAL on-chain hash, that hash must not already belong to
-    // another PAID payout — otherwise an ADMIN/ACCOUNTANT could credit the company
+    // another PAID payout — otherwise an ADMIN could credit the company
     // balance TWICE for a single on-chain transfer (no DB unique index on
     // payout_requests.txHash backstops this).
     //   Layer 1 (here, pre-transaction): a fast-fail UX gate so the user gets the
@@ -471,7 +471,7 @@ export class PayoutSettlementService {
         // there is nothing to bound — and #809's unconditional throw made every
         // payout request without a PAYOUT row (legacy data, a half-failed create)
         // permanently unpayable, including through `manualConfirmPayout`, which
-        // IS the ADMIN/ACCOUNTANT recovery path. `isNull(deletedAt)` stops a
+        // IS the ADMIN recovery path. `isNull(deletedAt)` stops a
         // soft-deleted row from governing the bound of a live payment.
         let payoutSourceTxDate: Date | null = null
         if (txDate) {
@@ -539,7 +539,7 @@ export class PayoutSettlementService {
                   : null,
                 txDateAfter: formatTransactionBusinessDate(dateDecision.txDate),
                 // SR-809-L-3 / D-2: present only when the policy actually
-                // consumed a reason — i.e. an ADMIN/ACCOUNTANT dated this
+                // consumed a reason — i.e. an ADMIN dated this
                 // payment beyond the backdating window.
                 ...(dateDecision.backdateReason
                   ? { backdateReason: dateDecision.backdateReason }

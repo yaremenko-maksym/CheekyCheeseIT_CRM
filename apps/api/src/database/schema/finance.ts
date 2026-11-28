@@ -51,7 +51,7 @@ export const payoutRequests = pgTable(
     // OBSERVED, NOT ENFORCED: staff often withdraw from an exchange, so this is
     // frequently the exchange's hot wallet rather than their own address —
     // gating on it would reject honest payments (owner decision). Recorded so
-    // ADMIN/ACCOUNTANT can see who actually paid; NULL for pending payouts,
+    // ADMIN can see who actually paid; NULL for pending payouts,
     // off-chain manual confirmations and dev-simulate settlements.
     txFromAddress: varchar('tx_from_address', { length: 42 }),
     status: payoutRequestStatusEnum().notNull().default('PENDING'),
@@ -138,7 +138,7 @@ export const salaryMonthInitializations = pgTable(
 // discouraged from", CANNOT: the raw symbol is not an available import.
 //
 // What this view does NOT cover (by design, not oversight):
-//   - Single-row-by-id reads where ADMIN/ACCOUNTANT must still see a deleted
+//   - Single-row-by-id reads where ADMIN must still see a deleted
 //     row (findOne, getInvoice, signInvoice, getDepositStatus, the audit-log
 //     read) — these need role-conditional visibility a static view cannot
 //     express. These stay on the raw `transactions` table INSIDE `finance/`

@@ -446,7 +446,7 @@ describe('UsersService.changeSalary — seniorSharePercent routing', () => {
     expect(h.proposeSeniorShareChangeInTx).not.toHaveBeenCalled()
   })
 
-  it.each(['JUNIOR', 'DROP', 'HR', 'ACCOUNTANT', 'ADMIN'])(
+  it.each(['JUNIOR', 'DROP', 'HR', 'ADMIN'])(
     'SR-L-5: %s target + share is IGNORED (no 400 without actor, no tx, no propose, not in SET)',
     async (role) => {
       const h = makeHarness({ existing: makeUser({ role }) })

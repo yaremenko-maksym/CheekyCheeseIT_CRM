@@ -38,9 +38,9 @@ import { resolveTransactionDate } from './transaction-date.util'
  * CompanyAccountController behind the REAL JwtAuthGuard + RolesGuard chain
  * against REAL PostgreSQL, and asserts unauthorized callers receive 403:
  *
- *   GET  /company-account              — ADMIN/ACCOUNTANT 200; SENIOR/JUNIOR/HR/DROP 403
+ *   GET  /company-account              — ADMIN 200; SENIOR/JUNIOR/HR/DROP 403
  *   PATCH /company-account/wallet       — ADMIN 200; everyone else 403
- *   POST /company-account/deposits      — SENIOR/DROP 200; ADMIN/ACCOUNTANT/JUNIOR/HR 403
+ *   POST /company-account/deposits      — SENIOR/DROP 200; ADMIN/JUNIOR/HR 403
  *   POST /company-account/dividends     — ADMIN 200; everyone else 403
  *
  * EtherscanService is keyless in test → deposit verification auto-confirms the
@@ -64,13 +64,6 @@ const ADMIN: SessionUser = {
   role: 'ADMIN',
   seniorSharePercent: 0,
   legalFullName: null,
-}
-const ACCOUNTANT: SessionUser = {
-  ...ADMIN,
-  id: 'ca111111-0000-4000-aa00-000000000002',
-  email: 'ca-acct@test.spec',
-  displayName: 'CA Acct',
-  role: 'ACCOUNTANT',
 }
 const SENIOR: SessionUser = {
   ...ADMIN,
@@ -102,7 +95,7 @@ const DROP: SessionUser = {
   role: 'DROP',
 }
 
-const ALL = [ADMIN, ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]
+const ALL = [ADMIN, SENIOR, JUNIOR, HR, DROP]
 const TEST_USER_IDS = ALL.map((u) => u.id)
 const ACCOUNT_ID = 'ca111111-0000-4000-cc00-000000000001'
 
@@ -284,13 +277,11 @@ describe.skipIf(!hasDatabaseUrl())(
       return res.statusCode
     }
 
-    // ── GET /company-account — ADMIN/ACCOUNTANT 200, others 403 ─────────────────
+    // ── GET /company-account — ADMIN 200, others 403 ─────────────────
     it('GET /company-account — ADMIN → 200', async () => {
       expect(await status('GET', '/api/company-account', ADMIN)).toBe(200)
     })
-    it('GET /company-account — ACCOUNTANT → 200', async () => {
-      expect(await status('GET', '/api/company-account', ACCOUNTANT)).toBe(200)
-    })
+
     for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
       it(`GET /company-account — ${persona.role} → 403`, async () => {
         expect(await status('GET', '/api/company-account', persona)).toBe(403)
@@ -303,7 +294,7 @@ describe.skipIf(!hasDatabaseUrl())(
         await status('PATCH', '/api/company-account/wallet', ADMIN, { walletAddress: WALLET }),
       ).toBe(200)
     })
-    for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
+    for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
       it(`PATCH wallet — ${persona.role} → 403`, async () => {
         expect(
           await status('PATCH', '/api/company-account/wallet', persona, { walletAddress: WALLET }),
@@ -319,7 +310,7 @@ describe.skipIf(!hasDatabaseUrl())(
         }),
       ).toBe(200)
     })
-    for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
+    for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
       it(`PATCH requisites — ${persona.role} → 403`, async () => {
         expect(
           await status('PATCH', '/api/company-account/requisites', persona, {
@@ -362,7 +353,7 @@ describe.skipIf(!hasDatabaseUrl())(
       })
       expect([200, 201]).toContain(code)
     })
-    for (const persona of [ADMIN, ACCOUNTANT, JUNIOR, HR]) {
+    for (const persona of [ADMIN, JUNIOR, HR]) {
       it(`POST deposits — ${persona.role} → 403`, async () => {
         expect(
           await status('POST', '/api/company-account/deposits', persona, {
@@ -390,7 +381,7 @@ describe.skipIf(!hasDatabaseUrl())(
       })
       expect([200, 201]).toContain(code)
     })
-    for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
+    for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
       it(`POST dividends — ${persona.role} → 403`, async () => {
         expect(
           await status('POST', '/api/company-account/dividends', persona, {
@@ -402,7 +393,7 @@ describe.skipIf(!hasDatabaseUrl())(
     }
 
     // ── GET deposits/:id/status — owner-isolation (M1) ──────────────────────────
-    // The @Roles guard admits SENIOR/DROP/ADMIN/ACCOUNTANT; the SERVICE then
+    // The @Roles guard admits SENIOR/DROP/ADMIN; the SERVICE then
     // enforces owner-vs-privileged. A SENIOR/DROP who is NOT the depositor must
     // get 403 even though their ROLE is admitted — this is the data-access check
     // a role-only test would miss. Real controller + real service, real DB.
@@ -436,9 +427,6 @@ describe.skipIf(!hasDatabaseUrl())(
       })
       it('privileged (ADMIN) → 200', async () => {
         expect(await status('GET', url, ADMIN)).toBe(200)
-      })
-      it('privileged (ACCOUNTANT) → 200', async () => {
-        expect(await status('GET', url, ACCOUNTANT)).toBe(200)
       })
     })
   },

@@ -40,7 +40,6 @@ const ROLE_LABELS: Record<string, string> = {
   SENIOR: 'Senior',
   JUNIOR: 'Junior',
   DROP: 'Drop',
-  ACCOUNTANT: 'Accountant',
   ADMIN: 'Admin',
 }
 

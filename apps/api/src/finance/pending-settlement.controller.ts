@@ -6,7 +6,7 @@
  *   GET  /api/pending-settlements/senior            — list pending senior
  *                                                     IOUs visible to the caller.
  *   GET  /api/pending-settlements/company           — pending COMPANY debts
- *                                                     (ADMIN / ACCOUNTANT only).
+ *                                                     (ADMIN only).
  *   POST /api/pending-settlements/by-source-transaction/:sourceTransactionId/settle-company
  *                                                   — close a COMPANY debt by
  *                                                     its source (SENIOR_PENDING_PAYOUT)
@@ -18,13 +18,13 @@
  * Removed in this refactor: `GET /api/pending-settlements/drop` and
  * `POST /api/pending-settlements/:id/settle-drop`. The DROP role no longer
  * holds debts to seniors — the senior share is owed by the company itself
- * and closed by ADMIN/ACCOUNTANT only.
+ * and closed by ADMIN only.
  *
  * task-receipts-backend (review round 1, MED-1): the legacy 2-segment
  * `POST /api/pending-settlements/:id/settle-company` (obligation-id) route was
  * REMOVED. It ignored its request body entirely (`@Body() _body: unknown`),
  * so it settled a COMPANY debt with NO funding selection and NO mandatory
- * receipt — a privileged (ADMIN/ACCOUNTANT-only) bypass of the mandatory-
+ * receipt — a privileged (ADMIN-only) bypass of the mandatory-
  * receipt invariant this feature introduces everywhere else. Verified dead
  * from the product surface: `apps/web` has ZERO callers of this route (only
  * the 3-segment by-source-transaction variant below is wired to the finance
@@ -65,17 +65,17 @@ export class PendingSettlementController {
   // / PayoutRequestsController.
   constructor(@Inject(PendingSettlementService) private readonly svc: PendingSettlementService) {}
 
-  // Senior IOU list: SENIOR (own) + ADMIN/ACCOUNTANT (all). Matches
+  // Senior IOU list: SENIOR (own) + ADMIN (all). Matches
   // PendingSettlementService.listSeniorObligations.
   @Get('senior')
-  @Roles('ADMIN', 'ACCOUNTANT', 'SENIOR')
+  @Roles('ADMIN', 'SENIOR')
   listSenior(@CurrentUser() user: SessionUser) {
     return this.svc.listSeniorObligations(user)
   }
 
-  // Company-debt list: ADMIN/ACCOUNTANT only. Matches listCompanyObligations.
+  // Company-debt list: ADMIN only. Matches listCompanyObligations.
   @Get('company')
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   listCompany(@CurrentUser() user: SessionUser) {
     return this.svc.listCompanyObligations(user)
   }
@@ -85,7 +85,7 @@ export class PendingSettlementController {
   // SENIOR_PENDING_PAYOUT transaction id (not the obligation id). 3-segment path
   // → no overlap with the 2-segment `:id/settle-company` route above.
   //
-  // The body now mirrors the SALARY pay flow: the ADMIN/ACCOUNTANT selects the
+  // The body now mirrors the SALARY pay flow: the ADMIN selects the
   // funding source (shared company account vs an admin partner's personal
   // account), the paying admin (for ADMIN_PERSONAL) and the currency. RBAC is
   // enforced HERE (RolesGuard — @Roles is inert without it since RolesGuard is
@@ -95,7 +95,7 @@ export class PendingSettlementController {
   // @UseGuards(RolesGuard) is redundant and was removed (the class guard already
   // enforces this @Roles). Audit 2026-06-27.
   @Post('by-source-transaction/:sourceTransactionId/settle-company')
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   settleCompanyBySourceTransaction(
     @Param('sourceTransactionId') sourceTransactionId: string,
     @Body() body: unknown,

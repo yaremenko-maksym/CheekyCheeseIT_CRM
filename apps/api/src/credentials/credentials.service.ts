@@ -34,7 +34,7 @@ type ProjectRow = {
  *   ADMIN                                  → all projects
  *   JUNIOR active project_member of :id    → yes
  *   HR sharing active team with senior     → yes (HrAccessService)
- *   SENIOR / DROP / ACCOUNTANT             → 403 always
+ *   SENIOR / DROP             → 403 always
  *   anyone not matching                    → 403
  * view == create == edit == delete == reveal (single assertAccess gate).
  */
@@ -77,7 +77,7 @@ export class CredentialsService {
     // answer to "does this project exist for you" than the project's own
     // page did. ADMIN is exempt, mirroring that method's own ADMIN
     // exemption. No third role to reconcile: `canAccess` below never
-    // returns true for SENIOR/DROP/ACCOUNTANT (task allowlist is
+    // returns true for SENIOR/DROP (task allowlist is
     // junior+hr+admin only — see that method's own comment), so gating
     // ahead of it only changes JUNIOR/HR from 403 to 404 on a non-ACTIVE
     // project, the SAME existence-oracle shape `assertAccess` uses
@@ -93,7 +93,7 @@ export class CredentialsService {
   }
 
   /**
-   * Pure RBAC predicate. ACCOUNTANT / SENIOR / DROP and unrelated users → false.
+   * Pure RBAC predicate. SENIOR / DROP and unrelated users → false.
    * (SENIOR/DROP are NOT excluded "as subject" here the way legends does — the
    * task allowlist is junior+hr+admin only, so any SENIOR/DROP gets 403.)
    */
@@ -104,7 +104,7 @@ export class CredentialsService {
 
     if (viewer.role === 'HR') return this.hrAccess.hrCoversProject(viewer.id, project)
 
-    // SENIOR, DROP, ACCOUNTANT, and anything else.
+    // SENIOR, DROP, and anything else.
     return false
   }
 
@@ -317,7 +317,7 @@ export class CredentialsService {
   //            where the target JUNIOR is an active member)
   //   target = a JUNIOR user
   // The JUNIOR themselves does NOT use this surface (they have the hub). SENIOR /
-  // ACCOUNTANT / DROP and unrelated HR → 403. Plaintext is never returned in the
+  // DROP, unrelated HR and any other role → 403. Plaintext is never returned in the
   // list — only the reveal endpoint, gated by the same check.
 
   /**
@@ -330,7 +330,7 @@ export class CredentialsService {
     targetUserId: string,
   ): Promise<string[]> {
     // Role fast-path FIRST — roles that NEVER have access (SENIOR, DROP,
-    // ACCOUNTANT, JUNIOR incl. self, and anything else) get 403 BEFORE any DB
+    // JUNIOR incl. self, and anything else) get 403 BEFORE any DB
     // read. This avoids leaking membership-shaped timing and keeps the cheap
     // authorization decision ahead of the SELECT.
     if (viewer.role !== 'ADMIN' && viewer.role !== 'HR') {

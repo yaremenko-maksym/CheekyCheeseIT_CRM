@@ -29,14 +29,14 @@ import { resolveTransactionDate } from './transaction-date.util'
  *
  * WHY (feedback_mocked_e2e_guards, recurred 3×; lessons #227/#251): the existing
  * service-call tests (`svc.manualConfirmPayout(...) → ForbiddenException`) prove
- * the SERVICE-side role check but NOT that the @Roles('ADMIN','ACCOUNTANT') +
+ * the SERVICE-side role check but NOT that the @Roles('ADMIN') +
  * @UseGuards(RolesGuard) metadata is actually wired on the HTTP route. This spec
  * stands up the REAL PayoutRequestsController behind the REAL JwtAuthGuard +
  * RolesGuard chain against REAL PostgreSQL and asserts the HTTP statusCode:
  *
  *   POST /payout-requests/:id/manual-confirm
  *     SENIOR  → 403   DROP → 403   JUNIOR/HR → 403
- *     ADMIN   → 200/201   ACCOUNTANT → 200/201
+ *     ADMIN   → 200/201
  *
  * Dropping @Roles/@UseGuards from the real controller turns THIS spec red — the
  * guarantee is real (the controller carries @Inject(TransactionsService) so Nest
@@ -59,13 +59,6 @@ const ADMIN: SessionUser = {
   role: 'ADMIN',
   seniorSharePercent: 0,
   legalFullName: null,
-}
-const ACCOUNTANT: SessionUser = {
-  ...ADMIN,
-  id: 'ca220000-0000-4000-aa00-000000000002',
-  email: 'pmc-acct@test.spec',
-  displayName: 'PMC Acct',
-  role: 'ACCOUNTANT',
 }
 const SENIOR: SessionUser = {
   ...ADMIN,
@@ -97,7 +90,7 @@ const DROP: SessionUser = {
   role: 'DROP',
 }
 
-const ALL = [ADMIN, ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]
+const ALL = [ADMIN, SENIOR, JUNIOR, HR, DROP]
 const TEST_USER_IDS = ALL.map((u) => u.id)
 const ACCOUNT_ID = 'ca220000-0000-4000-cc00-000000000001'
 
@@ -123,7 +116,6 @@ const stubInvoices = {
   autoCreateForSeniorPayout: () => Promise.resolve(),
   autoCreateForSalary: () => Promise.resolve(),
 } as never
-const stubDocuments = {} as never
 
 // ── TestDatabaseModule (real Pool) ──────────────────────────────────────────
 let _testPool: Pool | null = null
@@ -339,22 +331,10 @@ describe.skipIf(!hasDatabaseUrl())(
       })
     }
 
-    // ── 2xx: ADMIN / ACCOUNTANT reach the handler ───────────────────────────────
+    // ── 2xx: ADMIN reach the handler ───────────────────────────────
     it('POST manual-confirm — ADMIN → 2xx (reaches handler, payout PAID)', async () => {
       const payoutId = await seedPendingPayout()
       const code = await manualConfirm(ADMIN, payoutId)
-      expect(code).toBeGreaterThanOrEqual(200)
-      expect(code).toBeLessThan(300)
-
-      const pr = await dbSvc.db.query.payoutRequests.findFirst({
-        where: eq(payoutRequests.id, payoutId),
-      })
-      expect(pr?.status).toBe('PAID')
-    })
-
-    it('POST manual-confirm — ACCOUNTANT → 2xx (reaches handler, payout PAID)', async () => {
-      const payoutId = await seedPendingPayout()
-      const code = await manualConfirm(ACCOUNTANT, payoutId)
       expect(code).toBeGreaterThanOrEqual(200)
       expect(code).toBeLessThan(300)
 

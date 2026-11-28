@@ -46,8 +46,8 @@ export class LegendsService {
    *   HR with no shared team         → false
    *   JUNIOR active project_member of this project → true
    *   JUNIOR not a member            → false
-   *   ACCOUNTANT                     → false
    *   any other SENIOR/DROP          → false
+   *   any other role                 → false
    *
    * view-access == edit-access.
    */

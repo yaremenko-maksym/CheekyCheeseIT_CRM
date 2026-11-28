@@ -44,12 +44,6 @@ const base: SessionUser = {
 }
 
 const ADMIN = base
-const ACCOUNTANT: SessionUser = {
-  ...base,
-  id: 'a0111111-0000-4000-a000-000000000002',
-  email: 'tos-acct@test.spec',
-  role: 'ACCOUNTANT',
-}
 const SENIOR: SessionUser = {
   ...base,
   id: 'a0111111-0000-4000-a000-000000000003',
@@ -170,7 +164,7 @@ describe('POST /tos/preview-pdf — ADMIN-only PDF preview (real controller + re
 
   // ── AC2: RBAC — non-ADMIN roles → 403 ────────────────────────────────────
 
-  for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
+  for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
     it(`AC2: ${persona.role} → 403`, async () => {
       const res = await app.inject({
         method: 'POST',

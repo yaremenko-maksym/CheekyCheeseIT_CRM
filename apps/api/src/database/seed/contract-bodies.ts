@@ -1,6 +1,5 @@
 import { JUNIOR_CONTRACT } from '../seed-templates/contract-junior'
 import { HR_CONTRACT } from '../seed-templates/contract-hr'
-import { ACCOUNTANT_CONTRACT } from '../seed-templates/contract-accountant'
 
 // ---------------------------------------------------------------------------
 // Contract template bodies (placeholders matching OnboardingService)
@@ -38,8 +37,6 @@ export const CONTRACT_BODY: Record<string, string> = {
   JUNIOR: JUNIOR_CONTRACT.bodyMarkdown,
 
   HR: HR_CONTRACT.bodyMarkdown,
-
-  ACCOUNTANT: ACCOUNTANT_CONTRACT.bodyMarkdown,
 
   DROP: `# Договір з Cheeky Cheese IT — Дроп партнер
 

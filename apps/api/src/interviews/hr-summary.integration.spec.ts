@@ -103,15 +103,6 @@ const JUNIOR: SessionUser = {
   seniorSharePercent: 0,
   legalFullName: null,
 }
-const ACCOUNTANT: SessionUser = {
-  id: 'b0000000-0000-4000-aa00-000000000006',
-  email: 'hr-sum-accountant@test.spec',
-  displayName: 'HR Sum Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
 const DROP: SessionUser = {
   id: 'b0000000-0000-4000-aa00-000000000007',
   email: 'hr-sum-drop@test.spec',
@@ -141,7 +132,7 @@ const TEST_USER_IDS = [
   SENIOR_IN_TEAM.id,
   SENIOR_OUT_TEAM.id,
   JUNIOR.id,
-  ACCOUNTANT.id,
+  ADMIN.id,
   DROP.id,
 ]
 const TEST_IV_IDS = [
@@ -302,15 +293,13 @@ describe.skipIf(!hasDatabaseUrl())(
       await db
         .insert(users)
         .values(
-          [ADMIN, HR, HR_NO_TEAM, SENIOR_IN_TEAM, SENIOR_OUT_TEAM, JUNIOR, ACCOUNTANT, DROP].map(
-            (u) => ({
-              id: u.id,
-              email: u.email,
-              displayName: u.displayName,
-              role: u.role,
-              googleId: `test-google-${u.id}`,
-            }),
-          ),
+          [ADMIN, HR, HR_NO_TEAM, SENIOR_IN_TEAM, SENIOR_OUT_TEAM, JUNIOR, DROP].map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            googleId: `test-google-${u.id}`,
+          })),
         )
         .onConflictDoNothing()
 
@@ -501,7 +490,6 @@ describe.skipIf(!hasDatabaseUrl())(
     const forbidden: Array<[string, SessionUser]> = [
       ['SENIOR', SENIOR_IN_TEAM],
       ['JUNIOR', JUNIOR],
-      ['ACCOUNTANT', ACCOUNTANT],
       ['DROP', DROP],
     ]
     for (const [label, persona] of forbidden) {

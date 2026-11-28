@@ -58,7 +58,6 @@ const maximalSeniorPayload = {
   monthlySalary: 499999,
   salaryCurrency: 'USD' as const,
   hrIds: [HR_ACTOR_ID],
-  accountantId: null,
   paymentMethod: 'USDT_ERC20' as const,
   walletUsdtErc20: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
   walletUsdtLabel: 'HR-controlled wallet',
@@ -155,7 +154,6 @@ describe('UsersController.createUser — HR dialog payload (no requisites)', () 
     techStack: ['TypeScript'],
     seniorSharePercent: 26,
     hrIds: [HR_ACTOR_ID],
-    accountantId: null,
   }
 
   it('HR actor: a requisite-less SENIOR payload is accepted and forwarded with requisites nulled', async () => {
@@ -179,7 +177,6 @@ describe('UsersController.createUser — HR dialog payload (no requisites)', () 
       seniorSharePercent: 26,
       monthlySalary: null,
       hrIds: [HR_ACTOR_ID],
-      accountantId: null,
       projectId: null,
       walletUsdtErc20: null,
       walletUsdtLabel: null,
@@ -192,7 +189,7 @@ describe('UsersController.createUser — HR dialog payload (no requisites)', () 
     })
   })
 
-  it('HR actor: optional fields omitted → defaults (hrIds [], accountantId null), no share key', async () => {
+  it('HR actor: optional fields omitted → defaults (hrIds []), no share key, no accountantId key', async () => {
     const createUser = vi.fn().mockResolvedValue({ id: 'created-uuid' })
     const controller = makeController({ createUser })
 
@@ -204,7 +201,7 @@ describe('UsersController.createUser — HR dialog payload (no requisites)', () 
 
     const args = createUser.mock.calls[0]![0] as Record<string, unknown>
     expect(args['hrIds']).toEqual([])
-    expect(args['accountantId']).toBeNull()
+    expect(args).not.toHaveProperty('accountantId')
     expect(args['telegram']).toBeNull()
     expect(args['techStack']).toBeNull()
     expect(args).not.toHaveProperty('seniorSharePercent')
@@ -232,7 +229,7 @@ describe('UsersController.createUser — HR dialog payload (no requisites)', () 
     )
   })
 
-  it.each(['JUNIOR', 'HR', 'ACCOUNTANT', 'ADMIN', 'DROP'])(
+  it.each(['JUNIOR', 'HR', 'ADMIN', 'DROP'])(
     'HR actor: role %s → 403 HR_SENIOR_ONLY_CREATION, service never called',
     async (role) => {
       const createUser = vi.fn()
@@ -296,7 +293,6 @@ describe('UsersController.createUser — HR dialog payload (no requisites)', () 
 // so every field's pass-through / null-default is asserted by full equality here.
 describe('UsersController.createUser — ADMIN forwarding is exact', () => {
   const DROP_TEAM_ID = 'c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3'
-  const ACCOUNTANT_ID = 'd4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4'
   const PROJECT_ID = 'e5e5e5e5-e5e5-4e5e-8e5e-e5e5e5e5e5e5'
 
   it('a maximal payload is forwarded field-for-field', async () => {
@@ -307,7 +303,8 @@ describe('UsersController.createUser — ADMIN forwarding is exact', () => {
       ...maximalSeniorPayload,
       personalEmail: 'personal@example.com',
       avatarUrl: 'https://example.com/a.png',
-      accountantId: ACCOUNTANT_ID,
+      // still parsed by the shared DTO until PR 1d, never forwarded
+      accountantId: 'd4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4',
       projectId: PROJECT_ID,
       teamMode: 'JOIN_DROP_TEAM',
       dropTeamId: DROP_TEAM_ID,
@@ -327,7 +324,6 @@ describe('UsersController.createUser — ADMIN forwarding is exact', () => {
       monthlySalary: 499999,
       salaryCurrency: 'USD',
       hrIds: [HR_ACTOR_ID],
-      accountantId: ACCOUNTANT_ID,
       projectId: PROJECT_ID,
       paymentMethod: 'USDT_ERC20',
       walletUsdtErc20: maximalSeniorPayload.walletUsdtErc20,
@@ -380,7 +376,6 @@ describe('UsersController.createUser — ADMIN forwarding is exact', () => {
       techStack: null,
       monthlySalary: null,
       hrIds: [],
-      accountantId: null,
       projectId: null,
       paymentMethod: 'USDT_ERC20',
       walletUsdtErc20: maximalSeniorPayload.walletUsdtErc20,

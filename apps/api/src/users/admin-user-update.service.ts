@@ -42,7 +42,6 @@ export interface AdminUpdateUserInput {
   bankUahRnokpp?: string | null | undefined
   bankUahBankName?: string | null | undefined
   hrIds?: string[] | undefined
-  accountantId?: string | null | undefined
   teamTelegramChannel?: string | null | undefined
   /**
    * Legal full name (Cyrillic, order: Surname First Patronymic).
@@ -77,7 +76,7 @@ export interface AdminUserUpdateHelpers {
   reconcileSeniorTeamTx(
     tx: DrizzleTx,
     seniorId: string,
-    data: { hrIds?: string[] | undefined; accountantId?: string | null | undefined },
+    data: { hrIds?: string[] | undefined },
     actorId: string | null,
   ): Promise<void>
   updateSeniorTeamTelegramChannelTx(
@@ -232,13 +231,12 @@ export class AdminUserUpdateService {
       }
 
       // SENIOR-only: optional team composition reconcile.
-      if (u.role === 'SENIOR' && (data.hrIds !== undefined || data.accountantId !== undefined)) {
+      if (u.role === 'SENIOR' && data.hrIds !== undefined) {
         await this.helpers.reconcileSeniorTeamTx(
           tx,
           u.id,
           {
             hrIds: data.hrIds,
-            accountantId: data.accountantId,
           },
           actorId,
         )

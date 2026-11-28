@@ -144,7 +144,7 @@ const BODIES: {
     // read for. Hiding it would mean sending an email that says "something happened".
     //
     // The actor is NOT named (COPY-H-2): income validation is done by the accountant OR the admin
-    // (`@Roles('ADMIN', 'ACCOUNTANT')` on `PATCH :id/validate`), and the `data`
+    // (`@Roles('ADMIN')` on `PATCH :id/validate`), and the `data`
     // of this type has no actor at all.
     subject:
       d.status === 'VALIDATED'

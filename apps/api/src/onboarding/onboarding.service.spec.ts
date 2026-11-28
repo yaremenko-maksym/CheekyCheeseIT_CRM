@@ -297,13 +297,7 @@ describe('OnboardingService.getStatus', () => {
   })
 
   it('all 6 non-ADMIN roles get their own role template', async () => {
-    const roles: Array<Exclude<SessionUser['role'], 'ADMIN'>> = [
-      'HR',
-      'SENIOR',
-      'JUNIOR',
-      'DROP',
-      'ACCOUNTANT',
-    ]
+    const roles: Array<Exclude<SessionUser['role'], 'ADMIN'>> = ['HR', 'SENIOR', 'JUNIOR', 'DROP']
     for (const role of roles) {
       const tmpl = makeTemplate(role)
       const mockDb = makeDb()

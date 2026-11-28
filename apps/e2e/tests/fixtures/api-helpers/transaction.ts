@@ -6,7 +6,7 @@ import { REAL_API_BASE } from './common'
  *
  * Caller must be DROP-authenticated and the project must be routed
  * through them (`project.dropId === drop.id`). The row lands in PENDING
- * until an ACCOUNTANT/ADMIN validates it (see `validateTransactionViaAPI`).
+ * until an ADMIN validates it (see `validateTransactionViaAPI`).
  *
  * Defaults:
  *   - amount: 1000
@@ -115,7 +115,7 @@ export async function createSeniorIncomeViaAPI(
 /**
  * Validate a PENDING SENIOR_INCOME/DROP_INCOME via PATCH /api/transactions/:id/validate.
  *
- * Caller must be ADMIN or ACCOUNTANT. The backend:
+ * Caller must be ADMIN. The backend:
  *   1. Flips income status PENDING → VALIDATED.
  *   2. Creates a payout_request row.
  *   3. Inserts the placeholder PAYOUT row (PENDING_PAYMENT).

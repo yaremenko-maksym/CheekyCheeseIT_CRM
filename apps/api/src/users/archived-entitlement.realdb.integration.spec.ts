@@ -490,7 +490,7 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
   describe('AC1 (security-review MED-3) — ProjectsService.createFromInterview', () => {
     // `addMember` was the door the task named. `createFromInterview` is the
     // other one: moving an interview to HIRED creates the project AND seats the
-    // senior's HR / ACCOUNTANT teammates on it. It consulted neither `leftAt`
+    // senior's HR teammates on it. It consulted neither `leftAt`
     // nor `archivedAt`, so a dismissed HR was seated on a brand-new project
     // — the exact thing `addMember`'s comment declares this endpoint must not
     // be able to express.

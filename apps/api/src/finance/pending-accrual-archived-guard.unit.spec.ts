@@ -9,9 +9,9 @@
  *
  * WHAT WAS ALREADY TRUE (verified by reading, not assumed):
  *   - `createMonthlySalaries` (the cron) — both branches already filter on
- *     `archivedAt` (HR/ACCOUNTANT via the query, JUNIOR via the loop) — pinned
+ *     `archivedAt` (HR via the query, JUNIOR via the loop) — pinned
  *     by `salary-archived-receiver.unit.spec.ts`.
- *   - `createSalary` (manual ADMIN/ACCOUNTANT-initiated) — already refuses an
+ *   - `createSalary` (manual ADMIN-initiated) — already refuses an
  *     archived receiver inline — also pinned by that same file.
  *
  * WHAT WAS MISSING (round 1, fixed by this task): `createSeniorIncome` /
@@ -99,9 +99,8 @@ const KNOWN_PENDING_ACCRUAL_SITES: Record<string, string> = {
   createSalary: 'SALARY (manual) — already refuses archived receiver.role check',
   // Both receiver populations flow through one shared automatic-salary INSERT
   // inside this method. The dedicated assertion below also pins that both the
-  // HR/ACCOUNTANT and JUNIOR loops invoke that shared helper.
-  createMonthlySalaries:
-    'SALARY (cron) — HR/ACCOUNTANT + JUNIOR branches, both already archived-gated',
+  // HR and JUNIOR loops invoke that shared helper.
+  createMonthlySalaries: 'SALARY (cron) — HR + JUNIOR branches, both already archived-gated',
   // Fixed round 2 (security-review MED-1 + MED-3) — resubmit-UPDATE, not an
   // INSERT: REJECTED -> PENDING with a caller-supplied amount mints a NEW
   // entitlement exactly like the two create-methods above.

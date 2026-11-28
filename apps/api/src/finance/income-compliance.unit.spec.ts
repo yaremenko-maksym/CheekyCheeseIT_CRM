@@ -11,7 +11,7 @@
  *
  * What stays here (DB-independent, fast):
  *   - RBAC (AC4): SENIOR / JUNIOR / HR / DROP → ForbiddenException BEFORE any DB
- *     access; ADMIN / ACCOUNTANT → resolve.
+ *     access; ADMIN → resolve.
  *   - X/N math (AC1/AC2): submitted = projects with a VALIDATED|PAID income this
  *     month; PENDING-only → pendingValidation flag, NOT submitted; REJECTED
  *     ignored; ADMIN_INCOME (PAID) counts; cross-month rows ignored.
@@ -177,11 +177,6 @@ describe('getIncomeComplianceOverview — RBAC guard (AC4)', () => {
       seniorId: expect.anything(),
       dropId: expect.anything(),
     })
-  })
-
-  it('resolves for ACCOUNTANT', async () => {
-    const svc = makeService()
-    await expect(svc.getIncomeComplianceOverview(user('ACCOUNTANT'))).resolves.toBeDefined()
   })
 })
 
@@ -759,7 +754,7 @@ describe('getIncomeComplianceOverview — laggards-first sort', () => {
         { type: 'SENIOR_INCOME', status: 'PAID', projectId: 'pb', txDate: thisMonth },
       ],
     })
-    const r = await svc.getIncomeComplianceOverview(user('ACCOUNTANT'))
+    const r = await svc.getIncomeComplianceOverview(user('ADMIN'))
     expect(r.receivers.map((x) => x.userId)).toEqual(['sr-zero', 'sr-half', 'sr-complete'])
     expect(r.totals).toMatchObject({
       expectedProjects: 4,

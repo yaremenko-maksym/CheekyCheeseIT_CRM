@@ -53,7 +53,7 @@ const JWT_SECRET = 'senior-roles-realdb-integration-secret-32c'
 const EMAIL_PREFIX = 'srr-'
 const EMAIL_DOMAIN = '@test.spec'
 
-type Role = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
+type Role = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR'
 interface Persona {
   id: string
   email: string
@@ -77,11 +77,6 @@ const JUNIOR: Persona = {
   id: '5e700000-0000-4000-aa00-000000000003',
   email: 'srr-junior@test.spec',
   role: 'JUNIOR',
-}
-const ACCOUNTANT: Persona = {
-  id: '5e700000-0000-4000-aa00-000000000004',
-  email: 'srr-acc@test.spec',
-  role: 'ACCOUNTANT',
 }
 const STACK = ['React', 'Go', 'AWS']
 const TARGET: Persona = {
@@ -117,17 +112,7 @@ const PROMOTE: Persona = {
   role: 'JUNIOR',
   techStack: STACK,
 }
-const PERSONAS = [
-  ADMIN,
-  HR,
-  JUNIOR,
-  ACCOUNTANT,
-  TARGET,
-  SELF,
-  DEMOTE_VIA_ROLE,
-  DEMOTE_VIA_EDIT,
-  PROMOTE,
-]
+const PERSONAS = [ADMIN, HR, JUNIOR, TARGET, SELF, DEMOTE_VIA_ROLE, DEMOTE_VIA_EDIT, PROMOTE]
 
 const WALLET = '0x' + '2'.repeat(40)
 
@@ -316,15 +301,12 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(await rolesOf(TARGET.id)).toEqual(['BACKEND_ENGINEER', 'DATA_ENGINEER'])
       })
 
-      it.each([HR, JUNIOR, ACCOUNTANT, SELF])(
-        '$role gets 403 and nothing is written',
-        async (p) => {
-          expect(
-            await call('PATCH', `/api/users/${TARGET.id}`, p, { technicalRoles: ['QA_ENGINEER'] }),
-          ).toMatchObject({ status: 403 })
-          expect(await rolesOf(TARGET.id)).toEqual(['BACKEND_ENGINEER', 'DATA_ENGINEER'])
-        },
-      )
+      it.each([HR, JUNIOR, SELF])('$role gets 403 and nothing is written', async (p) => {
+        expect(
+          await call('PATCH', `/api/users/${TARGET.id}`, p, { technicalRoles: ['QA_ENGINEER'] }),
+        ).toMatchObject({ status: 403 })
+        expect(await rolesOf(TARGET.id)).toEqual(['BACKEND_ENGINEER', 'DATA_ENGINEER'])
+      })
 
       it('roles on a JUNIOR -> 400 TECHNICAL_ROLES_SENIOR_ONLY, nothing written', async () => {
         expect(

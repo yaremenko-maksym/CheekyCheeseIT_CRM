@@ -1,12 +1,12 @@
 import { HttpStatus, Injectable } from '@nestjs/common'
-import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm'
 import type {
   SessionUser,
   SeniorSummaryDto,
   IncomeComplianceOverviewDto,
   MySalaryStatusDto,
 } from '@crm/shared'
-import { MONEY_SCALE, addCalendarMonths, businessMonthWindow, kyivDayOf } from '@crm/shared'
+import { MONEY_SCALE, addCalendarMonths, kyivDayOf } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -28,7 +28,7 @@ import { getIncomeComplianceOverview } from './income-compliance.util'
 import { computeDropAggregate, DEFAULT_SENIOR_SHARE_PERCENT } from './drop-distribution.util'
 
 /**
- * Read-only finance summaries (admin/accountant summary, accountant KPI, senior
+ * Read-only finance summaries (admin summary, senior
  * dashboard KPI, income-compliance overview). Extracted from
  * `TransactionsService` (decomposition stage T-L8): depends on the database and
  * the NBU rates ONLY and must never depend on `TransactionsService` —
@@ -45,78 +45,17 @@ export class SummaryService {
   // ── Finance Summary (stats) ───────────────────────────────────────────────
 
   async getSummary(currentUser: SessionUser) {
-    // RBAC: only ADMIN and ACCOUNTANT may see the full financial summary
+    // RBAC: only ADMIN may see the full financial summary
     // (adminBalances, dropBalances, totalIncome, dropSharePercent).
     // Any other authenticated role (SENIOR / JUNIOR / HR / DROP) reaching
     // GET /api/finance/summary directly would leak payment-routing config.
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    if (currentUser.role !== 'ADMIN') {
       throw apiError('FINANCE_SUMMARY_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
-    // task-accountant-summary-balances-rbac (security LOW, review #215): the
-    // partner/drop balance arrays expose payment-routing config (partner +
-    // DROP display names alongside their accumulated balances). ACCOUNTANT
-    // needs the economic P&L surface (income/expenses/salaries/net + monthly)
-    // for /crm/stats + the финансовый хаб, but NOT the per-drop balances —
-    // those stay ADMIN-only and the ACCOUNTANT UI still hides that panel
-    // (#214 removed the drop-balances panel; #215 gates it on /crm/stats to
-    // ADMIN). `canSeeDropBalances` still gates on `[]` for anyone but ADMIN.
-    const canSeeDropBalances = currentUser.role === 'ADMIN'
-
-    // task-accountant-sees-admin-balances (2026-08-17, owner decision) — THIS
-    // IS A DELIBERATE REVERSAL of the #214/#215 zeroing above, NOT a
-    // regression. Do not "restore" `adminBalances: []` for ACCOUNTANT without
-    // re-reading this comment.
-    //
-    // What changed: `assertCanReadAdminBalance` (balance.service.ts) already
-    // lets ACCOUNTANT read ANY admin's personal balance via
-    // GET /balances/admin/:id. Until PR #551, that endpoint was structurally
-    // dead for this purpose — `getAdminBalance` summed ADMIN_INCOME_CASH /
-    // ADMIN_INCOME_CRYPTO, transaction types nothing in prod ever creates, so
-    // it always returned 0. #551's fix C-2 corrected that computation, which
-    // made the contradiction live: an ACCOUNTANT can now pull a real, non-zero
-    // personal balance for any admin one-by-one through that endpoint, while
-    // this summary kept zeroing the SAME field (`adminBalances`) — two screens
-    // disagreeing about a decision that was already made in the endpoint's
-    // favor. Flagged by security-review on #551 (SEC-3).
-    //
-    // Owner resolution: keep the endpoint access; stop zeroing here so the
-    // summary matches it. Scope is narrow — `adminBalances` (personal admin
-    // balances) ONLY. `dropBalances` is a different, still-live #214/#215
-    // decision (see `canSeeDropBalances` above) and is UNCHANGED.
-    //
-    // "Matches it" above is about ACCESS, not VALUES — do not read this as a
-    // promise that the two screens show the same NUMBER. `adminBalances`
-    // below computes the HOLDING model (all received across PAYOUT_ADMIN /
-    // ADMIN_INCOME / ADMIN_TRANSFER / PAYOUT_CONFIRMED, minus ALL paid sends).
-    // `getAdminBalance` (balance.service.ts, untouched here) computes a
-    // narrower phase-4 personal-credit slice (ADMIN_INCOME_CASH/CRYPTO +
-    // DIVIDEND_TO_ADMIN, minus paid EXPENSE) — PR #551 itself calls this a
-    // "materially different, broader metric" than the endpoint. #551 is still
-    // open as of this comment, so if this PR ships first the two figures can
-    // diverge at their widest. Reconciling the two MODELS into one number is
-    // a separate, not-yet-scoped decision — this task only reconciles WHO may
-    // see `adminBalances`, not what it computes.
-    //
-    // Deliberately a bare literal, NOT `currentUser.role === 'ADMIN' ||
-    // currentUser.role === 'ACCOUNTANT'`. That re-check would be an
-    // equivalent-mutant magnet: the RBAC guard at the top of this method
-    // already throws ForbiddenException for every role except ADMIN and
-    // ACCOUNTANT, so a re-check here can never observably differ from `true`
-    // — and a `// Stryker disable next-line ConditionalExpression` comment on
-    // that OR expression does not target the specific `→true` mutant, it
-    // suppresses EVERY ConditionalExpression mutant Stryker generates on that
-    // line: the equivalent `→true` AND the three real, killed mutants
-    // (`→false` on the whole expression, and `→false` on each operand) go
-    // dark together (review round 2 on this task's own PR; the same
-    // line×mutator suppression scope caught 8 mutants for 2 intended ones on
-    // PR #531 — see the mutation-gate backlog item). Writing the guaranteed
-    // value directly removes the equivalent mutant instead of hiding it: the
-    // only mutant left is `true → false` (BooleanLiteral), which IS real —
-    // flipping it empties `adminBalances` for actual ADMIN/ACCOUNTANT
-    // callers, which the `getSummary` unit spec already asserts against — so
-    // it needs no suppression at all.
-    const canSeeAdminBalances = true
+    // The admin/drop balance arrays below expose payment-routing config (admin +
+    // DROP display names alongside their accumulated balances). They need no
+    // role re-check: the guard above already throws for every role except ADMIN.
 
     // Scaled-integer constant used throughout aggregations below to avoid
     // JS float accumulation errors. Aliased to the module-level `MONEY_SCALE`
@@ -205,16 +144,15 @@ export class SummaryService {
     //   sent:     ALL PAID transactions where senderId = admin.id (any type:
     //             SALARY, EXPENSE, ADMIN_TRANSFER, etc.) — the full HOLDING debit.
     // Drop role - phase 3 (spec §8.4): PAYOUT_CONFIRMED — the row inserted by
-    // `confirmPayout` when ACCOUNTANT/ADMIN manually confirms an off-platform
+    // `confirmPayout` when ADMIN manually confirms an off-platform
     // payout — also credits the chosen admin's balance. Phase 2 PAYOUT_ADMIN
     // (automatic 50/50 split) remains untouched and continues to count too;
     // both flows run in parallel per task scope ("Phase 2 auto-50/50 НЕ
     // ТРОГАТЬ — manual flow живёт параллельно"). Senior-only / legacy admin
     // balance values are unchanged because they never produce PAYOUT_CONFIRMED
     // rows.
-    // ACCOUNTANT now sees this too (see `canSeeAdminBalances` above —
-    // deliberate #214/#215 reversal, 2026-08-17). Roles that fail the RBAC
-    // guard at the top of this method never reach here at all.
+    // Roles that fail the RBAC guard at the top of this method never reach
+    // here at all.
     //
     // No `archivedAt` filter here — EXPLICIT, not an oversight (review round
     // 2, LOW-1): `eq(users.role, 'ADMIN')` alone includes archived admins,
@@ -222,49 +160,45 @@ export class SummaryService {
     // task widens WHO can see the array, it does not change WHAT rows are in
     // it. An archived admin can still carry a nonzero HOLDING balance the
     // company owes or holds (departure ≠ automatic zero-out/settlement), so
-    // dropping the row would hide money that still needs reconciling — the
-    // accountant's job. `getAdminBalance` (balance.service.ts) has no
-    // archived check either, so the per-admin endpoint ACCOUNTANT already
-    // used would return the same figure for an archived admin regardless.
+    // dropping the row would hide money that still needs reconciling.
+    // `getAdminBalance` (balance.service.ts) has no archived check either.
     // If archived admins should ever be hidden from this array, that is a
     // separate, undocumented-today business decision (nothing in
     // docs/business/ addresses it) — not bundled into this task's narrow
     // scope of "who may see `adminBalances`".
-    const adminBalances = !canSeeAdminBalances
-      ? []
-      : (
-          await this.db.db.query.users.findMany({
-            where: eq(users.role, 'ADMIN'),
-          })
-        ).map((admin) => {
-          const receivedScaled = paid
-            .filter(
-              (tx) =>
-                tx.receiverId === admin.id &&
-                (tx.type === 'PAYOUT_ADMIN' ||
-                  // task-salary-company-account: ADMIN_INCOME routed to the
-                  // company account (fundingSource='COMPANY_ACCOUNT') went into
-                  // the shared pool, NOT the admin's personal balance — exclude
-                  // it here. Legacy/admin-personal ADMIN_INCOME (NULL funding)
-                  // still credits the admin as before.
-                  (tx.type === 'ADMIN_INCOME' && tx.fundingSource !== 'COMPANY_ACCOUNT') ||
-                  tx.type === 'ADMIN_TRANSFER' ||
-                  tx.type === 'PAYOUT_CONFIRMED'),
-            )
-            // Audit 2026-06-28 (#4): convert to base before scaling (mixed-currency
-            // safe). USD/USDT → identity, so prod balances stay byte-exact.
-            .reduce((sum, tx) => sum + Math.round(toBase(tx) * SCALE), 0)
-          // HOLDING model: debit = ALL paid transactions sent by this admin
-          // (SALARY, EXPENSE, ADMIN_TRANSFER, etc.), not only ADMIN_TRANSFER.
-          const sentScaled = paid
-            .filter((tx) => tx.senderId === admin.id)
-            .reduce((sum, tx) => sum + Math.round(toBase(tx) * SCALE), 0)
-          return {
-            userId: admin.id,
-            displayName: admin.displayName,
-            balance: (receivedScaled - sentScaled) / SCALE,
-          }
-        })
+    const adminBalances = (
+      await this.db.db.query.users.findMany({
+        where: eq(users.role, 'ADMIN'),
+      })
+    ).map((admin) => {
+      const receivedScaled = paid
+        .filter(
+          (tx) =>
+            tx.receiverId === admin.id &&
+            (tx.type === 'PAYOUT_ADMIN' ||
+              // task-salary-company-account: ADMIN_INCOME routed to the
+              // company account (fundingSource='COMPANY_ACCOUNT') went into
+              // the shared pool, NOT the admin's personal balance — exclude
+              // it here. Legacy/admin-personal ADMIN_INCOME (NULL funding)
+              // still credits the admin as before.
+              (tx.type === 'ADMIN_INCOME' && tx.fundingSource !== 'COMPANY_ACCOUNT') ||
+              tx.type === 'ADMIN_TRANSFER' ||
+              tx.type === 'PAYOUT_CONFIRMED'),
+        )
+        // Audit 2026-06-28 (#4): convert to base before scaling (mixed-currency
+        // safe). USD/USDT → identity, so prod balances stay byte-exact.
+        .reduce((sum, tx) => sum + Math.round(toBase(tx) * SCALE), 0)
+      // HOLDING model: debit = ALL paid transactions sent by this admin
+      // (SALARY, EXPENSE, ADMIN_TRANSFER, etc.), not only ADMIN_TRANSFER.
+      const sentScaled = paid
+        .filter((tx) => tx.senderId === admin.id)
+        .reduce((sum, tx) => sum + Math.round(toBase(tx) * SCALE), 0)
+      return {
+        userId: admin.id,
+        displayName: admin.displayName,
+        balance: (receivedScaled - sentScaled) / SCALE,
+      }
+    })
 
     // Drop role - phase 2 (AC4): aggregate balance per DROP user — credit on
     // PAYOUT_DROP (their slice of drop-project distribution) minus any debit
@@ -278,30 +212,24 @@ export class SummaryService {
     // DTO is unchanged — `debtToCompany` (returned by the helper) is mapped
     // away here so `financeSummarySchema.dropBalances` and its existing unit
     // tests stay byte-for-byte identical.
-    //
-    // ACCOUNTANT still gets `[]` here (see `canSeeDropBalances` above — this
-    // half of #214/#215 is UNCHANGED by the adminBalances reversal); ADMIN
-    // keeps the full list.
-    const dropBalances = !canSeeDropBalances
-      ? []
-      : (
-          await this.db.db.query.users.findMany({
-            where: eq(users.role, 'DROP'),
-          })
-        ).map((drop) => {
-          const aggregate = computeDropAggregate(
-            { id: drop.id, displayName: drop.displayName, dropSharePercent: drop.dropSharePercent },
-            allTxs,
-            rates,
-          )
-          return {
-            userId: aggregate.userId,
-            displayName: aggregate.displayName,
-            balance: aggregate.balance,
-            dropSharePercent: aggregate.dropSharePercent,
-            pendingCount: aggregate.pendingCount,
-          }
-        })
+    const dropBalances = (
+      await this.db.db.query.users.findMany({
+        where: eq(users.role, 'DROP'),
+      })
+    ).map((drop) => {
+      const aggregate = computeDropAggregate(
+        { id: drop.id, displayName: drop.displayName, dropSharePercent: drop.dropSharePercent },
+        allTxs,
+        rates,
+      )
+      return {
+        userId: aggregate.userId,
+        displayName: aggregate.displayName,
+        balance: aggregate.balance,
+        dropSharePercent: aggregate.dropSharePercent,
+        pendingCount: aggregate.pendingCount,
+      }
+    })
 
     // Monthly breakdown — scaled-integer accumulation (MED-5).
     const monthMap = new Map<
@@ -317,7 +245,7 @@ export class SummaryService {
       // createdAt so the existing totals / graph are unchanged" — has been false
       // since #809 shipped operator-chosen dates. It is removed rather than
       // amended because it was being read as a licence to key sibling
-      // aggregates on `createdAt`; `getAccountantSummary.paidAmount` did
+      // aggregates on `createdAt`; the former accountant KPI tile did
       // exactly that and disagreed with this graph by the backdated amounts.
       const month = transactionBusinessMonth(tx) // YYYY-MM
       if (!monthMap.has(month))
@@ -367,136 +295,6 @@ export class SummaryService {
   }
 
   /**
-   * Accountant KPI snapshot for the финансовый хаб (Sprint 2).
-   *
-   * RBAC: ACCOUNTANT + ADMIN only. Every other role (SENIOR / JUNIOR / HR /
-   * DROP) reaching GET /api/finance/accountant-summary directly would leak
-   * company-wide payment-validation figures → ForbiddenException. Mirrors the
-   * guard in `getSummary` above (single, explicit role check) and is thrown
-   * BEFORE any DB access.
-   *
-   * Implementation: loads all transaction rows via `findMany()` and aggregates
-   * the KPI buckets in one aggregating scan. The Kyiv-month boundaries (the same
-   * clock as the monthly graph in `getSummary`) are computed once from
-   * `new Date()` so every bucket uses the same cutoff.
-   *
-   * KPI semantics:
-   *   - pendingValidation  — income rows (SENIOR_INCOME + DROP_INCOME) still in
-   *                          PENDING status, i.e. awaiting accountant action.
-   *   - validatedThisMonth — rows the accountant VALIDATED in the current
-   *                          calendar month (by `validatedAt`, NOT NULL).
-   *   - paidThisMonth      — income/payout money settled (status PAID) whose
-   *                          BUSINESS date (`tx_date`)
-   *                          falls in the current month (CR-809-H-2). Keyed on
-   *                          the same expression as the monthly graph in
-   *                          `getSummary`, so a backdated row lands in one
-   *                          month for both.
-   *   - recipientCount     — distinct income parties (seniors / drops) the
-   *                          accountant oversees.
-   *
-   * Money: `amount` is numeric(18,6); `COALESCE(SUM(amount), 0)` yields an exact
-   * decimal string on the empty set → 0, mapped to a JS number with `Number`
-   * (matching the previous float accumulation to the column's 6-decimal scale).
-   */
-  async getAccountantSummary(currentUser: SessionUser): Promise<{
-    pendingValidation: { count: number; amount: number }
-    validatedThisMonth: { count: number; amount: number }
-    paidThisMonth: { amount: number }
-    recipientCount: number
-  }> {
-    if (currentUser.role !== 'ACCOUNTANT' && currentUser.role !== 'ADMIN') {
-      throw apiError('FINANCE_ACCOUNTANT_SUMMARY_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
-
-    // Current business month, computed once: the Kyiv month of now. `dateStart`
-    // bounds the date-only `tx_date` (the graph's `transactionBusinessMonth`
-    // key), `instantStart` bounds the `validated_at` instant (backlog 338).
-    const { dateStart, instantStart } = businessMonthWindow(kyivDayOf(new Date()).slice(0, 7))
-
-    // Income types a senior / drop submits that require accountant validation —
-    // the validatable-income predicate (pendingValidation + recipientCount).
-    const incomeTypes = sql`${transactions.type} in ('SENIOR_INCOME', 'DROP_INCOME')`
-
-    // Income/payout money types eligible for paidThisMonth.
-    const paidEligibleTypes = sql`${transactions.type} in ('SENIOR_INCOME', 'DROP_INCOME', 'PAYOUT', 'PAYOUT_ADMIN', 'PAYOUT_DROP', 'PAYOUT_CONFIRMED')`
-
-    // Single aggregating pass — conditional COUNT/SUM via FILTER (WHERE ...)
-    // plus a distinct-party count. `COALESCE(SUM(...), 0)` guarantees 0 (not
-    // NULL) on the empty set; numeric sums arrive as decimal strings → Number.
-    const [row] = await this.db.db
-      .select({
-        pendingCount:
-          sql<number>`count(*) filter (where ${transactions.status} = 'PENDING' and ${incomeTypes})`.mapWith(
-            Number,
-          ),
-        pendingAmount:
-          sql<number>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'PENDING' and ${incomeTypes}), 0)`.mapWith(
-            Number,
-          ),
-        validatedCount:
-          sql<number>`count(*) filter (where ${transactions.status} = 'VALIDATED' and ${transactions.validatedAt} is not null and ${transactions.validatedAt} >= ${instantStart})`.mapWith(
-            Number,
-          ),
-        validatedAmount:
-          sql<number>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'VALIDATED' and ${transactions.validatedAt} is not null and ${transactions.validatedAt} >= ${instantStart}), 0)`.mapWith(
-            Number,
-          ),
-        // CR-809-H-2: windowed on the BUSINESS date, not on `created_at`.
-        // Before #809 the two were interchangeable; since operators can pick
-        // the date, they are not. A September salary paid on 6 Oct and dated
-        // 30 Sep belongs to September in the monthly graph (which has always
-        // bucketed on the business date — see `getSummary` above), so it
-        // must not be counted by THIS tile as October money: that disagreement
-        // between two numbers on one screen is the defect. The window mirrors
-        // the graph's `transactionBusinessMonth` EXACTLY (backlog 338): the row
-        // is compared as a date-only value (`tx_date >= dateStart`, UTC
-        // midnight). There is no `created_at` fallback: every writer persists a
-        // Kyiv business-day `tx_date` and the legacy NULL rows were backfilled.
-        // A NULL `tx_date` is a broken invariant: like the graph, this tile
-        // fails loud on it (see `nullTxDateId` below) instead of silently
-        // understating the sum.
-        // Lower bound only, as before: a future-dated row still counts.
-        paidAmount:
-          sql<number>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'PAID' and ${paidEligibleTypes} and ${transactions.txDate} >= ${dateStart}), 0)`.mapWith(
-            Number,
-          ),
-        // One PAID money row the tile would have to date but cannot (NULL
-        // `tx_date`), or NULL when there is none.
-        nullTxDateId: sql<
-          string | null
-        >`min(${transactions.id}::text) filter (where ${transactions.status} = 'PAID' and ${paidEligibleTypes} and ${transactions.txDate} is null)`,
-        recipientCount:
-          sql<number>`count(distinct coalesce(${transactions.receiverId}, ${transactions.senderId})) filter (where ${incomeTypes})`.mapWith(
-            Number,
-          ),
-      })
-      .from(transactions)
-      // task-soft-delete-and-money-audit (AC4): scope the WHOLE aggregating
-      // scan to non-deleted rows — every FILTER (WHERE ...) clause above runs
-      // against this, so one WHERE here covers all five KPI buckets at once.
-      .where(isNull(transactions.deletedAt))
-
-    if (row?.nullTxDateId) {
-      throw new Error(`getAccountantSummary: transaction ${row.nullTxDateId} has a NULL tx_date`)
-    }
-
-    return {
-      pendingValidation: {
-        count: row?.pendingCount ?? 0,
-        amount: row?.pendingAmount ?? 0,
-      },
-      validatedThisMonth: {
-        count: row?.validatedCount ?? 0,
-        amount: row?.validatedAmount ?? 0,
-      },
-      paidThisMonth: {
-        amount: row?.paidAmount ?? 0,
-      },
-      recipientCount: row?.recipientCount ?? 0,
-    }
-  }
-
-  /**
    * SENIOR dashboard KPI snapshot — STRICTLY self-scoped to `currentUser.id`.
    *
    * RBAC: SENIOR + ADMIN only (every other role → 403). The figures are ALWAYS
@@ -514,7 +312,7 @@ export class SummaryService {
    *   4. mySalaryStatus    — own current-month SALARY tx (or null).
    *
    * Amounts are summed in the transaction's stored currency without cross-rate
-   * conversion — consistent with getAccountantSummary / HR mySalaryStatus which
+   * conversion — consistent with HR mySalaryStatus which
    * also report raw `amount`; the wire `currency` is the USD display label.
    */
   async getSeniorSummary(currentUser: SessionUser): Promise<SeniorSummaryDto> {
@@ -525,7 +323,7 @@ export class SummaryService {
     const selfId = currentUser.id
 
     // Business months (`YYYY-MM`), on the SAME clock as the monthly graph in
-    // `getSummary` and the accountant tiles (backlog 338): each income is bucketed
+    // `getSummary` (backlog 338): each income is bucketed
     // by `transactionBusinessMonth`, and "this" / "last" month are the Kyiv month
     // of `now` and the one before it. A month KEY compare is exactly the old
     // half-open window compare: PR #868's rule that a future-dated income (txDate
@@ -667,7 +465,7 @@ export class SummaryService {
     // task-salary-month-gap-and-status (E-6): `hasMonthlySalary` mirrors the
     // cron's own `if (!emp.monthlySalary) continue` truthiness check.
     // `isCronEligibleRole` is the SAME "does the cron process this role at
-    // all" question the E-5 gap report answers (only HR/ACCOUNTANT/JUNIOR are
+    // all" question the E-5 gap report answers (only HR/JUNIOR are
     // ever targeted by `createMonthlySalaries`) — security-review MED-3:
     // `getSeniorSummary` is reached ONLY by SENIOR/ADMIN (the RBAC gate
     // above), and the cron never processes either, so this is always `false`
@@ -723,7 +521,7 @@ export class SummaryService {
   }
 
   /**
-   * Income compliance overview — «Контроль приходов». ADMIN + ACCOUNTANT only;
+   * Income compliance overview — «Контроль приходов». ADMIN only;
    * logic and full contract live in `income-compliance.util.ts`.
    */
   async getIncomeComplianceOverview(

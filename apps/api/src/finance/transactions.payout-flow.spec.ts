@@ -84,11 +84,11 @@ const SENIOR_USER: SessionUser = {
   seniorSharePercent: 26,
 }
 
-const ACCOUNTANT_USER: SessionUser = {
-  id: 'acc-1',
-  role: 'ACCOUNTANT',
-  displayName: 'Accountant',
-  email: 'acc@test.com',
+const SETTLER_ADMIN: SessionUser = {
+  id: 'settler-1',
+  role: 'ADMIN',
+  displayName: 'Settler',
+  email: 'settler@test.com',
   avatarUrl: null,
   avatarDocumentId: null,
   seniorSharePercent: 26,
@@ -366,7 +366,7 @@ describe('validateTransaction — SENIOR_INCOME (#7)', () => {
     })
 
     // Act
-    await svc.validateTransaction('tx-1', 'validate', null, ACCOUNTANT_USER)
+    await svc.validateTransaction('tx-1', 'validate', null, SETTLER_ADMIN)
 
     // Assert: no payout_request / PAYOUT row created — insert is called
     // EXACTLY once, for the VALIDATE journal entry (task-soft-delete-and-
@@ -399,13 +399,13 @@ describe('validateTransaction — SENIOR_INCOME (#7)', () => {
     })
 
     await expect(
-      svc.validateTransaction('tx-1', 'validate', null, ACCOUNTANT_USER),
+      svc.validateTransaction('tx-1', 'validate', null, SETTLER_ADMIN),
     ).rejects.toMatchObject({
       response: { code: 'FINANCE_TRANSACTION_NOT_PENDING', statusCode: 400 },
     })
   })
 
-  it('rejects non-ADMIN/ACCOUNTANT actors with ForbiddenException', async () => {
+  it('rejects non-ADMIN actors with ForbiddenException', async () => {
     const db = { db: { query: { transactions: { findFirst: vi.fn() } } } } as never
     const svc = makeTransactionsService({
       db,
@@ -485,7 +485,7 @@ describe('validateTransaction — DROP_INCOME flip-only (task-drop-payout-compan
       etherscanService: makeEtherscanStub(),
     })
 
-    await svc.validateTransaction('dtx-1', 'validate', null, ACCOUNTANT_USER)
+    await svc.validateTransaction('dtx-1', 'validate', null, SETTLER_ADMIN)
 
     // No payout_request and no PAYOUT row created — insert is called EXACTLY
     // once, for the VALIDATE journal entry (task-soft-delete-and-money-audit,
@@ -513,7 +513,7 @@ describe('createPayoutRequest (#7)', () => {
   it('throws ForbiddenException for non-SENIOR roles', async () => {
     // db.transaction is not reached — role check fires first
     const svc = makeService()
-    await expect(svc.createPayoutRequest(['tx-1'], ACCOUNTANT_USER)).rejects.toThrow(
+    await expect(svc.createPayoutRequest(['tx-1'], SETTLER_ADMIN)).rejects.toThrow(
       ForbiddenException,
     )
   })

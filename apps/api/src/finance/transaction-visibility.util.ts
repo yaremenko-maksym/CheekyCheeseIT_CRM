@@ -19,7 +19,7 @@
  * shifted from "the thing callers must remember to invoke" to "the thing
  * that makes forgetting impossible":
  *
- *   - List/aggregate/join reads that never need an ADMIN/ACCOUNTANT-sees-
+ *   - List/aggregate/join reads that never need an ADMIN-sees-
  *     deleted-rows exception now source from `nonDeletedTransactions`
  *     (schema.ts) — a Postgres VIEW, so there is no WHERE clause to forget.
  *   - Single-row-by-id reads that DO need that exception (findOne,
@@ -44,7 +44,7 @@
  * Two independent invariants, composed as needed:
  *
  *   1. VISIBILITY (`assertTransactionVisible`) — a deleted row does not
- *      "exist" for anyone except ADMIN/ACCOUNTANT, not even its own author.
+ *      "exist" for anyone except ADMIN, not even its own author.
  *      Throws 404 (`NotFoundException`), never 403 — a 403 would let a
  *      non-privileged caller distinguish "not mine" from "deleted" from
  *      "never existed" by probing a known id (existence-oracle, SEC-10
@@ -54,7 +54,7 @@
  *
  *   2. WRITABILITY (`assertTransactionNotDeleted`) — a soft-deleted row must
  *      not be mutable via ANY normal write endpoint, including by
- *      ADMIN/ACCOUNTANT (who otherwise still "see" it — see #1). ADMIN must
+ *      ADMIN (who otherwise still "see" it — see #1). ADMIN must
  *      restore it first (a deliberate, journaled action) before it can be
  *      edited/validated/paid/signed/receipted again. Throws 400
  *      (`BadRequestException`) with an actionable message — unlike #1, the
@@ -88,9 +88,9 @@ import type { TxWithRelations } from './transaction-mapper.util'
 /** Reusable predicate for LIST/JOIN reads — AND this into every multi-row query. */
 export const TRANSACTION_NOT_DELETED = isNull(transactions.deletedAt)
 
-/** ADMIN/ACCOUNTANT are the only roles that can ever see a deleted row. */
+/** ADMIN is the only role that can ever see a deleted row. */
 function isPrivilegedViewer(currentUser: SessionUser | null): boolean {
-  return currentUser?.role === 'ADMIN' || currentUser?.role === 'ACCOUNTANT'
+  return currentUser?.role === 'ADMIN'
 }
 
 /**
@@ -194,13 +194,13 @@ export async function fetchWritableTransactionOrThrow(
 }
 
 /**
- * Per-row READ access guard (RBAC) — ADMIN/ACCOUNTANT see all; SENIOR/DROP only
+ * Per-row READ access guard (RBAC) — ADMIN see all; SENIOR/DROP only
  * own sender/receiver rows minus PAYOUT_ADMIN/PAYOUT_CONFIRMED; JUNIOR
  * receiver-only; HR own sender/receiver; any other role is rejected. Pure:
  * depends only on `tx` + `currentUser`. MUST run AFTER the visibility check.
  */
 export function assertTransactionReadAccess(tx: TxWithRelations, currentUser: SessionUser): void {
-  if (currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT') return
+  if (currentUser.role === 'ADMIN') return
   if (currentUser.role === 'SENIOR') {
     // Drop role - phase 3: PAYOUT_CONFIRMED matches PAYOUT_ADMIN — admin
     // attribution rows are never visible to SENIOR via findOne either.

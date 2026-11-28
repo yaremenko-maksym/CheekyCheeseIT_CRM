@@ -20,7 +20,7 @@ export function assertAccess(
   currentUser: SessionUser,
   allProjects: ProjectWithMembers[],
 ) {
-  if (currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT') return
+  if (currentUser.role === 'ADMIN') return
 
   // HIGH-1: `leftAt === null` — a soft-deleted (removed) static membership
   // must not keep granting access. This also covers the DROP role (fail-closed):

@@ -148,15 +148,6 @@ const JUNIOR: SessionUser = {
   seniorSharePercent: 0,
   legalFullName: null,
 }
-const ACCOUNTANT: SessionUser = {
-  id: `${NS}-aa00-000000000004`,
-  email: 'vac-rbac-accountant@test.spec',
-  displayName: 'Vacancies RBAC Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
 const DROP: SessionUser = {
   id: `${NS}-aa00-000000000005`,
   email: 'vac-rbac-drop@test.spec',
@@ -167,8 +158,8 @@ const DROP: SessionUser = {
   legalFullName: null,
 }
 
-const TEST_USER_IDS = [HR.id, SENIOR.id, JUNIOR.id, ACCOUNTANT.id, DROP.id]
-const DISALLOWED = [SENIOR, JUNIOR, ACCOUNTANT, DROP]
+const TEST_USER_IDS = [HR.id, SENIOR.id, JUNIOR.id, ADMIN.id, DROP.id]
+const DISALLOWED = [SENIOR, JUNIOR, DROP]
 
 // ---------------------------------------------------------------------------
 // Fake ConfigService — Turnstile dummy "always passes" secret only (F1: S3
@@ -514,13 +505,6 @@ describe.skipIf(!hasDatabaseUrl())('Vacancies — real backend integration', () 
           displayName: JUNIOR.displayName,
           role: 'JUNIOR',
           googleId: `test-google-${JUNIOR.id}`,
-        },
-        {
-          id: ACCOUNTANT.id,
-          email: ACCOUNTANT.email,
-          displayName: ACCOUNTANT.displayName,
-          role: 'ACCOUNTANT',
-          googleId: `test-google-${ACCOUNTANT.id}`,
         },
         {
           id: DROP.id,

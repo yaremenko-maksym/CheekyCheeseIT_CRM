@@ -44,30 +44,19 @@ export class AdminIncomeService {
       notes?: string | null | undefined
       txDate?: string | null | undefined
       // SR-809-H-1 / D-2: travels with txDate. Consumed only when an
-      // ADMIN/ACCOUNTANT dates this row beyond the 31-day window, and then
+      // ADMIN dates this row beyond the 31-day window, and then
       // written to the audit log next to the row it justifies.
       backdateReason?: string | null | undefined
       // task-admin-income-unified: REPLACES the old `fundingSource` toggle.
       // Same contract as `declareUsdtProjectIncome`'s `receiverId` — an active
       // ADMIN's uuid credits THAT admin personally; the COMPANY_ACCOUNT_RECEIVER
       // sentinel credits the shared pool. Absent → legacy default (see below).
-      // ACCOUNTANT sending an explicit value here is a contract violation, not
-      // a routing preference — rejected outright (see the RBAC block below).
       receiverId?: string | undefined
     },
     currentUser: SessionUser,
   ) {
-    // task-accountant-create-transaction. ACCOUNTANT has create-parity with
-    // ADMIN for ADMIN_INCOME — but ONLY as a recorder. Eligibility (which
-    // PROJECT a caller may declare income for) is unchanged by
-    // task-admin-income-unified:
-    //   - ADMIN caller: project must be their own (seniorId === self).
-    //   - ACCOUNTANT caller: may register on ANY admin-owned project (the
-    //     project's senior must be an ADMIN). The accountant is the recorder
-    //     (createdBy), never the recipient — enforced below, independent of
-    //     project eligibility.
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
-      throw new ForbiddenException()
+    // ADMIN only; the project must be the caller's own (seniorId === self).
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
     // task-project-draft-status (Д2): fused fetch+status guard — a DRAFT or
     // REJECTED project must never accrue income. See project-status.util.ts's
@@ -87,42 +76,13 @@ export class AdminIncomeService {
       }),
     )
 
-    let projectOwnerId: string
-    if (currentUser.role === 'ADMIN') {
-      if (project.seniorId !== currentUser.id) {
-        throw apiError('FINANCE_INCOME_OWN_PROJECTS_ONLY', HttpStatus.FORBIDDEN)
-      }
-      projectOwnerId = currentUser.id
-    } else {
-      // ACCOUNTANT: the project must belong to an ADMIN (ADMIN_INCOME is income
-      // owned by an admin partner).
-      const owner = await this.db.db.query.users.findFirst({
-        where: eq(users.id, project.seniorId),
-      })
-      if (!owner || owner.role !== 'ADMIN') {
-        throw apiError('FINANCE_ADMIN_INCOME_PROJECT_MUST_BE_ADMIN_OWNED', HttpStatus.FORBIDDEN)
-      }
-      projectOwnerId = owner.id
+    if (project.seniorId !== currentUser.id) {
+      throw apiError('FINANCE_INCOME_OWN_PROJECTS_ONLY', HttpStatus.FORBIDDEN)
     }
+    const projectOwnerId = currentUser.id
 
     // task-admin-income-unified (§2, owner decision 2026-08-12). WHO gets
-    // credited is now a SEPARATE choice from project eligibility above — but
-    // picking a SPECIFIC admin is ADMIN-only. The ACCOUNTANT has never been a
-    // router of funds (the server has always hard-credited the project's
-    // admin owner for this role); the web dialog's selector reflects that by
-    // only ever offering "project owner" (no receiverId) or "company account"
-    // (the sentinel — not a specific-admin choice, still allowed for this
-    // role, same capability the old `fundingSource` toggle already had). A
-    // payload naming a SPECIFIC admin disagrees with the UI's constraint and
-    // is rejected, not silently coerced.
-    if (
-      currentUser.role === 'ACCOUNTANT' &&
-      data.receiverId !== undefined &&
-      data.receiverId !== COMPANY_ACCOUNT_RECEIVER
-    ) {
-      throw apiError('FINANCE_ADMIN_INCOME_RECEIVER_FIXED_FOR_ACCOUNTANT', HttpStatus.FORBIDDEN)
-    }
-
+    // credited is a SEPARATE choice from project eligibility above.
     let receiverId: string
     let fundingSource: 'COMPANY_ACCOUNT' | null
     if (data.receiverId === undefined) {
@@ -136,7 +96,7 @@ export class AdminIncomeService {
       receiverId = currentUser.id
       fundingSource = 'COMPANY_ACCOUNT'
     } else {
-      // ADMIN caller only (the ACCOUNTANT branch above already threw). Same
+      // A specific admin. Same
       // "active ADMIN" validation declareUsdtProjectIncome already applies.
       const receiver = await this.db.db.query.users.findFirst({
         where: eq(users.id, data.receiverId),
@@ -217,7 +177,7 @@ export class AdminIncomeService {
     // this business date is allowed at all, BEFORE a transaction is opened —
     // EXECUTED, because an income records money already received, so it may be
     // backdated inside the window but never dated into the future. An
-    // ADMIN/ACCOUNTANT may exceed the window only with a reason, which comes
+    // ADMIN may exceed the window only with a reason, which comes
     // back here and is written to the audit log alongside the row.
     const dateDecision = resolveTransactionDateWithPolicy(data.txDate, {
       role: currentUser.role,
@@ -318,7 +278,7 @@ export class AdminIncomeService {
    * Income row + both obligation blocks commit in ONE db.transaction so an
    * income can never exist without its obligations (anti-BIZ-02).
    *
-   * RBAC: ADMIN only (Q4 — ACCOUNTANT may NOT declare, enforced by the controller
+   * RBAC: ADMIN only (Q4 — enforced by the controller
    * @Roles and re-checked here).
    */
   async declareUsdtProjectIncome(
@@ -339,7 +299,7 @@ export class AdminIncomeService {
       notes?: string | null | undefined
       txDate?: string | null | undefined
       // SR-809-H-1 / D-2: travels with txDate. Consumed only when an
-      // ADMIN/ACCOUNTANT dates this row beyond the 31-day window, and then
+      // ADMIN dates this row beyond the 31-day window, and then
       // written to the audit log next to the row it justifies.
       backdateReason?: string | null | undefined
     },
@@ -451,7 +411,7 @@ export class AdminIncomeService {
     // this business date is allowed at all, BEFORE a transaction is opened —
     // EXECUTED, because an income records money already received, so it may be
     // backdated inside the window but never dated into the future. An
-    // ADMIN/ACCOUNTANT may exceed the window only with a reason, which comes
+    // ADMIN may exceed the window only with a reason, which comes
     // back here and is written to the audit log alongside the row.
     const dateDecision = resolveTransactionDateWithPolicy(data.txDate, {
       role: currentUser.role,

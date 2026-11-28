@@ -45,7 +45,6 @@ describe('isJobQueueRole', () => {
     ['HR', true],
     ['SENIOR', false],
     ['JUNIOR', false],
-    ['ACCOUNTANT', false],
     ['DROP', false],
   ])('%s -> %s', (role, expected) => {
     expect(isJobQueueRole(role)).toBe(expected)

@@ -168,33 +168,6 @@ describe('buildVisibilityClause', () => {
     expect(getHrSeniorIds).not.toHaveBeenCalled()
   })
 
-  it('ACCOUNTANT: SCAN, RECEIPT, INVOICE unconditional; AVATAR own; RESUME/CONTRACT/LOGO none', async () => {
-    expect(await visSql('ACCOUNTANT', 'SCAN')).toEqual({ sql: `${CAT} = $1`, params: ['SCAN'] })
-    expect(await visSql('ACCOUNTANT', 'RECEIPT')).toEqual({
-      sql: `${CAT} = $1`,
-      params: ['RECEIPT'],
-    })
-    expect(await visSql('ACCOUNTANT', 'INVOICE')).toEqual({
-      sql: `${CAT} = $1`,
-      params: ['INVOICE'],
-    })
-    expect(await visSql('ACCOUNTANT', 'AVATAR')).toEqual({
-      sql: `(${CAT} = $1 and ${OWN} = $2)`,
-      params: ['AVATAR', 'u-1'],
-    })
-    expect(await vis('ACCOUNTANT', 'RESUME')).toBe('NONE')
-    expect(await vis('ACCOUNTANT', 'CONTRACT')).toBe('NONE')
-    expect(await vis('ACCOUNTANT', 'LOGO')).toBe('NONE')
-    expect(getTeammateIds).not.toHaveBeenCalled()
-  })
-
-  it('ACCOUNTANT, no category: SCAN, RECEIPT, AVATAR, INVOICE in order', async () => {
-    expect(await visSql('ACCOUNTANT')).toEqual({
-      sql: `(${CAT} = $1 or ${CAT} = $2 or (${CAT} = $3 and ${OWN} = $4) or ${CAT} = $5)`,
-      params: ['SCAN', 'RECEIPT', 'AVATAR', 'u-1', 'INVOICE'],
-    })
-  })
-
   it('DROP: RESUME/SCAN/CONTRACT self, AVATAR self, INVOICE self; RECEIPT/LOGO none', async () => {
     for (const c of ['RESUME', 'SCAN', 'CONTRACT', 'AVATAR', 'INVOICE'] as const) {
       expect(await visSql('DROP', c)).toEqual({
@@ -285,7 +258,7 @@ describe('buildListWhere', () => {
   })
 
   it('default (no category) list excludes AVATAR/LOGO from the category set for non-ADMIN', async () => {
-    const r = (await list('ACCOUNTANT', {})) as { sql: string; params: unknown[] }
+    const r = (await list('JUNIOR', {})) as { sql: string; params: unknown[] }
     expect(r.params.slice(0, 5)).toEqual(['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'])
   })
 })

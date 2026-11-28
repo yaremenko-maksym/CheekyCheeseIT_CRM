@@ -75,7 +75,7 @@ export function toTransactionDto(row: Transaction): TransactionDto {
     receiptExternalUrl: row.receiptExternalUrl ?? null,
     txHash: row.txHash ?? null,
     // The recorded on-chain sender is
-    // ADMIN/ACCOUNTANT-only audit data. This mapper serves the settlement
+    // ADMIN-only audit data. This mapper serves the settlement
     // endpoints (no viewer in scope) and the rows it returns are
     // company-obligation settlements, not on-chain transfers — always null,
     // matching the masking applied in `TransactionsService.mapTx`.

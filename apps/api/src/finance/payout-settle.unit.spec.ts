@@ -3,7 +3,7 @@
  * `TransactionsService`:
  *
  *   - `payPayoutRequest`        — on-chain happy path (SENIOR / DROP self-service)
- *   - `manualConfirmPayout`     — ADMIN / ACCOUNTANT escape hatch
+ *   - `manualConfirmPayout`     — ADMIN escape hatch
  *   - `applyPayoutPaidCascade`  — the PRIVATE shared "mark PAID + cascade" core,
  *                                 reached ONLY through the two entry points above
  *
@@ -61,7 +61,6 @@ const SENIOR = user('SENIOR', 'senior-1')
 const OTHER_SENIOR = user('SENIOR', 'senior-2')
 const DROP = user('DROP', 'drop-1')
 const ADMIN = user('ADMIN', 'admin-1')
-const ACCOUNTANT = user('ACCOUNTANT', 'acc-1')
 const JUNIOR = user('JUNIOR', 'junior-1')
 const HR = user('HR', 'hr-1')
 
@@ -430,16 +429,13 @@ async function expectApiError(p: Promise<unknown>, code: string, status: number)
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('payPayoutRequest — gates (nothing is read or written on refusal)', () => {
-  it.each([ADMIN, ACCOUNTANT, JUNIOR, HR])(
-    '$role is refused with 403 before ANY db access',
-    async (u) => {
-      const h = build()
-      await expect(h.svc.payPayoutRequest(REQUEST_ID, HASH, u)).rejects.toBeInstanceOf(
-        ForbiddenException,
-      )
-      expect(h.events).toEqual([])
-    },
-  )
+  it.each([ADMIN, JUNIOR, HR])('$role is refused with 403 before ANY db access', async (u) => {
+    const h = build()
+    await expect(h.svc.payPayoutRequest(REQUEST_ID, HASH, u)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    )
+    expect(h.events).toEqual([])
+  })
 
   it('unknown request → 404 FINANCE_PAYOUT_REQUEST_NOT_FOUND', async () => {
     const h = build({ req: undefined })
@@ -782,7 +778,7 @@ describe('manualConfirmPayout — gates', () => {
     },
   )
 
-  it.each([ADMIN, ACCOUNTANT])('$role may confirm', async (u) => {
+  it.each([ADMIN])('$role may confirm', async (u) => {
     const h = build()
     await expect(h.svc.manualConfirmPayout(REQUEST_ID, 'CASH', u)).resolves.toEqual({
       id: REQUEST_ID,
@@ -962,8 +958,8 @@ describe('manualConfirmPayout — txHash-reuse guards (two layers)', () => {
 describe('manualConfirmPayout — audit note', () => {
   it('format: "Manual payout confirmation by <actor> at <ISO now> (method=<m>)" — written to the PAYOUT row and the audit metadata', async () => {
     const h = build()
-    await h.svc.manualConfirmPayout(REQUEST_ID, 'ADMIN_USDT', ACCOUNTANT)
-    const note = `Manual payout confirmation by acc-1 at ${NOW.toISOString()} (method=ADMIN_USDT)`
+    await h.svc.manualConfirmPayout(REQUEST_ID, 'ADMIN_USDT', ADMIN)
+    const note = `Manual payout confirmation by ${ADMIN.id} at ${NOW.toISOString()} (method=ADMIN_USDT)`
     expect(h.find('update transactions')[1]!.set!['notes']).toBe(note)
     expect((h.one('insert transaction_audit_log').values!['metadata'] as Row)['note']).toBe(note)
   })
@@ -1094,7 +1090,7 @@ describe('applyPayoutPaidCascade — the atomic PENDING→PAID claim', () => {
   // for an explicitly chosen payment date, but #809 ran it unconditionally and
   // threw when it found nothing. That made every payout request without a PAYOUT
   // row (legacy data, a half-failed create) permanently unpayable — including
-  // through `manualConfirmPayout`, which IS the ADMIN/ACCOUNTANT recovery path.
+  // through `manualConfirmPayout`, which IS the ADMIN recovery path.
   it('no PAYOUT row and no txDate → the confirmation still proceeds, and the lower-bound lookup is not issued at all', async () => {
     const h = build({ payoutSource: [] })
     await expect(h.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN)).resolves.toBeDefined()
@@ -1527,13 +1523,13 @@ describe('applyPayoutPaidCascade — ledger rows', () => {
 
   it('PAYOUT_SETTLED audit row: exact shape, actor is the impersonator when present', async () => {
     const h = build()
-    const impersonated = user('ACCOUNTANT', 'acc-1', { impersonatorId: 'owner-9' })
+    const impersonated = user('ADMIN', 'imp-admin-1', { impersonatorId: 'owner-9' })
     await h.svc.manualConfirmPayout(REQUEST_ID, 'ADMIN_USDT', impersonated, {
       txHash: HASH,
       note: 'wired',
       txDate: '2026-06-12',
     })
-    const note = `Manual payout confirmation by acc-1 at ${NOW.toISOString()} (method=ADMIN_USDT) — wired`
+    const note = `Manual payout confirmation by imp-admin-1 at ${NOW.toISOString()} (method=ADMIN_USDT) — wired`
     expect(h.one('insert transaction_audit_log').values).toEqual({
       actorId: 'owner-9',
       targetId: PAYOUT_ROW_ID,

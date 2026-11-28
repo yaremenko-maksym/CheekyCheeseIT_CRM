@@ -85,7 +85,7 @@ export class TransactionsController {
     @Query('seniorId') seniorId: string | undefined,
     @Query('month') month: string | undefined,
     // task-soft-delete-and-money-audit (AC3): «показать удалённые» — the
-    // service enforces the RBAC gate (ADMIN/ACCOUNTANT only, and default
+    // service enforces the RBAC gate (ADMIN only, and default
     // false for everyone) so a non-privileged caller passing this is a no-op.
     @Query('includeDeleted') includeDeleted: string | undefined,
   ) {
@@ -105,7 +105,7 @@ export class TransactionsController {
   }
 
   @Post('admin-income')
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   createAdminIncome(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.createAdminIncome(
       createAdminIncomeSchema.parse(body) as Parameters<
@@ -180,7 +180,7 @@ export class TransactionsController {
   }
 
   @Post('expense')
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   createExpense(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.createExpense(
       createExpenseSchema.parse(body) as Parameters<TransactionsService['createExpense']>[0],
@@ -189,7 +189,7 @@ export class TransactionsController {
   }
 
   @Post('salary')
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   createSalary(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.createSalary(
       createSalarySchema.parse(body) as Parameters<TransactionsService['createSalary']>[0],
@@ -198,7 +198,7 @@ export class TransactionsController {
   }
 
   @Post('admin-transfer')
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   createAdminTransfer(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.createAdminTransfer(
       createAdminTransferSchema.parse(body) as Parameters<
@@ -209,19 +209,19 @@ export class TransactionsController {
   }
 
   @Patch(':id/validate')
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   validate(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     const data = validateTransactionSchema.parse(body)
     return this.svc.validateTransaction(id, data.action, data.rejectionReason, user)
   }
 
-  // Drop role - phase 3 (manual payout confirmation, spec §8.4). ACCOUNTANT or
-  // ADMIN selects which admin partner actually received the off-platform
+  // Drop role - phase 3 (manual payout confirmation, spec §8.4). ADMIN
+  // selects which admin partner actually received the off-platform
   // PAYOUT and the backend records both halves in one transaction (PAYOUT →
   // PAID + new PAYOUT_CONFIRMED row crediting the chosen admin). See
   // `confirmPayout` in transactions.service.ts for the full contract.
   @Post(':id/confirm-payout')
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   confirmPayout(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     const data = confirmPayoutSchema.parse(body)
     return this.svc.confirmPayout(id, data.recipientAdminId, user, {
@@ -282,8 +282,8 @@ export class TransactionsController {
 
   // task-receipts-backend (pm-brief §6): generic attach/replace of a receipt on
   // an existing transaction. NO @Roles — RBAC is ownership+role-based and lives
-  // in the service (ADMIN/ACCOUNTANT → any; author → own; replace after PAID →
-  // only ADMIN/ACCOUNTANT). Body validated via attachReceiptSchema (XOR, one of
+  // in the service (ADMIN → any; author → own; replace after PAID →
+  // only ADMIN). Body validated via attachReceiptSchema (XOR, one of
   // doc/url mandatory); the USDT explorer-only rule is applied in the service
   // (the effective currency comes from the existing transaction).
   // LOW (review round 1): ParseUUIDPipe on `:id` — a malformed id (non-uuid)
@@ -327,7 +327,7 @@ export class TransactionsController {
   // route and the operator got a bare 404 instead of the 400 that explains the
   // problem. Also throttled: it is a read, but it is a read of the money path.
   @Get('onchain-hash')
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   @RelaxableThrottle(ONCHAIN_HASH_INSPECT_LIMIT)
   inspectOnChainHash(@Query('txHash') txHash: unknown, @CurrentUser() user: SessionUser) {
     // MED-S (round 7): `?txHash=a&txHash=b` arrives as an ARRAY, and anything
@@ -354,8 +354,8 @@ export class TransactionsController {
   }
 
   // task-soft-delete-and-money-audit. Reverses a soft delete — ADMIN only
-  // (ACCOUNTANT can SEE a deleted row via `?includeDeleted=true` / a direct
-  // GET, but cannot restore it — RolesGuard + a service-side re-check).
+  // (no other role can see a deleted row via `?includeDeleted=true` / a direct
+  // GET; RolesGuard + a service-side re-check).
   // Reason is mandatory for the same audit-trail reason as delete.
   @Patch(':id/restore')
   @Roles('ADMIN')
@@ -414,7 +414,7 @@ export class PayoutRequestsController {
 
   // security-review round on #577 (LOW-1): `TransactionsService.
   // findPayoutRequest` throws `ForbiddenException` UNCONDITIONALLY for any
-  // role outside `{ADMIN, ACCOUNTANT} ∪ {SENIOR, DROP who own the row}` —
+  // role outside `{ADMIN} ∪ {SENIOR, DROP who own the row}` —
   // unlike `findAll` above, HR/JUNIOR (and any future role) can NEVER
   // succeed here, ownership or not. That superset — the roles that can EVER
   // pass the service check — is exactly what `@Roles` below expresses,
@@ -423,7 +423,7 @@ export class PayoutRequestsController {
   // service's `isPrivileged`/`isOwner` check is UNCHANGED and still does the
   // per-row ownership narrowing `@Roles` cannot express.
   @Get(':id')
-  @Roles('ADMIN', 'ACCOUNTANT', 'SENIOR', 'DROP')
+  @Roles('ADMIN', 'SENIOR', 'DROP')
   findOne(@Param('id') id: string, @CurrentUser() user: SessionUser) {
     return this.svc.findPayoutRequest(id, user)
   }
@@ -447,7 +447,7 @@ export class PayoutRequestsController {
     return this.svc.payPayoutRequest(id, data.txHash, user, data.simulateResult, data.txDate)
   }
 
-  // Phase 8 v2 — manual payout confirmation. ADMIN/ACCOUNTANT mark a payout PAID
+  // Phase 8 v2 — manual payout confirmation. ADMIN mark a payout PAID
   // when it was settled OFF the on-chain happy path (COMPANY_ACCOUNT vouched,
   // ADMIN_USDT to a partner's personal wallet, or CASH). Only COMPANY_ACCOUNT
   // credits the company balance. RolesGuard enforces RBAC via the class-level
@@ -455,7 +455,7 @@ export class PayoutRequestsController {
   // NOT a global APP_GUARD); the service re-checks the role for
   // defense-in-depth.
   @Post(':id/manual-confirm')
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   manualConfirm(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     const data = manualConfirmPayoutSchema.parse(body)
     return this.svc.manualConfirmPayout(id, data.method, user, {
@@ -477,7 +477,7 @@ export class PayoutRequestsController {
 // is attached here. @UseGuards(RolesGuard) at the class level enforces every
 // @Roles-decorated method below; methods WITHOUT @Roles stay open to any
 // authenticated user (RolesGuard returns true when no metadata is present), so
-// `accountant-summary` / `drop/me/*` / `exchange-rate` keep their existing
+// `drop/me/*` / `exchange-rate` keep their existing
 // service-side RBAC untouched. This closes the recurring "front-only /
 // service-only gating" gap flagged in the #234 review for the live
 // senior-summary route (the service-side ForbiddenException is KEPT —
@@ -502,7 +502,7 @@ export class FinanceSummaryController {
   // `TransactionsService.getSummary`. A single accidental deletion of that
   // one `if` would have opened company-wide financial data to every
   // authenticated role with nothing left to catch it but one integration
-  // spec. @Roles('ADMIN','ACCOUNTANT') below adds the guard as a SECOND,
+  // spec. @Roles('ADMIN') below adds the guard as a SECOND,
   // independent layer — it matches `getSummary`'s own role check exactly
   // (verify against the service if you change either side). The service
   // check is DEFENSE-IN-DEPTH, not a duplicate: do NOT remove it under the
@@ -511,16 +511,16 @@ export class FinanceSummaryController {
   // and transactions.summary.roles-guard.spec.ts for a test that proves the
   // guard alone (not the service) rejects a forbidden role.
   @Get('summary')
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   getSummary(@CurrentUser() user: SessionUser) {
     return this.svc.getSummary(user)
   }
 
   // task-drop-share-override-and-receiver (D3). ADMIN declares USDT project income
-  // on a USDT-payment project. POST /api/finance/usdt-income — ADMIN ONLY (Q4:
-  // ACCOUNTANT may NOT declare). The @Roles('ADMIN') gate runs BEFORE the handler
-  // (RolesGuard via class-level @UseGuards) — 403 for SENIOR/DROP/HR/JUNIOR/
-  // ACCOUNTANT at the guard layer — in ADDITION to the service-side role check.
+  // on a USDT-payment project. POST /api/finance/usdt-income — ADMIN ONLY (Q4).
+  // The @Roles('ADMIN') gate runs BEFORE the handler
+  // (RolesGuard via class-level @UseGuards) — 403 for SENIOR/DROP/HR/JUNIOR
+  // at the guard layer — in ADDITION to the service-side role check.
   // Body validated via createUsdtIncomeSchema (receiverId = an ADMIN uuid OR the
   // 'COMPANY_ACCOUNT' marker). The gross lands on the receiver; the company books
   // atomic obligations to the senior (unless ADMIN) and drop (if bound).
@@ -535,31 +535,20 @@ export class FinanceSummaryController {
     )
   }
 
-  // ACCOUNTANT Sprint 1. KPI snapshot for the accountant финансовый хаб
-  // (AccountantDashboard). GET /api/finance/accountant-summary — ACCOUNTANT +
-  // ADMIN ONLY; the service throws ForbiddenException for every other role
-  // (SENIOR / JUNIOR / HR / DROP), so company-wide validation KPI never leak.
-  // Returns `accountantSummarySchema` shape ({ pendingValidation,
-  // validatedThisMonth, paidThisMonth, recipientCount }).
-  @Get('accountant-summary')
-  getAccountantSummary(@CurrentUser() user: SessionUser) {
-    return this.svc.getAccountantSummary(user)
-  }
-
   // «Контроль приходов» (task-income-compliance). Company-wide overview of which
   // income receivers (SENIOR / ADMIN-as-senior / DROP) have / have NOT registered
   // a counted (VALIDATED|PAID) income per active project this month. GET
-  // /api/finance/income-compliance?month=YYYY-MM — ADMIN + ACCOUNTANT ONLY.
+  // /api/finance/income-compliance?month=YYYY-MM — ADMIN ONLY.
   //
   // This is an AGGREGATE over MANY receivers (NOT self-scoped), so it must never
-  // leak to a non-privileged caller. The @Roles('ADMIN','ACCOUNTANT') gate runs
+  // leak to a non-privileged caller. The @Roles('ADMIN') gate runs
   // BEFORE the handler (RolesGuard via the class-level @UseGuards), giving 403 to
   // every other role (SENIOR / JUNIOR / HR / DROP) at the guard layer, IN ADDITION
   // to the service-side ForbiddenException (defense-in-depth — kept intentionally,
   // never replaced). income-compliance.integration.spec.ts pins this against the
   // REAL route. `month` is validated/coerced via incomeComplianceQuerySchema.
   @Get('income-compliance')
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   getIncomeCompliance(@CurrentUser() user: SessionUser, @Query() query: unknown) {
     const { month } = incomeComplianceQuerySchema.parse(query ?? {})
     return this.svc.getIncomeComplianceOverview(user, month)
@@ -567,15 +556,15 @@ export class FinanceSummaryController {
 
   // task-salary-month-gap-and-status (E-5). Company-wide visibility into who
   // the monthly SALARY cron was SUPPOSED to accrue for `month` and didn't
-  // (HR/ACCOUNTANT with `monthlySalary` set, JUNIOR on an active project) —
+  // (HR with `monthlySalary` set, JUNIOR on an active project) —
   // making a missed/failed cron run OBSERVABLE instead of silently losing a
-  // month. GET /api/finance/salary-month-gap?month=YYYY-MM — ADMIN + ACCOUNTANT
+  // month. GET /api/finance/salary-month-gap?month=YYYY-MM — ADMIN
   // ONLY (same gate as income-compliance: company-wide aggregate, not
   // self-scoped). `month` defaults to the PREVIOUS calendar month when
   // omitted — the one the cron itself last targeted (security-review
   // HIGH-2: NOT the current month, which the cron never touches).
   @Get('salary-month-gap')
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   getSalaryMonthGap(@CurrentUser() user: SessionUser, @Query() query: unknown) {
     const { month } = salaryMonthGapQuerySchema.parse(query ?? {})
     return this.svc.getSalaryMonthGapReport(user, month)
@@ -585,19 +574,19 @@ export class FinanceSummaryController {
   // — re-runs the SAME idempotent `createMonthlySalaries` the cron calls, for
   // an explicit past (or any) month, then reports what (if anything) is still
   // missing. ADMIN ONLY, deliberately narrower than the read-only gap report
-  // above (ACCOUNTANT can SEE the gap; only ADMIN closes it) — same
+  // above — same
   // requirement `paySalary` in this controller already enforces for the
   // adjacent "move money on a SALARY row" action.
   // SR-795-M-1 / owner decision D-3. What an operator could not see is half of
   // why the double-salary defect was reachable: nothing told them another part
   // for this person and month already existed. GET
-  // /api/finance/salary-parts?receiverId=…&month=YYYY-MM — ADMIN + ACCOUNTANT,
+  // /api/finance/salary-parts?receiverId=…&month=YYYY-MM — ADMIN,
   // the same pair `createSalary` admits, with the role check also in the service
   // body (the project's standing pattern: `@Roles` is the guard layer, never the
   // only layer). Read-only and narrow; both roles already see these rows in the
   // finance table.
   @Get('salary-parts')
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   getSalaryParts(@CurrentUser() user: SessionUser, @Query() query: unknown) {
     return this.svc.getSalaryParts(user, salaryPartsQuerySchema.parse(query ?? {}))
   }
@@ -612,13 +601,13 @@ export class FinanceSummaryController {
   // SENIOR dashboard (task-senior-dashboard). Self-scoped KPI snapshot for the
   // senior ролевой дашборд (SeniorDashboard). GET /api/finance/senior-summary —
   // SENIOR + ADMIN ONLY; the service throws ForbiddenException for every other
-  // role (JUNIOR / HR / ACCOUNTANT / DROP). STRICTLY scoped to currentUser.id —
+  // role (JUNIOR / HR / DROP). STRICTLY scoped to currentUser.id —
   // there is NO target-user param, so one senior can NEVER read another senior's
   // projects / income / payouts. Returns `seniorSummarySchema` shape
   // ({ activeProjects, seniorShareIncome, pendingPayouts, mySalaryStatus }).
   //
   // #234 review MED (defense-in-depth): the @Roles('SENIOR','ADMIN') gate runs
-  // BEFORE the handler, so every other role (JUNIOR / HR / ACCOUNTANT / DROP)
+  // BEFORE the handler, so every other role (JUNIOR / HR / DROP)
   // gets 403 at the guard layer in addition to the service-side
   // ForbiddenException (kept intentionally — never replaced).
   // senior-summary.integration.spec.ts pins this against the REAL route (the
@@ -631,7 +620,7 @@ export class FinanceSummaryController {
 
   // Drop role - phase 1 (task-drop-1-backend). Self-only DROP summary.
   // GET /api/finance/drop/me/summary — DROP role ONLY; the service throws
-  // ForbiddenException for every other role (SENIOR / JUNIOR / HR / ACCOUNTANT
+  // ForbiddenException for every other role (SENIOR / JUNIOR / HR
   // / ADMIN), so this never leaks the full `dropBalances` aggregate nor any
   // other drop's figures. Returns `dropSelfSummarySchema` shape
   // ({ balance, dropSharePercent, pendingIncomesCount, debtToCompany }).

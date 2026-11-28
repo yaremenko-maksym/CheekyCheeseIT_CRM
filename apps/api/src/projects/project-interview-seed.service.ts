@@ -18,7 +18,7 @@ import { PROJECT_APPROVAL_SUBJECT_TYPE } from './project-access.service'
 
 /**
  * Seeds a DRAFT project (plus its approval proposal, senior notification and
- * HR/ACCOUNTANT teammates) from a HIRED interview. Extracted verbatim from
+ * HR teammates) from a HIRED interview. Extracted verbatim from
  * ProjectsService.createFromInterview; the facade keeps a thin delegate.
  */
 @Injectable()
@@ -39,7 +39,7 @@ export class ProjectInterviewSeedService {
    * threaded through every write, a failure rolls the stage change back too.
    * When `tx` is omitted, behaviour is unchanged (`this.db.db`).
    *
-   * Backlog #136: the HR/ACCOUNTANT this seeds onto the new project come from
+   * Backlog #136: the HR this seeds onto the new project come from
    * the senior's team membership below — see the `isNull(teamMembers.leftAt)`
    * filters on both queries it runs. Both must stay: one keeps a team the
    * senior has LEFT from contributing staff at all, the other keeps a
@@ -85,7 +85,7 @@ export class ProjectInterviewSeedService {
         benefits: interview.notesBenefits ?? null,
         // task-drop-share-override-and-receiver (D1 / C10). `interview.notesPaymentType`
         // is a free-text interview note — NOT a project_payment_type enum value.
-        // Leave paymentType at the DB default ('FOP'); ADMIN/ACCOUNTANT set the
+        // Leave paymentType at the DB default ('FOP'); ADMIN set the
         // real enum later via the project edit form.
         salaryReview: interview.notesSalaryReview ?? null,
         corpTech: interview.notesCorpTech ?? null,
@@ -153,7 +153,7 @@ export class ProjectInterviewSeedService {
 
     // Find all teams where this senior is CURRENTLY a member. Backlog #136:
     // this query used to ignore `leftAt`, so a team the senior had already
-    // left still fed its HR/ACCOUNTANT into a brand-new project — a stale
+    // left still fed its HR into a brand-new project — a stale
     // team membership was outliving the membership itself.
     const seniorTeamMemberships = await conn.query.teamMembers.findMany({
       where: and(eq(teamMembers.userId, interview.seniorId), isNull(teamMembers.leftAt)),
@@ -170,8 +170,8 @@ export class ProjectInterviewSeedService {
       // TWO filters, because a dismissed teammate could arrive here by two
       // different routes:
       //
-      //   • `isNull(leftAt)` — `UsersService.archive` closes an HR's /
-      //     ACCOUNTANT's team memberships by stamping `leftAt`, and this query
+      //   • `isNull(leftAt)` — `UsersService.archive` closes an HR's team
+      //     memberships by stamping `leftAt`, and this query
       //     did not look at it. A dismissed HR whose membership had been
       //     closed months ago was still returned here and handed a fresh
       //     ACTIVE row on a brand-new project.
@@ -184,7 +184,7 @@ export class ProjectInterviewSeedService {
       //
       // No money moves through this today (only the JUNIOR branch of
       // `createMonthlySalaries` mints from project membership, and it re-reads
-      // `user.archivedAt`; HR/ACCOUNTANT salaries come from a separate query
+      // `user.archivedAt`; HR salaries come from a separate query
       // that already filters archived). This is about the invariant being true
       // wherever it is stated, not about a live leak.
       const teammates = await conn.query.teamMembers.findMany({
@@ -199,7 +199,7 @@ export class ProjectInterviewSeedService {
         ).user
         if (!u) continue
         if (u.archivedAt) continue
-        if (u.role !== 'HR' && u.role !== 'ACCOUNTANT') continue
+        if (u.role !== 'HR') continue
         if (addedUserIds.has(u.id)) continue
         addedUserIds.add(u.id)
         await conn.insert(projectMembers).values({

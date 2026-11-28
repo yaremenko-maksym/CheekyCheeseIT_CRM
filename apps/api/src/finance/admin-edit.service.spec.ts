@@ -705,11 +705,7 @@ describe('AdminEditService.adminUpdateTransaction — business date', () => {
   it('still refuses a non-ADMIN who sends a date', async () => {
     const ctx = makeCtx()
     await expect(
-      ctx.svc.adminUpdateTransaction(
-        TX_ID,
-        { txDate: '2026-10-25' },
-        { ...ADMIN, role: 'ACCOUNTANT' },
-      ),
+      ctx.svc.adminUpdateTransaction(TX_ID, { txDate: '2026-10-25' }, { ...ADMIN, role: 'SENIOR' }),
     ).rejects.toBeInstanceOf(ForbiddenException)
     expect(ctx.findFirst).not.toHaveBeenCalled()
   })

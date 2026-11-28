@@ -149,7 +149,7 @@ const insertOf = (log: Array<Record<string, unknown>>, table: string) =>
   log.find((e) => e.op === 'insert' && e.table === table)
 
 describe('UsersService.createDrop — RBAC gate and pre-flight checks', () => {
-  it.each(['SENIOR', 'HR', 'JUNIOR', 'ACCOUNTANT', 'DROP'] as const)(
+  it.each(['SENIOR', 'HR', 'JUNIOR', 'DROP'] as const)(
     'rejects %s actor with 403 DROP_CREATE_ADMIN_ONLY before touching the db',
     async (role) => {
       const h = makeHarness()
@@ -254,7 +254,6 @@ describe('UsersService.createDrop — transactional write', () => {
     const result = await h.service.createDrop(
       baseInput({
         telegramChannel: '@drop_channel',
-        accountantId: 'acc-1',
         hrIds: ['hr-1', 'hr-2'],
       }),
       admin,
@@ -316,7 +315,7 @@ describe('UsersService.createDrop — transactional write', () => {
       },
       {
         op: 'createDropTeam',
-        args: ['drop-new', ['hr-1', 'hr-2'], 'acc-1', '@drop_channel', h.tx],
+        args: ['drop-new', ['hr-1', 'hr-2'], '@drop_channel', h.tx],
       },
       {
         op: 'team-audit',
@@ -333,18 +332,6 @@ describe('UsersService.createDrop — transactional write', () => {
     // teamAuditLogService (not swapped).
     expect(h.auditRecord).toHaveBeenCalledTimes(1)
     expect(h.teamAuditRecord).toHaveBeenCalledTimes(1)
-  })
-
-  it('defaults accountantId and telegramChannel to null when omitted', async () => {
-    const h = makeHarness()
-    await h.service.createDrop(baseInput(), admin)
-    expect(h.createDropTeam).toHaveBeenCalledWith('drop-new', ['hr-1'], null, null, h.tx)
-  })
-
-  it('maps explicit null accountantId / telegramChannel to null', async () => {
-    const h = makeHarness()
-    await h.service.createDrop(baseInput({ accountantId: null, telegramChannel: null }), admin)
-    expect(h.createDropTeam).toHaveBeenCalledWith('drop-new', ['hr-1'], null, null, h.tx)
   })
 
   it('persists optional profile fields verbatim and keeps an explicit dropSharePercent', async () => {

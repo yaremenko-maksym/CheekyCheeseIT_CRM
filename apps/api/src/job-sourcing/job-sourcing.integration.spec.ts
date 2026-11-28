@@ -86,15 +86,6 @@ const HR_A: SessionUser = {
   seniorSharePercent: 0,
   legalFullName: null,
 }
-const ACCOUNTANT: SessionUser = {
-  id: 'd5e6f7a8-1b2c-4d3e-aa00-000000000005',
-  email: 'js-accountant@test.spec',
-  displayName: 'JS Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
 
 /**
  * The one refusal every closed queue entry point now raises for a SENIOR
@@ -108,7 +99,7 @@ const TEAM_B_ID = 'd5e6f7a8-1b2c-4d3e-bb00-000000000002'
 const PROJECT_ID = 'd5e6f7a8-1b2c-4d3e-cc00-000000000001'
 const SOURCE_ID = 'd5e6f7a8-1b2c-4d3e-dd00-000000000001'
 
-const TEST_USER_IDS = [ADMIN.id, SENIOR_A.id, SENIOR_B.id, HR_A.id, ACCOUNTANT.id]
+const TEST_USER_IDS = [ADMIN.id, SENIOR_A.id, SENIOR_B.id, HR_A.id, ADMIN.id]
 
 /** Feed entry helper — `guidSuffix` simulates DOU's changing guid query. */
 function douFeed(
@@ -181,7 +172,7 @@ describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () =>
     await db
       .insert(users)
       .values(
-        [ADMIN, SENIOR_A, SENIOR_B, HR_A, ACCOUNTANT].map((u) => ({
+        [ADMIN, SENIOR_A, SENIOR_B, HR_A].map((u) => ({
           id: u.id,
           email: u.email,
           displayName: u.displayName,
@@ -567,10 +558,6 @@ describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () =>
 
   it('RBAC: HR cannot reach a senior from another team', async () => {
     await expect(service.listSuggestions(SENIOR_B.id, HR_A)).rejects.toThrow(/не в ваших командах/)
-  })
-
-  it('RBAC: ACCOUNTANT is rejected outright', async () => {
-    await expect(service.listSuggestions(SENIOR_A.id, ACCOUNTANT)).rejects.toThrow(/Нет доступа/)
   })
 
   it('RBAC: a SENIOR cannot change the status of another senior’s suggestion', async () => {

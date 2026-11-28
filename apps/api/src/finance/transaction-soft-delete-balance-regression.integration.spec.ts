@@ -13,15 +13,13 @@
  * that exact code path, not just by inspection.
  *
  * WHY real-DB: several of these are raw SQL aggregates
- * (`company-account-balance.ts`'s `sumAmount`, `getAccountantSummary`'s
- * FILTER (WHERE …) clauses, `admin-summary.service.ts`'s NOT EXISTS
+ * (`company-account-balance.ts`'s `sumAmount`, `admin-summary.service.ts`'s NOT EXISTS
  * correlated subquery) — a mocked `.select()` cannot prove a WHERE clause is
  * actually wired into the generated SQL the way a real Postgres round-trip can.
  *
  * WHAT it covers (one row per function, chosen to be the type that function
  * ACTUALLY reads — see each `it` block's comment):
  *   - TransactionsService.getSummary            (totalIncome)
- *   - TransactionsService.getAccountantSummary  (pendingValidation)
  *   - TransactionsService.getSeniorSummary      (incomeTotal)
  *   - TransactionsService.getDropSelfSummary    (balance)
  *   - BalanceService.getAdminBalance            (dividends)
@@ -83,15 +81,6 @@ const ADMIN_1: SessionUser = {
   seniorSharePercent: 26,
   legalFullName: null,
 }
-const ACCOUNTANT_1: SessionUser = {
-  id: 'bd5e0000-0000-4000-aa00-000000000002',
-  email: 'br-accountant@test.spec',
-  displayName: 'BR Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 26,
-  legalFullName: null,
-}
 const SENIOR_1: SessionUser = {
   id: 'bd5e0000-0000-4000-aa00-000000000003',
   email: 'br-senior@test.spec',
@@ -111,7 +100,7 @@ const DROP_1: SessionUser = {
   legalFullName: null,
 }
 
-const ALL_USER_IDS = [ADMIN_1, ACCOUNTANT_1, SENIOR_1, DROP_1].map((u) => u.id)
+const ALL_USER_IDS = [ADMIN_1, SENIOR_1, DROP_1].map((u) => u.id)
 
 const PROJECT_1 = 'bd5e0001-0000-4000-b000-000000000001'
 const ALL_PROJECT_IDS = [PROJECT_1]
@@ -119,7 +108,7 @@ const ALL_PROJECT_IDS = [PROJECT_1]
 /** Every extra tx id any `it` block inserts — swept in `afterAll`. */
 const ALL_EXTRA_TX_IDS = [
   'bd5e0002-0000-4000-a000-000000000001', // getSummary
-  'bd5e0002-0000-4000-a000-000000000002', // getAccountantSummary
+  'bd5e0002-0000-4000-a000-000000000002', // spare (the accountant summary reader was removed)
   'bd5e0002-0000-4000-a000-000000000003', // getSeniorSummary
   'bd5e0002-0000-4000-a000-000000000004', // getDropSelfSummary
   'bd5e0002-0000-4000-a000-000000000005', // getAdminBalance
@@ -184,7 +173,7 @@ describe.skipIf(!hasDatabaseUrl())(
         makeNotificationsStub(),
       )
 
-      for (const u of [ADMIN_1, ACCOUNTANT_1, SENIOR_1, DROP_1]) {
+      for (const u of [ADMIN_1, SENIOR_1, DROP_1]) {
         await db
           .insert(users)
           .values({
@@ -262,37 +251,6 @@ describe.skipIf(!hasDatabaseUrl())(
 
       const afterDelete = await svc.getSummary(ADMIN_1)
       expect(afterDelete.totalIncome).toBeCloseTo(before.totalIncome, 6)
-    })
-
-    it('getAccountantSummary.pendingValidation — insert + soft-delete a PENDING SENIOR_INCOME nets to baseline', async () => {
-      const before = await svc.getAccountantSummary(ACCOUNTANT_1)
-
-      const db = drizzle(_pool!, { schema })
-      await db.insert(transactions).values({
-        id: ALL_EXTRA_TX_IDS[1]!,
-        type: 'SENIOR_INCOME',
-        status: 'PENDING',
-        amount: '500',
-        currency: 'USDT',
-        senderLabel: 'Client Co',
-        receiverId: SENIOR_1.id,
-        projectId: PROJECT_1,
-        createdBy: SENIOR_1.id,
-        txDate: resolveTransactionDate(null),
-      })
-
-      const afterInsert = await svc.getAccountantSummary(ACCOUNTANT_1)
-      expect(afterInsert.pendingValidation.count).toBe(before.pendingValidation.count + 1)
-      expect(afterInsert.pendingValidation.amount).toBeCloseTo(
-        before.pendingValidation.amount + 500,
-        6,
-      )
-
-      await svc.adminDeleteTransaction(ALL_EXTRA_TX_IDS[1]!, 'regression test cleanup', ADMIN_1)
-
-      const afterDelete = await svc.getAccountantSummary(ACCOUNTANT_1)
-      expect(afterDelete.pendingValidation.count).toBe(before.pendingValidation.count)
-      expect(afterDelete.pendingValidation.amount).toBeCloseTo(before.pendingValidation.amount, 6)
     })
 
     it('getSeniorSummary.seniorShareIncome — insert + soft-delete a PAID SENIOR_INCOME nets to baseline', async () => {

@@ -35,7 +35,6 @@ describe.skipIf(!hasDatabaseUrl())(
       for (const hr of ['hrA', 'hrB']) await h.mkUser(hr, 'HR')
       for (const s of ['senA', 'senStop', 'senLeft', 'senB']) await h.mkUser(s, 'SENIOR')
       await h.mkUser('jun', 'JUNIOR')
-      await h.mkUser('acc', 'ACCOUNTANT')
       for (const t of ['teamA', 'teamB']) await h.mkTeam(t)
       for (const m of ['hrA', 'senA', 'senStop', 'senLeft']) await h.join('teamA', m)
       for (const m of ['hrB', 'senB']) await h.join('teamB', m)
@@ -63,8 +62,8 @@ describe.skipIf(!hasDatabaseUrl())(
       h.runner.renderEdit.mockClear()
     })
 
-    it('SENIOR, JUNIOR and ACCOUNTANT get 403 on every route', async () => {
-      for (const who of ['senA', 'jun', 'acc']) {
+    it('SENIOR and JUNIOR get 403 on every route', async () => {
+      for (const who of ['senA', 'jun']) {
         for (const [method, url, body] of routes(h.id('oppA'), h.id('senA'))) {
           const res = await h.call(method, url, who, body)
           expect([who, method, url, res.status]).toEqual([who, method, url, 403])

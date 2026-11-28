@@ -24,7 +24,7 @@ const ADMIN: SessionUser = {
   seniorSharePercent: 0,
   legalFullName: null,
 }
-const NON_ADMIN: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
+const NON_ADMIN: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'DROP']
 const SOURCE = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
 const dialect = new PgDialect()
 

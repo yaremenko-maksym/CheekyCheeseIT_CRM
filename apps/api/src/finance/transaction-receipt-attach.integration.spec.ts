@@ -8,7 +8,7 @@
  *
  * COVERS (task AC):
  *   - RBAC: foreign author → 403; author attach own → ok; author replace after
- *     PAID → 403; ADMIN/ACCOUNTANT replace after PAID → ok.
+ *     PAID → 403; ADMIN replace after PAID → ok.
  *   - Currency-aware: USDT tx attach file → 400; explorer url → ok; non-USDT tx
  *     attach file → ok.
  *   - audit-log: attach → action=ATTACH; replace → action=REPLACE (old/new in metadata).
@@ -67,15 +67,6 @@ const DMYTRO: SessionUser = {
   displayName: 'Dmytro Marchenko',
   avatarUrl: null,
   role: 'SENIOR',
-  seniorSharePercent: 26,
-  legalFullName: null,
-}
-const ACCOUNTANT: SessionUser = {
-  id: 'c7e8d9a0-b1c2-4d3e-8f5a-6b7c8d9e0fbb',
-  email: 'mykola.savchenko@cheekycheese.dev',
-  displayName: 'Mykola Savchenko',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
   seniorSharePercent: 26,
   legalFullName: null,
 }
@@ -345,13 +336,13 @@ describe.skipIf(!hasDatabaseUrl())(
       })
     })
 
-    it('ACCOUNTANT replace receipt AFTER PAID → ok; audit REPLACE', async () => {
+    it('ADMIN replace receipt AFTER PAID → ok; audit REPLACE', async () => {
       const NEW_URL = 'https://drive.google.com/file/paid-replaced'
-      await svc.attachOrReplaceReceipt(TX_PAID, { receiptExternalUrl: NEW_URL }, ACCOUNTANT)
+      await svc.attachOrReplaceReceipt(TX_PAID, { receiptExternalUrl: NEW_URL }, ADMIN)
       const row = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_PAID) })
       expect(row?.receiptExternalUrl).toBe(NEW_URL)
       const audit = await auditRows(TX_PAID)
-      expect(audit.some((a) => a.action === 'REPLACE' && a.actorId === ACCOUNTANT.id)).toBe(true)
+      expect(audit.some((a) => a.action === 'REPLACE' && a.actorId === ADMIN.id)).toBe(true)
     })
 
     it('ADMIN attach to ANY transaction (not author) → ok', async () => {

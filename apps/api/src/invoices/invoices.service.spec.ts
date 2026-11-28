@@ -49,7 +49,6 @@ const ADMIN = u('admin-1', 'ADMIN', 'Maksym')
 const SENIOR = u('senior-1', 'SENIOR', 'Alice')
 const SENIOR2 = u('senior-2', 'SENIOR', 'Bob')
 const JUNIOR = u('junior-1', 'JUNIOR', 'Carol')
-const ACCOUNTANT = u('acc-1', 'ACCOUNTANT', 'Dana')
 
 // security-review round 6 (PR #600, MED-H): the REAL sha256 of the harness's
 // default `pdfBuffer` (`Buffer.from('PDFDATA')`, see `buildHarness` below) —
@@ -1525,24 +1524,6 @@ describe('InvoicesService', () => {
       expect(result.length).toBe(2)
       expect(result.every((r) => r.status === 'PENDING' || r.status === 'SIGNED')).toBe(true)
     })
-
-    it('ACCOUNTANT also sees all invoices', async () => {
-      const h = buildHarness({
-        txs: [
-          tx({
-            id: 'tx-1',
-            type: 'SENIOR_INCOME',
-            receiverId: SENIOR.id,
-            invoiceDocumentId: 'doc-1',
-          }),
-        ],
-        sigs: [],
-        users: [{ id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' }],
-        projects: [],
-      })
-      const result = await h.svc.listInvoices(ACCOUNTANT, { status: undefined, type: undefined })
-      expect(result.length).toBe(1)
-    })
   })
 
   describe('verifyInvoice', () => {
@@ -2650,7 +2631,7 @@ describe('InvoicesService', () => {
   // ── R2: getInvoice cross-counterparty 403 ──────────────────────────────────
   //
   // RBAC guard in `assertCanViewInvoice`:
-  //   - ADMIN + ACCOUNTANT see everything.
+  //   - ADMIN see everything.
   //   - SENIOR who is the counterparty (receiverId matches viewer.id) → ok.
   //   - SENIOR who is NOT the counterparty → 403.
   //   - All other roles that are not counterparty → 403.
@@ -2693,19 +2674,6 @@ describe('InvoicesService', () => {
       h.ctrl.findTxId = 'tx-invoice-1'
 
       const result = await h.svc.getInvoice(ADMIN, 'tx-invoice-1')
-      expect(result.transactionId).toBe('tx-invoice-1')
-    })
-
-    it('ACCOUNTANT sees invoice for any counterparty', async () => {
-      const h = buildHarness({
-        txs: [makeInvoiceTx()],
-        sigs: [],
-        users: [{ id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' }],
-        projects: [],
-      })
-      h.ctrl.findTxId = 'tx-invoice-1'
-
-      const result = await h.svc.getInvoice(ACCOUNTANT, 'tx-invoice-1')
       expect(result.transactionId).toBe('tx-invoice-1')
     })
 

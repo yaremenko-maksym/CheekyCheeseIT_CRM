@@ -1,9 +1,9 @@
 /**
  * Unit tests for AC5 (task-project-draft-status, item 4 + decision Д1):
  * "Черновик невидим всем, кроме админа и подтверждающих." One test per role
- * in `ADMIN | SENIOR | JUNIOR | HR | ACCOUNTANT` + DROP, on a DRAFT project —
+ * in `ADMIN | SENIOR | JUNIOR | HR` + DROP, on a DRAFT project —
  * ADMIN and an INVITED SENIOR/DROP see it, everyone else (including a
- * SENIOR/DROP who was never invited, and ACCOUNTANT — who otherwise has
+ * SENIOR/DROP who was never invited, and accountant — who otherwise has
  * unconditional access to every ACTIVE project) gets 404, never 403 (see
  * `assertAccess`'s own comment for the existence-oracle reasoning this
  * mirrors from `transaction-visibility.util.ts`).
@@ -25,7 +25,6 @@ const DROP_ID = 'drop-invited'
 const ADMIN_ID = 'admin-1'
 const HR_ID = 'hr-1'
 const JUNIOR_ID = 'junior-1'
-const ACCOUNTANT_ID = 'accountant-1'
 const PROJECT_ID = 'draft-proj-1'
 
 function draftProject() {
@@ -189,27 +188,10 @@ describe('AC5 — draft project visibility (findOne/assertAccess)', () => {
       response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND', statusCode: 404 }),
     })
   })
-
-  it('ACCOUNTANT gets 404 — NOT the unconditional access ACCOUNTANT has on an ACTIVE project', async () => {
-    const { service } = buildService(invited)
-    await expect(
-      service.findOne(PROJECT_ID, sessionFor(ACCOUNTANT_ID, 'ACCOUNTANT')),
-    ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND', statusCode: 404 }),
-    })
-  })
 })
 
 describe('AC5 — draft project visibility (findAll)', () => {
   const invited = new Set([SENIOR_ID, DROP_ID])
-
-  it('ACCOUNTANT does not see the draft in the list either', async () => {
-    const { service } = buildService(invited)
-    const result = await service.findAll(sessionFor(ACCOUNTANT_ID, 'ACCOUNTANT'), {
-      archived: false,
-    })
-    expect(result.map((p) => p.id)).not.toContain(PROJECT_ID)
-  })
 
   it('the invited SENIOR sees their own draft in the list', async () => {
     const { service } = buildService(invited)

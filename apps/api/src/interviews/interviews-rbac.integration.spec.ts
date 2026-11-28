@@ -64,7 +64,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  *   DELETE /api/interviews/:id        (remove)
  *
  *   Roles exercised: ADMIN, SENIOR (own board + active-team guard), HR
- *   (own team-seniors + cross-team 403), JUNIOR (403), ACCOUNTANT, DROP (403),
+ *   (own team-seniors + cross-team 403), JUNIOR (403), DROP (403),
  *   plus unauthenticated (401).
  *
  * SEED namespace: c1d2e3f4-0a1b-4c2d-** (distinct from existing groups).
@@ -253,16 +253,6 @@ const JUNIOR: SessionUser = {
   legalFullName: null,
 }
 
-const ACCOUNTANT: SessionUser = {
-  id: 'c1d2e3f4-0a1b-4c2d-aa00-000000000007',
-  email: 'iv-rbac-accountant@test.spec',
-  displayName: 'IV RBAC Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
-
 const DROP: SessionUser = {
   id: 'c1d2e3f4-0a1b-4c2d-aa00-000000000008',
   email: 'iv-rbac-drop@test.spec',
@@ -288,7 +278,7 @@ const TEST_USER_IDS = [
   HR_LEFT.id,
   SENIOR_C.id,
   JUNIOR.id,
-  ACCOUNTANT.id,
+  ADMIN.id,
   DROP.id,
 ]
 const TEST_TEAM_IDS = [TEAM_A_ID, TEAM_B_ID]
@@ -460,13 +450,6 @@ describe.skipIf(!hasDatabaseUrl())(
             displayName: JUNIOR.displayName,
             role: 'JUNIOR',
             googleId: `test-iv-${JUNIOR.id}`,
-          },
-          {
-            id: ACCOUNTANT.id,
-            email: ACCOUNTANT.email,
-            displayName: ACCOUNTANT.displayName,
-            role: 'ACCOUNTANT',
-            googleId: `test-iv-${ACCOUNTANT.id}`,
           },
           {
             id: DROP.id,
@@ -702,30 +685,6 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(res.statusCode).toBe(401)
     })
 
-    // ── ACCOUNTANT gap closure (HR-2): @Roles excludes ACCOUNTANT from boards ────
-    // Before HR-2 the service had no else-branch for ACCOUNTANT, so an ACCOUNTANT
-    // with a valid seniorId fell through to the query and got 200 (front-only
-    // gating — the sidebar hid the link, the API did not). docs/business/modules/
-    // interviews.md restricts boards to ADMIN/HR/SENIOR; @Roles now enforces it.
-
-    it('LIST 11. ACCOUNTANT → 403 with a valid seniorId (closed gap; was 200)', async () => {
-      const res = await app.inject({
-        method: 'GET',
-        url: `/api/interviews?seniorId=${SENIOR_A.id}`,
-        cookies: { jwt: tokenFor(ACCOUNTANT) },
-      })
-      expect(res.statusCode).toBe(403)
-    })
-
-    it('LIST 12. ACCOUNTANT → 403 without seniorId', async () => {
-      const res = await app.inject({
-        method: 'GET',
-        url: `/api/interviews`,
-        cookies: { jwt: tokenFor(ACCOUNTANT) },
-      })
-      expect(res.statusCode).toBe(403)
-    })
-
     // ── ex-HR access revocation (audit MEDIUM) ───────────────────────────────────
     // HR_LEFT used to be in TEAM_A with SENIOR_A but left (teamMembers.leftAt set).
     // getAccessibleSeniorIds now filters left memberships, so SENIOR_A is no longer
@@ -798,16 +757,6 @@ describe.skipIf(!hasDatabaseUrl())(
         url: `/api/interviews`,
         cookies: { jwt: tokenFor(JUNIOR) },
         payload: { seniorId: SENIOR_A.id, companyName: 'Junior Created Co' },
-      })
-      expect(res.statusCode).toBe(403)
-    })
-
-    it('CREATE 16. ACCOUNTANT → 403', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: `/api/interviews`,
-        cookies: { jwt: tokenFor(ACCOUNTANT) },
-        payload: { seniorId: SENIOR_A.id, companyName: 'Acc Created Co' },
       })
       expect(res.statusCode).toBe(403)
     })
@@ -891,16 +840,6 @@ describe.skipIf(!hasDatabaseUrl())(
         url: `/api/interviews/${CARD_A_ID}`,
         cookies: { jwt: tokenFor(JUNIOR) },
         payload: { companyName: 'Junior Update' },
-      })
-      expect(res.statusCode).toBe(403)
-    })
-
-    it('UPDATE 25. ACCOUNTANT → 403', async () => {
-      const res = await app.inject({
-        method: 'PATCH',
-        url: `/api/interviews/${CARD_A_ID}`,
-        cookies: { jwt: tokenFor(ACCOUNTANT) },
-        payload: { companyName: 'Acc Update' },
       })
       expect(res.statusCode).toBe(403)
     })
@@ -1049,15 +988,6 @@ describe.skipIf(!hasDatabaseUrl())(
         method: 'DELETE',
         url: `/api/interviews/${CARD_A_ID}`,
         cookies: { jwt: tokenFor(JUNIOR) },
-      })
-      expect(res.statusCode).toBe(403)
-    })
-
-    it('REMOVE 36. ACCOUNTANT → 403', async () => {
-      const res = await app.inject({
-        method: 'DELETE',
-        url: `/api/interviews/${CARD_A_ID}`,
-        cookies: { jwt: tokenFor(ACCOUNTANT) },
       })
       expect(res.statusCode).toBe(403)
     })

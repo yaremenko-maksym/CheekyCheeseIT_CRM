@@ -138,16 +138,8 @@ const ADMIN: SessionUser = {
   role: 'ADMIN',
   seniorSharePercent: 0,
 }
-const ACCOUNTANT: SessionUser = {
-  ...SENIOR,
-  id: 'ce550000-0000-4000-bb00-000000000006',
-  email: 'dspp-accountant@test.spec',
-  displayName: 'DSPP Accountant',
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-}
 
-const TEST_OWN_USERS = [SENIOR, DROP_A, ADMIN, ACCOUNTANT]
+const TEST_OWN_USERS = [SENIOR, DROP_A, ADMIN]
 const TEST_OWN_USER_IDS = TEST_OWN_USERS.map((u) => u.id)
 const PROJECT_ID = 'ce550000-0000-4000-dd00-000000000001'
 
@@ -587,7 +579,7 @@ describe.skipIf(!hasDatabaseUrl())('drop-share-pending-parity backfill script (r
       ),
     })
     expect(obligation).toBeTruthy()
-    const settled = await settleSvc.settleByCompany(obligation!.id, ACCOUNTANT, {
+    const settled = await settleSvc.settleByCompany(obligation!.id, ADMIN, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN.id,
       receiptExternalUrl: 'https://etherscan.io/tx/0xdsppbackfillroundtrip01',

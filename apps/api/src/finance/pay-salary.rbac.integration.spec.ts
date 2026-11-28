@@ -33,7 +33,7 @@ import { resolveTransactionDate } from './transaction-date.util'
  * behind the REAL JwtAuthGuard + RolesGuard against REAL PostgreSQL and asserts:
  *
  *   PATCH /transactions/:id/pay
- *     SENIOR / ACCOUNTANT / JUNIOR / HR / DROP → 403 (guard fires before handler)
+ *     SENIOR / JUNIOR / HR / DROP → 403 (guard fires before handler)
  *     ADMIN                                    → 2xx (handler reached, tx PAID)
  *
  * Dropping @Roles/@UseGuards from the route turns THIS spec red — the guarantee
@@ -55,13 +55,6 @@ const ADMIN: SessionUser = {
   role: 'ADMIN',
   seniorSharePercent: 0,
   legalFullName: null,
-}
-const ACCOUNTANT: SessionUser = {
-  ...ADMIN,
-  id: 'aa220000-0000-4000-aa00-000000000002',
-  email: 'ps-acct@test.spec',
-  displayName: 'PS Accountant',
-  role: 'ACCOUNTANT',
 }
 const SENIOR: SessionUser = {
   ...ADMIN,
@@ -93,7 +86,7 @@ const DROP: SessionUser = {
   role: 'DROP',
 }
 
-const ALL = [ADMIN, ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]
+const ALL = [ADMIN, SENIOR, JUNIOR, HR, DROP]
 const TEST_USER_IDS = ALL.map((u) => u.id)
 
 // ── Stub collaborators — irrelevant to the RBAC guard chain ──────────────────
@@ -317,7 +310,7 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── 403: non-ADMIN roles are blocked at the HTTP guard (before handler) ──────
     // Each 403 proves the guard fired BEFORE the handler; a leaked handler would
     // have flipped the tx to PAID (or returned 400 on a business-logic mismatch).
-    for (const persona of [SENIOR, ACCOUNTANT, JUNIOR, HR, DROP]) {
+    for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
       it(`PATCH :id/pay — ${persona.role} → 403 (guard fires before handler)`, async () => {
         const txId = await seedPendingSalary()
         const code = await paySalary(persona, txId)

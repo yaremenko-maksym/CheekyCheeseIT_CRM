@@ -5,7 +5,7 @@
  * Viewer → target:
  *   SENIOR → self: read + write;  ADMIN → active SENIOR: read + write;
  *   ADMIN → a non-senior / archived / missing user: 404;
- *   SENIOR → another senior, HR / JUNIOR / ACCOUNTANT → anyone: 403, and nothing is written.
+ *   SENIOR → another senior, HR / JUNIOR → anyone: 403, and nothing is written.
  *
  * Seed rows are namespaced `savail-` and deleted in afterAll (the availability rows cascade).
  * NEVER `crm_db`:
@@ -31,11 +31,10 @@ const ID = {
   senB: '5a110014-0000-4000-bb00-0000000000a3',
   hr: '5a110014-0000-4000-bb00-0000000000a4',
   junior: '5a110014-0000-4000-bb00-0000000000a5',
-  accountant: '5a110014-0000-4000-bb00-0000000000a6',
   archivedSenior: '5a110014-0000-4000-bb00-0000000000a7',
   missing: '5a110014-0000-4000-bb00-0000000000ff',
 } as const
-const SEEDED = [ID.admin, ID.senA, ID.senB, ID.hr, ID.junior, ID.accountant, ID.archivedSenior]
+const SEEDED = [ID.admin, ID.senA, ID.senB, ID.hr, ID.junior, ID.archivedSenior]
 const FREE = { status: 'FREE', availableFrom: '2026-11-01' } as const
 
 let pool: Pool
@@ -80,7 +79,6 @@ describe.skipIf(!hasDatabaseUrl())('senior availability RBAC (real DB)', () => {
         user(ID.senB, 'SENIOR'),
         user(ID.hr, 'HR'),
         user(ID.junior, 'JUNIOR'),
-        user(ID.accountant, 'ACCOUNTANT'),
         user(ID.archivedSenior, 'SENIOR', true),
       ])
   }, 60_000)
@@ -133,7 +131,6 @@ describe.skipIf(!hasDatabaseUrl())('senior availability RBAC (real DB)', () => {
   it.each([
     ['HR', ID.hr],
     ['JUNIOR', ID.junior],
-    ['ACCOUNTANT', ID.accountant],
   ])('%s → a senior: 403 on read and write, nothing written', async (_role, viewer) => {
     const before = await stored(ID.senB)
     expect(await status(() => service.set(viewer, ID.senB, { status: 'BUSY' }))).toBe(403)

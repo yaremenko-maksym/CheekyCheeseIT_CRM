@@ -34,8 +34,8 @@ import { resolveTransactionDate } from './transaction-date.util'
  *   AC3  on-chain confirm: valid tx (to=company wallet, confirmed, amount≈payable)
  *        → payout PAID + company balance += payable. wrong-recipient /
  *        not-confirmed / amount-mismatch → NOT PAID, balance unchanged.
- *   AC5  manual-confirm RBAC: SENIOR/DROP → ForbiddenException (403); ADMIN /
- *        ACCOUNTANT → PAID. COMPANY_ACCOUNT credits the balance; ADMIN_USDT /
+ *   AC5  manual-confirm RBAC: SENIOR/DROP → ForbiddenException (403); ADMIN →
+ *        PAID. COMPANY_ACCOUNT credits the balance; ADMIN_USDT /
  *        CASH do NOT.
  *   AC6  idempotency: a second confirm of an already-PAID payout throws and the
  *        balance is not doubled; a txHash reused across payouts is rejected.
@@ -82,13 +82,6 @@ const ADMIN: SessionUser = {
   role: 'ADMIN',
   seniorSharePercent: 0,
 }
-const ACCOUNTANT: SessionUser = {
-  ...SENIOR,
-  id: 'ca110000-0000-4000-aa00-000000000003',
-  email: 'pay-acc@test.spec',
-  displayName: 'Pay Accountant',
-  role: 'ACCOUNTANT',
-}
 const DROP: SessionUser = {
   ...SENIOR,
   id: 'ca110000-0000-4000-aa00-000000000004',
@@ -111,7 +104,7 @@ const HR: SessionUser = {
   role: 'HR',
 }
 
-const ALL = [SENIOR, SENIOR2, ADMIN, ACCOUNTANT, DROP, JUNIOR, HR]
+const ALL = [SENIOR, SENIOR2, ADMIN, DROP, JUNIOR, HR]
 const TEST_USER_IDS = ALL.map((u) => u.id)
 const ACCOUNT_ID = 'ca110000-0000-4000-cc00-000000000001'
 
@@ -512,7 +505,7 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── RECORDED SENDER (task-onchain-payment-integrity) ────────────────────────
     // The on-chain `from` is OBSERVED, not enforced: staff often withdraw from an
     // exchange, so the sender is the exchange's hot wallet. It must not block the
-    // settlement, and it must be persisted + visible to ADMIN/ACCOUNTANT only.
+    // settlement, and it must be persisted + visible to ADMIN only.
     it('a THIRD-PARTY sender settles the payout and is RECORDED (not blocked)', async () => {
       const { requestId, payable } = await seedPayout(SENIOR, '1000')
       const HASH = '0x' + '9'.repeat(64)
@@ -550,7 +543,7 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(audit?.metadata).toMatchObject({ txHash: HASH, txFromAddress: EXCHANGE_WALLET })
     })
 
-    it('RBAC: the recorded sender is ADMIN/ACCOUNTANT-only in the DTO', async () => {
+    it('RBAC: the recorded sender is ADMIN-only in the DTO', async () => {
       const { requestId, payable } = await seedPayout(SENIOR, '1000')
       const HASH = '0x' + '8'.repeat(64)
       verifyScript.set(HASH, {
@@ -566,11 +559,8 @@ describe.skipIf(!hasDatabaseUrl())(
 
       // Owner (SENIOR) — masked.
       expect((await svc.findPayoutRequest(requestId, SENIOR)).txFromAddress).toBeNull()
-      // ADMIN / ACCOUNTANT — disclosed.
+      // ADMIN — disclosed.
       expect((await svc.findPayoutRequest(requestId, ADMIN)).txFromAddress).toBe(EXCHANGE_WALLET)
-      expect((await svc.findPayoutRequest(requestId, ACCOUNTANT)).txFromAddress).toBe(
-        EXCHANGE_WALLET,
-      )
 
       // Same masking in the LIST projection.
       const asSenior = await svc.findPayoutRequests(SENIOR)
@@ -603,7 +593,7 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await idsSeenBy(HR)).toEqual([])
 
       // These two read the whole table, so a shared scratch DB adds rows no suite here owns.
-      for (const viewer of [ADMIN, ACCOUNTANT]) {
+      for (const viewer of [ADMIN]) {
         const ownedBySuite = (await svc.findPayoutRequests(viewer))
           .filter((r) => TEST_USER_IDS.includes(r.seniorId))
           .map((r) => r.id)
@@ -682,11 +672,11 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     // ── AC5: manual-confirm ADMIN_USDT → PAID but NO credit ─────────────────────
-    it('manual-confirm ADMIN_USDT (ACCOUNTANT) → PAID, balance UNCHANGED (off the company account)', async () => {
+    it('manual-confirm ADMIN_USDT (ADMIN) → PAID, balance UNCHANGED (off the company account)', async () => {
       const before = await balance()
       const { requestId } = await seedPayout(SENIOR, '1000')
 
-      const result = await svc.manualConfirmPayout(requestId, 'ADMIN_USDT', ACCOUNTANT)
+      const result = await svc.manualConfirmPayout(requestId, 'ADMIN_USDT', ADMIN)
       expect(result.status).toBe('PAID')
       expect(await balance()).toBe(before)
     })
@@ -729,7 +719,7 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     // ── H1: txHash-reuse guard on manual-confirm COMPANY_ACCOUNT ─────────────────
-    // The exploit closed: an ADMIN/ACCOUNTANT could manual-confirm a SECOND payout
+    // The exploit closed: an ADMIN could manual-confirm a SECOND payout
     // with method=COMPANY_ACCOUNT + a REAL on-chain hash already consumed by a PAID
     // payout, crediting the company balance TWICE for one on-chain transfer (no DB
     // unique index on payout_requests.txHash backstops this). Now → BadRequest, no

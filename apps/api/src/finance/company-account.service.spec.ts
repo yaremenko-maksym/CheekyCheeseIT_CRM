@@ -201,7 +201,7 @@ describe('CompanyAccountService.getAccount — balance derivation (AC6)', () => 
     expect(acc.balance).toBe(650)
   })
 
-  it('ACCOUNTANT may read; non-privileged role → 403', async () => {
+  it('a non-ADMIN role → 403', async () => {
     const db = makeDb({ select: selectReturning(['0', '0', '0', '0', '0', '0']) })
     const svc = makeService(db)
     await expect(svc.getAccount(JUNIOR)).rejects.toMatchObject({
@@ -764,6 +764,56 @@ describe('CompanyAccountService.getDepositStatus — flip PENDING→PAID (AC5)',
       response: { code: 'FINANCE_DEPOSIT_STATUS_ACCESS_FORBIDDEN', statusCode: 403 },
     })
   })
+
+  // PR #1521 (ACCOUNTANT removed): ADMIN is the only role that reads a
+  // deposit it does not own; every other role, and an unknown one, gets 403.
+  it.each(['HR', 'JUNIOR', 'DROP', 'ACCOUNTANT', 'GUEST'])('non-owner %s → 403', async (role) => {
+    const db = makeDb({
+      query: {
+        companyAccount: { findFirst: vi.fn() },
+        transactions: { findFirst: vi.fn().mockResolvedValue(pendingDeposit) },
+        users: { findFirst: vi.fn() },
+      },
+    })
+    const svc = makeService(db, { verifyDeposit: vi.fn() })
+    const caller = { ...SENIOR, id: 'other', role } as unknown as SessionUser
+    await expect(svc.getDepositStatus('dep-1', caller)).rejects.toMatchObject({
+      response: { code: 'FINANCE_DEPOSIT_STATUS_ACCESS_FORBIDDEN', statusCode: 403 },
+    })
+  })
+
+  it('non-owner ADMIN reads the status', async () => {
+    const db = makeDb({
+      query: {
+        companyAccount: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'acc',
+            walletAddress: WALLET,
+            confirmationThreshold: THRESHOLD,
+            updatedAt: new Date(),
+          }),
+        },
+        transactions: { findFirst: vi.fn().mockResolvedValue(pendingDeposit) },
+        users: { findFirst: vi.fn() },
+      },
+      update: vi.fn(),
+    })
+    const etherscan = {
+      verifyDeposit: vi.fn().mockResolvedValue({
+        found: true,
+        toMatches: true,
+        fromAddress: SENDER_WALLET,
+        confirmed: false,
+        confirmations: 5,
+        amountUsdt: null,
+      }),
+    }
+    const svc = makeService(db, etherscan)
+    const admin = { ...SENIOR, id: 'admin-other', role: 'ADMIN' } as SessionUser
+    const status = await svc.getDepositStatus('dep-1', admin)
+    expect(status.status).toBe('PENDING')
+    expect(status.confirmations).toBe(5)
+  })
 })
 
 describe('CompanyAccountService.createDividend (ADMIN only)', () => {
@@ -1083,7 +1133,7 @@ describe('CompanyAccountService.updateRequisites (ADMIN only)', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SR-809-L-3 / owner decision D-2 — "ADMIN/ACCOUNTANT may go beyond the 31-day
+// SR-809-L-3 / owner decision D-2 — "ADMIN may go beyond the 31-day
 // limit ONLY with a mandatory reason written to the audit log".
 //
 // The reason was being collected and validated by the policy and then dropped:

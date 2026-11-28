@@ -20,7 +20,7 @@ const SEN_A = '5a110014-0000-4000-bb00-0000000000a2'
 const SEN_B = '5a110014-0000-4000-bb00-0000000000a3'
 const HR = '5a110014-0000-4000-bb00-0000000000a4'
 
-type Role = 'ADMIN' | 'SENIOR' | 'HR' | 'JUNIOR' | 'ACCOUNTANT'
+type Role = 'ADMIN' | 'SENIOR' | 'HR' | 'JUNIOR'
 const PEOPLE: Record<string, { id: string; role: Role; archivedAt: Date | null }> = {
   [ADMIN]: { id: ADMIN, role: 'ADMIN', archivedAt: null },
   [SEN_A]: { id: SEN_A, role: 'SENIOR', archivedAt: null },

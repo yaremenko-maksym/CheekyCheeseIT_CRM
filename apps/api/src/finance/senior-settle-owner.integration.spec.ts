@@ -33,6 +33,8 @@ import { resolveTransactionDate } from './transaction-date.util'
  * Plus the money invariants that must NOT regress versus the obligation-id path:
  *   - idempotency: a second settle of the SAME source tx → 404, no second payout.
  *   - RBAC: SENIOR / DROP → 403 (gate before any money / lookup).
+ *   - ROLE-SET: the role set of all four service entry points (two lists, two
+ *     settles) for ADMIN / SENIOR / HR / JUNIOR / DROP and an unknown role.
  *
  * The DB, the obligation, the settle cascade and the balance derivation are ALL
  * real. Run against a scratch DB (NEVER the live crm_db):
@@ -58,14 +60,6 @@ const ADMIN: SessionUser = {
   displayName: 'SSO Admin',
   role: 'ADMIN',
 }
-const ACCOUNTANT: SessionUser = {
-  ...SENIOR,
-  id: `${PREFIX}-bb00-000000000003`,
-  email: 'sso-accountant@test.spec',
-  displayName: 'SSO Accountant',
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-}
 const DROP: SessionUser = {
   ...SENIOR,
   id: `${PREFIX}-bb00-000000000004`,
@@ -74,7 +68,7 @@ const DROP: SessionUser = {
   role: 'DROP',
 }
 
-const ALL_USERS = [SENIOR, ADMIN, ACCOUNTANT, DROP]
+const ALL_USERS = [SENIOR, ADMIN, DROP]
 const ALL_USER_IDS = ALL_USERS.map((u) => u.id)
 const PROJECT_ID = `${PREFIX}-dd00-000000000001`
 const ACCOUNT_ID = `${PREFIX}-cc00-000000000001`
@@ -358,7 +352,7 @@ describe.skipIf(!hasDatabaseUrl())(
     it('COMPANY_ACCOUNT → company debited by senior share; SENIOR_INCOME(COMPANY_ACCOUNT, USDT, no sender)', async () => {
       const before = await gateBalance()
 
-      const result = await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      const result = await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
         fundingSource: 'COMPANY_ACCOUNT',
         currency: 'USDT',
         ...EXPLORER_RECEIPT,
@@ -380,7 +374,7 @@ describe.skipIf(!hasDatabaseUrl())(
     it('ADMIN_PERSONAL → senderId=payer, NO company marker, company balance UNCHANGED', async () => {
       const before = await gateBalance()
 
-      const result = await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      const result = await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN.id,
         currency: 'USD',
@@ -411,7 +405,7 @@ describe.skipIf(!hasDatabaseUrl())(
     it('ADMIN_PERSONAL with NO currency in the payload → defaults to USDT; single-row flip preserved (#379)', async () => {
       const before = await gateBalance()
 
-      const result = await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      const result = await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN.id,
         // No `currency` field — defaults to obligation.currency (USDT), so the
@@ -455,17 +449,13 @@ describe.skipIf(!hasDatabaseUrl())(
       await seedPendingDropIou()
       const before = await gateBalance()
 
-      const result = await settleSvc.settleByCompanySourceTransaction(
-        DROP_SOURCE_TX_ID,
-        ACCOUNTANT,
-        {
-          fundingSource: 'ADMIN_PERSONAL',
-          payerAdminId: ADMIN.id,
-          // No `currency` field — defaults to obligation.currency (USDT), so the
-          // mandatory-receipt rule requires an EXPLORER link.
-          ...EXPLORER_RECEIPT,
-        },
-      )
+      const result = await settleSvc.settleByCompanySourceTransaction(DROP_SOURCE_TX_ID, ADMIN, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN.id,
+        // No `currency` field — defaults to obligation.currency (USDT), so the
+        // mandatory-receipt rule requires an EXPLORER link.
+        ...EXPLORER_RECEIPT,
+      })
       expect(result.obligation.status).toBe('PAID')
 
       const row = await dbSvc.db.query.transactions.findFirst({
@@ -495,7 +485,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
     it('ADMIN_PERSONAL with a non-ADMIN payer → 400, nothing booked', async () => {
       await expect(
-        settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+        settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
           fundingSource: 'ADMIN_PERSONAL',
           payerAdminId: SENIOR.id, // SENIOR, not ADMIN
           currency: 'USD',
@@ -505,13 +495,13 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('idempotent: a repeated settle of the same source tx → 404, exactly one SENIOR_INCOME', async () => {
-      await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
         fundingSource: 'COMPANY_ACCOUNT',
         currency: 'USDT',
         ...EXPLORER_RECEIPT,
       })
       await expect(
-        settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+        settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
           fundingSource: 'COMPANY_ACCOUNT',
           currency: 'USDT',
           ...EXPLORER_RECEIPT,
@@ -544,6 +534,67 @@ describe.skipIf(!hasDatabaseUrl())(
         }),
       ).rejects.toThrow()
       expect(await seniorIncomeRow()).toBeFalsy()
+    })
+
+    // ── ROLE-SET (PR 1b, ACCOUNTANT retirement): the body-level role checks of
+    // all four PendingSettlementService entry points keep their role set; a
+    // role outside the five (a retired one included) is refused. The obligation
+    // seeded by beforeEach is the one each allowed read must surface.
+    const as = (role: string): SessionUser => ({ ...SENIOR, role: role as SessionUser['role'] })
+    const forbidden = (code: string) => ({ response: { code, statusCode: 403 } })
+
+    it('ROLE-SET. listSeniorObligations — SENIOR and ADMIN read the IOU; HR, JUNIOR, DROP, unknown → 403', async () => {
+      for (const u of [SENIOR, ADMIN]) {
+        const rows = await settleSvc.listSeniorObligations(u)
+        expect(
+          rows.some((r) => r.obligationId === OBLIGATION_ID),
+          u.role,
+        ).toBe(true)
+      }
+      for (const role of ['HR', 'JUNIOR', 'DROP', 'X']) {
+        await expect(settleSvc.listSeniorObligations(as(role)), role).rejects.toMatchObject(
+          forbidden('FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN'),
+        )
+      }
+    })
+
+    it('ROLE-SET. listCompanyObligations — ADMIN reads the IOU; SENIOR, HR, JUNIOR, DROP, unknown → 403', async () => {
+      const rows = await settleSvc.listCompanyObligations(ADMIN)
+      expect(rows.some((r) => r.obligationId === OBLIGATION_ID)).toBe(true)
+      for (const role of ['SENIOR', 'HR', 'JUNIOR', 'DROP', 'X']) {
+        await expect(settleSvc.listCompanyObligations(as(role)), role).rejects.toMatchObject(
+          forbidden('FINANCE_COMPANY_OBLIGATIONS_LIST_FORBIDDEN'),
+        )
+      }
+    })
+
+    it('ROLE-SET. settleByCompany / settleByCompanySourceTransaction — SENIOR, HR, JUNIOR, DROP, unknown → 403, nothing booked', async () => {
+      const funding = {
+        fundingSource: 'COMPANY_ACCOUNT' as const,
+        currency: 'USDT' as const,
+        ...EXPLORER_RECEIPT,
+      }
+      for (const role of ['SENIOR', 'HR', 'JUNIOR', 'DROP', 'X']) {
+        await expect(
+          settleSvc.settleByCompany(OBLIGATION_ID, as(role), funding),
+          role,
+        ).rejects.toMatchObject(forbidden('FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN'))
+        await expect(
+          settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, as(role), funding),
+          role,
+        ).rejects.toMatchObject(forbidden('FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN'))
+      }
+      expect(await seniorIncomeRow()).toBeFalsy()
+    })
+
+    it('ROLE-SET. settleByCompany — ADMIN closes the IOU by obligation id', async () => {
+      const res = await settleSvc.settleByCompany(OBLIGATION_ID, ADMIN, {
+        fundingSource: 'COMPANY_ACCOUNT',
+        currency: 'USDT',
+        ...EXPLORER_RECEIPT,
+      })
+      expect(res.obligation.status).toBe('PAID')
+      expect(await seniorIncomeRow()).toBeTruthy()
     })
   },
 )

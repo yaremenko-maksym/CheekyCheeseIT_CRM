@@ -120,15 +120,7 @@ const HR: SessionUser = {
   seniorSharePercent: 0,
   legalFullName: null,
 }
-const ACCOUNTANT: SessionUser = {
-  id: 'd2d2e3f4-0000-4000-cc00-000000000004',
-  email: 'drop-rbac-acc@test.spec',
-  displayName: 'Drop RBAC Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
+
 /** Drop A — the acting persona in every "own vs foreign" assertion. */
 const DROP_A: SessionUser = {
   id: 'd2d2e3f4-0000-4000-cc00-00000000000a',
@@ -177,7 +169,7 @@ const OBLIGATION_PENDING_B_AMOUNT = '500.10'
 // Cleanup deletes ONLY the spec-namespaced users. MAKSYM/KOSTYA are seeded
 // with the canonical admin UUIDs (onConflictDoNothing keeps any pre-existing
 // row) and are heavily FK-referenced by seed data — we must NOT delete them.
-const TEST_USER_IDS = [SENIOR.id, JUNIOR.id, HR.id, ACCOUNTANT.id, DROP_A.id, DROP_B.id]
+const TEST_USER_IDS = [SENIOR.id, JUNIOR.id, HR.id, DROP_A.id, DROP_B.id]
 
 // ── Sentinel controllers — mirror the real routes under test ────────────────
 const TX_SERVICE = 'TX_SERVICE_DROP_RBAC'
@@ -385,7 +377,7 @@ describe.skipIf(!hasDatabaseUrl())(
       await db
         .insert(users)
         .values(
-          [SENIOR, JUNIOR, HR, ACCOUNTANT, DROP_A, DROP_B, MAKSYM, KOSTYA].map((u) => ({
+          [SENIOR, JUNIOR, HR, DROP_A, DROP_B, MAKSYM, KOSTYA].map((u) => ({
             id: u.id,
             email: u.email,
             displayName: u.displayName,
@@ -395,7 +387,7 @@ describe.skipIf(!hasDatabaseUrl())(
         )
         .onConflictDoNothing()
 
-      // Drop-team A: DROP_A + HR + ACCOUNTANT. Drop-team B: DROP_B + HR + ACCOUNTANT.
+      // Drop-team A: DROP_A + HR. Drop-team B: DROP_B + HR.
       await db
         .insert(teams)
         .values([
@@ -408,10 +400,8 @@ describe.skipIf(!hasDatabaseUrl())(
         .values([
           { teamId: TEAM_A_ID, userId: DROP_A.id, joinedAt: new Date() },
           { teamId: TEAM_A_ID, userId: HR.id, joinedAt: new Date() },
-          { teamId: TEAM_A_ID, userId: ACCOUNTANT.id, joinedAt: new Date() },
           { teamId: TEAM_B_ID, userId: DROP_B.id, joinedAt: new Date() },
           { teamId: TEAM_B_ID, userId: HR.id, joinedAt: new Date() },
-          { teamId: TEAM_B_ID, userId: ACCOUNTANT.id, joinedAt: new Date() },
         ])
         .onConflictDoNothing()
 
@@ -735,7 +725,6 @@ describe.skipIf(!hasDatabaseUrl())(
       ['SENIOR', SENIOR],
       ['JUNIOR', JUNIOR],
       ['HR', HR],
-      ['ACCOUNTANT', ACCOUNTANT],
       ['ADMIN', MAKSYM],
     ]
     for (const [label, persona] of nonDropRoles) {
@@ -851,7 +840,6 @@ describe.skipIf(!hasDatabaseUrl())(
       ['SENIOR', SENIOR],
       ['JUNIOR', JUNIOR],
       ['HR', HR],
-      ['ACCOUNTANT', ACCOUNTANT],
       ['ADMIN', MAKSYM],
     ] as Array<[string, SessionUser]>) {
       it(`INCOMES: ${label} → 403`, async () => {
@@ -917,7 +905,6 @@ describe.skipIf(!hasDatabaseUrl())(
       ['SENIOR', SENIOR],
       ['JUNIOR', JUNIOR],
       ['HR', HR],
-      ['ACCOUNTANT', ACCOUNTANT],
       ['ADMIN', MAKSYM],
     ] as Array<[string, SessionUser]>) {
       it(`PROJECTS: ${label} → 403`, async () => {
@@ -967,7 +954,6 @@ describe.skipIf(!hasDatabaseUrl())(
       ['SENIOR', SENIOR],
       ['JUNIOR', JUNIOR],
       ['HR', HR],
-      ['ACCOUNTANT', ACCOUNTANT],
       ['ADMIN', MAKSYM],
     ] as Array<[string, SessionUser]>) {
       it(`PAYMENTS: ${label} → 403`, async () => {
