@@ -320,6 +320,19 @@ describe('adminDeleteTransaction — soft-delete mechanics + journal (AC1, AC5)'
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('restoreTransaction — RBAC + mandatory reason (AC6)', () => {
+  it.each(['SENIOR', 'HR', 'JUNIOR', 'DROP'] as const)(
+    'rejects a %s caller with ForbiddenException, DB never touched',
+    async (role) => {
+      const mocks = makeDb({ txRow: makeTxRow({ deletedAt: new Date() }) })
+      const svc = makeService(mocks)
+
+      await expect(
+        svc.restoreTransaction(TX_ID, 'valid reason', { ...SENIOR_USER, role }),
+      ).rejects.toThrow(ForbiddenException)
+      expect(mocks.findFirstMock).not.toHaveBeenCalled()
+    },
+  )
+
   it('rejects a blank reason with BadRequestException', async () => {
     const mocks = makeDb({ txRow: makeTxRow({ deletedAt: new Date() }) })
     const svc = makeService(mocks)

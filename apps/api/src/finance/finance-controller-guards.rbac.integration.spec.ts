@@ -269,6 +269,10 @@ describe.skipIf(!hasDatabaseUrl())(
       })
       return res.statusCode
     }
+    async function del(user: SessionUser, url: string): Promise<number> {
+      const res = await app.inject({ method: 'DELETE', url, cookies: { jwt: tokenFor(user) } })
+      return res.statusCode
+    }
     async function get(user: SessionUser, url: string): Promise<number> {
       const res = await app.inject({ method: 'GET', url, cookies: { jwt: tokenFor(user) } })
       return res.statusCode
@@ -373,6 +377,19 @@ describe.skipIf(!hasDatabaseUrl())(
           // SENIOR role triggers the `currentUser.role !== 'DROP'` check first → 403
           expect(await patch(SENIOR, url, patchPayload)).toBe(403)
         })
+      })
+
+      for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
+        it(`DELETE /transactions/:id — ${persona.role} → 403 (ADMIN only)`, async () => {
+          expect(await del(persona, '/api/transactions/00000000-0000-4000-8000-000000000000')).toBe(
+            403,
+          )
+        })
+      }
+      it('DELETE /transactions/:id — ADMIN passes the guard (not 403)', async () => {
+        expect(await del(ADMIN, '/api/transactions/00000000-0000-4000-8000-000000000000')).not.toBe(
+          403,
+        )
       })
 
       // Authorized roles pass the GUARD (they may still hit a 4xx in the handler for
