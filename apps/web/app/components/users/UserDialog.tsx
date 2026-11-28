@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { Pencil, UserPlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { CreateUserDto, UserProfileDto } from '@crm/shared'
+import type { UserProfileDto } from '@crm/shared'
 import { adminUpdateUserSchema, createDropSchema, createUserSchema } from '@crm/shared'
 import { toast } from 'sonner'
 import { useAuth } from '@/context/auth'
@@ -221,7 +221,7 @@ export function UserDialog(props: UserDialogProps) {
           return
         }
 
-        const payload: CreateUserDto = buildCreateUserPayload(value, {
+        const payload = buildCreateUserPayload(value, {
           hrIds,
           accountantId,
           exchangeRates,

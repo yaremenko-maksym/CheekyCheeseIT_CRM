@@ -82,11 +82,17 @@ export type CreateUserPayloadDeps = {
   exchangeRates: ExchangeRates | undefined
 }
 
+/**
+ * The create payload before `onSubmit` validates it. The form can still hold ACCOUNTANT until the web
+ * removal (manager-role plan PR 1c); `createUserSchema.safeParse` in `onSubmit` refuses it.
+ */
+export type CreateUserPayload = Omit<CreateUserDto, 'role'> & { role: Role }
+
 /** Normal (non-DROP, first-POST) CREATE payload. Verbatim move from `onSubmit`. */
 export function buildCreateUserPayload(
   value: CreateUserFormValue,
   { hrIds, accountantId, exchangeRates }: CreateUserPayloadDeps,
-): CreateUserDto {
+): CreateUserPayload {
   const isSenior = value.role === 'SENIOR'
   const isJoinDropTeam = isSenior && value.teamMode === 'JOIN_DROP_TEAM'
   const computeSalaryUsd = () =>
@@ -101,7 +107,7 @@ export function buildCreateUserPayload(
   const paymentMethod: PaymentMethod =
     isSenior || value.role === 'ADMIN' ? 'USDT_ERC20' : value.paymentMethod
 
-  const payload: CreateUserDto = {
+  const payload: CreateUserPayload = {
     email: value.email.trim(),
     // §4.4 — optional, ADMIN-entered at creation only. Both `.trim()`
     // calls are defensive-only for `type="email"`: the HTML value
