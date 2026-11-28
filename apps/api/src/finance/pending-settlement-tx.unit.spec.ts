@@ -67,10 +67,10 @@ const SRC_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const ADMIN_ID = 'adm-1'
 const NOW = new Date('2026-08-01T10:00:00.000Z')
 
-const accountant: SessionUser = {
-  id: 'acc-1',
-  role: 'ACCOUNTANT',
-  displayName: 'Accountant',
+const settlerAdmin: SessionUser = {
+  id: 'settler-1',
+  role: 'ADMIN',
+  displayName: 'Settler',
   email: 'a@x.com',
   avatarUrl: null,
   avatarDocumentId: null,
@@ -218,7 +218,7 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
   describe('order', () => {
     it('company-funded senior settle: claim -> lock -> balance -> flip -> closing link, on the SAME dbtx', async () => {
       const { svc, dbtx, events } = build()
-      await svc.settleByCompany(OB_ID, accountant, COMPANY)
+      await svc.settleByCompany(OB_ID, settlerAdmin, COMPANY)
       expect(kinds(events)).toEqual(['upd:obl', 'lock', 'balance', 'upd:tx', 'upd:obl'])
       expect((events[1] as { dbtx: unknown }).dbtx).toBe(dbtx)
       expect((events[2] as { dbtx: unknown }).dbtx).toBe(dbtx)
@@ -226,19 +226,19 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
 
     it('ADMIN_PERSONAL settle: claim -> flip -> closing link, NO lock and NO balance read', async () => {
       const { svc, events } = build()
-      await svc.settleByCompany(OB_ID, accountant, ADMIN_PERSONAL)
+      await svc.settleByCompany(OB_ID, settlerAdmin, ADMIN_PERSONAL)
       expect(kinds(events)).toEqual(['upd:obl', 'upd:tx', 'upd:obl'])
     })
 
     it('legacy DROP-debtor obligation without funding never touches the company account', async () => {
       const { svc, events } = build({ obligation: { debtorType: 'DROP' } })
-      await svc.settleByCompany(OB_ID, accountant)
+      await svc.settleByCompany(OB_ID, settlerAdmin)
       expect(kinds(events)).toEqual(['upd:obl', 'upd:tx', 'upd:obl'])
     })
 
     it('legacy no-funding COMPANY obligation defaults to a company debit (lock + gate)', async () => {
       const { svc, events } = build()
-      await svc.settleByCompany(OB_ID, accountant)
+      await svc.settleByCompany(OB_ID, settlerAdmin)
       expect(kinds(events)).toEqual(['upd:obl', 'lock', 'balance', 'upd:tx', 'upd:obl'])
     })
   })
@@ -246,7 +246,7 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
   describe('claim', () => {
     it('is a conditional PENDING -> PAID update keyed on the obligation id, returning {id, amount}', async () => {
       const { svc, events } = build()
-      await svc.settleByCompany(OB_ID, accountant, COMPANY)
+      await svc.settleByCompany(OB_ID, settlerAdmin, COMPANY)
       const claim = events[0] as Extract<Event, { kind: 'update' }>
       expect(claim.table).toBe(pendingObligations)
       expect(claim.set).toStrictEqual({ status: 'PAID', updatedAt: NOW })
@@ -262,7 +262,7 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
 
     it('zero claimed rows (loser of a double-settle) aborts BEFORE any lock, balance read or money write', async () => {
       const { svc, events, invoices, inserts } = build({ claimRows: [] })
-      await expect(svc.settleByCompany(OB_ID, accountant, COMPANY)).rejects.toMatchObject({
+      await expect(svc.settleByCompany(OB_ID, settlerAdmin, COMPANY)).rejects.toMatchObject({
         response: { code: 'FINANCE_OBLIGATION_ALREADY_CLOSED', statusCode: 400 },
       })
       expect(kinds(events)).toEqual(['upd:obl'])
@@ -274,7 +274,7 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
   describe('amount-changed re-check', () => {
     it('a claimed amount that differs from the pre-transaction snapshot aborts right after the claim', async () => {
       const { svc, events } = build({ claimRows: [{ id: OB_ID, amount: '561' }] })
-      await expect(svc.settleByCompany(OB_ID, accountant, COMPANY)).rejects.toMatchObject({
+      await expect(svc.settleByCompany(OB_ID, settlerAdmin, COMPANY)).rejects.toMatchObject({
         response: { code: 'FINANCE_OBLIGATION_AMOUNT_CHANGED', statusCode: 400 },
       })
       expect(kinds(events)).toEqual(['upd:obl'])
@@ -282,7 +282,7 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
 
     it('compares at 6 decimals: a 0.000001 drift is a change', async () => {
       const { svc, events } = build({ claimRows: [{ id: OB_ID, amount: '560.000001' }] })
-      await expect(svc.settleByCompany(OB_ID, accountant, ADMIN_PERSONAL)).rejects.toMatchObject({
+      await expect(svc.settleByCompany(OB_ID, settlerAdmin, ADMIN_PERSONAL)).rejects.toMatchObject({
         response: { code: 'FINANCE_OBLIGATION_AMOUNT_CHANGED' },
       })
       expect(kinds(events)).toEqual(['upd:obl'])
@@ -290,13 +290,13 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
 
     it('equal numerics in a different textual form are NOT a change', async () => {
       const { svc, events } = build({ claimRows: [{ id: OB_ID, amount: '560.000000' }] })
-      await svc.settleByCompany(OB_ID, accountant, ADMIN_PERSONAL)
+      await svc.settleByCompany(OB_ID, settlerAdmin, ADMIN_PERSONAL)
       expect(kinds(events)).toEqual(['upd:obl', 'upd:tx', 'upd:obl'])
     })
 
     it('runs for ADMIN_PERSONAL too (not only inside the balance-gate branch)', async () => {
       const { svc } = build({ claimRows: [{ id: OB_ID, amount: '1' }] })
-      await expect(svc.settleByCompany(OB_ID, accountant, ADMIN_PERSONAL)).rejects.toMatchObject({
+      await expect(svc.settleByCompany(OB_ID, settlerAdmin, ADMIN_PERSONAL)).rejects.toMatchObject({
         response: { code: 'FINANCE_OBLIGATION_AMOUNT_CHANGED' },
       })
     })
@@ -306,14 +306,14 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
     it('balance exactly equal to the remainder passes (gate is strict >)', async () => {
       h.balance = 560
       const { svc, events } = build()
-      await svc.settleByCompany(OB_ID, accountant, COMPANY)
+      await svc.settleByCompany(OB_ID, settlerAdmin, COMPANY)
       expect(kinds(events)).toEqual(['upd:obl', 'lock', 'balance', 'upd:tx', 'upd:obl'])
     })
 
     it('balance below the remainder refuses; nothing after the gate runs', async () => {
       h.balance = 559.999999
       const { svc, events, invoices } = build()
-      await expect(svc.settleByCompany(OB_ID, accountant, COMPANY)).rejects.toMatchObject({
+      await expect(svc.settleByCompany(OB_ID, settlerAdmin, COMPANY)).rejects.toMatchObject({
         response: { code: 'FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS', statusCode: 400 },
       })
       expect(kinds(events)).toEqual(['upd:obl', 'lock', 'balance'])
@@ -328,13 +328,13 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
       }
       h.balance = 460
       const ok = build({ source: prior })
-      await ok.svc.settleByCompany(OB_ID, accountant, COMPANY)
+      await ok.svc.settleByCompany(OB_ID, settlerAdmin, COMPANY)
       expect(kinds(ok.events)).toEqual(['upd:obl', 'lock', 'balance', 'upd:tx', 'upd:obl'])
 
       h.events.length = 0
       h.balance = 459.999999
       const bad = build({ source: prior })
-      await expect(bad.svc.settleByCompany(OB_ID, accountant, COMPANY)).rejects.toMatchObject({
+      await expect(bad.svc.settleByCompany(OB_ID, settlerAdmin, COMPANY)).rejects.toMatchObject({
         response: { code: 'FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS' },
       })
     })
@@ -342,7 +342,7 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
     it('ADMIN_PERSONAL ignores the company balance entirely', async () => {
       h.balance = 0
       const { svc, events } = build()
-      await svc.settleByCompany(OB_ID, accountant, ADMIN_PERSONAL)
+      await svc.settleByCompany(OB_ID, settlerAdmin, ADMIN_PERSONAL)
       expect(kinds(events)).toEqual(['upd:obl', 'upd:tx', 'upd:obl'])
     })
   })
@@ -350,7 +350,7 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
   describe('in-place flip of the source IOU', () => {
     it('senior company-funded: exact SET and WHERE', async () => {
       const { svc, events } = build()
-      await svc.settleByCompany(OB_ID, accountant, COMPANY)
+      await svc.settleByCompany(OB_ID, settlerAdmin, COMPANY)
       const flip = events[3] as Extract<Event, { kind: 'update' }>
       expect(flip.table).toBe(transactions)
       expect(normalise(flip.set)).toStrictEqual({
@@ -372,7 +372,7 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
         settledCurrency: 'USDT',
         notes: `Закриття зобов’язання сеньйора (${OB_ID})`,
         updatedAt: NOW,
-        validatedBy: 'acc-1',
+        validatedBy: 'settler-1',
         validatedAt: NOW,
       })
       expect(compile(flip.where)).toStrictEqual({
@@ -384,7 +384,7 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
 
     it('senior ADMIN_PERSONAL: payer stamped as sender, no company marker', async () => {
       const { svc, events } = build()
-      await svc.settleByCompany(OB_ID, accountant, ADMIN_PERSONAL)
+      await svc.settleByCompany(OB_ID, settlerAdmin, ADMIN_PERSONAL)
       const flip = events[1] as Extract<Event, { kind: 'update' }>
       expect(flip.set).toMatchObject({
         senderId: ADMIN_ID,
@@ -401,7 +401,7 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
           fundingSource: 'COMPANY_ACCOUNT',
         },
       })
-      await svc.settleByCompany(OB_ID, accountant, COMPANY)
+      await svc.settleByCompany(OB_ID, settlerAdmin, COMPANY)
       const flip = events[3] as Extract<Event, { kind: 'update' }>
       expect(compile(flip.where).params).toStrictEqual([SRC_ID, 'PENDING_PAYMENT', '100.000000'])
       expect(normalise(flip.set)['settledAmount']).toStrictEqual({
@@ -412,7 +412,7 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
 
     it('impersonated operator is recorded as the validator (real operator wins)', async () => {
       const { svc, events } = build()
-      await svc.settleByCompany(OB_ID, { ...accountant, impersonatorId: 'real-op' }, COMPANY)
+      await svc.settleByCompany(OB_ID, { ...settlerAdmin, impersonatorId: 'real-op' }, COMPANY)
       expect((events[3] as Extract<Event, { kind: 'update' }>).set).toMatchObject({
         validatedBy: 'real-op',
       })
@@ -420,13 +420,13 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
 
     it('selected txDate is written at UTC midnight; absent -> txDate key not written', async () => {
       const a = build()
-      await a.svc.settleByCompany(OB_ID, accountant, { ...ADMIN_PERSONAL, txDate: '2026-07-15' })
+      await a.svc.settleByCompany(OB_ID, settlerAdmin, { ...ADMIN_PERSONAL, txDate: '2026-07-15' })
       expect((a.events[1] as Extract<Event, { kind: 'update' }>).set['txDate']).toStrictEqual(
         new Date('2026-07-15T00:00:00.000Z'),
       )
       h.events.length = 0
       const b = build()
-      await b.svc.settleByCompany(OB_ID, accountant, ADMIN_PERSONAL)
+      await b.svc.settleByCompany(OB_ID, settlerAdmin, ADMIN_PERSONAL)
       expect('txDate' in (b.events[1] as Extract<Event, { kind: 'update' }>).set).toBe(false)
     })
 
@@ -440,7 +440,7 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
         },
         obligation: { creditorUserId: DROP_ID },
       })
-      await svc.settleByCompany(OB_ID, accountant, COMPANY)
+      await svc.settleByCompany(OB_ID, settlerAdmin, COMPANY)
       expect(kinds(events)).toEqual(['upd:obl', 'lock', 'balance', 'upd:tx', 'upd:obl'])
       const set = normalise((events[3] as Extract<Event, { kind: 'update' }>).set)
       const acc = { sql: 'coalesce("transactions"."settled_amount", 0) + $1', params: [560] }
@@ -473,7 +473,7 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
 
     it('zero flipped rows aborts: no closing link, no invoice, no audit', async () => {
       const { svc, events, invoices, inserts } = build({ flipRows: [] })
-      await expect(svc.settleByCompany(OB_ID, accountant, COMPANY)).rejects.toMatchObject({
+      await expect(svc.settleByCompany(OB_ID, settlerAdmin, COMPANY)).rejects.toMatchObject({
         response: { code: 'FINANCE_OBLIGATION_CLOSE_SOURCE_NOT_PENDING', statusCode: 400 },
       })
       expect(kinds(events)).toEqual(['upd:obl', 'lock', 'balance', 'upd:tx'])
@@ -485,7 +485,7 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
   describe('closing link', () => {
     it('points the obligation at the SAME flipped source row, keyed on the obligation id', async () => {
       const { svc, events } = build()
-      await svc.settleByCompany(OB_ID, accountant, COMPANY)
+      await svc.settleByCompany(OB_ID, settlerAdmin, COMPANY)
       const link = events[4] as Extract<Event, { kind: 'update' }>
       expect(link.table).toBe(pendingObligations)
       expect(link.set).toStrictEqual({ closingTransactionId: SRC_ID, updatedAt: NOW })
@@ -500,7 +500,7 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
   describe('result of the committed transaction', () => {
     it('returns the flipped row and triggers the invoice only for SENIOR_INCOME', async () => {
       const s = build()
-      const res = await s.svc.settleByCompany(OB_ID, accountant, COMPANY)
+      const res = await s.svc.settleByCompany(OB_ID, settlerAdmin, COMPANY)
       expect(res.created).toHaveLength(1)
       expect(res.created[0]?.id).toBe(SRC_ID)
       expect(s.invoices.autoCreateForSeniorPayout).toHaveBeenCalledWith(SRC_ID)
@@ -510,7 +510,7 @@ describe('settleByCompany — transaction body (L4 characterization)', () => {
       const d = build({
         source: { type: 'DROP_PENDING_PAYOUT', seniorSharePercent: null, dropSharePercent: 40 },
       })
-      await d.svc.settleByCompany(OB_ID, accountant, COMPANY)
+      await d.svc.settleByCompany(OB_ID, settlerAdmin, COMPANY)
       expect(d.invoices.autoCreateForSeniorPayout).not.toHaveBeenCalled()
     })
   })

@@ -42,16 +42,16 @@ const SOURCE_TX_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const ADMIN_A_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const ADMIN_B_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 
-const accountantUser: SessionUser = {
-  id: 'acc-1',
-  role: 'ACCOUNTANT',
-  displayName: 'Accountant',
+const settlerAdmin: SessionUser = {
+  id: 'settler-1',
+  role: 'ADMIN',
+  displayName: 'Settler',
   email: 'a@x.com',
   avatarUrl: null,
   avatarDocumentId: null,
   seniorSharePercent: 0,
 }
-const adminAUser: SessionUser = { ...accountantUser, id: ADMIN_A_ID, role: 'ADMIN' }
+const adminAUser: SessionUser = { ...settlerAdmin, id: ADMIN_A_ID, role: 'ADMIN' }
 
 const RATES = { usdUah: '41.50', usdtUah: '41.50', eurUah: '44.80', date: '20260812' }
 const EXPLORER = { receiptExternalUrl: 'https://etherscan.io/tx/0xl2' }
@@ -235,7 +235,8 @@ function makeService(initial: Partial<World> = {}) {
   const admins = [
     { id: ADMIN_A_ID, displayName: 'Admin A', role: 'ADMIN' },
     { id: ADMIN_B_ID, displayName: 'Admin B', role: 'ADMIN' },
-    { id: 'acc-1', displayName: 'Accountant', role: 'ACCOUNTANT' },
+    { id: 'settler-1', displayName: 'Settler', role: 'ADMIN' },
+    { id: 'hr-1', displayName: 'HR', role: 'HR' },
   ]
   const drizzle = {
     transaction: async (cb: (tx: unknown) => Promise<unknown>) => cb(mkDbtx()),
@@ -318,46 +319,46 @@ describe('L2 remainingOwed — the amount STILL owed (pre-transaction and money 
   it('first settle: the accumulator is NULL, the whole obligation is owed', async () => {
     const t = makeService({ ...reopenedSenior('680', '0'), companyBalance: '680' })
     t.world.sourceTx.settledAmount = null
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(delta(t.flips[0]!.raw['settledAmount'])).toBe(680)
     expect(t.row()['settledAmount']).toBe('680.000000')
   })
 
   it('top-up: owed = obligation - prior, exactly (680 - 560 = 120)', async () => {
     const t = makeService(reopenedSenior('680', '560.000000'))
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(delta(t.flips[0]!.raw['settledAmount'])).toBe(120)
     expect(t.row()['settledAmount']).toBe('680.000000')
   })
 
   it('a prior of exactly zero behaves as a first settle', async () => {
     const t = makeService(reopenedSenior('680', '0.000000'))
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(delta(t.flips[0]!.raw['settledAmount'])).toBe(680)
   })
 
   it('subtracts, never adds: prior 560 of 680 does not owe 1240', async () => {
     const t = makeService(reopenedSenior('680', '560.000000'))
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(delta(t.flips[0]!.raw['settledAmount'])).not.toBe(1240)
   })
 
   it('strips the binary float tail: 0.3 - 0.1 is exactly 0.2, not 0.19999999999999998', async () => {
     const t = makeService(reopenedSenior('0.3', '0.100000'))
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(delta(t.flips[0]!.raw['settledAmount'])).toBe(0.2)
   })
 
   it('rounds the remainder to SIX decimals (not 5, not 7)', async () => {
     // 10.1234567 -> 10.123457 at 6dp; 10.12346 at 5dp; 10.1234567 at 7dp.
     const t = makeService({ obligation: makeObligation({ amount: '10.1234567' }) })
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(delta(t.flips[0]!.raw['settledAmount'])).toBe(10.123457)
   })
 
   it('a prior equal to the obligation is an idempotent close with a delta of exactly 0', async () => {
     const t = makeService(reopenedSenior('100', '100.000000'))
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(t.status()).toBe('PAID')
     expect(delta(t.flips[0]!.raw['settledAmount'])).toBe(0)
     expect(t.row()['settledAmount']).toBe('100.000000')
@@ -365,7 +366,7 @@ describe('L2 remainingOwed — the amount STILL owed (pre-transaction and money 
 
   it('a prior ONE micro-unit above the obligation is OVERPAID: refused, nothing written', async () => {
     const t = makeService(reopenedSenior('100', '100.000001'))
-    await expect(t.svc.settleByCompany(OBLIGATION_ID, accountantUser)).rejects.toMatchObject({
+    await expect(t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)).rejects.toMatchObject({
       response: { code: 'FINANCE_OBLIGATION_OVERPAID', statusCode: 400 },
     })
     expect(t.flips).toHaveLength(0)
@@ -379,7 +380,7 @@ describe('L2 remainingOwed — the amount STILL owed (pre-transaction and money 
 describe('L2 money gate — `remainder > balance` refuses, only a company debit takes the lock', () => {
   it('balance exactly equal to the remainder passes (the comparison is strict >)', async () => {
     const t = makeService({ ...reopenedSenior('680', '560.000000'), companyBalance: '120' })
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(t.status()).toBe('PAID')
   })
 
@@ -387,7 +388,7 @@ describe('L2 money gate — `remainder > balance` refuses, only a company debit 
     // (The double does not roll the claim back the way Postgres does, so the
     // obligation status is deliberately not asserted for an in-transaction refusal.)
     const t = makeService({ ...reopenedSenior('680', '560.000000'), companyBalance: '119.999999' })
-    await expect(t.svc.settleByCompany(OBLIGATION_ID, accountantUser)).rejects.toMatchObject({
+    await expect(t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)).rejects.toMatchObject({
       response: { code: 'FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS', statusCode: 400 },
     })
     expect(t.flips).toHaveLength(0)
@@ -396,19 +397,19 @@ describe('L2 money gate — `remainder > balance` refuses, only a company debit 
 
   it('the gate measures the REMAINDER: a balance below the obligation but above the remainder passes', async () => {
     const t = makeService({ ...reopenedSenior('680', '560.000000'), companyBalance: '200' })
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(t.status()).toBe('PAID')
   })
 
   it('a company-funded settle takes the advisory lock exactly once', async () => {
     const t = makeService()
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(t.lock).toHaveBeenCalledTimes(1)
   })
 
   it('an ADMIN_PERSONAL settle takes no lock and is not gated by an empty company account', async () => {
     const t = makeService({ companyBalance: '0' })
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser, personal(ADMIN_A_ID))
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, personal(ADMIN_A_ID))
     expect(t.lock).not.toHaveBeenCalled()
     expect(t.status()).toBe('PAID')
   })
@@ -420,7 +421,7 @@ describe('L2 money gate — `remainder > balance` refuses, only a company debit 
 describe('L2 drop conversion — peg-pair fast path', () => {
   it('USDT -> USDT: no NBU call, amount is the UNROUNDED remainder, rate exactly 1', async () => {
     const t = makeService(dropWorld({ amount: '100.123456' }))
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser, personal(ADMIN_A_ID))
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, personal(ADMIN_A_ID))
     expect(t.getRates).not.toHaveBeenCalled()
     const r = t.row()
     expect(r['amount']).toBe('100.123456')
@@ -437,7 +438,7 @@ describe('L2 drop conversion — peg-pair fast path', () => {
     })
     await t.svc.settleByCompany(
       OBLIGATION_ID,
-      accountantUser,
+      settlerAdmin,
       personal(ADMIN_A_ID, { currency: 'USD', ...FILE }),
     )
     expect(t.getRates).not.toHaveBeenCalled()
@@ -453,7 +454,7 @@ describe('L2 drop conversion — peg-pair fast path', () => {
       const t = makeService(dropWorld())
       await t.svc.settleByCompany(
         OBLIGATION_ID,
-        accountantUser,
+        settlerAdmin,
         personal(ADMIN_A_ID, { currency, ...FILE }),
       )
       expect(t.getRates).toHaveBeenCalledTimes(1)
@@ -466,7 +467,7 @@ describe('L2 drop conversion — NBU path: exact rounded amounts and exchangeRat
     const t = makeService(dropWorld())
     await t.svc.settleByCompany(
       OBLIGATION_ID,
-      accountantUser,
+      settlerAdmin,
       personal(ADMIN_A_ID, { currency: 'UAH', ...FILE }),
     )
     const r = t.row()
@@ -483,7 +484,7 @@ describe('L2 drop conversion — NBU path: exact rounded amounts and exchangeRat
     const t = makeService(dropWorld())
     await t.svc.settleByCompany(
       OBLIGATION_ID,
-      accountantUser,
+      settlerAdmin,
       personal(ADMIN_A_ID, { currency: 'EUR', ...FILE }),
     )
     expect(t.row()['amount']).toBe('926.340000')
@@ -497,7 +498,7 @@ describe('L2 drop conversion — NBU path: exact rounded amounts and exchangeRat
     })
     await t.svc.settleByCompany(
       OBLIGATION_ID,
-      accountantUser,
+      settlerAdmin,
       personal(ADMIN_A_ID, { currency: 'UAH', ...FILE }),
     )
     expect(t.row()['amount']).toBe('41.510000')
@@ -511,7 +512,7 @@ describe('L2 drop conversion — NBU path: exact rounded amounts and exchangeRat
     })
     await t.svc.settleByCompany(
       OBLIGATION_ID,
-      accountantUser,
+      settlerAdmin,
       personal(ADMIN_A_ID, { currency: 'UAH', ...FILE }),
     )
     expect(t.row()['amount']).toBe('41.520000')
@@ -522,7 +523,7 @@ describe('L2 drop conversion — NBU path: exact rounded amounts and exchangeRat
     const t = makeService(dropWorld({ amount: '3' }))
     await t.svc.settleByCompany(
       OBLIGATION_ID,
-      accountantUser,
+      settlerAdmin,
       personal(ADMIN_A_ID, { currency: 'EUR', ...FILE }),
     )
     expect(t.row()['amount']).toBe('2.780000')
@@ -533,7 +534,7 @@ describe('L2 drop conversion — NBU path: exact rounded amounts and exchangeRat
     const t = makeService(dropWorld())
     const res = await t.svc.settleByCompany(
       OBLIGATION_ID,
-      accountantUser,
+      settlerAdmin,
       personal(ADMIN_A_ID, { currency: 'UAH', ...FILE }),
     )
     expect(delta(t.flips[0]!.raw['settledAmount'])).toBe(41500)
@@ -550,7 +551,7 @@ describe('L2 drop conversion — dust boundary (rounded paid amount of 0 on a no
     await expect(
       t.svc.settleByCompany(
         OBLIGATION_ID,
-        accountantUser,
+        settlerAdmin,
         personal(ADMIN_A_ID, { currency: 'UAH', ...FILE }),
       ),
     ).rejects.toMatchObject({
@@ -567,7 +568,7 @@ describe('L2 drop conversion — dust boundary (rounded paid amount of 0 on a no
     })
     await t.svc.settleByCompany(
       OBLIGATION_ID,
-      accountantUser,
+      settlerAdmin,
       personal(ADMIN_A_ID, { currency: 'UAH', ...FILE }),
     )
     expect(t.row()['amount']).toBe('0.010000')
@@ -578,7 +579,7 @@ describe('L2 drop conversion — dust boundary (rounded paid amount of 0 on a no
     const t = makeService(dropWorld({ amount: '0' }))
     await t.svc.settleByCompany(
       OBLIGATION_ID,
-      accountantUser,
+      settlerAdmin,
       personal(ADMIN_A_ID, { currency: 'UAH', ...FILE }),
     )
     expect(t.status()).toBe('PAID')
@@ -593,7 +594,7 @@ describe('L2 drop conversion — dust boundary (rounded paid amount of 0 on a no
         { settledAmount: '100.000000', settledCurrency: 'USDT', fundingSource: 'COMPANY_ACCOUNT' },
       ),
     )
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(t.status()).toBe('PAID')
     expect(delta(t.flips[0]!.raw['settledAmount'])).toBe(0)
     expect(t.row()['exchangeRate']).toBe('1.00000000')
@@ -610,7 +611,7 @@ describe('L2 drop conversion — cumulativePaid and the closure rate on a top-up
         { settledAmount: '100.000000', settledCurrency: 'USDT', ...company },
       ),
     )
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(delta(t.flips[0]!.raw['settledAmount'])).toBe(30)
     expect(t.row()['amount']).toBe('130.000000')
     expect(t.row()['exchangeRate']).toBe('1.00000000')
@@ -624,7 +625,7 @@ describe('L2 drop conversion — cumulativePaid and the closure rate on a top-up
         { settledAmount: '100.100000', settledCurrency: 'USDT', ...company },
       ),
     )
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(delta(t.flips[0]!.raw['settledAmount'])).toBe(30.200001)
     expect(t.row()['amount']).toBe('130.300001')
     expect(t.row()['exchangeRate']).toBe('1.00000000')
@@ -637,7 +638,7 @@ describe('L2 drop conversion — cumulativePaid and the closure rate on a top-up
         { settledAmount: '0.100000', settledCurrency: 'USDT', ...company },
       ),
     )
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(delta(t.flips[0]!.raw['settledAmount'])).toBe(0.2)
     expect(t.row()['settledAmount']).toBe('0.300000')
     expect(t.row()['exchangeRate']).toBe('1.00000000')
@@ -647,7 +648,7 @@ describe('L2 drop conversion — cumulativePaid and the closure rate on a top-up
     const first = makeService(dropWorld())
     await first.svc.settleByCompany(
       OBLIGATION_ID,
-      accountantUser,
+      settlerAdmin,
       personal(ADMIN_A_ID, { currency: 'UAH', ...FILE }),
     )
     expect(first.row()['exchangeRate']).toBe('41.50000000')
@@ -667,7 +668,7 @@ describe('L2 drop conversion — cumulativePaid and the closure rate on a top-up
       sourceTx: { ...reopened, type: 'DROP_PENDING_PAYOUT' },
     })
     await expect(
-      second.svc.settleByCompany(OBLIGATION_ID, accountantUser, personal(ADMIN_A_ID)),
+      second.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, personal(ADMIN_A_ID)),
     ).rejects.toMatchObject({
       response: {
         code: 'FINANCE_SETTLEMENT_ALREADY_IN_OTHER_CURRENCY',
@@ -697,7 +698,7 @@ describe('L2 top-up currency guard — strict string compare against the obligat
     await expect(
       t.svc.settleByCompany(
         OBLIGATION_ID,
-        accountantUser,
+        settlerAdmin,
         personal(ADMIN_A_ID, { currency: 'USD', ...FILE }),
       ),
     ).rejects.toMatchObject({
@@ -717,7 +718,7 @@ describe('L2 top-up currency guard — strict string compare against the obligat
         { settledAmount: '100.000000', settledCurrency: 'USDT', ...adminPaid },
       ),
     )
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser, personal(ADMIN_A_ID))
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, personal(ADMIN_A_ID))
     expect(t.status()).toBe('PAID')
     expect(t.row()['settledAmount']).toBe('130.000000')
   })
@@ -726,7 +727,7 @@ describe('L2 top-up currency guard — strict string compare against the obligat
     const t = makeService(dropWorld())
     await t.svc.settleByCompany(
       OBLIGATION_ID,
-      accountantUser,
+      settlerAdmin,
       personal(ADMIN_A_ID, { currency: 'USD', ...FILE }),
     )
     expect(t.row()['currency']).toBe('USD')
@@ -738,7 +739,7 @@ describe('L2 top-up currency guard — strict string compare against the obligat
     await expect(
       t.svc.settleByCompany(
         OBLIGATION_ID,
-        accountantUser,
+        settlerAdmin,
         personal(ADMIN_A_ID, { currency: 'EUR', ...FILE }),
       ),
     ).rejects.toMatchObject({
@@ -750,7 +751,7 @@ describe('L2 top-up currency guard — strict string compare against the obligat
   it('an accumulator held in another currency refuses the settle; params carry the prior currency', async () => {
     const t = makeService(reopenedSenior('680', '560.000000'))
     t.world.sourceTx.settledCurrency = 'UAH'
-    await expect(t.svc.settleByCompany(OBLIGATION_ID, accountantUser)).rejects.toMatchObject({
+    await expect(t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)).rejects.toMatchObject({
       response: {
         code: 'FINANCE_SETTLEMENT_ALREADY_IN_OTHER_CURRENCY',
         statusCode: 400,
@@ -762,12 +763,12 @@ describe('L2 top-up currency guard — strict string compare against the obligat
 
   it('an accumulator in the SAME currency, and a NULL accumulator currency, both pass', async () => {
     const same = makeService(reopenedSenior('680', '560.000000'))
-    await same.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await same.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(same.status()).toBe('PAID')
 
     const none = makeService(reopenedSenior('680', '560.000000'))
     none.world.sourceTx.settledCurrency = null
-    await none.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await none.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(none.status()).toBe('PAID')
   })
 })
@@ -837,7 +838,7 @@ describe('L2 funding-source guard — a top-up must come from the SAME (pot, pay
     const run = () =>
       t.svc.settleByCompany(
         OBLIGATION_ID,
-        accountantUser,
+        settlerAdmin,
         c.settleWith ? personal(c.settleWith) : undefined,
       )
     return { t, warn, run }
@@ -871,7 +872,7 @@ describe('L2 funding-source guard — a top-up must come from the SAME (pot, pay
     const t = makeService(reopenedSenior('680', '560.000000', COMPANY))
     vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const err = await t.svc
-      .settleByCompany(OBLIGATION_ID, accountantUser, personal(ADMIN_A_ID))
+      .settleByCompany(OBLIGATION_ID, settlerAdmin, personal(ADMIN_A_ID))
       .catch((e: unknown) => e)
     expect((err as { response: { params?: unknown } }).response.params).toBeUndefined()
     vi.restoreAllMocks()
@@ -880,7 +881,7 @@ describe('L2 funding-source guard — a top-up must come from the SAME (pot, pay
   it('the server log names the prior pot and the settle pot; the prior payer only when there was one', async () => {
     const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const personalPrior = makeService(reopenedSenior('680', '560.000000', PERSONAL_A))
-    await personalPrior.svc.settleByCompany(OBLIGATION_ID, accountantUser).catch(() => undefined)
+    await personalPrior.svc.settleByCompany(OBLIGATION_ID, settlerAdmin).catch(() => undefined)
     const personalLog = String(warn.mock.calls[0]![0])
     expect(personalLog).toContain('source=«особистий рахунок адміністратора»')
     expect(personalLog).toContain('Prior Payer')
@@ -889,7 +890,7 @@ describe('L2 funding-source guard — a top-up must come from the SAME (pot, pay
     warn.mockClear()
     const companyPrior = makeService(reopenedSenior('680', '560.000000', COMPANY))
     await companyPrior.svc
-      .settleByCompany(OBLIGATION_ID, accountantUser, personal(ADMIN_A_ID))
+      .settleByCompany(OBLIGATION_ID, settlerAdmin, personal(ADMIN_A_ID))
       .catch(() => undefined)
     const companyLog = String(warn.mock.calls[0]![0])
     expect(companyLog).toContain('source=«COMPANY_ACCOUNT»')
@@ -907,20 +908,20 @@ describe('L2 funding-source guard — a top-up must come from the SAME (pot, pay
         senderId: ADMIN_B_ID,
       }),
     })
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser, personal(ADMIN_A_ID))
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, personal(ADMIN_A_ID))
     expect(t.status()).toBe('PAID')
   })
 
   it('an accumulator of exactly 0.000000 does not constrain either (the boundary is > 0)', async () => {
     const t = makeService(reopenedSenior('680', '0.000000', PERSONAL_A))
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(t.status()).toBe('PAID')
   })
 
   it('a SMALL accumulator (0.5) constrains: the boundary is "> 0", not "> 1"', async () => {
     const t = makeService(reopenedSenior('680', '0.500000', PERSONAL_A))
     vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
-    await expect(t.svc.settleByCompany(OBLIGATION_ID, accountantUser)).rejects.toMatchObject({
+    await expect(t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)).rejects.toMatchObject({
       response: { code: 'FINANCE_SETTLEMENT_FUNDING_SOURCE_MUST_MATCH' },
     })
     vi.restoreAllMocks()
@@ -935,7 +936,7 @@ describe('L2 funding-source guard — a top-up must come from the SAME (pot, pay
     )
     vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     await expect(
-      t.svc.settleByCompany(OBLIGATION_ID, accountantUser, personal(ADMIN_A_ID)),
+      t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, personal(ADMIN_A_ID)),
     ).rejects.toMatchObject({
       response: { code: 'FINANCE_SETTLEMENT_FUNDING_SOURCE_MUST_MATCH' },
     })
@@ -951,7 +952,7 @@ describe('L2 HIGH-1 guard — a cascade-originated drop obligation never debits 
     t: ReturnType<typeof makeService>,
     funding?: Parameters<PendingSettlementService['settleByCompany']>[2],
   ) =>
-    expect(t.svc.settleByCompany(OBLIGATION_ID, accountantUser, funding)).rejects.toMatchObject({
+    expect(t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, funding)).rejects.toMatchObject({
       response: { code: 'FINANCE_DROP_SHARE_NOT_VIA_COMPANY_ACCOUNT', statusCode: 400 },
     })
   const COMPANY_FUNDING = {
@@ -977,7 +978,7 @@ describe('L2 HIGH-1 guard — a cascade-originated drop obligation never debits 
 
     it(`origin=${String(origin)}: ADMIN_PERSONAL funding is NOT blocked — the personal pot pays`, async () => {
       const t = makeService(dropWorld({}, { dropCascadeOrigin: origin }))
-      await t.svc.settleByCompany(OBLIGATION_ID, accountantUser, personal(ADMIN_A_ID))
+      await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, personal(ADMIN_A_ID))
       expect(t.status()).toBe('PAID')
       expect(t.row()['fundingSource']).toBeNull()
       expect(t.row()['senderId']).toBe(ADMIN_A_ID)
@@ -985,14 +986,14 @@ describe('L2 HIGH-1 guard — a cascade-originated drop obligation never debits 
 
     it(`origin=${String(origin)}: a LEGACY drop-debt (debtor DROP) is not a company debit, so it is not blocked`, async () => {
       const t = makeService(dropWorld({ debtorType: 'DROP' }, { dropCascadeOrigin: origin }))
-      await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+      await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
       expect(t.status()).toBe('PAID')
       expect(t.lock).not.toHaveBeenCalled()
     })
 
     it(`origin=${String(origin)}: a legacy drop-debt with explicit COMPANY_ACCOUNT funding is not blocked (no company debit)`, async () => {
       const t = makeService(dropWorld({ debtorType: 'DROP' }, { dropCascadeOrigin: origin }))
-      await t.svc.settleByCompany(OBLIGATION_ID, accountantUser, COMPANY_FUNDING)
+      await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, COMPANY_FUNDING)
       expect(t.status()).toBe('PAID')
       expect(t.lock).not.toHaveBeenCalled()
     })
@@ -1000,20 +1001,20 @@ describe('L2 HIGH-1 guard — a cascade-originated drop obligation never debits 
 
   it('origin=false (admin-declared): company funding is allowed and debits the company account', async () => {
     const t = makeService(dropWorld({}, { dropCascadeOrigin: false }))
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(t.status()).toBe('PAID')
     expect(t.row()['fundingSource']).toBe('COMPANY_ACCOUNT')
     expect(t.lock).toHaveBeenCalledTimes(1)
 
     const explicit = makeService(dropWorld({}, { dropCascadeOrigin: false }))
-    await explicit.svc.settleByCompany(OBLIGATION_ID, accountantUser, COMPANY_FUNDING)
+    await explicit.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, COMPANY_FUNDING)
     expect(explicit.row()['fundingSource']).toBe('COMPANY_ACCOUNT')
   })
 
   it('the guard is a DROP guard: a SENIOR obligation is never blocked by dropCascadeOrigin', async () => {
     for (const origin of [true, null, false] as const) {
       const t = makeService({ sourceTx: makeSource({ dropCascadeOrigin: origin }) })
-      await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+      await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
       expect(t.status()).toBe('PAID')
     }
   })
@@ -1025,7 +1026,7 @@ describe('L2 HIGH-1 guard — a cascade-originated drop obligation never debits 
 describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, currency', () => {
   it('COMPANY debt, no funding: company pot, currency forced to USDT even if the obligation says USD, label COMPANY, lock taken', async () => {
     const t = makeService({ obligation: makeObligation({ currency: 'USD' }) })
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     const r = t.row()
     expect(r['currency']).toBe('USDT')
     expect(r['settledCurrency']).toBe('USDT')
@@ -1037,7 +1038,7 @@ describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, cur
 
   it('COMPANY debt, COMPANY_ACCOUNT funding: same outputs; a smuggled currency is overwritten with USDT', async () => {
     const t = makeService()
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'COMPANY_ACCOUNT',
       currency: 'UAH' as never,
       ...EXPLORER,
@@ -1052,7 +1053,7 @@ describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, cur
   it('LEGACY drop-debt (debtor DROP), no funding: NO company marker, NO lock, currency NOT forced (stays the obligation currency), sender COMPANY label', async () => {
     const t = makeService({ obligation: makeObligation({ debtorType: 'DROP', currency: 'USD' }) })
     t.world.sourceTx.type = 'SENIOR_PENDING_PAYOUT'
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     const r = t.row()
     expect(r['currency']).toBe('USD')
     expect(r['fundingSource']).toBeNull()
@@ -1066,7 +1067,7 @@ describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, cur
       obligation: makeObligation({ debtorType: 'DROP', currency: 'USD' }),
       companyBalance: '0',
     })
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'COMPANY_ACCOUNT',
       currency: 'USDT',
       ...EXPLORER,
@@ -1084,7 +1085,7 @@ describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, cur
       obligation: makeObligation({ amount: '680', debtorType: 'DROP' }),
     })
     vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
-    await expect(t.svc.settleByCompany(OBLIGATION_ID, accountantUser)).rejects.toMatchObject({
+    await expect(t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)).rejects.toMatchObject({
       response: { code: 'FINANCE_SETTLEMENT_FUNDING_SOURCE_MUST_MATCH' },
     })
     vi.restoreAllMocks()
@@ -1100,7 +1101,7 @@ describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, cur
     })
     vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     await expect(
-      t.svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'COMPANY_ACCOUNT',
         currency: 'USDT',
         ...EXPLORER,
@@ -1114,7 +1115,7 @@ describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, cur
 
   it('ADMIN_PERSONAL, explicit payer: sender is that admin, label is the display name, no marker, no lock, USDT default', async () => {
     const t = makeService({ obligation: makeObligation({ currency: 'USDT' }) })
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_B_ID,
       ...EXPLORER,
@@ -1137,13 +1138,10 @@ describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, cur
     expect(t.row()['senderLabel']).toBe('Admin A')
   })
 
-  it('ADMIN_PERSONAL with no payerAdminId and an ACCOUNTANT caller is refused: the accountant is not an ADMIN payer', async () => {
+  it('ADMIN_PERSONAL naming a non-ADMIN payer is refused', async () => {
     const t = makeService()
     await expect(
-      t.svc.settleByCompany(OBLIGATION_ID, accountantUser, {
-        fundingSource: 'ADMIN_PERSONAL',
-        ...EXPLORER,
-      }),
+      t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, personal('hr-1')),
     ).rejects.toMatchObject({
       response: { code: 'FINANCE_PAYER_ACCOUNT_MUST_BE_ADMIN', statusCode: 400 },
     })
@@ -1155,7 +1153,7 @@ describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, cur
     await expect(
       t.svc.settleByCompany(
         OBLIGATION_ID,
-        accountantUser,
+        settlerAdmin,
         personal('99999999-9999-4999-8999-999999999999'),
       ),
     ).rejects.toMatchObject({
@@ -1167,7 +1165,7 @@ describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, cur
     const usd = makeService()
     await usd.svc.settleByCompany(
       OBLIGATION_ID,
-      accountantUser,
+      settlerAdmin,
       personal(ADMIN_A_ID, { currency: 'USD', ...FILE }),
     )
     expect(usd.row()['currency']).toBe('USD')
@@ -1178,7 +1176,7 @@ describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, cur
       await expect(
         t.svc.settleByCompany(
           OBLIGATION_ID,
-          accountantUser,
+          settlerAdmin,
           personal(ADMIN_A_ID, { currency, ...FILE }),
         ),
       ).rejects.toMatchObject({
@@ -1195,7 +1193,7 @@ describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, cur
   it('SENIOR defense-in-depth: a corrupted non-whitelisted OBLIGATION currency is refused on the default path', async () => {
     const t = makeService({ obligation: makeObligation({ currency: 'EUR' }) })
     await expect(
-      t.svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_A_ID,
         ...FILE,
@@ -1212,7 +1210,7 @@ describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, cur
     const t = makeService(dropWorld())
     await t.svc.settleByCompany(
       OBLIGATION_ID,
-      accountantUser,
+      settlerAdmin,
       personal(ADMIN_A_ID, { currency: 'UAH', ...FILE }),
     )
     expect(t.row()['currency']).toBe('UAH')
@@ -1222,7 +1220,7 @@ describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, cur
   it('self-pay: an ADMIN_PERSONAL payer equal to the creditor is refused before any write', async () => {
     const t = makeService({ obligation: makeObligation({ creditorUserId: ADMIN_A_ID }) })
     await expect(
-      t.svc.settleByCompany(OBLIGATION_ID, accountantUser, personal(ADMIN_A_ID)),
+      t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, personal(ADMIN_A_ID)),
     ).rejects.toMatchObject({
       response: { code: 'SENDER_RECEIVER_SAME', statusCode: 400 },
     })
@@ -1231,13 +1229,13 @@ describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, cur
 
   it('SENIOR vs DROP discriminator: the flipped type and the share snapshot follow the source type', async () => {
     const senior = makeService()
-    await senior.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await senior.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(senior.row()['type']).toBe('SENIOR_INCOME')
     expect(senior.row()['settledSharePercent']).toBe(26)
-    expect(senior.row()['validatedBy']).toBe('acc-1')
+    expect(senior.row()['validatedBy']).toBe('settler-1')
 
     const drop = makeService(dropWorld())
-    await drop.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await drop.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(drop.row()['type']).toBe('PAYOUT_DROP')
     expect(drop.row()['settledSharePercent']).toBe(26)
     expect(drop.row()['validatedBy']).toBeNull()
@@ -1245,7 +1243,7 @@ describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, cur
 
   it('only COMPANY / DROP debtor types settle here; anything else is refused with the type code', async () => {
     const t = makeService({ obligation: makeObligation({ debtorType: 'TOV' as never }) })
-    await expect(t.svc.settleByCompany(OBLIGATION_ID, accountantUser)).rejects.toMatchObject({
+    await expect(t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)).rejects.toMatchObject({
       response: { code: 'FINANCE_OBLIGATION_NOT_COMPANY_TYPE', statusCode: 400 },
     })
   })
@@ -1261,7 +1259,7 @@ describe('L2 claim compare — loaded amount vs committed amount at SIX decimals
       staleLoadAmount: '1000.000001',
       companyBalance: '0',
     })
-    await expect(t.svc.settleByCompany(OBLIGATION_ID, accountantUser)).rejects.toMatchObject({
+    await expect(t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)).rejects.toMatchObject({
       response: { code: 'FINANCE_OBLIGATION_AMOUNT_CHANGED', statusCode: 400 },
     })
     expect(t.flips).toHaveLength(0)
@@ -1273,7 +1271,7 @@ describe('L2 claim compare — loaded amount vs committed amount at SIX decimals
       obligation: makeObligation({ amount: '1000.0000002' }),
       staleLoadAmount: '1000.0000001',
     })
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(t.status()).toBe('PAID')
   })
 
@@ -1282,7 +1280,7 @@ describe('L2 claim compare — loaded amount vs committed amount at SIX decimals
       obligation: makeObligation({ amount: '1000.000000' }),
       staleLoadAmount: '1000',
     })
-    await t.svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await t.svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(t.status()).toBe('PAID')
   })
 })
@@ -1296,7 +1294,7 @@ describe('L2 NBU rate admissibility', () => {
     await expect(
       outage.svc.settleByCompany(
         OBLIGATION_ID,
-        accountantUser,
+        settlerAdmin,
         personal(ADMIN_A_ID, { currency: 'UAH', ...FILE }),
       ),
     ).rejects.toMatchObject({ response: { code: 'FINANCE_NBU_RATE_UNAVAILABLE', statusCode: 400 } })
@@ -1308,7 +1306,7 @@ describe('L2 NBU rate admissibility', () => {
     })
     await dated.svc.settleByCompany(
       OBLIGATION_ID,
-      accountantUser,
+      settlerAdmin,
       personal(ADMIN_A_ID, { currency: 'UAH', ...FILE }),
     )
     expect(dated.row()['amount']).toBe('41500.000000')
@@ -1316,7 +1314,7 @@ describe('L2 NBU rate admissibility', () => {
     const fresh = makeService({ ...dropWorld(), rates: { ...RATES, stale: false } })
     await fresh.svc.settleByCompany(
       OBLIGATION_ID,
-      accountantUser,
+      settlerAdmin,
       personal(ADMIN_A_ID, { currency: 'UAH', ...FILE }),
     )
     expect(fresh.row()['amount']).toBe('41500.000000')

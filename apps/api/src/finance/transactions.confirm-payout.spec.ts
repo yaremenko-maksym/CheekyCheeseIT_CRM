@@ -1,7 +1,7 @@
 /**
  * Drop role - phase 3 (manual payout confirmation, spec §8.4).
  *
- * Unit tests for `TransactionsService.confirmPayout` — the ACCOUNTANT/ADMIN
+ * Unit tests for `TransactionsService.confirmPayout` — the ADMIN
  * endpoint that closes the loop on an off-platform PAYOUT by attributing the
  * money to a specific admin partner and inserting a PAYOUT_CONFIRMED row.
  *
@@ -48,11 +48,11 @@ const adminUser: SessionUser = {
   avatarDocumentId: null,
   seniorSharePercent: 26,
 }
-const accountantUser: SessionUser = {
-  id: 'accountant-1',
-  role: 'ACCOUNTANT',
-  displayName: 'Accountant',
-  email: 'acc@x.com',
+const settlerAdmin: SessionUser = {
+  id: 'settler-1',
+  role: 'ADMIN',
+  displayName: 'Settler',
+  email: 'settler@x.com',
   avatarUrl: null,
   avatarDocumentId: null,
   seniorSharePercent: 26,
@@ -269,13 +269,6 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, adminUser, { method: 'CASH' }),
       ).resolves.toBeDefined()
     })
-
-    it('ACCOUNTANT may call', async () => {
-      const { svc } = makeService()
-      await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
-      ).resolves.toBeDefined()
-    })
   })
 
   // ── PAYOUT row validation ────────────────────────────────────────────────
@@ -283,7 +276,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
     it('PAYOUT not found → NotFoundException', async () => {
       const { svc } = makeService({ payoutRow: null })
       await expect(
-        svc.confirmPayout('missing-id', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
+        svc.confirmPayout('missing-id', MAKSYM_USER.id, settlerAdmin, { method: 'CASH' }),
       ).rejects.toMatchObject({
         response: { code: 'FINANCE_TRANSACTION_NOT_FOUND', statusCode: 404 },
       })
@@ -294,7 +287,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         payoutRow: makePayoutRow({ type: 'SENIOR_INCOME' }),
       })
       await expect(
-        svc.confirmPayout('senior-income-id', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
+        svc.confirmPayout('senior-income-id', MAKSYM_USER.id, settlerAdmin, { method: 'CASH' }),
       ).rejects.toMatchObject({
         response: { code: 'FINANCE_CONFIRM_PAYOUT_ONLY', statusCode: 400 },
       })
@@ -305,7 +298,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         payoutRow: makePayoutRow({ status: 'PAID' }),
       })
       await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, { method: 'CASH' }),
       ).rejects.toMatchObject({
         response: { code: 'FINANCE_PAYOUT_NOT_PENDING_PAYMENT', statusCode: 400 },
       })
@@ -316,7 +309,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         payoutRow: makePayoutRow({ status: 'REJECTED' }),
       })
       await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, { method: 'CASH' }),
       ).rejects.toMatchObject({
         response: { code: 'FINANCE_PAYOUT_NOT_PENDING_PAYMENT', statusCode: 400 },
       })
@@ -327,7 +320,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         payoutRow: makePayoutRow({ status: 'PENDING' }),
       })
       await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, { method: 'CASH' }),
       ).rejects.toMatchObject({
         response: { code: 'FINANCE_PAYOUT_NOT_PENDING_PAYMENT', statusCode: 400 },
       })
@@ -339,7 +332,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
     it('Recipient user not found → BadRequestException', async () => {
       const { svc } = makeService({ recipient: null })
       await expect(
-        svc.confirmPayout('payout-tx-1', 'ghost-id', accountantUser, { method: 'CASH' }),
+        svc.confirmPayout('payout-tx-1', 'ghost-id', settlerAdmin, { method: 'CASH' }),
       ).rejects.toMatchObject({
         response: { code: 'FINANCE_RECIPIENT_ADMIN_NOT_FOUND', statusCode: 400 },
       })
@@ -350,18 +343,18 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         recipient: { id: 'senior-2', role: 'SENIOR', archivedAt: null },
       })
       await expect(
-        svc.confirmPayout('payout-tx-1', 'senior-2', accountantUser, { method: 'CASH' }),
+        svc.confirmPayout('payout-tx-1', 'senior-2', settlerAdmin, { method: 'CASH' }),
       ).rejects.toMatchObject({
         response: { code: 'FINANCE_RECIPIENT_MUST_BE_ADMIN', statusCode: 400 },
       })
     })
 
-    it('Recipient is ACCOUNTANT (not ADMIN) → BadRequestException', async () => {
+    it('Recipient is HR (not ADMIN) → BadRequestException', async () => {
       const { svc } = makeService({
-        recipient: { id: 'acc-2', role: 'ACCOUNTANT', archivedAt: null },
+        recipient: { id: 'hr-2', role: 'HR', archivedAt: null },
       })
       await expect(
-        svc.confirmPayout('payout-tx-1', 'acc-2', accountantUser, { method: 'CASH' }),
+        svc.confirmPayout('payout-tx-1', 'hr-2', settlerAdmin, { method: 'CASH' }),
       ).rejects.toMatchObject({
         response: { code: 'FINANCE_RECIPIENT_MUST_BE_ADMIN', statusCode: 400 },
       })
@@ -372,7 +365,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         recipient: { id: MAKSYM_USER.id, role: 'ADMIN', archivedAt: new Date('2026-01-01') },
       })
       await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, { method: 'CASH' }),
       ).rejects.toMatchObject({
         response: { code: 'FINANCE_RECIPIENT_ADMIN_ARCHIVED', statusCode: 400 },
       })
@@ -394,7 +387,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         recipient: { id: 'collided-id', role: 'ADMIN', archivedAt: null },
       })
       await expect(
-        svc.confirmPayout('payout-tx-1', 'collided-id', accountantUser, { method: 'CASH' }),
+        svc.confirmPayout('payout-tx-1', 'collided-id', settlerAdmin, { method: 'CASH' }),
       ).rejects.toThrow(BadRequestException)
       expect(state.updates).toHaveLength(0)
       expect(state.inserts).toHaveLength(0)
@@ -406,7 +399,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
     it('flips PAYOUT to PAID + inserts PAYOUT_CONFIRMED with correct fields', async () => {
       const { svc, state } = makeService()
 
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, { method: 'CASH' })
 
       // BIZ-02 cross-path: default makePayoutRow has payoutRequestId='payout-req-1',
       // so TWO updates happen: (1) PAYOUT row → PAID, (2) payout_requests → PAID.
@@ -414,7 +407,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
       // First update = PAYOUT flip (has validatedBy field)
       const payoutPatch = state.updates[0]!.set
       expect(payoutPatch['status']).toBe('PAID')
-      expect(payoutPatch['validatedBy']).toBe(accountantUser.id)
+      expect(payoutPatch['validatedBy']).toBe(settlerAdmin.id)
       expect(payoutPatch['validatedAt']).toBeInstanceOf(Date)
 
       // PAYOUT_CONFIRMED row inserted with correct amount/currency/projectId.
@@ -429,7 +422,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
       expect(confirmed['projectId']).toBe('project-1')
       expect(confirmed['payoutRequestId']).toBe('payout-req-1')
       expect(confirmed['senderId']).toBe('senior-1')
-      expect(confirmed['createdBy']).toBe(accountantUser.id)
+      expect(confirmed['createdBy']).toBe(settlerAdmin.id)
     })
 
     // SR-809-H-1 at THIS call site: pins that `confirmPayout` passes the actor's
@@ -447,7 +440,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         })
 
         await expect(
-          svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+          svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, {
             method: 'CASH',
             txDate: '2026-05-06',
           }),
@@ -469,7 +462,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
           payoutRow: makePayoutRow({ txDate: new Date('2026-01-01T00:00:00.000Z') }),
         })
         await expect(
-          refused.svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+          refused.svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, {
             method: 'CASH',
             txDate: '2026-01-02',
           }),
@@ -481,14 +474,14 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         const allowed = makeService({
           payoutRow: makePayoutRow({ txDate: new Date('2026-01-01T00:00:00.000Z') }),
         })
-        await allowed.svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+        await allowed.svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, {
           method: 'CASH',
           txDate: '2026-01-02',
           backdateReason: '  cash handed over in January  ',
         })
         expect(allowed.state.auditInserts).toEqual([
           {
-            actorId: accountantUser.id,
+            actorId: settlerAdmin.id,
             targetId: 'payout-tx-1',
             action: 'TX_DATE_BACKDATED',
             // Trimmed by the policy, so the trail never stores padding as content.
@@ -507,7 +500,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         const { svc, state } = makeService({
           payoutRow: makePayoutRow({ txDate: new Date('2026-05-01T00:00:00.000Z') }),
         })
-        await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+        await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, {
           method: 'CASH',
           txDate: '2026-05-04',
         })
@@ -532,7 +525,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
           payoutRow: makePayoutRow({ txDate: new Date('2026-05-01T00:00:00.000Z') }),
         })
 
-        await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+        await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, {
           method: 'CASH',
           txDate: '2026-05-04',
         })
@@ -556,7 +549,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         })
 
         await expect(
-          svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
+          svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, { method: 'CASH' }),
         ).rejects.toMatchObject({
           response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', statusCode: 400 },
         })
@@ -576,7 +569,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         })
 
         await expect(
-          svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+          svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, {
             method: 'CASH',
             txDate: '2026-05-02',
           }),
@@ -602,7 +595,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         })
 
         await expect(
-          svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+          svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, {
             method: 'CASH',
             txDate: '2026-05-03',
           }),
@@ -616,7 +609,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
     it('selecting Kostya credits Kostya, not Maksym', async () => {
       const { svc, state } = makeService({ recipient: KOSTYA_USER })
 
-      await svc.confirmPayout('payout-tx-1', KOSTYA_USER.id, accountantUser, { method: 'CASH' })
+      await svc.confirmPayout('payout-tx-1', KOSTYA_USER.id, settlerAdmin, { method: 'CASH' })
 
       const confirmed = state.inserts[0]!
       expect(confirmed['receiverId']).toBe(KOSTYA_USER.id)
@@ -628,7 +621,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         payoutRow: makePayoutRow({ currency: 'USD' }),
       })
 
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, { method: 'CASH' })
 
       expect(state.inserts[0]!['currency']).toBe('USD')
     })
@@ -638,7 +631,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         payoutRow: makePayoutRow({ amount: '123.456789' }),
       })
 
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, { method: 'CASH' })
 
       expect(state.inserts[0]!['amount']).toBe('123.456789')
     })
@@ -648,7 +641,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         payoutRow: makePayoutRow({ payoutRequestId: null }),
       })
 
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, { method: 'CASH' })
 
       expect(state.inserts[0]!['payoutRequestId']).toBeNull()
     })
@@ -656,11 +649,11 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
     it('notes field carries a confirmation audit string (actor id + ISO timestamp)', async () => {
       const { svc, state } = makeService()
 
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, { method: 'CASH' })
 
       const note = state.inserts[0]!['notes'] as string
       expect(note).toContain('Manual payout confirmation')
-      expect(note).toContain(accountantUser.id)
+      expect(note).toContain(settlerAdmin.id)
       // ISO 8601 timestamp suffix.
       expect(note).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
     })
@@ -713,7 +706,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         async (id: string) => ({ id, type: 'PAYOUT', status: 'PAID' }) as never,
       )
 
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, { method: 'CASH' })
 
       // Two UPDATE calls inside the transaction:
       //   1) transactions PAYOUT → status='PAID'
@@ -760,7 +753,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         async (id: string) => ({ id, type: 'PAYOUT', status: 'PAID' }) as never,
       )
 
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, { method: 'CASH' })
 
       // Only ONE update: the PAYOUT row itself (no payoutRequests flip needed)
       expect(updateCalls.length).toBe(1)
@@ -775,7 +768,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
     it('method=CRYPTO without txHash → BadRequestException', async () => {
       const { svc } = makeService()
       await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CRYPTO' }),
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, { method: 'CRYPTO' }),
       ).rejects.toMatchObject({
         response: { code: 'FINANCE_CRYPTO_TX_HASH_TOO_SHORT', statusCode: 400 },
       })
@@ -784,7 +777,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
     it('method=CRYPTO with txHash < 10 chars → BadRequestException', async () => {
       const { svc } = makeService()
       await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, {
           method: 'CRYPTO',
           txHash: '0xshort',
         }),
@@ -795,7 +788,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
 
     it('method=CRYPTO with valid txHash → records txHash on PAYOUT_CONFIRMED', async () => {
       const { svc, state } = makeService()
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, {
         method: 'CRYPTO',
         txHash: '0xabcdef1234567890abcdef',
       })
@@ -806,7 +799,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
 
     it('method=CRYPTO also stamps txHash on the PAYOUT update', async () => {
       const { svc, state } = makeService()
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, {
         method: 'CRYPTO',
         txHash: '0xabcdef1234567890abcdef',
       })
@@ -815,7 +808,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
 
     it('method=CASH without txHash → succeeds, txHash null on PAYOUT_CONFIRMED', async () => {
       const { svc, state } = makeService()
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, { method: 'CASH' })
       const confirmed = state.inserts[0]!
       expect(confirmed['txHash']).toBeNull()
       expect(confirmed['senderLabel']).toBe('PAYOUT_METHOD:CASH')
@@ -823,13 +816,13 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
 
     it('method=CASH does NOT touch txHash on PAYOUT update', async () => {
       const { svc, state } = makeService()
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, { method: 'CASH' })
       expect(state.updates[0]!.set['txHash']).toBeUndefined()
     })
 
     it('method=CASH ignores txHash field even if provided', async () => {
       const { svc, state } = makeService()
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, settlerAdmin, {
         method: 'CASH',
         txHash: '0xshouldbeignored',
       })
