@@ -179,6 +179,7 @@ describe('ArchiveConfirmDialog — renderImpactText: team (SENIOR default vs DRO
     // (legacy-SENIOR branch's own copy of the same block1→block2 join —
     // a SEPARATE source line from the pair-cascade one above).
     expect(text).toContain('). 2 HR у команді залишаються активними учасниками')
+    expect(text).toContain('архівація їх не стосується')
   })
 
   it('DROP team: uses dropName (trimmed), NOT the senior word (no cross-read of ROLE_RU.SENIOR)', async () => {
@@ -210,6 +211,7 @@ describe('ArchiveConfirmDialog — renderImpactText: team (SENIOR default vs DRO
     // MUT-1 (fix-round 2): the `</Trans>{' '}<Trans>` boundary itself,
     // right after block1's closing ").").
     expect(text).toContain('). 1 HR у команді залишається активним учасником')
+    expect(text).toContain('архівація його не стосується')
   })
 
   it('DROP team: seniorWillBeDetached=false renders the "немає" branch, not the detach sentence', async () => {

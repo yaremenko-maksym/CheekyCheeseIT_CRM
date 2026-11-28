@@ -5807,6 +5807,11 @@ msgstr "You have unsaved changes"
 msgid "Додати HR"
 msgstr "Add HR"
 
+#. placeholder {0}: impact.membersAffected
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "{0, plural, one {# HR у команді залишається активним учасником і продовжує отримувати оплату — архівація його не стосується.} few {# HR у команді залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується.} many {# HR у команді залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується.} other {# HR у команді залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується.}}"
+msgstr "{0, plural, one {# HR on the team stays an active member and keeps getting paid — archiving does not affect them.} other {# HR on the team stay active members and keep getting paid — archiving does not affect them.}}"
+
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 msgid "Оновити"
@@ -8756,12 +8761,6 @@ msgstr "Rename connection"
 msgid "Створити"
 msgstr "Create"
 
-#. placeholder {0}: impact.membersAffected
-#. placeholder {1}: impact.seniorName || '—'
-#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "{0, plural, one {# HR у команді залишається активним учасником і продовжує отримувати оплату} few {# HR у команді залишаються активними учасниками і продовжують отримувати оплату} many {# HR у команді залишаються активними учасниками і продовжують отримувати оплату} other {# HR у команді залишаються активними учасниками і продовжують отримувати оплату}} — архівація їх не стосується. Це еквівалентно архівації сеньйора <0>{1}</0>."
-msgstr "{0, plural, one {# HR on the team stays} other {# HR on the team stay}} active members and keep getting paid — archiving does not affect them. This is equivalent to archiving senior <0>{1}</0>."
-
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 msgid "Назад до списку"
 msgstr "Back to the list"
@@ -9292,6 +9291,13 @@ msgstr "Receipts are attached in Finance when you create a transaction."
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Дропа не призначено"
 msgstr "No drop assigned"
+
+#. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
+#. placeholder {1}: impact.juniorsAffected ?? 0
+#. placeholder {2}: (impact.hrAccountantsOnTeam ?? 0) + (impact.juniorsAffected ?? 0)
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "У команді {0} HR, на її проєктах — {1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніора}}: {2, plural, =1 {його профіль залишається активним, оплату він отримує як і раніше} one {їхні профілі залишаються активними, оплату вони отримують як і раніше} few {їхні профілі залишаються активними, оплату вони отримують як і раніше} many {їхні профілі залишаються активними, оплату вони отримують як і раніше} other {їхні профілі залишаються активними, оплату вони отримують як і раніше}}. Після відновлення HR доведеться додати в команду заново."
+msgstr "The team has {0} HR and its projects have {1, plural, one {# junior} other {# juniors}}: {2, plural, =1 {their profile stays active and they keep getting paid} other {their profiles stay active and they keep getting paid}}. After restoring, HR have to be added to the team again."
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Дозволено лише PNG, JPEG, GIF, WebP"
@@ -11524,13 +11530,6 @@ msgstr "Add user"
 msgid "Приймаємо…"
 msgstr "Accepting…"
 
-#. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
-#. placeholder {1}: impact.juniorsAffected ?? 0
-#. placeholder {2}: (impact.hrAccountantsOnTeam ?? 0) + (impact.juniorsAffected ?? 0)
-#: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "У команді {0} HR, на її проєктах — {1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніора}}: {2, plural, one {їхній профіль залишається активним, оплату вони отримують як і раніше} few {їхні профілі залишаються активними, оплату вони отримують як і раніше} many {їхні профілі залишаються активними, оплату вони отримують як і раніше} other {їхні профілі залишаються активними, оплату вони отримують як і раніше}}. Після відновлення HR доведеться додати в команду заново."
-msgstr "The team has {0} HR and its projects have {1, plural, one {# junior} other {# juniors}}: {2, plural, one {their profile stays active and they keep getting paid} other {their profiles stay active and they keep getting paid}}. After restoring, HR have to be added to the team again."
-
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Гроші"
 msgstr "Money"
@@ -11548,11 +11547,6 @@ msgstr "Open the board"
 #: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 msgid "Змінити"
 msgstr "Change"
-
-#. placeholder {0}: impact.membersAffected
-#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "{0, plural, one {# HR у команді залишається активним учасником і продовжує отримувати оплату} few {# HR у команді залишаються активними учасниками і продовжують отримувати оплату} many {# HR у команді залишаються активними учасниками і продовжують отримувати оплату} other {# HR у команді залишаються активними учасниками і продовжують отримувати оплату}} — архівація їх не стосується."
-msgstr "{0, plural, one {# HR on the team stays} other {# HR on the team stay}} active members and keep getting paid — archiving does not affect them."
 
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Частка в проєкті тепер {percent}%"
@@ -14050,6 +14044,12 @@ msgstr "Redirecting to the dashboard…"
 #: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
 msgid "Змінити адресу гаманця компанії"
 msgstr "Change the company wallet address"
+
+#. placeholder {0}: impact.membersAffected
+#. placeholder {1}: impact.seniorName || '—'
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "{0, plural, one {# HR у команді залишається активним учасником і продовжує отримувати оплату — архівація його не стосується.} few {# HR у команді залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується.} many {# HR у команді залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується.} other {# HR у команді залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується.}} Це еквівалентно архівації сеньйора <0>{1}</0>."
+msgstr "{0, plural, one {# HR on the team stays an active member and keeps getting paid — archiving does not affect them.} other {# HR on the team stay active members and keep getting paid — archiving does not affect them.}} This is equivalent to archiving senior <0>{1}</0>."
 
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Зараховується дохід у статусі «валідовано» або «виплачено» за поточний місяць. Згодом: ручні винятки (пауза / відпустка) і автоматичні нагадування."

@@ -233,21 +233,21 @@ describe('AC5 SEC-13 — assertCanReadAdminBalance: ADMIN scoped to own target',
     const svc = makeBalanceService()
     const viewer = makeViewer('ADMIN', ADMIN_A_ID)
     expect(() => svc.assertCanReadAdminBalance(viewer, ADMIN_B_ID)).toThrow(
-      "Only that admin or an accountant can see an admin's balance",
+      "Only that admin can see an admin's balance",
     )
   })
 
   it('SENIOR cannot read admin balance → ForbiddenException', () => {
     const svc = makeBalanceService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('SENIOR'), ADMIN_A_ID)).toThrow(
-      "Only that admin or an accountant can see an admin's balance",
+      "Only that admin can see an admin's balance",
     )
   })
 
   it('JUNIOR cannot read admin balance → ForbiddenException', () => {
     const svc = makeBalanceService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('JUNIOR'), ADMIN_A_ID)).toThrow(
-      "Only that admin or an accountant can see an admin's balance",
+      "Only that admin can see an admin's balance",
     )
   })
 })

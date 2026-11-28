@@ -151,7 +151,29 @@ describe('UserArchiveImpact', () => {
     )
     const block = screen.getByTestId('archive-warning-senior')
     const text = (block.textContent ?? '').replace(/\s+/g, ' ').trim()
-    expect(text).toContain('їхній профіль залишається активним, оплату вони отримують як і раніше.')
+    expect(text).toContain('його профіль залишається активним, оплату він отримує як і раніше.')
+  })
+
+  it('SENIOR with a team: plural agreement when total affected HR and juniors is 21 (CR-M-1 exact singular only on =1)', async () => {
+    await loadCatalog('uk')
+    render(
+      <UserArchiveImpact
+        entityName="Олена"
+        impact={{
+          ...base,
+          role: 'SENIOR',
+          teamName: 'Alpha',
+          projectsCount: 1,
+          projectNames: ['P1'],
+          hrAccountantsOnTeam: 1,
+          juniorsAffected: 20,
+        }}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    const block = screen.getByTestId('archive-warning-senior')
+    const text = (block.textContent ?? '').replace(/\s+/g, ' ').trim()
+    expect(text).toContain('їхні профілі залишаються активними, оплату вони отримують як і раніше.')
   })
 
   it('HR/JUNIOR/ADMIN: each branch is role-unique, not confusable with a neighbour (mutation-gate round)', async () => {

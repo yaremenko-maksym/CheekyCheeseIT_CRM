@@ -289,7 +289,7 @@ describe('getSalaryMonthGapReport — RBAC guard', () => {
     const throwingDb = { db: { query: { users: { findMany: () => [] } } } }
     const svc = makeTransactionsService({ db: throwingDb as never })
     await expect(svc.getSalaryMonthGapReport(user('SENIOR'), MONTH)).rejects.toThrow(
-      'Only an admin or an accountant can see the missed salary months report',
+      'Only an admin can see the missed salary months report',
     )
   })
 
