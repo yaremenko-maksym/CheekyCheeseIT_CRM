@@ -262,14 +262,30 @@ case_red gfree apps/web/app/lib/gf.ts modified "const k = 'x'; const v = someGlo
 case_red gfree2 apps/web/app/lib/gf2.ts modified "const o = {}, k = 'x'; const v = (o || other).a[k]" \
   "receiver not provably local" "(local || free).a[k] -> refused"
 src glocal "import { rows } from './rows'
+class Box {}
 export function pick(i: number, key: string) {
   const map = new Map<string, number>()
-  const cells = rows[0]
-  return [rows[i], rows[0], (rows ?? [])[1], rows[i][0], cells[key], map.get(key)]
+  const byId: Record<string, number> = { a: 1 }
+  const list = [1, 2]
+  const box = new Box()
+  return [rows[0], (rows ?? [])[1], rows[0][1], byId[key], list[key], box[key], map.get(key)]
 }"
 mk glocal apps/web/app/components/gl.tsx modified
-assert_green "non-literal keys on imports / locals, numeric keys anywhere are NOT triggers" \
+assert_green "non-literal keys on object / array literal or local-class locals, numeric keys anywhere are NOT triggers" \
   --contains "[not-required]" -- run glocal
+# Addendum 7c: a name is local only if EVERY binding of it is a declaration from a literal / local new.
+case_red alias1 apps/web/app/lib/al1.ts modified "const k = 'x'; export function f(p: any) { const c = p; return c[k] }" \
+  "c[<non-literal>] (receiver not provably local)" "const c = p (alias of a parameter) -> refused"
+case_red alias2 apps/web/app/lib/al2.ts modified "const k = 'x'; const c = {}; export function g(c: any) { return 1 }
+export const v = c[k]" "receiver not provably local" "the same name also bound as a parameter -> refused"
+case_red alias3 apps/web/app/lib/al3.ts modified "const k = 'con' + 'structor'; const s = ''; const c = s[k]; c[k]('1')()" \
+  "c[<non-literal>] (receiver not provably local)" "const c = s[k]; c[k]() (chain via alias) -> refused"
+case_red alias4 apps/web/app/lib/al4.ts modified "const k = 'x'; const o = {}; o.f = p; export const v = o[k]" \
+  "receiver not provably local" "a property written after the literal -> refused"
+case_red alias5 apps/web/app/lib/al5.ts modified "const k = 'x'; const o = { ...w }; export const v = o[k]" \
+  "receiver not provably local" "an object literal with a spread -> refused"
+case_red imp1 apps/web/app/lib/im1.ts modified "import { rows } from './rows'
+export const pick = (i: number) => rows[i]" "receiver not provably local" "an import is not local -> refused"
 # Addendum 7b: a computed-key chain triggers whatever the receiver; a parameter / loop / catch
 # binding is never local.
 case_red chain1 apps/web/app/lib/ch1.ts modified "const k = 'con' + 'structor'; function f(o: any) { o[k][k]('1')() }" \
@@ -513,7 +529,7 @@ case_red litroot4 apps/web/app/lib/lr4.ts modified "const k = 'x'; const v = new
   "receiver not provably local" "new X()[k] -> refused"
 # SR-M-3: a name bound to a literal / new / this / function is the literal itself.
 case_red litname1 apps/web/app/lib/ln1.ts modified "const o = {}; const k = 'con' + 'structor'; o[k][k]('1')()" \
-  "receiver not provably local" "const o = {}; o[k][k] -> refused"
+  "(computed-key chain)" "const o = {}; o[k][k] -> refused (chain rule)"
 case_red litname2 apps/web/app/lib/ln2.ts modified "const s = ''; const k = 'con' + 'structor'; s[k][k]('1')()" \
   "receiver not provably local" "const s = ''; s[k][k] -> refused"
 case_red litname3 apps/web/app/lib/ln3.ts modified "const a = []; const b = a; const k = 'con' + 'structor'; b[k][k]('1')()" \

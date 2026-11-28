@@ -269,7 +269,7 @@ const LOADER_PROPS = new Set([...LOADER_IDS, 'getBuiltinModule'])
 export const E2E_BUILTINS = Object.freeze(['fs', 'path', 'url', 'os', 'crypto'])
 const REFLECT_LOADERS = new Set(['get', 'apply', 'construct'])
 // Names that are never a local receiver for a non-literal key, even if the file declares one
-// somewhere (the `declared` set is file-wide, not scoped): the JS / Node globals of the running
+// somewhere (bindings are collected file-wide, not scoped): the JS / Node globals of the running
 // runtime plus the browser globals Node lacks.
 export const WELL_KNOWN_GLOBALS = new Set([
   ...Object.getOwnPropertyNames(globalThis),
@@ -418,57 +418,6 @@ export function scanCode(filename, content, aliases) {
       GLOBAL_PROPS.has(n.argumentExpression.text)
     )
   }
-  // Master addendum 5 item 6: a non-literal element access is a trigger unless its receiver is
-  // provably a local object — every source's root (the start of its member / call chain) is
-  // `this`, a literal, or a name declared in this file. A free name (`Math[k]`, `top[k]`) is not.
-  // shortcut: declarations are collected file-wide, not per scope — a name declared anywhere in
-  // the file counts as local; upgrade to a scope walk if a shadowing bypass is ever shown.
-  // Addendum 7b: a parameter, a for-of / for-in variable and a catch variable take a value the file
-  // does not show, so they are never local (also when destructured).
-  const unseenBinding = (node) => {
-    let p = node
-    while (
-      p.parent &&
-      (T.isBindingElement(p.parent) ||
-        T.isObjectBindingPattern(p.parent) ||
-        T.isArrayBindingPattern(p.parent))
-    )
-      p = p.parent
-    if (T.isBindingElement(node) && T.isParameter(p.parent)) return true
-    if (T.isParameter(node)) return true
-    const decl = T.isVariableDeclaration(p) ? p : p.parent
-    if (!decl || !T.isVariableDeclaration(decl)) return false
-    if (T.isCatchClause(decl.parent)) return true
-    const list = decl.parent
-    return (
-      T.isVariableDeclarationList(list) &&
-      (T.isForOfStatement(list.parent) || T.isForInStatement(list.parent))
-    )
-  }
-  const declared = new Set(['arguments', 'undefined'])
-  const collect = (node) => {
-    const name = node.name
-    if (
-      name &&
-      T.isIdentifier(name) &&
-      !((T.isVariableDeclaration(node) || T.isBindingElement(node)) && unseenBinding(node)) &&
-      (T.isVariableDeclaration(node) ||
-        T.isBindingElement(node) ||
-        T.isFunctionDeclaration(node) ||
-        T.isFunctionExpression(node) ||
-        T.isClassDeclaration(node) ||
-        T.isClassExpression(node) ||
-        T.isEnumDeclaration(node) ||
-        T.isModuleDeclaration(node) ||
-        T.isImportClause(node) ||
-        T.isNamespaceImport(node) ||
-        T.isImportSpecifier(node) ||
-        T.isImportEqualsDeclaration(node))
-    )
-      declared.add(name.text)
-    T.forEachChild(node, collect)
-  }
-  collect(sf)
   const rootOf = (n) => {
     for (;;) {
       n = unwrap(n)
@@ -482,90 +431,97 @@ export function scanCode(filename, content, aliases) {
       else return n
     }
   }
-  // Master addendum 7 SR-M-3: a name bound to a literal-like value is the literal itself —
-  // `const o = {}; o[k][k]('...')()` reaches Function exactly as `({})[k][k]` does. A name is
-  // literal-bound when any source root of a value bound or assigned to it is a literal, `new`,
-  // `this`, a function / class, or another literal-bound name (fixed point). Function and class
-  // declarations are literal-bound too: `f[k]` is `f.constructor` = Function.
-  const LITERALISH = [
-    SK.StringLiteral,
-    SK.NoSubstitutionTemplateLiteral,
-    SK.TemplateExpression,
-    SK.NumericLiteral,
-    SK.BigIntLiteral,
-    SK.RegularExpressionLiteral,
-    SK.ObjectLiteralExpression,
-    SK.ArrayLiteralExpression,
-    SK.NewExpression,
-    SK.ThisKeyword,
-    SK.TrueKeyword,
-    SK.FalseKeyword,
-    SK.ArrowFunction,
-    SK.FunctionExpression,
-    SK.ClassExpression,
-  ]
-  const literalBound = new Set()
-  const bindings = [] // [name, value expression]
-  const bind = (node) => {
-    if (
-      (T.isFunctionDeclaration(node) || T.isClassDeclaration(node)) &&
-      node.name &&
-      T.isIdentifier(node.name)
-    )
-      literalBound.add(node.name.text)
-    if (
-      (T.isVariableDeclaration(node) || T.isParameter(node) || T.isBindingElement(node)) &&
-      T.isIdentifier(node.name)
-    ) {
-      if (node.initializer) bindings.push([node.name.text, node.initializer])
-      // `const { a } = { a: '' }`: a destructured name inherits the enclosing declaration's value.
-      if (T.isBindingElement(node)) {
-        let p = node.parent
-        while (
-          p &&
-          (T.isBindingElement(p) || T.isObjectBindingPattern(p) || T.isArrayBindingPattern(p))
-        )
-          p = p.parent
-        if (p?.initializer && (T.isVariableDeclaration(p) || T.isParameter(p)))
-          bindings.push([node.name.text, p.initializer])
+  // Addendum 7c (measured: the blanket "every non-literal key triggers" rule hit 227 of 1058 open
+  // code files on main, over the 150 limit, so locality stays, fail closed PER BINDING). A non-literal
+  // element access is a trigger unless its receiver is provably local: every source's root (the
+  // start of its member / call chain) is a name of which EVERY binding in the file is a plain
+  // `const|let|var name = <init>` whose init sources are all object literals without a spread,
+  // array literals, or `new C(...)` of a class declared in this file. Any other binding of that name
+  // anywhere in the file — a parameter, an import, a function / class / enum name, a for-of / for-in
+  // / catch variable (no initializer), a destructured name, an assignment or a destructuring
+  // assignment — makes it non-local. So does `const c = p` / `const c = s[k]` (an alias). Bindings
+  // are collected file-wide, not per scope: a shadowing declaration only ever makes a name LESS local.
+  const localClasses = new Set()
+  const bindings = new Map() // name -> [ok: boolean]
+  const bindAs = (name, ok) => {
+    if (!bindings.has(name)) bindings.set(name, [])
+    bindings.get(name).push(ok)
+  }
+  const goodInit = (init) =>
+    sources(init).every((s) => {
+      s = unwrap(s)
+      if (T.isObjectLiteralExpression(s)) return !s.properties.some(T.isSpreadAssignment)
+      if (T.isArrayLiteralExpression(s)) return true
+      return (
+        T.isNewExpression(s) && T.isIdentifier(s.expression) && localClasses.has(s.expression.text)
+      )
+    })
+  // Every identifier an assignment target (`a = …`, `[a, b] = …`, `({ a } = …)`) writes.
+  const targets = (n) => {
+    n = unwrap(n)
+    if (T.isIdentifier(n)) return [n.text]
+    if (T.isArrayLiteralExpression(n)) return n.elements.flatMap(targets)
+    if (T.isSpreadElement(n) || T.isSpreadAssignment(n)) return targets(n.expression)
+    if (T.isObjectLiteralExpression(n)) return n.properties.flatMap(targets)
+    if (T.isShorthandPropertyAssignment(n)) return [n.name.text]
+    if (T.isPropertyAssignment(n)) return targets(n.initializer)
+    if (T.isBinaryExpression(n) && n.operatorToken.kind === SK.EqualsToken) return targets(n.left)
+    return []
+  }
+  const classesOf = (node) => {
+    if (T.isClassDeclaration(node) && node.name) localClasses.add(node.name.text)
+    T.forEachChild(node, classesOf)
+  }
+  classesOf(sf)
+  const collect = (node) => {
+    const name = node.name
+    if (name && T.isIdentifier(name)) {
+      if (T.isVariableDeclaration(node))
+        bindAs(name.text, Boolean(node.initializer) && goodInit(node.initializer))
+      else if (
+        T.isParameter(node) ||
+        T.isBindingElement(node) ||
+        T.isFunctionDeclaration(node) ||
+        T.isFunctionExpression(node) ||
+        T.isClassDeclaration(node) ||
+        T.isClassExpression(node) ||
+        T.isEnumDeclaration(node) ||
+        T.isModuleDeclaration(node) ||
+        T.isImportClause(node) ||
+        T.isNamespaceImport(node) ||
+        T.isImportSpecifier(node) ||
+        T.isImportEqualsDeclaration(node)
+      )
+        bindAs(name.text, false)
+    }
+    if (T.isBinaryExpression(node) && isAssignOp(node.operatorToken.kind)) {
+      for (const t of targets(node.left)) bindAs(t, false)
+      // `o.f = p` / `o[k] = p`: what the object holds is no longer only what its literal showed.
+      const l = unwrap(node.left)
+      if (T.isPropertyAccessExpression(l) || T.isElementAccessExpression(l)) {
+        const r = rootOf(l)
+        if (T.isIdentifier(r)) bindAs(r.text, false)
       }
     }
+    // `for (x of xs)` / `for (x in o)` with an existing name: a write the file does not show.
     if (
-      T.isBinaryExpression(node) &&
-      isAssignOp(node.operatorToken.kind) &&
-      T.isIdentifier(unwrap(node.left))
+      (T.isForOfStatement(node) || T.isForInStatement(node)) &&
+      !T.isVariableDeclarationList(node.initializer)
     )
-      bindings.push([unwrap(node.left).text, node.right])
-    T.forEachChild(node, bind)
+      for (const t of targets(node.initializer)) bindAs(t, false)
+    T.forEachChild(node, collect)
   }
-  bind(sf)
-  const literalish = (value) =>
-    sources(value).some((src) => {
-      const r = unwrap(rootOf(src))
-      return LITERALISH.includes(r.kind) || (T.isIdentifier(r) && literalBound.has(r.text))
-    })
-  for (let grew = true; grew;) {
-    grew = false
-    for (const [name, value] of bindings)
-      if (!literalBound.has(name) && literalish(value)) {
-        literalBound.add(name)
-        grew = true
-      }
-  }
-  // Only a root that is a name declared in this file — and not a well-known global, which a
-  // file-wide `declared` set cannot tell from a shadowing local, nor a literal-bound name — is
-  // local. `this`, a literal, `new X()`, an array / object literal are not: `''[k]` / `({})[k]`
-  // reach `constructor`.
+  collect(sf)
+  const isLocalName = (text) =>
+    bindings.get(text)?.every(Boolean) === true &&
+    !GLOBAL_OBJECTS.has(text) &&
+    !WELL_KNOWN_GLOBALS.has(text)
+  // `this`, a literal, `new X()`, an array / object literal as a ROOT are not local:
+  // `''[k]` / `({})[k]` reach `constructor`.
   const isLocalReceiver = (n) =>
     sources(n).every((src) => {
       const r = rootOf(src)
-      if (T.isIdentifier(r))
-        return (
-          declared.has(r.text) &&
-          !literalBound.has(r.text) &&
-          !GLOBAL_OBJECTS.has(r.text) &&
-          !WELL_KNOWN_GLOBALS.has(r.text)
-        )
+      if (T.isIdentifier(r)) return isLocalName(r.text)
       if (sources(r).length > 1) return isLocalReceiver(r) // `(x ?? window).a[k]`
       return false
     })
