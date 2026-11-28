@@ -269,6 +269,15 @@ source is enabled by then.
 `providers/owner-decisions.ts`); 2027-02-10 Recruitee token deadline decision.
 **Where to move:** a scheduled task that opens an issue on each date.
 
+### 12. Restricted read-only SSH account for a manager (added 2026-11-28)
+
+**Why a human:** agents have no SSH to the VPS, and creating a host user, an sshd rule and a root timer is a
+privileged change to the prod host.
+**Automated:** nothing; every command and the full allowlist script are in `docs/runbooks/vps-manager-ssh.md`.
+**Human remainder:** run the runbook's sections 1-5 once per manager, the verification checklist (section 7), and
+the revoke procedure (section 8) when access ends. Decide first whether `api` / `nginx` logs may be shown.
+**Where to move:** nowhere soon; granting host access is an owner decision.
+
 ---
 
 ## What is NOT written here
