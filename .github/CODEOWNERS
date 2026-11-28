@@ -1,8 +1,65 @@
-# Default owner for everything
+# CODEOWNERS — inverted: the owner owns everything, a few zones are opened, sensitive files inside
+# them are re-protected. GitHub applies the LAST matching line, so the order of the three blocks
+# below is load-bearing. What is protected and why: .github/CODEOWNERS.md.
+#
+# Pattern shapes allowed here (enforced by scripts/devops/check-owner-approval.mjs, which reads this
+# file to decide which changed files are unowned): `*`, a directory `a/b/` or `a/b/**`, an exact
+# file path `a/b/c.ts`, a basename at any depth `**/name` (`*` allowed inside the name). No other
+# glob — the checker refuses the file rather than guess.
+
+# 1. Default owner for everything (new modules, packages, services, deploy, .github/**, this file).
 * @yaremenko-maksym
 
-# Business docs require owner review
-docs/business/ @yaremenko-maksym
+# 2. Open zones — a line with no owner leaves the path unowned (owner decision 2026-11-28).
+apps/web/**
+apps/landing/**
+apps/e2e/**
+docs/**
 
-# Database schema changes require owner review
+# 3. Re-protected after the open zones.
+# Kept from before: business docs and the DB schema need the owner.
+docs/business/ @yaremenko-maksym
 apps/api/src/database/ @yaremenko-maksym
+
+# Dependency and module-alias wiring at any depth: a package.json / tsconfig paths / bundler alias
+# can point an innocent-looking import at the API or a DB driver without any import changing.
+**/package.json @yaremenko-maksym
+**/tsconfig*.json @yaremenko-maksym
+**/vite.config.* @yaremenko-maksym
+**/vitest.config.* @yaremenko-maksym
+**/playwright.config.* @yaremenko-maksym
+**/.npmrc @yaremenko-maksym
+**/pnpm-workspace.yaml @yaremenko-maksym
+**/pnpm-lock.yaml @yaremenko-maksym
+**/jsconfig*.json @yaremenko-maksym
+**/.babelrc* @yaremenko-maksym
+# The SPA entry documents: a <script> here runs before the bundle, outside every import check.
+**/index.html @yaremenko-maksym
+
+# Production images (deploy surface stays the owner's).
+apps/web/Dockerfile @yaremenko-maksym
+apps/landing/Dockerfile @yaremenko-maksym
+
+# Web auth: client RBAC route map, session, login, impersonation, the HTTP client and logout.
+apps/web/app/lib/route-access.ts @yaremenko-maksym
+apps/web/app/context/auth.tsx @yaremenko-maksym
+apps/web/app/routes/login.tsx @yaremenko-maksym
+apps/web/app/routes/_authenticated/route.tsx @yaremenko-maksym
+apps/web/app/routes/_authenticated/admin/login-as.tsx @yaremenko-maksym
+apps/web/app/lib/axios.ts @yaremenko-maksym
+apps/web/app/lib/use-logout.ts @yaremenko-maksym
+apps/web/app/lib/persister.ts @yaremenko-maksym
+
+# Web finance: transactions, payouts, company account / wallet, requisites, invoices.
+apps/web/app/routes/_authenticated/finance/ @yaremenko-maksym
+apps/web/app/routes/_authenticated/admin/wallet.index.tsx @yaremenko-maksym
+apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx @yaremenko-maksym
+apps/web/app/routes/invoice.v.$transactionId.tsx @yaremenko-maksym
+apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx @yaremenko-maksym
+apps/web/app/components/archive/ArchivePendingTransactionsList.tsx @yaremenko-maksym
+apps/web/app/components/stats/FinanceChart.tsx @yaremenko-maksym
+apps/web/app/components/user-profile/tabs/FinanceTab.tsx @yaremenko-maksym
+apps/web/app/components/user-profile/tabs/RequisitesTab.tsx @yaremenko-maksym
+apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx @yaremenko-maksym
+apps/web/app/components/users/user-dialog/FinanceSection.tsx @yaremenko-maksym
+apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx @yaremenko-maksym

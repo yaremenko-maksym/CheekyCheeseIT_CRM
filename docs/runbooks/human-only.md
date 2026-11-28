@@ -278,6 +278,33 @@ privileged change to the prod host.
 the revoke procedure (section 8) when access ends. Decide first whether `api` / `nginx` logs may be shown.
 **Where to move:** nowhere soon; granting host access is an owner decision.
 
+### 13. Open CODEOWNERS zones and the Owner Verdict gate (added 2026-11-28)
+
+**Why a human:** branch protection and repository settings need admin rights no agent holds, and the gate exists
+precisely because agents share the owner's GitHub account: the `Owner Verdict:` review must be typed by the owner.
+**Automated:** `.github/CODEOWNERS` opens `apps/web`, `apps/landing`, `apps/e2e` and `docs` with re-protected
+exceptions; the `Owner Verdict` job (`.github/workflows/flow-gate.yml`) fails a non-owner PR that touches a critical
+zone or trips the fail-closed scanner until a fresh owner verdict; `.github/workflows/owner-verdict-merge.yml`
+squash-merges it once every required check is green. What is protected and why: `.github/CODEOWNERS.md`.
+**Human remainder:**
+
+1. Add `Owner Verdict` to the required status checks of `main`, bound to the GitHub Actions app (app_id 15368, like
+   the existing contexts). Until then a red `Owner Verdict` does not block a merge by anyone with write access.
+2. Enable "Require review from Code Owners" only after deciding the lockout question in `.github/CODEOWNERS.md`
+   ("Before enabling Require review from Code Owners"): with `* @yaremenko-maksym` and `enforce_admins: true`, every
+   PR authored from the owner's account (all agent PRs) needs a code-owner approval its author cannot give.
+3. Post the verdict as a PR review (Comment or Approve), never an issue comment. First line `Owner Verdict: APPROVE`
+   (or `BLOCK`), and a line `Commit: <full 40-hex head sha>`. A push after the verdict needs a new one. Never edit a
+   verdict review: an edited owner review resets the verdict (red) until a new, unedited review is posted. To retract
+   an APPROVE, post a BLOCK review; dismissing a BLOCK does not lift it.
+   Owner test (once): from a write-role account that is not the owner, try to edit an owner review body on a test PR.
+   If GitHub allows it, the reset rule above is what stops it; record the result in `.github/CODEOWNERS.md`.
+4. Optional: enable "Allow auto-merge" in the repository settings; the merge workflow does not need it.
+
+**Where to move:** nowhere: the verdict is the owner's by design. The marker can be posted from the owner's account
+by an agent until the Architect adds the `pre:bash:owner-verdict-marker` hook (owner requirement item 4, reported in
+PR 11, not built).
+
 ---
 
 ## What is NOT written here
