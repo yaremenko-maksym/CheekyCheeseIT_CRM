@@ -56,7 +56,8 @@ trigger:
   `new URL(<string>, import.meta.url)` are resolved and judged the same way; a non-literal one is a trigger.
   A mock method reached as `vi['importActual'](...)` or through destructuring (`const { importActual: ia } = vi`,
   `({ requireActual } = jest)`) is judged the same way (round 13). A mock method that is not called where it is
-  named (`const f = importActual`, `const ia = vi.importActual`) cannot be resolved and is a trigger.
+  named (`const f = importActual`, `const ia = v.importActual`, any receiver; `mock` only on `vi` / `jest`, since
+  every spy has `.mock`) cannot be resolved and is a trigger.
 - any changed path (owned or not, whatever its name) whose head-tree mode is `120000` (a symlink, which reaches
   anything: `x.json -> ../../api/src/database`) or `160000` (a gitlink / submodule), or whose mode was not read.
   The fetch reads the modes from the head tree (`git/trees/<head>?recursive=1`); a truncated or unreadable tree
