@@ -75,7 +75,7 @@ export const users = pgTable(
     bankUahRnokpp: text('bank_uah_rnokpp'),
     bankUahBankName: text('bank_uah_bank_name'),
     // For SENIOR and ADMIN: percentage they keep from project income (0-100)
-    seniorSharePercent: integer('senior_share_percent').notNull().default(26),
+    seniorSharePercent: integer('senior_share_percent').notNull().default(40),
     // task-pending-share (position 5 of docs/superpowers/specs/2026-09-01-
     // notifications-and-confirmations-design.md §4.3). A proposed NEW base
     // share % sits here, next to the active column, while the affected SENIOR

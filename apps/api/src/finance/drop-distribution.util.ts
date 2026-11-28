@@ -10,12 +10,12 @@ import type { ExchangeRateResult } from './nbu-currency.service'
 // (giant-decomposition leaf T-L2). No DB, no side effects, no logging.
 
 /**
- * Default senior share percent when no per-user override is set (DB default 26).
+ * Default senior share percent when no per-user override is set (DB default 40).
  * Single source of truth — used in computeDropDistribution, getSeniorSummary,
- * and getSummary to avoid scattering the literal `26` across the service.
+ * and getSummary to avoid scattering the default literal across the service.
  * Re-exported from transactions.service.ts for existing importers.
  */
-export const DEFAULT_SENIOR_SHARE_PERCENT = 26
+export const DEFAULT_SENIOR_SHARE_PERCENT = 40
 
 /**
  * Distribute a drop-project's incoming amount across senior, drop, and the
@@ -28,7 +28,7 @@ export const DEFAULT_SENIOR_SHARE_PERCENT = 26
  *   - project — drop-project row (must have `dropId !== null` — caller
  *     verifies before invoking). Reserved for future per-project overrides.
  *   - drop — DROP user row (read `dropSharePercent`, default 5).
- *   - senior — SENIOR user row (read `seniorSharePercent`, default 26).
+ *   - senior — SENIOR user row (read `seniorSharePercent`, default 40).
  *
  * Errors:
  *   - Throws `BadRequestException` if senior + drop percents exceed 100.
