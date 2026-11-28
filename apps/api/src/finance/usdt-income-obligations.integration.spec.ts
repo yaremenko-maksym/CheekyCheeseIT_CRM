@@ -848,7 +848,7 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
   // Neither DROP_PENDING_PAYOUT nor PAYOUT_DROP is blacklisted from the
   // sender/receiver-match rule (unlike PAYOUT_ADMIN/PAYOUT_CONFIRMED), so a
   // party (DROP/SENIOR) sees their OWN row; a non-party sees neither; ADMIN/
-  // ADMIN see everything. Proven against the REAL cascade rows, not mocks.
+  // ADMIN sees everything. Proven against the REAL cascade rows, not mocks.
   describe('MED-1: DROP_PENDING_PAYOUT / PAYOUT_DROP RBAC visibility (real DB)', () => {
     it('DROP sees their own DROP_PENDING_PAYOUT; SENIOR does NOT see it (findOne)', async () => {
       await declare(
@@ -868,8 +868,7 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
       expect(seenByDrop.type).toBe('DROP_PENDING_PAYOUT')
       // SENIOR is neither sender nor receiver of the DROP's IOU → 403.
       await expect(svc.findOne(dropPendingTxId!, SENIOR)).rejects.toThrow()
-      // ADMIN see everything (RBAC bypass for company-wide roles).
-      await expect(svc.findOne(dropPendingTxId!, ADMIN_MAKSYM)).resolves.not.toThrow()
+      // ADMIN sees everything (RBAC bypass for the company-wide role).
       await expect(svc.findOne(dropPendingTxId!, ADMIN_MAKSYM)).resolves.not.toThrow()
       // JUNIOR is never a party to finance rows.
       await expect(svc.findOne(dropPendingTxId!, JUNIOR)).rejects.toThrow()
@@ -892,7 +891,6 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
       // DROP is neither sender nor receiver of the SENIOR's IOU → 403.
       await expect(svc.findOne(seniorPendingTxId!, DROP)).rejects.toThrow()
       await expect(svc.findOne(seniorPendingTxId!, ADMIN_MAKSYM)).resolves.not.toThrow()
-      await expect(svc.findOne(seniorPendingTxId!, ADMIN_MAKSYM)).resolves.not.toThrow()
     })
 
     it('after settle: DROP sees their own PAYOUT_DROP; SENIOR does NOT (findOne)', async () => {
@@ -908,7 +906,6 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
 
       await expect(svc.findOne(payoutDropId, DROP)).resolves.not.toThrow()
       await expect(svc.findOne(payoutDropId, SENIOR)).rejects.toThrow()
-      await expect(svc.findOne(payoutDropId, ADMIN_MAKSYM)).resolves.not.toThrow()
       await expect(svc.findOne(payoutDropId, ADMIN_MAKSYM)).resolves.not.toThrow()
     })
 

@@ -561,7 +561,6 @@ describe.skipIf(!hasDatabaseUrl())(
       expect((await svc.findPayoutRequest(requestId, SENIOR)).txFromAddress).toBeNull()
       // ADMIN — disclosed.
       expect((await svc.findPayoutRequest(requestId, ADMIN)).txFromAddress).toBe(EXCHANGE_WALLET)
-      expect((await svc.findPayoutRequest(requestId, ADMIN)).txFromAddress).toBe(EXCHANGE_WALLET)
 
       // Same masking in the LIST projection.
       const asSenior = await svc.findPayoutRequests(SENIOR)
