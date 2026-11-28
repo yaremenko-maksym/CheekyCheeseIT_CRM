@@ -1,5 +1,6 @@
-import { Injectable, Logger, Optional } from '@nestjs/common'
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common'
 import { kyivToday } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { NBU_SOURCES, ymdToDotted, type NbuRateResponse } from './nbu-rate-sources'
 import { NbuRateStore, type PersistedNbuRate } from './nbu-rate-store'
 
@@ -158,6 +159,23 @@ const HARDCODED_FALLBACK = {
   eurUah: '44.80',
 }
 
+/**
+ * Fix round 3 (PR #1523): a past day whose prefetch failed or came back dated another day is not
+ * fetched again by `getRatesForDays` for this long; it is priced as the stale stand-in meanwhile,
+ * so a few bad days cannot eat the per-read cap or the deadline on every balance read.
+ */
+const FAILED_DAY_COOLDOWN_MS = 10 * 60_000
+/** Size bound of that cooldown map; the oldest entry is dropped first. */
+const MAX_COOLED_DAYS = 100
+
+/** `YYYYMMDD` that names a real calendar day (UTC round trip: `20260230` rolls to March). */
+function isCalendarYmd(s: string): boolean {
+  if (!/^\d{8}$/.test(s)) return false
+  const [y, m, d] = [Number(s.slice(0, 4)), Number(s.slice(4, 6)), Number(s.slice(6, 8))]
+  const t = new Date(Date.UTC(y, m - 1, d))
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d
+}
+
 /** What the last-known-good cache remembers, beyond the numbers themselves. */
 interface LastKnownGood {
   usdUah: string
@@ -183,6 +201,8 @@ interface SourceHit {
   sourceId: string
   url: string
   rates: NbuRateResponse[]
+  /** Both currencies present, but dated another day than asked: display only, never payable. */
+  wrongDay?: true
 }
 
 @Injectable()
@@ -200,6 +220,9 @@ export class NbuCurrencyService {
    */
   private lastKnownGood: LastKnownGood | null = null
 
+  /** Past day -> epoch ms until which `getRatesForDays` does not refetch it (insertion-ordered). */
+  private readonly failedDays = new Map<string, number>()
+
   /**
    * Manager-role plan PR 8: persisted past NBU days. Optional so the many specs that build this
    * service bare keep working; without a store every read takes the live NBU path, as before.
@@ -214,8 +237,15 @@ export class NbuCurrencyService {
    * returned it (same strings, `rateDate` set) and NBU is not called. A past day not yet
    * persisted is fetched below and persisted when it was an exact hit. A store failure is
    * logged and the live path runs unchanged.
+   *
+   * Throws `FINANCE_DATE_FORMAT_INVALID` (400) for a `date` that is not a real `YYYYMMDD` calendar
+   * day (`20260230`, `00000000`), the same answer the controller gives a bad format. NBU and store
+   * failures never throw.
    */
   async getRates(date?: string): Promise<ExchangeRateResult> {
+    if (date !== undefined && !isCalendarYmd(date)) {
+      throw apiError('FINANCE_DATE_FORMAT_INVALID', HttpStatus.BAD_REQUEST)
+    }
     const today = this.todayStr()
     const dateStr = date ?? today
     if (dateStr < today) {
@@ -249,6 +279,9 @@ export class NbuCurrencyService {
    *     `HISTORICAL_PREFETCH_DEADLINE_MS`; a request still in flight at it is aborted. Every day
    *     left over is priced at the live rate and marked `stale: true` with no `rateDate`, so no
    *     money path can take it.
+   *   - a past day whose fetch failed or came back dated another day is not fetched again for
+   *     `FAILED_DAY_COOLDOWN_MS` (fix round 3); it gets the same stale stand-in meanwhile and does
+   *     not count against the cap. `getRates` itself never cools down.
    *   - an unusable store (e.g. the table is not deployed yet) means NO historical NBU call at
    *     all on this read: every past day gets the stale live stand-in.
    * Never throws for an NBU or store failure.
@@ -277,6 +310,7 @@ export class NbuCurrencyService {
     const { usdUah, usdtUah, eurUah } = live
     let fetches = 0
     let standIns = 0
+    let cooled = 0
     let stop: string | null =
       persisted === null
         ? 'rate store unavailable'
@@ -290,10 +324,19 @@ export class NbuCurrencyService {
       if (stop === null && Date.now() >= deadline) {
         stop = `prefetch deadline of ${HISTORICAL_PREFETCH_DEADLINE_MS}ms reached`
       }
+      const cooledUntil = this.failedDays.get(d)
+      if (stop === null && cooledUntil !== undefined && Date.now() < cooledUntil) {
+        standIns++
+        cooled++
+        out.set(d, { usdUah, usdtUah, eurUah, date: d, stale: true })
+        continue
+      }
       if (stop === null) {
         fetches++
         const fetched = await this.fetchRates(d, today, deadline)
         if (fetched.stale !== true || Date.now() < deadline) {
+          // Failed or dated another day: cool the day down (a deadline cut is not its fault).
+          if (fetched.rateDate === undefined) this.coolDown(d)
           out.set(d, fetched)
           continue
         }
@@ -306,10 +349,20 @@ export class NbuCurrencyService {
 
     if (standIns > 0) {
       this.logger.warn(
-        `NBU historical prefetch incomplete | provider=bank.gov.ua | cause=${stop} | daysAtLiveRate=${standIns} | stale=true`,
+        `NBU historical prefetch incomplete | provider=bank.gov.ua | cause=${stop ?? 'failed days cooling down'} | daysAtLiveRate=${standIns} | cooledDays=${cooled} | stale=true`,
       )
     }
     return out
+  }
+
+  /** Start (or restart) the cooldown of a failed day, keeping the map at `MAX_COOLED_DAYS`. */
+  private coolDown(day: string): void {
+    this.failedDays.delete(day)
+    if (this.failedDays.size >= MAX_COOLED_DAYS) {
+      const oldest = this.failedDays.keys().next().value
+      if (oldest !== undefined) this.failedDays.delete(oldest)
+    }
+    this.failedDays.set(day, Date.now() + FAILED_DAY_COOLDOWN_MS)
   }
 
   /** The persisted subset of `days`, or `null` when the store is absent or failed (logged). */
@@ -394,33 +447,19 @@ export class NbuCurrencyService {
     const isLiveRequest = dateStr === today
 
     // Attempt 1: the exact requested date.
-    const exact = await this.fetchFromSources(dateStr, deadline)
+    const exact = await this.fetchFromSources(dateStr, today, deadline)
     if (exact !== null) {
-      const result = this.buildResult(exact.rates, dateStr, {
-        stale: false,
+      // Security review PR #1523 (SR-M-1): an answer dated another day (no source had the right
+      // day, see `fetchFromSources`) is shown for display only: stale, no `rateDate`, never
+      // cached, so every money path (settlement, payout request) refuses it and nothing is
+      // persisted. A hit lacking USD or EUR is already stale from `buildResult`.
+      const served = this.buildResult(exact.rates, dateStr, {
+        stale: exact.wrongDay === true,
         allowCacheUpdate: isLiveRequest,
         sourceId: exact.sourceId,
         calcdate: this.calcdateOf(exact.rates),
       })
-      // Security review PR #1523 (SR-M-1, then LOW note 1): a past-day answer must carry NBU's own
-      // date for the requested day on BOTH the USD and the EUR row (`exchangedate` / `StartDate`).
-      // An answer dated another day is shown for display only: stale, no `rateDate`, so every
-      // money path (settlement, payout request) refuses it and nothing is persisted.
-      // A hit lacking USD or EUR is already stale from `buildResult`.
-      const asked = ymdToDotted(dateStr)
-      const dated = (cc: string): boolean =>
-        exact.rates.every((r) => r.cc !== cc || r.exchangedate === asked)
-      const served: ExchangeRateResult =
-        dateStr < today && (!dated('USD') || !dated('EUR'))
-          ? {
-              usdUah: result.usdUah,
-              usdtUah: result.usdtUah,
-              eurUah: result.eurUah,
-              date: dateStr,
-              stale: true,
-            }
-          : result
-      if (served !== result) {
+      if (exact.wrongDay === true) {
         this.logger.warn(
           `NBU answer dated another day | provider=bank.gov.ua | source=${exact.sourceId} | day=${dateStr} | stale=true, not persisted, money paths refuse`,
         )
@@ -437,10 +476,12 @@ export class NbuCurrencyService {
 
     // Attempt 2: previous day (weekend / holiday / not-yet-published gap).
     const prev = this.prevDayStr(dateStr)
-    const prevHit = await this.fetchFromSources(prev, deadline)
+    const prevHit = await this.fetchFromSources(prev, today, deadline)
     if (prevHit !== null) {
       const prevResult = this.buildResult(prevHit.rates, prev, {
-        stale: false, // a real publication for `prev` — cacheable as such
+        // A real publication for `prev`, cacheable as such, unless it is dated another day than
+        // `prev` (fix round 3): then stale, so it has no `rateDate` and is never cached.
+        stale: prevHit.wrongDay === true,
         allowCacheUpdate: isLiveRequest,
         sourceId: prevHit.sourceId,
         calcdate: this.calcdateOf(prevHit.rates),
@@ -503,8 +544,21 @@ export class NbuCurrencyService {
    * against a single SERVICE failing, not against `bank.gov.ua` being
    * unreachable — see the header comment in `nbu-rate-sources.ts`.
    */
-  private async fetchFromSources(yyyymmdd: string, deadline?: number): Promise<SourceHit | null> {
+  private async fetchFromSources(
+    yyyymmdd: string,
+    today: string,
+    deadline?: number,
+  ): Promise<SourceHit | null> {
     let partial: SourceHit | null = null
+    let wrongDay: SourceHit | null = null
+    // Security review PR #1523 (SR-M-1, fix round 3): a past day's answer must carry NBU's own
+    // date for THAT day on both the USD and the EUR row (`exchangedate` / `StartDate`). A source
+    // dated another day falls through to the next one; only when none is dated right is the first
+    // such answer returned, flagged, for display.
+    const asked = ymdToDotted(yyyymmdd)
+    const datedRight = (rows: NbuRateResponse[]): boolean =>
+      yyyymmdd >= today ||
+      rows.every((r) => (r.cc !== 'USD' && r.cc !== 'EUR') || r.exchangedate === asked)
 
     for (const source of NBU_SOURCES) {
       const url = source.buildUrl(yyyymmdd)
@@ -527,7 +581,14 @@ export class NbuCurrencyService {
 
       const hasUsd = rows.some((r) => r.cc === 'USD')
       const hasEur = rows.some((r) => r.cc === 'EUR')
-      if (hasUsd && hasEur) return { sourceId: source.id, url, rates: rows }
+      if (hasUsd && hasEur) {
+        if (datedRight(rows)) return { sourceId: source.id, url, rates: rows }
+        this.logger.warn(
+          `NBU source "${source.id}" answered for ${yyyymmdd} with rates dated another day — trying next source`,
+        )
+        wrongDay ??= { sourceId: source.id, url, rates: rows, wrongDay: true }
+        continue
+      }
 
       this.logger.warn(
         `NBU source "${source.id}" answered for ${yyyymmdd} but is missing USD and/or EUR — trying next source`,
@@ -535,7 +596,7 @@ export class NbuCurrencyService {
       partial ??= { sourceId: source.id, url, rates: rows }
     }
 
-    return partial
+    return wrongDay ?? partial
   }
 
   /**
