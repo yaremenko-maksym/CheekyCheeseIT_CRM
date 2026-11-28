@@ -86,10 +86,6 @@ export { expect }
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-export async function waitForPageReady(page: Page) {
-  await page.waitForLoadState('networkidle')
-}
-
 // i18n-3d-pr3 (fix-round PR #734, FIX-SPEC-M-1): both current call sites
 // (finance.spec.ts, CreateTransactionDialog + AdminEditTransactionDialog
 // cancel buttons) are migrated to uk — this shared helper is `getByRole`

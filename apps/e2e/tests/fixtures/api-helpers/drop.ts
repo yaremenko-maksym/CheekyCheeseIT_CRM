@@ -103,21 +103,6 @@ export async function addSeniorToDropTeamViaAPI(
   return { seniorId: senior.id }
 }
 
-/**
- * Archive a drop-team via DELETE /api/teams/:id (the contract enforced
- * by the team-detail UI «Архивировать» button after the round-2 backend
- * fix). Used by tests that need to skip the UI dialog and just plant
- * archived state.
- */
-export async function archiveDropTeamViaAPI(page: Page, teamId: string): Promise<void> {
-  const res = await page.request.delete(`${REAL_API_BASE}/api/teams/${teamId}`)
-  if (res.status() !== 200 && res.status() !== 204) {
-    throw new Error(
-      `archiveDropTeamViaAPI failed for team ${teamId}: HTTP ${res.status()} — ${await res.text()}`,
-    )
-  }
-}
-
 /** Fetch a team by id via GET /api/teams/:id — returns the parsed body. */
 export async function getTeamViaAPI(
   page: Page,
