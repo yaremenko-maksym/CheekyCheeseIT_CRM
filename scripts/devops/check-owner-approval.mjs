@@ -37,10 +37,10 @@
 // contents.json: [{filename, content} | {filename, unavailable: true}]
 // TypeScript: `typescript` resolved from this file, or the path in OWNER_GATE_TS.
 // Exit: 0 pass, 1 refused, 2 usage / input error.
-import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire, isBuiltin } from 'node:module'
 import { posix } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 
 const requireHere = createRequire(import.meta.url)
 let tsModule
@@ -460,15 +460,89 @@ export function scanCode(filename, content, aliases) {
       else return n
     }
   }
+  // Master addendum 7 SR-M-3: a name bound to a literal-like value is the literal itself —
+  // `const o = {}; o[k][k]('...')()` reaches Function exactly as `({})[k][k]` does. A name is
+  // literal-bound when any source root of a value bound or assigned to it is a literal, `new`,
+  // `this`, a function / class, or another literal-bound name (fixed point). Function and class
+  // declarations are literal-bound too: `f[k]` is `f.constructor` = Function.
+  const LITERALISH = [
+    SK.StringLiteral,
+    SK.NoSubstitutionTemplateLiteral,
+    SK.TemplateExpression,
+    SK.NumericLiteral,
+    SK.BigIntLiteral,
+    SK.RegularExpressionLiteral,
+    SK.ObjectLiteralExpression,
+    SK.ArrayLiteralExpression,
+    SK.NewExpression,
+    SK.ThisKeyword,
+    SK.TrueKeyword,
+    SK.FalseKeyword,
+    SK.ArrowFunction,
+    SK.FunctionExpression,
+    SK.ClassExpression,
+  ]
+  const literalBound = new Set()
+  const bindings = [] // [name, value expression]
+  const bind = (node) => {
+    if (
+      (T.isFunctionDeclaration(node) || T.isClassDeclaration(node)) &&
+      node.name &&
+      T.isIdentifier(node.name)
+    )
+      literalBound.add(node.name.text)
+    if (
+      (T.isVariableDeclaration(node) || T.isParameter(node) || T.isBindingElement(node)) &&
+      T.isIdentifier(node.name)
+    ) {
+      if (node.initializer) bindings.push([node.name.text, node.initializer])
+      // `const { a } = { a: '' }`: a destructured name inherits the enclosing declaration's value.
+      if (T.isBindingElement(node)) {
+        let p = node.parent
+        while (
+          p &&
+          (T.isBindingElement(p) || T.isObjectBindingPattern(p) || T.isArrayBindingPattern(p))
+        )
+          p = p.parent
+        if (p?.initializer && (T.isVariableDeclaration(p) || T.isParameter(p)))
+          bindings.push([node.name.text, p.initializer])
+      }
+    }
+    if (
+      T.isBinaryExpression(node) &&
+      isAssignOp(node.operatorToken.kind) &&
+      T.isIdentifier(unwrap(node.left))
+    )
+      bindings.push([unwrap(node.left).text, node.right])
+    T.forEachChild(node, bind)
+  }
+  bind(sf)
+  const literalish = (value) =>
+    sources(value).some((src) => {
+      const r = unwrap(rootOf(src))
+      return LITERALISH.includes(r.kind) || (T.isIdentifier(r) && literalBound.has(r.text))
+    })
+  for (let grew = true; grew;) {
+    grew = false
+    for (const [name, value] of bindings)
+      if (!literalBound.has(name) && literalish(value)) {
+        literalBound.add(name)
+        grew = true
+      }
+  }
   // Only a root that is a name declared in this file — and not a well-known global, which a
-  // file-wide `declared` set cannot tell from a shadowing local — is local. `this`, a literal,
-  // `new X()`, an array / object literal are not: `''[k]` / `({})[k]` reach `constructor`.
+  // file-wide `declared` set cannot tell from a shadowing local, nor a literal-bound name — is
+  // local. `this`, a literal, `new X()`, an array / object literal are not: `''[k]` / `({})[k]`
+  // reach `constructor`.
   const isLocalReceiver = (n) =>
     sources(n).every((src) => {
       const r = rootOf(src)
       if (T.isIdentifier(r))
         return (
-          declared.has(r.text) && !GLOBAL_OBJECTS.has(r.text) && !WELL_KNOWN_GLOBALS.has(r.text)
+          declared.has(r.text) &&
+          !literalBound.has(r.text) &&
+          !GLOBAL_OBJECTS.has(r.text) &&
+          !WELL_KNOWN_GLOBALS.has(r.text)
         )
       if (sources(r).length > 1) return isLocalReceiver(r) // `(x ?? window).a[k]`
       return false
@@ -813,4 +887,13 @@ function main() {
   process.exit(res.ok ? 0 : 1)
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main()
+// Realpaths on both sides (CR-M-5): a checkout reached through a symlink (macOS `/tmp`) must
+// still run main, never exit 0 having printed nothing.
+const isMain = () => {
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+  } catch {
+    return false
+  }
+}
+if (process.argv[1] && isMain()) main()

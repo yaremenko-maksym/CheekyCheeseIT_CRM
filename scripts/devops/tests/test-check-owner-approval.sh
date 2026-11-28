@@ -493,6 +493,19 @@ case_red litroot3 apps/web/app/lib/lr3.ts modified "class A { f(k: string) { ret
   "receiver not provably local" "this[k] -> refused"
 case_red litroot4 apps/web/app/lib/lr4.ts modified "const k = 'x'; const v = new Map()[k]" \
   "receiver not provably local" "new X()[k] -> refused"
+# SR-M-3: a name bound to a literal / new / this / function is the literal itself.
+case_red litname1 apps/web/app/lib/ln1.ts modified "const o = {}; const k = 'con' + 'structor'; o[k][k]('1')()" \
+  "receiver not provably local" "const o = {}; o[k][k] -> refused"
+case_red litname2 apps/web/app/lib/ln2.ts modified "const s = ''; const k = 'con' + 'structor'; s[k][k]('1')()" \
+  "receiver not provably local" "const s = ''; s[k][k] -> refused"
+case_red litname3 apps/web/app/lib/ln3.ts modified "const a = []; const b = a; const k = 'con' + 'structor'; b[k][k]('1')()" \
+  "receiver not provably local" "a name bound to a literal-bound name -> refused"
+case_red litname4 apps/web/app/lib/ln4.ts modified "function f() {} const k = 'con' + 'structor'; f[k][k]('1')()" \
+  "receiver not provably local" "a function declaration's name -> refused"
+case_red litname5 apps/web/app/lib/ln5.ts modified "let o; o = new Map(); const k = 'x'; o[k]" \
+  "receiver not provably local" "a name assigned new X() -> refused"
+case_red litname6 apps/web/app/lib/ln6.ts modified "const { a } = { a: '' }; const k = 'x'; a[k]" \
+  "receiver not provably local" "a destructured name from a literal -> refused"
 case_red wkg1 apps/web/app/lib/wk1.ts modified "function f(Object: any) { return 1 }
 const k = 'x'; const v = Object[k]" "receiver not provably local" \
   "Object declared somewhere in the file is still not local -> refused"
