@@ -70,6 +70,7 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
     })
     // Stryker disable next-line ObjectLiteral,StringLiteral: same literal-options requirement and the same unreachable `other` as roleGenitive above
     const pairWord = select(impact.role, { SENIOR: 'сеньйор', DROP: 'дроп', other: 'співробітник' })
+    const totalAffected = (impact.hrAccountantsOnTeam ?? 0) + (impact.juniorsAffected ?? 0)
     return (
       <>
         <Trans>
@@ -85,26 +86,30 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
           />
           {namesSuffix}). Вхід у CRM для цього акаунта буде закрито.
         </Trans>{' '}
-        <Trans>
-          У команді {impact.hrAccountantsOnTeam ?? 0} HR, на проєктах —{' '}
-          <Plural
-            value={impact.juniorsAffected ?? 0}
-            one="# джуніор"
-            few="# джуніори"
-            many="# джуніорів"
-            other="# джуніора"
-          />
-          :{' '}
-          <Plural
-            value={(impact.hrAccountantsOnTeam ?? 0) + (impact.juniorsAffected ?? 0)}
-            _1="профіль залишається активним, оплата надходить як і раніше"
-            one="їхні профілі залишаються активними, оплату вони отримують як і раніше"
-            few="їхні профілі залишаються активними, оплату вони отримують як і раніше"
-            many="їхні профілі залишаються активними, оплату вони отримують як і раніше"
-            other="їхні профілі залишаються активними, оплату вони отримують як і раніше"
-          />
-          . Після відновлення HR доведеться додати в команду заново.
-        </Trans>{' '}
+        {totalAffected > 0 && (
+          <>
+            <Trans>
+              У команді {impact.hrAccountantsOnTeam ?? 0} HR, на проєктах —{' '}
+              <Plural
+                value={impact.juniorsAffected ?? 0}
+                one="# джуніор"
+                few="# джуніори"
+                many="# джуніорів"
+                other="# джуніора"
+              />
+              :{' '}
+              <Plural
+                value={totalAffected}
+                _1="профіль залишається активним, оплата надходить як і раніше"
+                one="їхні профілі залишаються активними, оплату вони отримують як і раніше"
+                few="їхні профілі залишаються активними, оплату вони отримують як і раніше"
+                many="їхні профілі залишаються активними, оплату вони отримують як і раніше"
+                other="їхні профілі залишаються активними, оплату вони отримують як і раніше"
+              />
+              . Після відновлення HR доведеться додати в команду заново.
+            </Trans>{' '}
+          </>
+        )}
         <Trans>
           Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати
           окремо.

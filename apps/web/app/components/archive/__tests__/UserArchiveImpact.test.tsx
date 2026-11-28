@@ -176,6 +176,55 @@ describe('UserArchiveImpact', () => {
     expect(text).toContain('їхні профілі залишаються активними, оплату вони отримують як і раніше.')
   })
 
+  it('SENIOR with a team: staff impact sentence is omitted when both HR and juniors are 0', async () => {
+    await loadCatalog('uk')
+    const { rerender } = render(
+      <UserArchiveImpact
+        entityName="Олена"
+        impact={{
+          ...base,
+          role: 'SENIOR',
+          teamName: 'Alpha',
+          projectsCount: 2,
+          projectNames: ['P1', 'P2'],
+          hrAccountantsOnTeam: 0,
+          juniorsAffected: 0,
+        }}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    const block = screen.getByTestId('archive-warning-senior')
+    const text = (block.textContent ?? '').replace(/\s+/g, ' ').trim()
+    expect(text).not.toContain('У команді')
+    expect(text).not.toContain('оплату вони отримують')
+    expect(text).not.toContain('профіль залишається активним')
+    expect(text).not.toContain('Після відновлення HR')
+    expect(text).toBe(
+      'Олена та команда «Alpha» — пов’язана пара, архівувати окремо не можна. ' +
+        'В архів підуть: профіль сеньйора, команда і всі її проєкти (2 проєкти: P1, P2). ' +
+        'Вхід у CRM для цього акаунта буде закрито. ' +
+        'Відновлення можливе — пара «сеньйор+команда» повернеться, але проєкти відновлювати окремо.',
+    )
+
+    // Also covers undefined / omitted fields defaulting to 0
+    rerender(
+      <UserArchiveImpact
+        entityName="Олена"
+        impact={{
+          ...base,
+          role: 'SENIOR',
+          teamName: 'Alpha',
+          projectsCount: 2,
+          projectNames: ['P1', 'P2'],
+        }}
+      />,
+    )
+    const textUndefined = (screen.getByTestId('archive-warning-senior').textContent ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    expect(textUndefined).toBe(text)
+  })
+
   it('HR/JUNIOR/ADMIN: each branch is role-unique, not confusable with a neighbour (mutation-gate round)', async () => {
     // mutation-gate survivors: a guard's role literal forced to `''`/its
     // condition forced `false`/its block emptied all fall through to the

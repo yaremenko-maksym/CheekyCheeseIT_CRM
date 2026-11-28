@@ -7148,6 +7148,12 @@ msgstr "Add a new interview to the board."
 msgid "Виберіть проєкти та доходи, які увійдуть до заявки на виплату."
 msgstr "Select the projects and income entries to include in the payout request."
 
+#. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
+#. placeholder {1}: impact.juniorsAffected ?? 0
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "У команді {0} HR, на проєктах — {1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніора}}: {totalAffected, plural, =1 {профіль залишається активним, оплата надходить як і раніше} one {їхні профілі залишаються активними, оплату вони отримують як і раніше} few {їхні профілі залишаються активними, оплату вони отримують як і раніше} many {їхні профілі залишаються активними, оплату вони отримують як і раніше} other {їхні профілі залишаються активними, оплату вони отримують як і раніше}}. Після відновлення HR доведеться додати в команду заново."
+msgstr "The team has {0} HR and its projects have {1, plural, one {# junior} other {# juniors}}: {totalAffected, plural, =1 {their profile stays active and they keep getting paid} other {their profiles stay active and they keep getting paid}}. After restoring, HR have to be added to the team again."
+
 #: apps/web/app/routes/_authenticated/admin/sources.index.tsx
 msgid "Стан зовнішніх джерел вакансій: що зараз справне, наскільки свіжі дані та з якою періодичністю ми їх збираємо. Відкрийте джерело, щоб побачити історію запусків і подій."
 msgstr "The health of external vacancy sources: what is healthy now, how fresh the data is, and how often we collect it. Open a source to see its run and event history."
@@ -14042,13 +14048,6 @@ msgstr "Change the company wallet address"
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Зараховується дохід у статусі «валідовано» або «виплачено» за поточний місяць. Згодом: ручні винятки (пауза / відпустка) і автоматичні нагадування."
 msgstr "An income entry counts once it is «validated» or «paid» for the current month. Coming later: manual exceptions (pause / leave) and automatic reminders."
-
-#. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
-#. placeholder {1}: impact.juniorsAffected ?? 0
-#. placeholder {2}: (impact.hrAccountantsOnTeam ?? 0) + (impact.juniorsAffected ?? 0)
-#: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "У команді {0} HR, на проєктах — {1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніора}}: {2, plural, =1 {профіль залишається активним, оплата надходить як і раніше} one {їхні профілі залишаються активними, оплату вони отримують як і раніше} few {їхні профілі залишаються активними, оплату вони отримують як і раніше} many {їхні профілі залишаються активними, оплату вони отримують як і раніше} other {їхні профілі залишаються активними, оплату вони отримують як і раніше}}. Після відновлення HR доведеться додати в команду заново."
-msgstr "The team has {0} HR and its projects have {1, plural, one {# junior} other {# juniors}}: {2, plural, =1 {their profile stays active and they keep getting paid} other {their profiles stay active and they keep getting paid}}. After restoring, HR have to be added to the team again."
 
 #: apps/web/app/components/users/user-dialog/ContractDataSection.tsx
 msgid "Юридичне ПІБ"
