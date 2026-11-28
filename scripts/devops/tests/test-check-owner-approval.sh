@@ -249,8 +249,8 @@ case_red galias6 apps/web/app/lib/ga6.ts modified "const r = cfg['require']" "cf
   "a literal element access named require -> refused"
 case_red galias7 apps/web/app/lib/ga7.ts modified "use(a.parent)" "\`a.parent\` (global object) passed as a value" \
   "f(a.parent) -> refused (trade-off: tree nodes named parent are flagged too)"
-# Item 6: isGlobalExpr sees through , / ?? / || / && / ?: ; a non-literal key on a receiver that is
-# not provably local is a trigger.
+# Item 6: isGlobalExpr sees through , / ?? / || / && / ?: ;
+# any non-literal, non-numeric key is a trigger (addendum 7d blanket rule).
 case_red gwrap1 apps/web/app/lib/gw1.ts modified "const k = 'process'; const p = (0, globalThis)[k]" \
   "computed global member" "(0, globalThis)[k] -> refused"
 case_red gwrap2 apps/web/app/lib/gw2.ts modified "const x = null; const k = 'process'; const p = (x ?? window)[k]" \
@@ -299,7 +299,7 @@ case_red alias4 apps/web/app/lib/al4.ts modified "const k = 'x'; const o = {}; o
 case_red alias5 apps/web/app/lib/al5.ts modified "const k = 'x'; const o = { ...w }; export const v = o[k]" \
   "non-literal computed key" "an object literal with a spread -> refused"
 case_red imp1 apps/web/app/lib/im1.ts modified "import { rows } from './rows'
-export const pick = (i: number) => rows[i]" "non-literal computed key" "an import is not local -> refused"
+export const pick = (i: number) => rows[i]" "non-literal computed key" "an import -> refused (blanket rule)"
 # Addendum 7b: a computed-key chain triggers whatever the receiver; a parameter / loop / catch
 # binding is never local.
 case_red chain1 apps/web/app/lib/ch1.ts modified "const k = 'con' + 'structor'; function f(o: any) { o[k][k]('1')() }" \
@@ -312,11 +312,11 @@ case_red chain4 apps/web/app/lib/ch4.ts modified "import { rows } from './rows'
 export const cell = (i: number, j: number) => rows[i][j]" \
   "(non-literal computed key)" "rows[i][j] with non-literal keys -> refused (fail closed)"
 case_red param1 apps/web/app/lib/pa1.ts modified "export const pick = (props: { m: Record<string, number> }, key: string) => props.m[key]" \
-  "non-literal computed key" "a parameter receiver is not local -> refused"
+  "non-literal computed key" "a parameter receiver -> refused (blanket rule)"
 case_red catch1 apps/web/app/lib/ca1.ts modified "const k = 'x'; try { f() } catch (e) { e[k] }" \
-  "non-literal computed key" "a catch binding is not local -> refused"
+  "non-literal computed key" "a catch binding -> refused (blanket rule)"
 case_red forin1 apps/web/app/lib/fi1.ts modified "const k = 'x'; for (const a in obj) a[k]" \
-  "non-literal computed key" "a for-in binding is not local -> refused"
+  "non-literal computed key" "a for-in binding -> refused (blanket rule)"
 src galiasok "const top = 10
 const parent = getParent()
 const h = window.location.href
@@ -547,7 +547,7 @@ case_red litname1 apps/web/app/lib/ln1.ts modified "const o = {}; const k = 'con
 case_red litname2 apps/web/app/lib/ln2.ts modified "const s = ''; const k = 'con' + 'structor'; s[k][k]('1')()" \
   "non-literal computed key" "const s = ''; s[k][k] -> refused"
 case_red litname3 apps/web/app/lib/ln3.ts modified "const a = []; const b = a; const k = 'con' + 'structor'; b[k][k]('1')()" \
-  "non-literal computed key" "a name bound to a literal-bound name -> refused"
+  "non-literal computed key" "an alias of a literal-bound name -> refused"
 case_red litname4 apps/web/app/lib/ln4.ts modified "function f() {} const k = 'con' + 'structor'; f[k][k]('1')()" \
   "non-literal computed key" "a function declaration's name -> refused"
 case_red litname5 apps/web/app/lib/ln5.ts modified "let o; o = new Map(); const k = 'x'; o[k]" \
@@ -556,7 +556,7 @@ case_red litname6 apps/web/app/lib/ln6.ts modified "const { a } = { a: '' }; con
   "non-literal computed key" "a destructured name from a literal -> refused"
 case_red wkg1 apps/web/app/lib/wk1.ts modified "function f(Object: any) { return 1 }
 const k = 'x'; const v = Object[k]" "non-literal computed key" \
-  "Object declared somewhere in the file is still not local -> refused"
+  "Object declared somewhere in the file -> refused"
 case_red wkg2 apps/web/app/lib/wk2.ts modified "const document = 1; const k = 'x'; const v = document[k]" \
   "non-literal computed key" "a browser global name (document) is never local -> refused"
 

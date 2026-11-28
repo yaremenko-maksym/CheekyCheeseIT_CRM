@@ -16,7 +16,8 @@
 // is resolved (relative paths against the file's directory; tsconfig `paths` of the owning package,
 // read from the BASE branch; `@crm/<pkg>` workspace names) and then matched. Anything the scanner
 // cannot pin to a literal module — any reference to require / module / process / exports / eval / Function /
-// createRequire, a computed member of a global object, `.constructor(...)`, a node:* specifier, import.meta.glob*, an
+// createRequire, a computed member of a global object, any non-literal non-numeric computed key (`x[k]`),
+// `.constructor(...)`, a node:* specifier, import.meta.glob*, an
 // unresolved alias, a non-code non-inert file type — is itself a trigger. A trigger is not a
 // verdict of malice; it means "the owner looks".
 //
@@ -237,7 +238,8 @@ export function classifySpecifier(filename, spec, aliases) {
 // reference to an identifier below — called, aliased, passed or shadowed — is a trigger.
 // Node built-ins (isBuiltin, bare or node:) are triggers in browser code (apps/web, apps/landing,
 // docs); apps/e2e may import only E2E_BUILTINS. Reflect.get/apply/construct and any computed
-// member of a global object are triggers.
+// member of a global object are triggers, and so is any computed key that is neither a string nor
+// a numeric literal (addendum 7d), whatever the receiver.
 // Trade-off (Master addendum 4): a plain `window` / `globalThis` / `global` / `self` reference is
 // NOT a trigger — browser code reads `window.location` everywhere, and flagging it would put every
 // web PR behind the owner. Only a global object PASSED AS A VALUE (call / new argument, initializer,

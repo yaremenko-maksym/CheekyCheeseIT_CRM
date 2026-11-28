@@ -85,9 +85,9 @@ Commit: <full 40-hex head sha>
 
 **Merge.** `.github/workflows/owner-verdict-merge.yml` re-evaluates the verdict on the completion of Flow Gate Relay
 (the owner's review), Flow Gate, CI and E2E Tests. When the status is `approved`, it waits, bounded, for the re-run
-`Owner Verdict` check and every required context, then re-reads the reviews and re-evaluates the verdict right
-before the merge (a BLOCK posted during the wait stops it), then squash-merges pinned to the verified head. Its
-merge path is the one in `auto-merge-on-label.yml`. It posts one comment per head and kind: checks pending (the
+`Owner Verdict` check and every required context, then re-reads the reviews and re-evaluates the verdict before
+each merge attempt, retries included (a BLOCK posted during the wait or between retries stops it), then
+squash-merges pinned to the verified head. Its merge path is the one in `auto-merge-on-label.yml`. It posts one comment per head and kind: checks pending (the
 completion of the pending workflow merges it), a required check failed (no auto-merge on this head), or the merge
 step stopped. The TypeScript parser it loads is pinned by the pnpm-lock.yaml integrity. PRs touching `.github/workflows/**` are still merged by hand.
 Owner-authored and not-required PRs keep the `merge-approved` label path.
