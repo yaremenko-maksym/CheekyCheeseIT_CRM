@@ -685,11 +685,6 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(res.statusCode).toBe(401)
     })
 
-    // Before HR-2 the service had no else-branch for so an accountant
-    // with a valid seniorId fell through to the query and got 200 (front-only
-    // gating — the sidebar hid the link, the API did not). docs/business/modules/
-    // interviews.md restricts boards to ADMIN/HR/SENIOR; @Roles now enforces it.
-
     // ── ex-HR access revocation (audit MEDIUM) ───────────────────────────────────
     // HR_LEFT used to be in TEAM_A with SENIOR_A but left (teamMembers.leftAt set).
     // getAccessibleSeniorIds now filters left memberships, so SENIOR_A is no longer

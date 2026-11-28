@@ -405,8 +405,8 @@ describe('getTeamMembersForUser — DROP branch is covered by the SAME viewerRol
     // SENIOR/JUNIOR/HR branch for an ADMIN target (`rows` stays
     // its initial `[]`) — but a `if (user.role === 'DROP')` mutated to
     // always-true WOULD wrongly enter the DROP branch and leak the HR
-    // teammate, and an `else if (user.role === 'HR' || user.role ===
-    // 'accountant')` mutated to always-true (round 5 mutation-gate
+    // teammate, and an `else if (user.role === 'HR')`
+    // mutated to always-true (round 5 mutation-gate
     // follow-up) WOULD wrongly enter the HR branch, resolve the
     // SENIOR teammate via `seniorsInTeams`, and leak THEIR JUNIORs/teammates
     // through Step 2 — an earlier version of this fixture had no SENIOR in
@@ -626,7 +626,7 @@ describe('getTeamMembersForUser — DROP branch is covered by the SAME viewerRol
 
   it("DROP-BRANCH-MASK-5. DROP target whose drop-team ALSO has a SENIOR → the SENIOR's OTHER team is not leaked in (proves the HR branch selection excludes DROP)", async () => {
     // security-review PR #541 round 4 (mutation-gate follow-up): `else if
-    // (user.role === 'HR' || user.role === 'accountant')` survived —
+    // (user.role === 'HR')` survived —
     // BRANCH-SELECT-3 only ever uses an HR target, for whom that condition
     // is already true either way. A DROP target discriminates it
     // differently from the SENIOR/JUNIOR cases above: DROP is NOT excluded

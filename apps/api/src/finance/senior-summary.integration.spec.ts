@@ -729,7 +729,7 @@ describe.skipIf(!hasDatabaseUrl())(
     // open. `@Roles('ADMIN')` was added there as a second,
     // independent layer, and it is SAFE precisely because it changes nothing
     // observable: the role set matches `getSummary`'s own service-side check
-    // exactly (`role !== 'ADMIN' && role !== 'accountant'` →
+    // exactly (`role !== 'ADMIN'` →
     // ForbiddenException), RolesGuard has no role hierarchy, so a caller who
     // passed the service check before passes the guard now and vice versa —
     // only the NUMBER of layers changed, not who gets in. The original pin's

@@ -8,7 +8,7 @@
  * structurally excludes every `*.integration.spec.ts` file (see
  * `vitest.config.mts` / `INTEGRATION_SPEC_EXCLUDE_GLOB`) — so real-DB
  * coverage in `admin-income-unified.integration.spec.ts` /
- * `transactions.create-accountant.rbac.integration.spec.ts` is INVISIBLE to
+ * `transactions.create.rbac.integration.spec.ts` is INVISIBLE to
  * it. Without a mocked-db unit spec, the entire new receiver-resolution
  * block (RBAC-for-receiverId, the 3-way undefined/COMPANY_ACCOUNT/specific-
  * admin branch, the active-ADMIN validation, and the currency-forcing that

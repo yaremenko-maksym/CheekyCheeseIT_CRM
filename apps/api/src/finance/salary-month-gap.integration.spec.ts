@@ -327,7 +327,7 @@ describe.skipIf(!hasDatabaseUrl())(
       // ZodError escapes as 500 and a test asserting 400 would be asserting the
       // harness's gap instead of the product's contract — which is why the two
       // sibling specs that exercise a rejected DTO register it too
-      // (company-account.rbac, transactions.create-accountant.rbac).
+      // (company-account.rbac, transactions.create.rbac).
       app.useGlobalFilters(new ZodExceptionFilter())
       app.setGlobalPrefix('api')
       await app.init()

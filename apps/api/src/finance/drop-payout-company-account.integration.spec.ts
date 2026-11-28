@@ -720,9 +720,9 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(asDropOwner.transactions.find((t) => t.id === dropFlippedId)).toBeTruthy()
 
       // ADMIN (privileged) sees both regardless of who the creditor is.
-      const asAccountant = await svc.findPayoutRequest(pr.id, ADMIN_MAKSYM)
-      expect(asAccountant.transactions.find((t) => t.id === seniorFlippedId)).toBeTruthy()
-      expect(asAccountant.transactions.find((t) => t.id === dropFlippedId)).toBeTruthy()
+      const asAdmin = await svc.findPayoutRequest(pr.id, ADMIN_MAKSYM)
+      expect(asAdmin.transactions.find((t) => t.id === seniorFlippedId)).toBeTruthy()
+      expect(asAdmin.transactions.find((t) => t.id === dropFlippedId)).toBeTruthy()
     })
 
     // ── backlog 168 (security-review on #590, found as pre-existing — #590
@@ -797,8 +797,8 @@ describe.skipIf(!hasDatabaseUrl())(
 
       // AC3 — privileged (ADMIN) sees the SAME set they always did,
       // including the senior row — the narrowing must not touch this side.
-      const asAccountant = await svc.findPayoutRequest(pr.id, ADMIN_MAKSYM)
-      expect(asAccountant.transactions.find((t) => t.id === seniorPendingRow!.id)).toBeTruthy()
+      const asAdmin = await svc.findPayoutRequest(pr.id, ADMIN_MAKSYM)
+      expect(asAdmin.transactions.find((t) => t.id === seniorPendingRow!.id)).toBeTruthy()
     })
 
     // ── INV2b (task-drop-share-pending-parity, AC1-3): drop settle → PAYOUT_DROP,

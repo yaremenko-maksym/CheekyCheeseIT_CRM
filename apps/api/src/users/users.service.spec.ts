@@ -3794,8 +3794,6 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
     expect((result.user as Record<string, unknown>).displayName).toBe('Senior Dev')
   })
 
-  // accountant has requisites access but NOT adminNote, NOT fopPii, contacts visible
-
   // ── HR viewing their SENIOR ───────────────────────────────────────────────
 
   it('HR → SENIOR: adminNote is null', async () => {

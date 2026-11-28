@@ -171,9 +171,6 @@ describe('UsersService.createDrop — validation/RBAC', () => {
     })
   })
 
-  // Bug-fix: accountant is OPTIONAL for drop creation. A workspace with 0
-  // accountants must still be able to create a drop.
-
   // Owner request: stop auto-generating dicebear avatars for new users — the
   // UI already renders an initials fallback when avatarUrl is null.
   it('stores null avatarUrl when omitted — no dicebear auto-generation', async () => {

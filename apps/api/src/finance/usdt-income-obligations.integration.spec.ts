@@ -940,9 +940,9 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
       expect(seniorList.some((t) => t.type === 'DROP_PENDING_PAYOUT')).toBe(false)
       expect(seniorList.some((t) => t.type === 'PAYOUT_DROP')).toBe(false)
 
-      const accountantList = await svc.findAll(ADMIN_MAKSYM)
-      expect(accountantList.some((t) => t.type === 'DROP_PENDING_PAYOUT')).toBe(true)
-      expect(accountantList.some((t) => t.type === 'PAYOUT_DROP')).toBe(true)
+      const adminList = await svc.findAll(ADMIN_MAKSYM)
+      expect(adminList.some((t) => t.type === 'DROP_PENDING_PAYOUT')).toBe(true)
+      expect(adminList.some((t) => t.type === 'PAYOUT_DROP')).toBe(true)
     })
   })
 

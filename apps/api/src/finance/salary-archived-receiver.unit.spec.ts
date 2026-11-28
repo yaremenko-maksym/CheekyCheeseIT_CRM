@@ -5,7 +5,7 @@
  *
  * WHY (the defect these tests pin):
  *   `createMonthlySalaries` selected employees by ROLE ALONE
- *   (`or(eq(users.role,'HR'), eq(users.role,'accountant'))`) with no
+ *   (an `eq(users.role, ...)` filter over the salaried roles) with no
  *   `archivedAt` filter, and `UsersService.archive` neither zeroes
  *   `monthlySalary` nor changes the role — so every month a dismissed employee
  *   got a fresh PENDING salary, and the finance page does not hide it: paying it

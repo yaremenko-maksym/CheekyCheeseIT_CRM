@@ -585,10 +585,6 @@ describe('ProjectsService.update — DTO mapping', () => {
     })
   })
 
-  // task-648-fix-round-1 (QA-HIGH-1/QA-MED-2): accountant sees the ACTIVE
-  // override (payroll need-to-know — asserted by the sibling accountant PATCH
-  // test above in this file) but must not learn a change is even proposed.
-
   // task-648-fix-round-1 (QA-MED-2): HR sees the ACTIVE override (RBAC
   // above — HR may PATCH non-share fields) but must not learn a base-share
   // change is even proposed, closing the exact inconsistency QA found

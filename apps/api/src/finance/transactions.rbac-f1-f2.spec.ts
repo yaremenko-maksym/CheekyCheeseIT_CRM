@@ -415,7 +415,7 @@ describe('F2c — findPayoutRequest narrows recovered obligations to their own c
     expect(result.transactions).toEqual([])
   })
 
-  it('ADMIN (privileged) see a recovered obligation regardless of who the creditor is', async () => {
+  it('ADMIN (privileged) sees a recovered obligation regardless of who the creditor is', async () => {
     const seniorsTx = makeTx({ id: 'tx-senior-obligation-2', type: 'SENIOR_INCOME' })
     const dropOwnerReq = { ...baseReq, seniorId: 'drop-owner-id' }
     const svc = makeServiceWithPayoutRequest(
@@ -423,9 +423,9 @@ describe('F2c — findPayoutRequest narrows recovered obligations to their own c
       [],
       [{ creditorUserId: SENIOR_ID, sourceTransaction: seniorsTx }],
     )
-    const accountant = user('ADMIN')
+    const admin = user('ADMIN')
 
-    const result = await svc.findPayoutRequest('req-1', accountant)
+    const result = await svc.findPayoutRequest('req-1', admin)
 
     expect(result.transactions.map((t) => t.id)).toEqual(['tx-senior-obligation-2'])
   })
@@ -492,7 +492,7 @@ describe('F2d — findPayoutRequest narrows the LIVE relation to sender/receiver
     expect(result.transactions.map((t) => t.id)).toEqual(['tx-payout-itself'])
   })
 
-  it('ADMIN (privileged) see a live-relation row regardless of who it belongs to', async () => {
+  it('ADMIN (privileged) sees a live-relation row regardless of who it belongs to', async () => {
     const seniorsLiveTx = makeTx({
       id: 'tx-senior-live-2',
       type: 'SENIOR_PENDING_PAYOUT',
@@ -501,9 +501,9 @@ describe('F2d — findPayoutRequest narrows the LIVE relation to sender/receiver
     })
     const dropOwnerReq = { ...baseReq, seniorId: 'drop-owner-id' }
     const svc = makeServiceWithPayoutRequest(dropOwnerReq, [seniorsLiveTx])
-    const accountant = user('ADMIN')
+    const admin = user('ADMIN')
 
-    const result = await svc.findPayoutRequest('req-1', accountant)
+    const result = await svc.findPayoutRequest('req-1', admin)
 
     expect(result.transactions.map((t) => t.id)).toEqual(['tx-senior-live-2'])
   })

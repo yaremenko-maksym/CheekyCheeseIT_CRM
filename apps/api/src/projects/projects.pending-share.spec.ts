@@ -1016,13 +1016,6 @@ describe('ProjectsService.cancelSeniorShareChange — RBAC + actual effect', () 
     )
   })
 
-  // task-648-fix-round-2 (SR-bm-3). `loadForResponse` resolved the pending
-  // proposal for EVERY caller, including an accountant — whose DTO
-  // `mapProject` then zeroes out one line later. A wasted `approvals`
-  // round-trip is the small half; the real point is that `findOne` already
-  // gates this exact lookup by role and `loadForResponse` silently did not,
-  // so the two response paths disagreed about who may even ASK.
-
   // task-648-fix-round-2 (SR-bm-3): the gate names TWO roles, and only one of
   // them was exercised — an assertion covering ADMIN alone leaves "or SENIOR"
   // free to be deleted. The SENIOR reaches `loadForResponse` through

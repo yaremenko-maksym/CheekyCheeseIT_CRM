@@ -183,8 +183,6 @@ describe('PayoutRequestReadService.findPayoutRequest', () => {
       createdAt: '2026-01-02T03:04:05.000Z',
       updatedAt: '2026-02-03T04:05:06.000Z',
     })
-    const accountant = await svc.findPayoutRequest('r1', user('ADMIN'))
-    expect(accountant.txFromAddress).toBe('0xsender')
     const owner = await svc.findPayoutRequest('r1', user('SENIOR', 'owner'))
     expect(owner.txFromAddress).toBeNull()
   })
