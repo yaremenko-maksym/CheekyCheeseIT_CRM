@@ -55,6 +55,9 @@ comments** — link here.
 - **React Compiler:** `babel-plugin-react-compiler` `^1.0`, in `@vitejs/plugin-react`'s Babel list
   **after** `@lingui/babel-plugin-lingui-macro` (compiler-first changes `<Trans>` message ids) in both
   `vite.config.ts` and `vitest.config.ts`. Lint: `eslint-plugin-react-hooks` `^7.1` (ships the compiler rules).
+- **`@base-ui/react`:** `1.9.0`, EXACT-pinned in `apps/web` (the `Drawer` behind `ui/bottom-sheet.tsx`:
+  snap points, swipe dismissal, virtual-keyboard provider). A bump re-runs
+  `components/ui/__tests__/responsive-sheet.test.tsx` and a phone check of the sheet.
 - **`motion`:** `^12.43.0` (`apps/web`; replaced the direct `framer-motion` dependency). Import from
   `motion/react` and render `m.*` under the root `<LazyMotion features={domMax} strict>`; ESLint bans
   `framer-motion` and the `motion` named export. `motion` depends on `framer-motion` of the same

@@ -7571,8 +7571,10 @@ msgstr "Це тимчасово. Спробуйте ще раз за кільк�
 #: apps/web/app/components/documents/document-detail-dialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 #: apps/web/app/components/job-queue/JobQueueCard.tsx
+#: apps/web/app/components/ui/bottom-sheet.tsx
 #: apps/web/app/components/ui/crm-dialog.tsx
 #: apps/web/app/components/ui/dialog.tsx
+#: apps/web/app/components/ui/sheet.tsx
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
