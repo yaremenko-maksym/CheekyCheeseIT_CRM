@@ -23,6 +23,7 @@ import {
   employeeContracts,
   invoiceSignatures,
   transactions,
+  users,
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
@@ -988,5 +989,118 @@ describe.skipIf(!hasDatabaseUrl())(
       // Sanity: at least one entry returned (proves we self-scoped, not zeroed out).
       expect(body.length).toBeGreaterThan(0)
     })
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Upload role set for RESUME / SCAN (PR 1b SPEC-M-1) — real DocumentsService +
+// real Postgres. The check is an allowlist in the service body
+// (assertCanUpload), not a @Roles decorator, so only a call through the
+// service proves the set: ADMIN / HR / SENIOR may upload for another owner,
+// JUNIOR / DROP only for themselves, any other role (a retired one included)
+// is refused before a row is written. Own users, own rows, removed in afterAll.
+// ---------------------------------------------------------------------------
+
+const UPLOAD_TAG = `upload-role-set-spec-${Date.now()}`
+const uploadPersona = (n: number, role: SessionUser['role']): SessionUser => ({
+  ...ADMIN,
+  id: `f0c10000-0000-4000-aa00-00000000000${n}`,
+  email: `${UPLOAD_TAG}-${n}@example.test`,
+  displayName: `${UPLOAD_TAG} ${role}`,
+  role,
+})
+const UP_ADMIN = uploadPersona(1, 'ADMIN')
+const UP_HR = uploadPersona(2, 'HR')
+const UP_SENIOR = uploadPersona(3, 'SENIOR')
+const UP_JUNIOR = uploadPersona(4, 'JUNIOR')
+const UP_DROP = uploadPersona(5, 'DROP')
+const UP_OWNER = uploadPersona(6, 'SENIOR')
+// An unknown role reaches the service body as stored (JwtAuthGuard re-reads it from the DB).
+const UP_UNKNOWN: SessionUser = { ...uploadPersona(7, 'SENIOR'), role: 'X' as SessionUser['role'] }
+const UP_USERS = [UP_ADMIN, UP_HR, UP_SENIOR, UP_JUNIOR, UP_DROP, UP_OWNER, UP_UNKNOWN]
+const UP_IDS = UP_USERS.map((u) => u.id)
+const PDF_FILE = {
+  buffer: Buffer.from('%PDF-1.4\n%upload-role-set\n'),
+  mimetype: 'application/pdf',
+  originalname: 'role-set.pdf',
+}
+const refused = (code: string) => ({ response: { code, statusCode: 403 } })
+
+describe.skipIf(!hasDatabaseUrl())(
+  'RESUME / SCAN upload role set — real-Postgres integration',
+  () => {
+    let app: NestFastifyApplication
+    let svc: DocumentsService
+    let db: DatabaseService['db']
+
+    beforeAll(async () => {
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        await probePool.end()
+      } catch {
+        throw new Error('[upload-role-set integration] FAILED — no DB reachable at DATABASE_URL')
+      }
+      const moduleRef = await Test.createTestingModule({
+        imports: [DocumentsUnifiedTestModule],
+      }).compile()
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.init()
+      svc = moduleRef.get(DocumentsService)
+      db = moduleRef.get(DatabaseService).db
+      // FK targets for owner_id / uploaded_by. upload() reads actor.role, never the DB row role.
+      await db
+        .insert(users)
+        .values(UP_USERS.map((u) => ({ id: u.id, email: u.email, displayName: u.displayName })))
+        .onConflictDoNothing()
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        await db.delete(documents).where(inArray(documents.uploadedBy, UP_IDS))
+        await db.delete(documents).where(inArray(documents.ownerId, UP_IDS))
+        await db.delete(users).where(inArray(users.id, UP_IDS))
+      } finally {
+        await app.close()
+      }
+    }, 15_000)
+
+    const rowsUploadedBy = async (actorId: string): Promise<number> =>
+      (
+        await db
+          .select({ id: documents.id })
+          .from(documents)
+          .where(eq(documents.uploadedBy, actorId))
+      ).length
+
+    for (const category of ['RESUME', 'SCAN'] as const) {
+      it(`${category}: ADMIN / HR / SENIOR upload for another owner`, async () => {
+        for (const actor of [UP_ADMIN, UP_HR, UP_SENIOR]) {
+          const doc = await svc.upload(actor, PDF_FILE, { category, ownerId: UP_OWNER.id })
+          expect(doc.ownerId).toBe(UP_OWNER.id)
+          expect(doc.category).toBe(category)
+        }
+      })
+
+      it(`${category}: JUNIOR / DROP upload for themselves only`, async () => {
+        for (const actor of [UP_JUNIOR, UP_DROP]) {
+          const own = await svc.upload(actor, PDF_FILE, { category })
+          expect(own.ownerId).toBe(actor.id)
+          await expect(
+            svc.upload(actor, PDF_FILE, { category, ownerId: UP_OWNER.id }),
+          ).rejects.toMatchObject(refused('DOCUMENT_UPLOAD_SELF_ONLY'))
+        }
+      })
+
+      it(`${category}: an unknown role is refused and writes no row`, async () => {
+        await expect(svc.upload(UP_UNKNOWN, PDF_FILE, { category })).rejects.toMatchObject(
+          refused('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN'),
+        )
+        await expect(
+          svc.upload(UP_UNKNOWN, PDF_FILE, { category, ownerId: UP_OWNER.id }),
+        ).rejects.toMatchObject(refused('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN'))
+        expect(await rowsUploadedBy(UP_UNKNOWN.id)).toBe(0)
+      })
+    }
   },
 )
