@@ -163,7 +163,7 @@ export function errorScreen(w, h) {
     role: 'alert',
     title: 'Не вдалося завантажити транзакції',
     text: 'Сервер не відповів. Нічого не змінено — спробуйте ще раз.',
-    action: `<span class="btn secondary">${icon('rotate-cw', { size: 18 })}Спробувати ще</span>`,
+    action: `<span class="btn secondary">${icon('rotate-cw', { size: 18 })}Повторити</span>`,
   })
   // The real toolbar stays (search, filters): the error replaces only the rows (R1-06).
   return tabScreen({

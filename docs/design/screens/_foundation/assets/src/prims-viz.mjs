@@ -46,7 +46,13 @@ function sidePanel(width, { touch = false, modal = true } = {}) {
   <div class="row" style="height:60px;flex:none;padding:0 12px 0 24px;border-bottom:1px solid var(--border)"><div id="sp-t" class="grow t-head">Редагувати транзакцію</div>${touch ? '' : `<span class="kbdkey" style="margin-right:6px">Esc</span>`}<span class="iconbtn" aria-label="Закрити">${icon('x', { size: 18 })}</span></div>
   <div class="grow" style="min-height:0;overflow:hidden">${
     // R3-03: one money-form shape on every class: the canonical body (receipt, centred amount, currency pill, type segment, fields).
-    moneyBody({ amount: '1 200,00', receipt: 'done', expanded: true, note: 'Оренда офісу', pad: '16px 24px 24px' })
+    moneyBody({
+      amount: '1 200,00',
+      receipt: 'done',
+      expanded: true,
+      note: 'Оренда офісу',
+      pad: '16px 24px 24px',
+    })
   }</div>
   <div class="row" style="gap:8px;justify-content:flex-end;padding:14px 24px;border-top:1px solid var(--border)"><span class="btn sm secondary" style="height:${touch ? 44 : 36}px;font-size:14px">Скасувати</span><span class="btn sm primary" style="height:${touch ? 44 : 36}px;font-size:14px">Зберегти${touch ? '' : `<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">⌘↵</span>`}</span></div></aside>`
 }
@@ -94,8 +100,8 @@ function chooserMenu({ drafts, pos, itemH, coarse = false, role = '' }) {
 
 /** Desktop with one unknown draft: the pill bottom-right, a pinned row in the 40 px table, the header dot. */
 export function draftsDesktop(w, h, { chooser = false } = {}) {
-  const pill = `<div role="button" aria-label="Результат невідомий: −${AMOUNT} USD, надіслано о ${SENT_AT}. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num" style="white-space:nowrap">−${AMOUNT} USD · ${SENT_AT} · Відкрити</span></span></div>`
-  const row = `<tr><td colspan="6" style="padding:0;max-width:none;background:${WARN(7)};box-shadow:inset 2px 0 0 var(--warning)"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:var(--warning);display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">−${AMOUNT} USD</span><span class="grow muted num" style="white-space:nowrap;overflow:hidden;text-overflow:clip">Результат невідомий · ${SENT_AT} · Витрата</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку −${AMOUNT} USD, результат невідомий, надіслано о ${SENT_AT}" style="height:28px;font-size:13px;padding:0 12px;background:${WARN(18)};border-color:${WARN(45)}">Відкрити</button></div></td></tr>`
+  const pill = `<div role="button" aria-label="Результат невідомий: −${AMOUNT} USD, надіслано о\u00a0${SENT_AT}. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num" style="white-space:nowrap">−${AMOUNT} USD · ${SENT_AT} · Відкрити</span></span></div>`
+  const row = `<tr><td colspan="6" style="padding:0;max-width:none;background:${WARN(7)};box-shadow:inset 2px 0 0 var(--warning)"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:var(--warning);display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">−${AMOUNT} USD</span><span class="grow muted num" style="white-space:nowrap;overflow:hidden;text-overflow:clip">Результат невідомий · ${SENT_AT} · Витрата</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку −${AMOUNT} USD, результат невідомий, надіслано о\u00a0${SENT_AT}" style="height:28px;font-size:13px;padding:0 12px;background:${WARN(18)};border-color:${WARN(45)}">Відкрити</button></div></td></tr>`
   const menu = chooser
     ? chooserMenu({ drafts: [DRAFT.unknown], pos: 'right:20px;top:52px', itemH: 40 })
     : ''
@@ -140,15 +146,17 @@ export function draftsChooserTablet(w, h) {
   const list = `<section aria-label="Співбесіди" class="col" style="width:360px;flex:none;border-right:1px solid var(--border)">
   <div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Співбесіди</div></div>
   <div style="flex:1;min-height:0;overflow:hidden;padding-bottom:100px">${searchField('Пошук співбесід')}${chips(['Усі', 'HR-скринінг', 'Технічна', 'З клієнтом', 'Офер'])}${peopleList({ menu: true })}</div></section>`
-  return tablet({ w, h, overlay: menu + pill, list, active: '/interviews' })
-    .replace(
-      / aria-haspopup="dialog"/,
-      ' aria-haspopup="menu" aria-expanded="true" aria-controls="ch-menu"',
-    )
-    .replace(/aria-label="Створити"/, 'aria-label="Створити, 2 чернетки потребують уваги"')
-    .replace(/style="width:52px;height:52px;/, 'style="position:relative;width:52px;height:52px;')
-    // R3-06: from two drafts needing attention the rail «+» carries the 18 px count badge (§12 Drafts), never the plain dot.
-    .replace(/(style="position:relative;width:52px[^>]*><svg[\s\S]*?<\/svg>)/, `$1${COUNT(2)}`)
+  return (
+    tablet({ w, h, overlay: menu + pill, list, active: '/interviews' })
+      .replace(
+        / aria-haspopup="dialog"/,
+        ' aria-haspopup="menu" aria-expanded="true" aria-controls="ch-menu"',
+      )
+      .replace(/aria-label="Створити"/, 'aria-label="Створити, 2 чернетки потребують уваги"')
+      .replace(/style="width:52px;height:52px;/, 'style="position:relative;width:52px;height:52px;')
+      // R3-06: from two drafts needing attention the rail «+» carries the 18 px count badge (§12 Drafts), never the plain dot.
+      .replace(/(style="position:relative;width:52px[^>]*><svg[\s\S]*?<\/svg>)/, `$1${COUNT(2)}`)
+  )
 }
 const COUNT = (n) =>
   `<i aria-hidden="true" class="num" style="position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;border-radius:9px;background:var(--destructive-solid);color:#fff;font:700 12px/18px var(--font);font-style:normal;text-align:center;box-shadow:0 0 0 2px var(--bg)">${n}</i>`
@@ -180,8 +188,8 @@ function checkBox(touch) {
   <div class="col" style="gap:8px;padding:14px 20px 10px">
     <div class="t-sub num" style="font-weight:600">Шукаємо: −${AMOUNT} USD · Витрата · без опису · надіслано ${SENT_AT}</div>
     <div class="t-foot muted num">Лише ваші записи з 14:27</div>
-    <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о 14:34:01. Знайдено збіг</div><button type="button" class="btn sm secondary" style="height:${touch ? 44 : 32}px;font-size:13px">${icon('refresh-cw', { size: 14 })}Оновити</button></div>
-    <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Схоже, це ваша транзакція: −${AMOUNT} USD, створена о 14:33. Перевірте її, перш ніж створювати ще раз.</div>
+    <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о\u00a014:34:01. Знайдено збіг</div><button type="button" class="btn sm secondary" style="height:${touch ? 44 : 32}px;font-size:13px">${icon('refresh-cw', { size: 14 })}Оновити</button></div>
+    <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Схоже, це ваша транзакція: −${AMOUNT} USD, створена о\u00a014:33. Перевірте її, перш ніж створювати ще раз.</div>
   </div>
   <div class="group" style="margin:0 20px">${rows}</div>
   <div class="row" style="gap:8px;justify-content:flex-end;padding:14px 20px;margin-top:14px;border-top:1px solid var(--border)"><button type="button" class="btn sm secondary" style="height:${bh}px;font-size:14px">${icon('plus', { size: 16 })}Немає — створити ще раз</button><button type="button" class="btn sm primary" style="height:${bh}px;font-size:14px">${icon('check', { size: 16 })}Є в списку — закрити чернетку</button></div></div>`
@@ -200,16 +208,18 @@ function recreateBox(touch) {
   return `<div style="position:absolute;inset:0;background:var(--scrim);z-index:80"></div>
   <div role="alertdialog" aria-modal="true" aria-labelledby="cr-t" aria-describedby="cr-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:90;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);padding:20px 20px 16px">
   <div id="cr-t" class="t-head num">Створити −${AMOUNT.replace(' ', ' ')} USD ще раз?</div>
-  <div id="cr-d" class="t-foot muted" style="margin-top:6px;font-size:14px;line-height:20px">У списку є схожа о 14:33. Буде створено одну нову транзакцію: витрата, сьогодні, без проєкту.</div>
+  <div id="cr-d" class="t-foot muted" style="margin-top:6px;font-size:14px;line-height:20px">У списку є схожа о\u00a014:33. Буде створено одну нову транзакцію: витрата, сьогодні, без проєкту.</div>
   <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><button type="button" class="btn sm secondary" style="${bh};box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Скасувати</button><button type="button" class="btn sm primary" style="${bh}">Створити ще раз</button></div></div>`
 }
-export const confirmRecreateTablet = (w, h) => tablet({ w, h, overlay: checkPanel(true) + recreateBox(true) })
-export const confirmRecreateDesktop = (w, h) => desktop({ w, h, overlay: checkPanel(false) + recreateBox(false) })
+export const confirmRecreateTablet = (w, h) =>
+  tablet({ w, h, overlay: checkPanel(true) + recreateBox(true) })
+export const confirmRecreateDesktop = (w, h) =>
+  desktop({ w, h, overlay: checkPanel(false) + recreateBox(false) })
 /** R1-08: an unknown result on a tablet: the locked panel with the alert and «Перевірити список» as the one primary. */
 export const saveFailureTablet = (w, h) => tablet({ w, h, overlay: checkPanel(true) })
 /** R1-08: an unresolved draft on a tablet: the pill bottom-right and the pinned row at the top of the list; the rail «+» carries the dot. */
 export function unresolvedDraftTablet(w, h) {
-  const pill = `<div role="button" aria-label="Результат невідомий: −${AMOUNT} USD, надіслано о ${SENT_AT}. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:340px;min-height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num" style="white-space:nowrap">−${AMOUNT} USD · ${SENT_AT} · Відкрити</span></span></div>`
+  const pill = `<div role="button" aria-label="Результат невідомий: −${AMOUNT} USD, надіслано о\u00a0${SENT_AT}. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:340px;min-height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num" style="white-space:nowrap">−${AMOUNT} USD · ${SENT_AT} · Відкрити</span></span></div>`
   return tablet({ w, h, overlay: pill })
     .replace(
       '<div class="sechead"><span class="t-over">Сьогодні</span></div>',

@@ -70,7 +70,7 @@ export function formStates(w, h) {
     }),
   ].join('')
   return formPage(w, h, 'Редагувати профіль', f, {
-    footer: stickyFooter(w, 'Зберегти зміни'),
+    footer: stickyFooter(w, 'Зберегти'),
   })
 }
 
@@ -232,7 +232,7 @@ export const sheetLarge = (w, h) =>
     title: 'Редагувати',
     receipt: 'done',
     expanded: true,
-    footer: primaryBtn('Зберегти зміни'),
+    footer: primaryBtn('Зберегти'),
   })
 
 /** Irreversible action → confirm (never undo). Mobile = action sheet; ≥ 640 = centred dialog. */

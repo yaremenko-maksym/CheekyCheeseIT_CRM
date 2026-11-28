@@ -66,7 +66,7 @@ bottom bar. Drag up expands to large; drag down past 30% or a fling dismisses. S
 
 **Large sheet / `ResponsiveSheet`** (`sheet-large-375`): long forms and edit. Full height minus the
 status bar. Chrome, the same on every mobile form: «Скасувати» top-left, title centred, **nothing
-top-right**; the primary («Зберегти зміни») sits in a bottom bar above the home indicator, or on the
+top-right**; the primary («Зберегти») sits in a bottom bar above the home indicator, or on the
 keyboard when it is open. The pushed form page (`form-money-375`) uses the same bottom bar. The primary
 is **always enabled** except while its own request is in flight (§4 Submit). **A dirty form asks
 before it closes** (drag, scrim, Скасувати) with an action sheet. A **money draft** is the exception:
@@ -208,8 +208,7 @@ Validation on blur for format, on submit for required.
 **Add user** (`form-add-user-375`): a pushed form «Новий користувач»: Ім’я, Email (hint «На цю адресу
 прийде запрошення»), Роль and Команда as PickerSheet fields (each a real `<button>` with
 `aria-haspopup="dialog"`), the primary «Додати» in the bottom bar. **Every pushed form clears its sticky
-footer:** the content's bottom padding is the footer height (8 + 44 + 8) plus the safe area plus 16,
-so the last field scrolls fully above the bar.
+footer:** bottom padding by the one formula of shell-v2 §2 (R3-12), so the last field scrolls fully above the bar.
 
 **Field → keyboard** (every mobile input sets these; the mock inputs carry them as attributes):
 
@@ -698,7 +697,7 @@ The only text that states how a row wraps, truncates, selects or reserves space.
 - **Title (R2-36):** wraps to **two lines at most** in a list row (a clamp with `overflow-wrap: anywhere`), so the part of a name that tells two records apart («Зарплата · Розробник 4» from «… Розробник 2») is never cut; only a third line ends in an ellipsis, and the full text is the accessible name (`listrow-768`, `listrow-sticky-320`). The amount stays on the first line at the trailing edge, so a two-line title costs the row one line (72 px with a one-line meta). **A desktop table cell is the exception, an assumption (A1, reversible): one line, an ellipsis and the full text in a tooltip at a fine pointer**, because the table row is a fixed 40 px (52 coarse) and «Опис» is the widest column (`listrow-table-desktop`).
 - **Meta:** wraps, two lines at most (a clamp with `overflow-wrap: anywhere`); the row grows with title and meta, so 56 / 64 px are minimums. Order: status when there is one («Очікує», «нова», «збіг», «схожа», «Не збережено»), then time, the receipt clip, type, project: «Очікує · 14:20 · Витрата · Проєкт «Альфа»»; the status always comes before the type.
 - **Never truncated:** an amount, a percentage and a time (R1-22). Each is `white-space: nowrap` with `tabular-nums`, and a currency code stays with its number. The amount sits alone on the title line at the trailing edge and does not shrink.
-- **Trailing zone (R1-04):** fixed, no per-row inset. A money list (Фінанси) on a phone docks its create action (D-8): a 64 px strip above the tab bar (a 48 px «Нова транзакція» primary button, 8 px padding, solid `--bg`, hairline top border) and the list ends with padding of strip + tab bar + 16, so no amount is ever covered. The other tab-root lists keep the FAB and end with bottom padding of the FAB height + 16 px. On Фінанси the pill and the toast span the width and sit 16 px above the dock; elsewhere they keep their 80 px right inset beside the FAB.
+- **Trailing zone (R1-04):** fixed, no per-row inset. A money list (Фінанси) on a phone docks its create action (D-8): a 64 px strip above the tab bar (a 48 px «Нова транзакція» primary button, 8 px padding, solid `--bg`, hairline top border); the other tab-root lists keep the FAB. Bottom padding: the one formula of shell-v2 §2 (R3-12), so no amount is ever covered. On Фінанси the pill and the toast span the width and sit 16 px above the dock; elsewhere they keep their 80 px right inset beside the FAB.
 - **Selection (R1-28):** `--raised` fill, a 2 px `--primary` leading bar, and `aria-current` (list pane) or `aria-selected` (table). Pressed is `--accent`. No other selected token.
 - **Totals (R1-03, R1-23):** day, section and chart totals are per currency, never summed across currencies. Every frame fixture states its parts, and the generators assert it (`mobile.mjs` `dayTotal`; the chart guard in `prims-viz.mjs`).
 - **Coarse pointer (R1-01, R1-09):** every target is 44 px: sidebar rows and group headers, collapsed-rail controls, DateField cells and «Сьогодні», a row’s «…» trigger and its menu items; a table row is 52. `measure.mjs` checks `.srow`, headers, links and every `[role=button]` under touch.
@@ -896,7 +895,7 @@ Columns follow the **container**, not the viewport (R1-07): one column below 560
 ### Tab-bar strip (F0-39)
 
 Content under the translucent tab bar reads as motion only; nothing a user must read rests there, because
-tab-root lists end with 72 px of bottom padding, the FAB height + 16 (shell-v2 §2); a money list on a phone ends with the dock strip + 16 (80 px), D-8.
+every phone scroller ends with the bottom padding of shell-v2 §2 (R3-12, the one formula).
 
 ### Strings (F0-27)
 
@@ -929,7 +928,7 @@ stands in quotes or before a colon («Видалити транзакцію «О
 | Offline banner              | Немає з’єднання. Показано останні завантажені дані; збереження не пройде, введене залишиться у формі.                                             | You're offline. Showing the last loaded data; saving won't go through, and your input stays in the form.                                     |
 | Load error                  | Не вдалося завантажити транзакції                                                                                                                 | Couldn't load transactions                                                                                                                   |
 |                             | Сервер не відповів. Нічого не змінено — спробуйте ще раз.                                                                                         | The server didn't respond. Nothing has changed — try again.                                                                                  |
-|                             | Спробувати ще                                                                                                                                     | Try again                                                                                                                                    |
+|                             | Повторити                                                                                                                                         | Retry                                                                                                                                        |
 | Empty                       | Ще немає транзакцій                                                                                                                               | No transactions yet                                                                                                                          |
 |                             | Тут з’являться доходи, витрати й перекази компанії.                                                                                               | Company income, expenses and transfers will appear here.                                                                                     |
 | Empty, no create            | Ще немає виплат                                                                                                                                   | No payments yet                                                                                                                              |

@@ -84,8 +84,13 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   holds keyboard focus (SC 2.4.11). Mid-scroll the large title has collapsed into the 44 px inline bar («Фінанси» centred, a hairline under the bar, the dock stays) (`state-scrolled-375`, drawn on Фінанси, so no FAB; the dock never slides away).
 - **Floating-layer stacking:** toasts and the upload pill sit left of the FAB slot (inset 12 left, 80 right,
   16 above the tab bar), so neither covers the other; on Фінанси, where the dock replaces the FAB, they span
-  the width (inset 12 both sides) and sit 16 px above the dock. Tab-root lists end with 72 px of bottom padding (FAB 56 + 16) above the tab bar, so the
-  last row scrolls clear of the FAB; a money list on a phone ends with the dock strip + 16 (80 px).
+  the width (inset 12 both sides) and sit 16 px above the dock.
+- **Bottom padding (R3-12, the one formula):** every phone scroller ends with bottom padding equal to
+  everything fixed over its bottom edge, plus 16. Measured above the tab bar: a tab-root list with the FAB
+  ends with 56 + 16 = **72 px**; a money list with the dock ends with 64 + 16 = **80 px**; while a toast or
+  the pill shows, its stack height + 16 is added on top, so it never covers the last row
+  (`primitives-v2/board-undo-375`). A pushed page has no tab bar: its sticky footer (8 + 44 + 8) plus the
+  safe area plus 16. Every other file points here.
 - **No FAB band (R1-04, supersedes F0-29).** No row gets a per-row trailing inset for the FAB: the only
   tab-root list a trailing amount can sit under the FAB on is a money list, and its create action is docked, so every row
   keeps the normal 16 px inset and an amount never truncates (`toast-undo-320`, `state-empty-375`).
@@ -167,7 +172,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   «Скинути фільтри» (`primitives-v2/listrow-empty-error-375`). Tablet and desktop: `primitives-v2/state-empty-768`,
   `state-empty-1440`, `state-error-768`, `state-error-1440` (the real header, search and chips stay).
 - **Error** (`state-error-375`): `role="alert"` block «Не вдалося завантажити транзакції» + «Нічого не
-  змінено» + «Спробувати ще». The retry re-runs the read query only (safe); it is never a money write.
+  змінено» + «Повторити». The retry re-runs the read query only (safe); it is never a money write.
 - **Offline** (`state-offline-375`): a slim `role="status"` banner under the top bar («Немає з’єднання.
   Показано останні завантажені дані; збереження не пройде, введене залишиться у формі.»), cached content stays visible, the create control (the FAB, or the docked button on a Фінанси phone) stays enabled, writes queue nothing (spec §4.5b: no queued write survives a close; the open form's input survives a session expiry as the D-1 restore copy). A
   save attempt shows the definite inline alert with every value kept (`primitives-v2/save-failure-offline-375`).

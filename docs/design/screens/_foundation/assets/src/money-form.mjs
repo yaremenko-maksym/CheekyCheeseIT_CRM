@@ -156,7 +156,7 @@ export const moneyBody = ({
  * would hide the values from a screen reader). To change a value the user discards the draft.
  */
 const lockedFields = (html) =>
-  `<style>.locked .btn,.locked .iconbtn,.locked [role=radiogroup],.locked .pill,.locked [aria-expanded]{opacity:.4}</style><div class="t-foot muted row num" style="gap:6px;justify-content:center">${icon('lock', { size: 14 })}Надіслано о 14:32 · змінити не можна</div><div class="locked col" style="gap:14px">${html
+  `<style>.locked .btn,.locked .iconbtn,.locked [role=radiogroup],.locked .pill,.locked [aria-expanded]{opacity:.4}</style><div class="t-foot muted row num" style="gap:6px;justify-content:center">${icon('lock', { size: 14 })}Надіслано о\u00a014:32 · змінити не можна</div><div class="locked col" style="gap:14px">${html
     .replace(/<button type="button"/g, '<button type="button" aria-disabled="true"')
     .replace(/role="(button|radio)"/g, 'role="$1" aria-disabled="true"')}</div>`
 
@@ -415,20 +415,20 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
   const hint = failed
     ? 'Список не оновився. Створити транзакцію ще раз можна лише після того, як він оновиться.'
     : rows === 'match'
-      ? 'Схоже, це ваша транзакція: −1 250,50 USD, створена о 14:33. Перевірте її, перш ніж створювати ще раз.'
+      ? 'Схоже, це ваша транзакція: −1 250,50 USD, створена о\u00a014:33. Перевірте її, перш ніж створювати ще раз.'
       : rows === 'similar'
-        ? 'У списку є схожа о 14:33: та сама сума, інший опис. Перевірте її, перш ніж створювати ще раз.'
+        ? 'У списку є схожа о\u00a014:33: та сама сума, інший опис. Перевірте її, перш ніж створювати ще раз.'
         : ready
           ? 'Список оновлено через хвилину після помилки. Якщо транзакції в ньому немає, її можна створити ще раз.'
           : 'Сервер міг зберегти транзакцію із запізненням. Через хвилину після помилки список оновиться сам, і тоді її можна буде створити ще раз.'
   // With a «збіг» the status never announces the unlock.
   const status = ready
     ? rows === 'match'
-      ? 'Оновлено о 14:34:01. Знайдено збіг'
+      ? 'Оновлено о\u00a014:34:01. Знайдено збіг'
       : rows === 'similar'
-        ? 'Оновлено о 14:34:01. Знайдено схожу'
-        : 'Оновлено о 14:34:01. Тепер можна створити ще раз'
-    : 'Оновлено о 14:33:18'
+        ? 'Оновлено о\u00a014:34:01. Знайдено схожу'
+        : 'Оновлено о\u00a014:34:01. Тепер можна створити ще раз'
+    : 'Оновлено о\u00a014:33:18'
   const list = failed
     ? ''
     : rows === 'empty'
@@ -490,10 +490,10 @@ const BEFORE_ROW = {
 }
 export function checkSheetBoot(w, h) {
   const body = `<div class="col" style="gap:8px;padding:0 16px 8px">
-  <div class="t-sub num" style="font-weight:600">Транзакція −${AMOUNT} USD о ${SENT_AT} · результат невідомий</div>
+  <div class="t-sub num" style="font-weight:600">Транзакція −${AMOUNT} USD о\u00a0${SENT_AT} · результат невідомий</div>
   <div class="t-foot muted num">Лише ваші записи з ${FROM}</div>
-  <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о 14:33:40</div><span class="btn sm secondary" role="button" style="height:44px">${icon('refresh-cw', { size: 16 })}Оновити</span></div>
-  <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Сервер міг зберегти транзакцію із запізненням. Список оновиться о 14:35:12</div></div><div class="group" style="margin-top:4px">${[{ ...SIMILAR_AFTER, tag: 'схожа · та сама сума' }, ...NEW_ROWS, BEFORE_ROW].map((r) => txnRow(r)).join('')}</div>`
+  <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о\u00a014:33:40</div><span class="btn sm secondary" role="button" style="height:44px">${icon('refresh-cw', { size: 16 })}Оновити</span></div>
+  <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Сервер міг зберегти транзакцію із запізненням. Список оновиться о\u00a014:35:12</div></div><div class="group" style="margin-top:4px">${[{ ...SIMILAR_AFTER, tag: 'схожа · та сама сума' }, ...NEW_ROWS, BEFORE_ROW].map((r) => txnRow(r)).join('')}</div>`
   const footer = `<div style="padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)"><span class="btn secondary" role="button" style="width:100%">Закрити</span></div>`
   const sh = sheet({
     w,
@@ -530,7 +530,7 @@ export function moneyPill(w, kind = 'armed') {
     return pillBox(
       w,
       `<span style="color:var(--primary)">${icon('circle-help', { size: 24 })}</span>${pillText('Результат невідомий', `−${AMOUNT} USD · ${SENT_AT} · Відкрити`)}<span role="status" style="${SR}">Невідомо, чи транзакцію збережено</span>`,
-      `Результат невідомий: −${AMOUNT} USD, надіслано о ${SENT_AT}. Відкрити`,
+      `Результат невідомий: −${AMOUNT} USD, надіслано о\u00a0${SENT_AT}. Відкрити`,
       '0.42 0.09 85',
     )
   if (kind === 'drafts')
@@ -564,7 +564,7 @@ export function moneyPill(w, kind = 'armed') {
     return pillBox(
       w,
       `<span style="color:var(--destructive)">${icon('circle-alert', { size: 24 })}</span>${pillText(`Не збережено −${AMOUNT} USD`, `${SENT_AT} · Відкрити`)}<span role="status" style="${SR}">Транзакцію не збережено</span>`,
-      `Не збережено −${AMOUNT} USD о ${SENT_AT}. Відкрити`,
+      `Не збережено −${AMOUNT} USD о\u00a0${SENT_AT}. Відкрити`,
       '0.42 0.12 22',
     )
   return pillBox(
@@ -642,17 +642,17 @@ export function toastPillStack(w, h) {
 export const KILL = {
   // F0-40 / D-5: the time and the signed amount come from the marker; «Створити ще раз» opens a form with only that amount and currency filled.
   armed: {
-    text: `Транзакцію −${NB(AMOUNT)}\u00a0USD не збережено: о ${SENT_AT} застосунок закрився під час завантаження чека.`,
+    text: `Транзакцію −${NB(AMOUNT)}\u00a0USD не збережено: о\u00a0${SENT_AT} застосунок закрився під час завантаження чека.`,
     action: 'Створити ще раз',
     answer: 'Зрозуміло',
   },
   failed: {
-    text: `Транзакцію −${NB(AMOUNT)}\u00a0USD не збережено: о ${SENT_AT} збереження не вдалося.`,
+    text: `Транзакцію −${NB(AMOUNT)}\u00a0USD не збережено: о\u00a0${SENT_AT} збереження не вдалося.`,
     action: 'Створити ще раз',
     answer: 'Зрозуміло',
   },
   sent: {
-    text: `Результат збереження транзакції −${NB(AMOUNT)}\u00a0USD о ${SENT_AT} невідомий. Вона могла зберегтися: перевірте нові записи, перш ніж створювати її знову.`,
+    text: `Результат збереження транзакції −${NB(AMOUNT)}\u00a0USD о\u00a0${SENT_AT} невідомий. Вона могла зберегтися: перевірте нові записи, перш ніж створювати її знову.`,
     // Drawn inside the late-commit window: «Закрити» keeps the markers until the guard's refetch succeeds.
     action: 'Оновити список',
     answer: 'Закрити',
@@ -722,7 +722,7 @@ export const sessionExpired = (w, h) =>
     actionConfirm(w, {
       id: 'se',
       title: 'Сесія завершилася. Увійдіть знову, щоб продовжити.',
-      desc: `<span style="display:block">Дані форми та вибраний чек збережуться на цьому пристрої й повернуться після входу.</span><span style="display:block;margin-top:4px">Чернетка −${NB(AMOUNT)} USD, надіслана о ${SENT_AT}: після входу перевірте список, перш ніж створювати її знову.</span>`,
+      desc: `<span style="display:block">Дані форми та вибраний чек збережуться на цьому пристрої й повернуться після входу.</span><span style="display:block;margin-top:4px">Чернетка −${NB(AMOUNT)} USD, надіслана о\u00a0${SENT_AT}: після входу перевірте список, перш ніж створювати її знову.</span>`,
       action: 'Увійти знову',
       cancel: 'Не зараз',
       ink: 'var(--primary)',
@@ -738,7 +738,7 @@ export const confirmRecreate = (w, h) =>
     actionConfirm(w, {
       id: 'cr',
       title: `Створити −${AMOUNT} USD ще раз?`,
-      desc: 'У списку є схожа о 14:33. Буде створено одну нову транзакцію: витрата, сьогодні, без проєкту.',
+      desc: 'У списку є схожа о\u00a014:33. Буде створено одну нову транзакцію: витрата, сьогодні, без проєкту.',
       action: 'Створити ще раз',
       ink: 'var(--primary)',
       overSheet: true,

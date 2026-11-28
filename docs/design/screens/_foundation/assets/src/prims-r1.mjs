@@ -30,7 +30,8 @@ import { actionConfirm, KILL } from './money-form.mjs'
 const POP =
   'background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:14px;box-shadow:0 24px 64px oklch(0 0 0 / 0.6)'
 // R3-11: one scrim value for every overlay, the `--scrim` token.
-const SCRIM = () => `<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>`
+const SCRIM = () =>
+  `<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>`
 const bell = (s = 22) =>
   `<span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: s })}<i class="dot"></i></span>`
 const paneHead = (t) =>
@@ -241,7 +242,7 @@ const errorBlock = () =>
     role: 'alert',
     title: 'Не вдалося завантажити транзакції',
     text: 'Сервер не відповів. Нічого не змінено — спробуйте ще раз.',
-    action: `<span class="btn secondary" role="button">${icon('rotate-cw', { size: 18 })}Спробувати ще</span>`,
+    action: `<span class="btn secondary" role="button">${icon('rotate-cw', { size: 18 })}Повторити</span>`,
   })
 const emptyBlock = (cls) =>
   stateBlock({
@@ -291,7 +292,8 @@ export function formfieldError320(w, h) {
 }
 
 // R3-04: TimeField, a typed `ГГ:ХХ` 24 h input (`inputmode="numeric"`), checked on blur with the DateField error pattern.
-const TIME_ATTRS = 'inputmode="numeric" autocomplete="off" enterkeyhint="next" placeholder="ГГ:ХХ" pattern="[0-9:]*"'
+const TIME_ATTRS =
+  'inputmode="numeric" autocomplete="off" enterkeyhint="next" placeholder="ГГ:ХХ" pattern="[0-9:]*"'
 export function timefieldPhone(w, h) {
   const inner = `${topBar({ back: true, title: 'Нова співбесіда', bell: false, search: false })}<div class="content col" style="gap:16px;padding:8px 16px">
   ${field({ label: 'Дата', value: '12.11.2026', id: 'd', suffix: `<span class="muted" style="display:grid">${icon('calendar', { size: 18 })}</span>` })}

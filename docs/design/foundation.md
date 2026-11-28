@@ -88,7 +88,7 @@ Rules that hold in every class:
   `env(safe-area-inset-top)`, and the landscape sides by the left / right insets.
 - **Floating-layer stacking (mobile).** The FAB (56, inset 16) owns the bottom-right corner. Toasts and
   the upload pill sit to its left: inset 12 left, **80 right**, 16 above the tab bar. They never cover
-  the FAB, and the FAB never covers them. Tab-root lists end with bottom padding **72 px** (FAB 56 + 16) above the tab bar, so the last row scrolls clear of the FAB; a money list (Фінанси) on a phone has no FAB: its create action is the docked 64 px «Нова транзакція» strip above the tab bar, the list ends with strip + 16 (80 px) of padding, and the pill and the toast span the width 16 px above the dock (D-8). Order: tab bar < FAB / toast / pill < sheet.
+  the FAB, and the FAB never covers them. Bottom padding of every phone scroller: the one formula of shell-v2 §2 (R3-12). A money list (Фінанси) on a phone has no FAB: its create action is the docked 64 px «Нова транзакція» strip above the tab bar, and the pill and the toast span the width 16 px above the dock (D-8). Order: tab bar < FAB / toast / pill < sheet.
   With a pill showing, a toast stacks 8 px above it; at most one toast at a time
   (`primitives-v2/toast-pill-stack-375.png`).
 - **FAB and pill on scroll.** Scrolling down slides the FAB and the upload pill out below the tab bar;

@@ -198,8 +198,7 @@ export function desktop({
   return `<style>${TABLE_CSS}</style><div class="device${touch ? ' touch' : ''}" style="width:${w}px;height:${h}px;flex-direction:row;position:relative">${sidebar(role, active, collapsed)}${main}${panel}${overlay}</div>`
 }
 
-const SCRIM =
-  '<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>'
+const SCRIM = '<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>'
 
 /**
  * F0-26: only matching rows stay (a group with no match is dropped); «Дії» carries the page action and the
