@@ -232,9 +232,9 @@ export class NbuCurrencyService {
    *   - today / future days: the one live `getRates()` result;
    *   - persisted past days: one store query for all of them, no NBU call;
    *   - missing past days: one NBU fetch per distinct day (each persisted on an exact hit), at
-   *     most `MAX_HISTORICAL_FETCHES_PER_READ` per read. The first day that comes back stale
-   *     stops further fetches for this read (the feed is down, or the day has no publication);
-   *     every day left over is priced at the live rate and marked `stale: true` with no
+   *     most `MAX_HISTORICAL_FETCHES_PER_READ` per read. A day that comes back stale while the
+   *     live rate is stale too (the feed is down) stops further fetches for this read; a day
+   *     that is merely unanswerable does not. Every day left over is priced at the live rate and marked `stale: true` with no
    *     `rateDate`, so no money path can take it.
    *   - an unusable store (e.g. the table is not deployed yet) means NO historical NBU call at
    *     all on this read: every past day gets the stale live stand-in.
@@ -267,7 +267,9 @@ export class NbuCurrencyService {
         fetches++
         const fetched = await this.fetchRates(d, today)
         out.set(d, fetched)
-        if (fetched.stale === true) stopped = true
+        // A stale day trips the breaker only when the feed itself is down (the live rate is
+        // stale too); one unanswerable day must not starve the days after it on every read.
+        if (fetched.stale === true && (await liveRates()).stale === true) stopped = true
         continue
       }
       const { usdUah, usdtUah, eurUah } = await liveRates()
@@ -281,7 +283,7 @@ export class NbuCurrencyService {
           persisted === null
             ? 'rate store unavailable'
             : stopped
-              ? 'a day came back without an exact rate'
+              ? 'NBU feed down (live rate stale)'
               : `per-read cap of ${MAX_HISTORICAL_FETCHES_PER_READ} fetches reached`
         } | daysAtLiveRate=${standIns} | stale=true`,
       )

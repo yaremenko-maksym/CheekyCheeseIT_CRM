@@ -237,12 +237,17 @@ describe('AC2 — batch prefetch, never per row', () => {
     }
   })
 
-  it('stops fetching after the first day NBU cannot answer exactly (outage breaker)', async () => {
-    // Unpublished in the stub: the first is tried (exact + previous day), the second is not.
-    const rates = await svc.getRatesForDays(['20250101', '20250102'])
-    expect(new Set(askedDays())).toEqual(new Set(['20250101', '20241231', '20261120']))
+  it('a day NBU cannot answer while the feed is up does not starve the days after it', async () => {
+    // 20250101 is unpublished in the stub, the feed itself is up (today answers exactly).
+    const rates = await svc.getRatesForDays(['20250101', '20261110'])
     expect(rates.get('20250101')?.stale).toBe(true)
-    expect(rates.get('20250102')).toMatchObject({ usdUah: '41.9000', stale: true })
+    expect(rates.get('20261110')).toMatchObject({ stale: false, rateDate: '20261110' })
+    expect([...store.rows.keys()]).toEqual(['20261110'])
+
+    // The next read costs NBU nothing for the persisted day.
+    const before = askedDays().length
+    await svc.getRatesForDays(['20250101', '20261110'])
+    expect(askedDays().slice(before)).not.toContain('20261110')
   })
 })
 
