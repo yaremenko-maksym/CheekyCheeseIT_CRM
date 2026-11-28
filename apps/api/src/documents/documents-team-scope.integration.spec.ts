@@ -71,9 +71,6 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  *     checked directly)                                                → 404
  *   HR reads their team's SENIOR's JUNIOR's SCAN (team+project)        → 200
  *   HR reads an unrelated JUNIOR's SCAN                                → 404
- *   ACCOUNTANT reads ANY SCAN unconditionally, including an owner with
- *     zero transactions on record (owner decision 2026-08-03, security-
- *     review round 2 — reverses round 1's transaction-scoped attempt)  → 200
  *   DROP reads someone else's RESUME (own-only, unaffected by this
  *     whole task)                                                      → 404
  *   list() with category=RESUME only returns team+project-scoped rows
@@ -162,16 +159,6 @@ const HR_OUTSIDE: SessionUser = {
   displayName: 'Doc Scope HR Outside',
   avatarUrl: null,
   role: 'HR',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
-
-const ACCOUNTANT: SessionUser = {
-  id: 'd0c5a1e2-0000-4000-aa00-000000000008',
-  email: 'doc-scope-accountant@test.spec',
-  displayName: 'Doc Scope Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
   seniorSharePercent: 0,
   legalFullName: null,
 }
@@ -274,7 +261,6 @@ const TEST_USER_IDS = [
   JUNIOR_ELSEWHERE.id,
   HR_TEAMMATE.id,
   HR_OUTSIDE.id,
-  ACCOUNTANT.id,
   SCAN_OWNER_NO_TRANSACTIONS.id,
   SENIOR_NO_TEAM.id,
   JUNIOR_NO_TEAM_PROJECT.id,
@@ -473,7 +459,6 @@ describe.skipIf(!hasDatabaseUrl())(
             JUNIOR_ELSEWHERE,
             HR_TEAMMATE,
             HR_OUTSIDE,
-            ACCOUNTANT,
             SCAN_OWNER_NO_TRANSACTIONS,
             SENIOR_NO_TEAM,
             JUNIOR_NO_TEAM_PROJECT,
@@ -806,18 +791,6 @@ describe.skipIf(!hasDatabaseUrl())(
         cookies: { jwt: tokenFor(HR_OUTSIDE) },
       })
       expect(res.statusCode).toBe(404)
-    })
-
-    // Owner decision 2026-08-03 (security-review round 2, reverses round 1's
-    // MED-1 transaction-scoped attempt): ACCOUNTANT sees ANY scan, including
-    // one belonging to an owner with ZERO transactions on record.
-    it('ACCOUNTANT downloads SCAN of an owner with ZERO transactions on record → 200 (owner decision 2026-08-03)', async () => {
-      const res = await app.inject({
-        method: 'GET',
-        url: `/api/documents/${DOC_SCAN_OWNER_NO_TX_ID}/download`,
-        cookies: { jwt: tokenFor(ACCOUNTANT) },
-      })
-      expect(res.statusCode).toBe(200)
     })
 
     // LOW-1: DROP is unaffected by any of this task's team/project scoping —

@@ -57,7 +57,7 @@ export class ProjectMembersService {
     // `leftAt` tracks PROJECT membership; `archivedAt` tracks EMPLOYMENT, and
     // the accrual question belongs to the second one.
     //
-    // Refused for every role, not just JUNIOR: HR/ACCOUNTANT memberships do
+    // Refused for every role, not just JUNIOR: HR memberships do
     // not drive the cron (their salary is role-based and that query already
     // filters `archivedAt`), but putting a dismissed person back on a live
     // project is not something this endpoint should be able to express at all.
@@ -148,7 +148,7 @@ export class ProjectMembersService {
     })
     if (!activeMember) throw apiError('ACTIVE_MEMBER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
-    // Prevent removing last HR or last ACCOUNTANT from project
+    // Prevent removing the last HR from the project
     const userToRemove = await this.db.db.query.users.findFirst({ where: eq(users.id, userId) })
     assertCanRemoveMember(userToRemove, projectForScope.members)
 

@@ -211,11 +211,11 @@ describe('RBAC guards — restore and hardDelete controller endpoints', () => {
     expect(res.statusCode).toBe(403)
   })
 
-  it('hardDelete: non-ADMIN (ACCOUNTANT) → 403', async () => {
+  it('hardDelete: non-ADMIN (HR) → 403', async () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/test-docs/${TEST_UUID}/hard`,
-      headers: jwtCookie('ACCOUNTANT'),
+      headers: jwtCookie('HR'),
     })
     expect(res.statusCode).toBe(403)
   })

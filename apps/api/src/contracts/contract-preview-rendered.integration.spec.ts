@@ -47,12 +47,6 @@ const HR: SessionUser = {
   email: 'pr-hr@test.spec',
   role: 'HR',
 }
-const ACCOUNTANT: SessionUser = {
-  ...base,
-  id: 'aa000003-0000-4000-a000-000000000003',
-  email: 'pr-acct@test.spec',
-  role: 'ACCOUNTANT',
-}
 const SENIOR: SessionUser = {
   ...base,
   id: 'aa000004-0000-4000-a000-000000000004',
@@ -177,7 +171,7 @@ describe('GET /contracts/templates/preview-rendered/:id — ADMIN/HR only (SEC-1
     expect(res.statusCode).toBe(200)
   })
 
-  for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, DROP]) {
+  for (const persona of [SENIOR, JUNIOR, DROP]) {
     it(`${persona.role} → 403 (no access to preview-rendered)`, async () => {
       const res = await app.inject({
         method: 'GET',

@@ -67,7 +67,7 @@ const adminReceiver = {
 }
 
 describe('mapTx — privileged viewers see real identity', () => {
-  it.each(['ADMIN', 'ACCOUNTANT'] as const)('%s sees internal sender and receiver', (role) => {
+  it.each(['ADMIN'] as const)('%s sees internal sender and receiver', (role) => {
     const dto = mapTx(makeTx({ ...adminSender, ...adminReceiver } as never), viewer(role))
     expect(dto.senderId).toBe(ADMIN_ID)
     expect(dto.senderLabel).toBe('Max')
@@ -173,7 +173,7 @@ describe('mapTx — every other field identical for both viewer classes', () => 
     deletionReason: 'why',
   }
 
-  it.each(['ADMIN', 'ACCOUNTANT', 'SENIOR', 'JUNIOR', 'HR', 'DROP'] as const)(
+  it.each(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP'] as const)(
     '%s sees the same unmasked fields',
     (role) => {
       expect(mapTx(makeTx(), viewer(role))).toMatchObject(expected)
@@ -227,7 +227,7 @@ describe('mapTx — isDateLocked (UX-M-2): real value for ADMIN only', () => {
     expect(mapTx(makeTx(open as never), viewer('ADMIN')).isDateLocked).toBe(false)
   })
 
-  it.each(['ACCOUNTANT', 'SENIOR', 'JUNIOR', 'HR', 'DROP'] as SessionUser['role'][])(
+  it.each(['SENIOR', 'JUNIOR', 'HR', 'DROP'] as SessionUser['role'][])(
     'is false for %s even on a row locked by every cause',
     (role) => {
       const tx = makeTx({

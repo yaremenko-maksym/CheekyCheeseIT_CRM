@@ -81,16 +81,8 @@ const DROP: SessionUser = {
   displayName: 'Unified Drop',
   role: 'DROP',
 }
-const ACCOUNTANT: SessionUser = {
-  ...SENIOR,
-  id: 'be550000-0000-4000-aa00-000000000003',
-  email: 'unified-accountant@test.spec',
-  displayName: 'Unified Accountant',
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-}
 
-const TEST_OWN_USERS = [SENIOR, DROP, ACCOUNTANT]
+const TEST_OWN_USERS = [SENIOR, DROP]
 const TEST_OWN_USER_IDS = TEST_OWN_USERS.map((u) => u.id)
 
 // ADMIN_OWN_USDT_PROJECT: MAKSYM is the senior AND declares — the server
@@ -343,23 +335,6 @@ describe.skipIf(!hasDatabaseUrl())(
         // i18n stage 4 Task 2: refusal text no longer names the alternate
         // route directly — asserting on the api-error code instead of the
         // old dev-facing regex (lesson 14, task-i18n-stage4-lessons-701.md).
-      ).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'FINANCE_USDT_PROJECT_WRONG_INCOME_ROUTE' }),
-      })
-
-      // ACCOUNTANT hits the exact same guard (defense-in-depth for BOTH callers
-      // of createAdminIncome — the accountant is also an admin-owned-project
-      // recorder and could otherwise reach the same hole).
-      await expect(
-        svc.createAdminIncome(
-          {
-            projectId: ADMIN_OWN_USDT_PROJECT,
-            amount: 500,
-            currency: 'USDT',
-            receiptExternalUrl: 'https://etherscan.io/tx/0xadminincomeunifiedspecguard2',
-          },
-          ACCOUNTANT,
-        ),
       ).rejects.toMatchObject({
         response: expect.objectContaining({ code: 'FINANCE_USDT_PROJECT_WRONG_INCOME_ROUTE' }),
       })

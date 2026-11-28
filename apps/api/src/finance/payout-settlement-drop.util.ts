@@ -140,7 +140,7 @@ export async function applyDropProjectPayout(
     // bookCompanyObligations() call as the senior share (and as
     // declareUsdtProjectIncome's admin-USDT path): a DROP_PENDING_PAYOUT
     // (PENDING_PAYMENT) + a paired pending_obligations row (creditor=drop,
-    // debtorType=COMPANY). An ADMIN/ACCOUNTANT later closes it via the
+    // debtorType=COMPANY). An ADMIN later closes it via the
     // EXISTING settleByCompany (mandatory receipt + funding-source choice),
     // which flips this SAME row to PAYOUT_DROP/PAID in place — byte-shape
     // identical to a freshly-booked admin-USDT drop IOU (task doc §2/§3).

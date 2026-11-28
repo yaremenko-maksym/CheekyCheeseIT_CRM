@@ -115,19 +115,6 @@ test.describe('Notification settings tab — position 7b', () => {
     await expect(desktop).toBeVisible()
     await expect(desktop.getByTestId('notification-group-admin')).toBeVisible()
   })
-
-  // SR-M-4 (security-review, fix-round 3, PR #675): ACCOUNTANT is the third
-  // actual recipient — a finance-scoped `seniorSharePercentOverride` patch
-  // (`projects.service.ts` `update()`) lets ACCOUNTANT propose a share
-  // override, and the confirming SENIOR is a different user, so ACCOUNTANT
-  // receives these two email types same as ADMIN/HR would.
-  test('ACCOUNTANT: sees the "Ваши предложения" group too', async ({ page }) => {
-    await loginViaApi(page, SEED_EMAILS.accountant)
-    await page.goto('/profile?tab=notifications')
-    const desktop = page.getByTestId('notification-settings-desktop')
-    await expect(desktop).toBeVisible()
-    await expect(desktop.getByTestId('notification-group-admin')).toBeVisible()
-  })
 })
 
 // ---------------------------------------------------------------------------

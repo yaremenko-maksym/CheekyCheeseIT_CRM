@@ -237,13 +237,6 @@ describe('AC5 SEC-13 — assertCanReadAdminBalance: ADMIN scoped to own target',
     )
   })
 
-  it('ACCOUNTANT can read ANY admin balance (privileged reader)', () => {
-    const svc = makeBalanceService()
-    const viewer = makeViewer('ACCOUNTANT')
-    expect(() => svc.assertCanReadAdminBalance(viewer, ADMIN_A_ID)).not.toThrow()
-    expect(() => svc.assertCanReadAdminBalance(viewer, ADMIN_B_ID)).not.toThrow()
-  })
-
   it('SENIOR cannot read admin balance → ForbiddenException', () => {
     const svc = makeBalanceService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('SENIOR'), ADMIN_A_ID)).toThrow(
@@ -462,39 +455,6 @@ describe('AC1 BIZ-06 — createAdminTransfer: ADMIN cannot debit a partner', () 
     expect(captured[0]!.senderId).toBe(ADMIN_A_ID)
   })
 
-  it('ACCOUNTANT caller with senderId=ADMIN_A can book transfer FROM that admin', async () => {
-    const captured: Array<{ senderId: string }> = []
-    const svc = makeAdminTransferService(userMap, captured)
-    const accountant = makeViewer('ACCOUNTANT', 'acct-0000-0000-0000-000000000003')
-
-    await svc.createAdminTransfer(
-      {
-        senderId: ADMIN_A_ID,
-        receiverId: ADMIN_B_ID,
-        amount: 100,
-        currency: 'USDT',
-        receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
-      },
-      accountant,
-    )
-    expect(captured[0]!.senderId).toBe(ADMIN_A_ID)
-  })
-
-  it('ACCOUNTANT caller without senderId → BadRequestException', async () => {
-    const captured: Array<{ senderId: string }> = []
-    const svc = makeAdminTransferService(userMap, captured)
-    const accountant = makeViewer('ACCOUNTANT', 'acct-0000-0000-0000-000000000003')
-
-    await expect(
-      svc.createAdminTransfer(
-        { receiverId: ADMIN_B_ID, amount: 100, currency: 'USDT' },
-        accountant,
-      ),
-    ).rejects.toMatchObject({
-      response: { code: 'FINANCE_TRANSFER_SENDER_ID_REQUIRED', statusCode: 400 },
-    })
-  })
-
   // ── task-sender-receiver-invariant (backlog A-2) ────────────────────────
   // Application-level mirror of `ck_transactions_sender_ne_receiver` — a
   // friendly 400 BEFORE the row ever reaches the DB CHECK. No insert should
@@ -514,26 +474,6 @@ describe('AC1 BIZ-06 — createAdminTransfer: ADMIN cannot debit a partner', () 
           receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
         },
         caller,
-      ),
-    ).rejects.toThrow(BadRequestException)
-    expect(captured).toHaveLength(0)
-  })
-
-  it('ACCOUNTANT caller with senderId===receiverId → BadRequestException, no insert attempted (AC4/AC5)', async () => {
-    const captured: Array<{ senderId: string }> = []
-    const svc = makeAdminTransferService(userMap, captured)
-    const accountant = makeViewer('ACCOUNTANT', 'acct-0000-0000-0000-000000000003')
-
-    await expect(
-      svc.createAdminTransfer(
-        {
-          senderId: ADMIN_A_ID,
-          receiverId: ADMIN_A_ID,
-          amount: 100,
-          currency: 'USDT',
-          receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
-        },
-        accountant,
       ),
     ).rejects.toThrow(BadRequestException)
     expect(captured).toHaveLength(0)

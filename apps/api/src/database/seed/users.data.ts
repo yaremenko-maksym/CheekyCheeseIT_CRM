@@ -8,7 +8,6 @@ import {
   SOFIA_ID,
   ANNA_ID,
   KATERYNA_ID,
-  MYKOLA_ID,
   ARTEM_ID,
   NAZAR_ID,
   OKSANA_ID,
@@ -282,27 +281,6 @@ export const SEED_USERS: schema.NewUser[] = [
     bankUahBankName: 'Ощадбанк',
     createdAt: d(2025, 9, 1),
     updatedAt: d(2025, 9, 1),
-  },
-
-  // ---- ACCOUNTANT (1) ----
-  {
-    id: MYKOLA_ID,
-    email: 'mykola.savchenko@cheekycheese.dev',
-    displayName: 'Mykola Savchenko',
-    legalFullName: 'Савченко Микола Григорович',
-    avatarUrl: 'https://api.dicebear.com/9.x/avataaars/svg?seed=mykola',
-    role: 'ACCOUNTANT',
-    telegram: '@mykola_savc',
-    phone: '+380671000009',
-    monthlySalary: '900.00',
-    salaryCurrency: 'USD',
-    paymentMethod: 'BANK_UAH_FOP',
-    bankUahRecipient: 'Савченко Микола Григорович',
-    bankUahIban: 'UA213223130000026007233566004',
-    bankUahRnokpp: '6789012345',
-    bankUahBankName: 'ПриватБанк',
-    createdAt: d(2025, 6, 5),
-    updatedAt: d(2025, 6, 5),
   },
 
   // ---- DROPs (6) ----

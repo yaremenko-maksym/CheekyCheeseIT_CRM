@@ -520,7 +520,7 @@ export class InterviewsService {
       throw apiError('INTERVIEW_HR_SUMMARY_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
-    // Current-month boundary (UTC), computed once — matches getAccountantSummary.
+    // Current-month boundary (UTC), computed once.
     const now = new Date()
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
 

@@ -536,7 +536,7 @@ describe('createMonthlySalaries — #7: resolve any admin as author', () => {
       db: {
         query: {
           users: {
-            // 1st findMany → HR/ACCOUNTANT employees; later findMany (juniors) → [].
+            // 1st findMany → HR employees; later findMany (juniors) → [].
             findMany: () => {
               findManyCall += 1
               return Promise.resolve(findManyCall === 1 ? opts.employees : (opts.juniors ?? []))

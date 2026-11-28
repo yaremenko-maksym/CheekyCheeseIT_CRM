@@ -109,16 +109,16 @@ export function mapProjectToDto(
   const isJuniorViewer = viewerRole === 'JUNIOR'
 
   // task-admin-as-senior: when the project's senior is an ADMIN user,
-  // only ADMIN and ACCOUNTANT viewers get the real seniorId (navigable profile).
+  // only ADMIN viewers get the real seniorId (navigable profile).
   // All other non-JUNIOR roles (SENIOR, HR, DROP) get seniorId=null — they see
   // the displayName but cannot navigate to the admin's profile (403 for them).
   // JUNIOR falls through to the existing null path regardless.
-  const isPrivilegedViewer = viewerRole === 'ADMIN' || viewerRole === 'ACCOUNTANT'
+  const isPrivilegedViewer = viewerRole === 'ADMIN'
   const isAdminSenior = project.senior?.role === 'ADMIN'
 
   // Effective seniorId for non-JUNIOR viewers:
   //   - Regular project (senior role ≠ ADMIN): real seniorId
-  //   - Admin-project + privileged viewer (ADMIN/ACCOUNTANT): real seniorId
+  //   - Admin-project + privileged viewer (ADMIN): real seniorId
   //   - Admin-project + non-privileged viewer (SENIOR/HR/DROP): null (no link)
   const effectiveSeniorId: string | null = isJuniorViewer
     ? null
@@ -204,7 +204,7 @@ export function mapProjectToDto(
     // viewer reaching this point IS `project.seniorId` (a SENIOR can only
     // ever fetch their OWN project), so `viewerRole === 'SENIOR'` alone is
     // exactly "the affected senior" here — no extra id comparison needed.
-    // ACCOUNTANT/HR/DROP see the ACTIVE `effectiveSeniorSharePercent`
+    // HR / DROP see the ACTIVE `effectiveSeniorSharePercent`
     // (payroll / team-management need-to-know) but must not learn a change
     // is even proposed. `undefined` (list endpoint / create) collapses to
     // `null` here too — the field is simply absent on those responses.

@@ -24,7 +24,6 @@ export class UsersAccessService {
   async getViewPermissions(viewer: User, target: User): Promise<ViewPermissions> {
     const isSelf = viewer.id === target.id
     const isAdmin = viewer.role === 'ADMIN'
-    const isAccountant = viewer.role === 'ACCOUNTANT'
     const isHr = viewer.role === 'HR'
     const isSenior = viewer.role === 'SENIOR'
     const isJunior = viewer.role === 'JUNIOR'
@@ -38,12 +37,11 @@ export class UsersAccessService {
     const actions: ActionKey[] = []
     const fields: Record<string, boolean> = {}
 
-    const targetIsSalaryRole =
-      target.role === 'JUNIOR' || target.role === 'HR' || target.role === 'ACCOUNTANT'
+    const targetIsSalaryRole = target.role === 'JUNIOR' || target.role === 'HR'
     // Drop role - phase 1: DROP also has a share (drop_share_percent default 5).
     const targetIsShareRole =
       target.role === 'SENIOR' || target.role === 'ADMIN' || target.role === 'DROP'
-    // HR and ACCOUNTANT have soft-skill tech stacks ("Рекрутинг", "Account Support", "1С") —
+    // HR has soft-skill tech stacks ("Рекрутинг", "Account Support", "1С") —
     // visible like dev stacks.
     const targetHasTechStack = true
 
@@ -83,7 +81,7 @@ export class UsersAccessService {
       // share change is a narrower surface than the ACTIVE share itself —
       // task file: "ожидающее значение — только ADMIN и сам синьор". ADMIN
       // proposed it (or is about to act on it), so ADMIN sees it for any
-      // non-self target; ACCOUNTANT/HR see the ACTIVE `share` value (payroll
+      // non-self target; HR see the ACTIVE `share` value (payroll
       // need-to-know) but must NOT learn a change is even proposed — see
       // `fields.sharePending` staying unset (false) in their own branches
       // below, and `buildProfileView`'s use of this flag instead of `share`.
@@ -137,23 +135,12 @@ export class UsersAccessService {
         //   - 'documents'→ already a dedicated /crm/documents page (like JUNIOR page-not-tab).
         //   - 'projects' → routing hub (/crm/routing) is the canonical surface.
         tabs.push('overview', 'requisites')
-      } else if (isAccountant) {
-        // task-accountant-self-no-finance-tab: ACCOUNTANT self-view is an
-        // explicit allow-list — overview + requisites ONLY.
-        // 'finance' tab is removed from self-view: the accountant's financial
-        // hub lives at /crm/finance (page-not-tab model), consistent with how
-        // DROP uses /crm/routing and JUNIOR uses /crm/project as their primary
-        // surfaces instead of profile tabs.
-        // projects/team/documents are not relevant to the accountant's own
-        // day-to-day self-service and would expose team/project internals with
-        // no business value on a self-view.
-        // SENIOR-self and HR-self keep the full surface unchanged.
-        tabs.push('overview', 'requisites')
-      } else {
+      } else if (isSenior || isHr) {
         tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
-        // SENIOR, HR: finance access (ACCOUNTANT self handled above)
-        if (isSenior || isHr) tabs.push('finance')
+        tabs.push('finance')
       }
+      // Any other self-viewing role gets no
+      // self-view tab: an allowlist, not a fall-through to the SENIOR/HR surface.
       // SENIOR: interviews moved to header link; no separate tab here
       fields.salary = targetIsSalaryRole
       fields.share = targetIsShareRole
@@ -178,35 +165,15 @@ export class UsersAccessService {
       fields.personalContact = true
       // Subject cannot view/edit their own legend (new model: self-access removed)
       fields.legend = false
-    } else if (isAccountant) {
-      tabs.push('overview', 'finance', 'projects', 'team', 'requisites', 'documents')
-      fields.salary = targetIsSalaryRole
-      fields.share = targetIsShareRole
-      fields.paymentMethodKpi = true
-      fields.registrationDate = true
-      fields.techStack = targetHasTechStack
-      fields.requisites = true
-      // Pre-deploy MEDIUM: the ACCOUNTANT payroll scope is company-wide, but an
-      // ADMIN is paid via the 50/50 partner split — NOT payroll — so the
-      // accountant has no business need for another ADMIN's payout wallet/IBAN.
-      // Mask the wallet/bank requisites for ADMIN targets while keeping the rest
-      // of the requisites surface (paymentMethod) so the projection is explicit.
-      fields.requisitesExcludeWallet = target.role === 'ADMIN'
-      // adminNote — ACCOUNTANT does not see admin notes
-      fields.adminNote = false
-      // FOP PII — ACCOUNTANT does not see registrationAddress
-      fields.fopPii = false
-      // Real contacts — ACCOUNTANT sees contacts (email/phone/telegram)
-      fields.realContacts = true
     } else if (isHr) {
       if (await this.isHrInTargetTeam(viewer.id, target)) {
         // task-hr-rbac-teammate-access §2: differentiate the HR tab surface by
-        // target role. ACCOUNTANT / HR teammates are NOT senior/project subjects,
+        // target role. HR teammates are NOT senior/project subjects,
         // so they only expose overview + team (a lightweight teammate card) — never
         // 'projects' or 'interviews' (those are senior/project surfaces). SENIOR /
         // JUNIOR behaviour is unchanged (overview/projects/team [+interviews for
         // SENIOR]).
-        const targetIsHrPeer = target.role === 'ACCOUNTANT' || target.role === 'HR'
+        const targetIsHrPeer = target.role === 'HR'
         if (targetIsHrPeer) {
           tabs.push('overview', 'team')
         } else {
@@ -220,35 +187,35 @@ export class UsersAccessService {
         // FOP PII — HR does not see registrationAddress
         fields.fopPii = false
         // Real contacts — HR sees contacts (email/phone/telegram), including for an
-        // ACCOUNTANT / HR teammate.
+        // HR teammate.
         fields.realContacts = true
-        // HR can view/edit their SENIOR's or DROP's legend. ACCOUNTANT / HR targets
+        // HR can view/edit their SENIOR's or DROP's legend. HR targets
         // are not legend subjects, so this stays false for them (targetIsLegendSubject).
         fields.legend = targetIsLegendSubject
         // task-junior-ut-round2 §6: HR (sharing the target junior's team) sees +
         // edits that junior's project credentials in their profile. JUNIOR only —
-        // false for ACCOUNTANT / HR / SENIOR targets.
+        // false for HR / SENIOR targets.
         fields.projectCredentials = target.role === 'JUNIOR'
         fields.editCredentials = target.role === 'JUNIOR'
         // Financial / requisites / PII flags (salary, share, requisites, fopPii,
         // legalName) are intentionally left at their `false` default for HR — an
-        // ACCOUNTANT / HR teammate's salary, payment requisites and FOP-PII stay
+        // HR teammate's salary, payment requisites and FOP-PII stay
         // masked (null in buildProfileView), same as the existing SENIOR/JUNIOR
         // path. No new financial surface is opened by this teammate access.
       }
     } else if (isSenior) {
       // SENIOR cannot view JUNIOR profiles (identity hidden per RBAC rule #1).
       // SENIOR can view profiles of other non-JUNIOR members of their own projects —
-      // but only when the target is also a project_member (HR/ACCOUNTANT in that project).
+      // but only when the target is also a project_member (HR in that project).
       // task-junior-ux-1-backend §6: SENIOR must NOT see other SENIOR/DROP profiles —
       // only JUNIOR members of their own projects are accessible (and those are blocked
       // above). In practice this means SENIOR→non-JUNIOR always gets zero tabs.
       // The isSeniorViewingOwnProjectMember helper is now restricted to JUNIOR-role
       // targets only, so SENIOR→SENIOR and SENIOR→DROP are blocked at the role check.
       if (target.role !== 'JUNIOR') {
-        // SENIOR cannot view another SENIOR, DROP, HR, ADMIN, or ACCOUNTANT profile
+        // SENIOR cannot view another SENIOR, DROP, HR or ADMIN profile
         // via the project-member path. Zero tabs — 403 at route level.
-        // (Future: a separate "team-mate" path for HR/ACCOUNTANT could be added,
+        // (Future: a separate "team-mate" path for HR could be added,
         //  but is explicitly out of scope per task-junior-ux-1-backend §2 side-fix.)
       }
       // target.role === 'JUNIOR': intentionally fall through with no tabs (403 at route level).
@@ -280,7 +247,7 @@ export class UsersAccessService {
     // partially reverts finding B1 from #202. DROP self-view (overview+requisites,
     // Finding A) is unchanged — handled in the isSelf branch above.
     //
-    // Other JUNIOR viewing non-SENIOR/non-DROP, ACCOUNTANT, DROP viewing ANY other
+    // Other JUNIOR viewing non-SENIOR/non-DROP, DROP viewing ANY other
     // user: no tabs → 403.
 
     // task-resume-base §4: surface the 'resume' tab only on a SENIOR card (the
@@ -307,17 +274,12 @@ export class UsersAccessService {
 
   private async isHrInTargetTeam(hrId: string, target: User): Promise<boolean> {
     // Shared-team membership path: the target is visible to HR when both are
-    // active members of at least one common team. Covers SENIOR, the ACCOUNTANT /
+    // active members of at least one common team. Covers SENIOR, the
     // HR teammate-access path (task-hr-rbac-teammate-access §1) and DROP (owner
     // decision 2026-11-19: the HR of a drop-team opens its drop's profile). ADMIN is
     // never opened to HR via this branch. self is handled earlier by the isSelf
     // branch in getViewPermissions, so an HR target here is HR↔other-HR.
-    if (
-      target.role === 'SENIOR' ||
-      target.role === 'DROP' ||
-      target.role === 'ACCOUNTANT' ||
-      target.role === 'HR'
-    ) {
+    if (target.role === 'SENIOR' || target.role === 'DROP' || target.role === 'HR') {
       const peers = await this.db.db
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)

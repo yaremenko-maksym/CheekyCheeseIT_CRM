@@ -77,15 +77,12 @@ describe('getHrContact — access', () => {
     })
   })
 
-  it.each(['SENIOR', 'ACCOUNTANT', 'DROP'] as const)(
-    '403 for %s, even as a listed member',
-    async (role) => {
-      const { svc } = makeSvc({ project: project() })
-      await expect(svc.getHrContact('p-1', user(role, 'j-1'))).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'NO_HR_CONTACT_ACCESS', statusCode: 403 }),
-      })
-    },
-  )
+  it.each(['SENIOR', 'DROP'] as const)('403 for %s, even as a listed member', async (role) => {
+    const { svc } = makeSvc({ project: project() })
+    await expect(svc.getHrContact('p-1', user(role, 'j-1'))).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'NO_HR_CONTACT_ACCESS', statusCode: 403 }),
+    })
+  })
 
   it('403 for a JUNIOR who is not a member', async () => {
     const { svc } = makeSvc({ project: project() })

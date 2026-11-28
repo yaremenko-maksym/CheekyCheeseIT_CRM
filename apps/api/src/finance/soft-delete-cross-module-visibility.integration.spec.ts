@@ -36,7 +36,7 @@
  * removed that one line and all 2019 unit + 1019 integration tests stayed
  * green, meaning the line was deletable and nothing would notice. Closed by
  * the `signInvoice — privileged counterparty` test below: a viewer who passes
- * the READ gate on a deleted row (ADMIN/ACCOUNTANT bypass) must still be
+ * the READ gate on a deleted row (ADMIN bypass) must still be
  * blocked from SIGNING it — 400, not "signs it anyway". This is the exact
  * scenario `assertTransactionNotDeleted` exists for; a privileged
  * non-counterparty or a non-privileged counterparty never reach it (they 404
@@ -98,21 +98,8 @@ const JUNIOR_STRANGER: SessionUser = {
   seniorSharePercent: 26,
   legalFullName: null,
 }
-// security-review PR #456 round 3, MED-2: needs to be BOTH privileged (passes
-// the assertTransactionVisible READ gate on a deleted row) AND the
-// transaction's own counterparty (passes signInvoice's RBAC check) — the only
-// persona shape that can reach `fetchWritableTransactionOrThrow`'s write-half.
-const ACCOUNTANT_1: SessionUser = {
-  id: 'ad200000-0000-4000-aa00-000000000004',
-  email: 'xm-accountant@test.spec',
-  displayName: 'XM Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
 
-const ALL_USER_IDS = [ADMIN_1, SENIOR_1, JUNIOR_STRANGER, ACCOUNTANT_1].map((u) => u.id)
+const ALL_USER_IDS = [ADMIN_1, SENIOR_1, JUNIOR_STRANGER].map((u) => u.id)
 const SENIOR_INCOME_TX_ID = 'ad200001-0000-4000-b000-000000000001'
 const DEPOSIT_TX_ID = 'ad200001-0000-4000-b000-000000000002'
 const PRIVILEGED_SALARY_TX_ID = 'ad200001-0000-4000-b000-000000000003'
@@ -170,7 +157,7 @@ describe.skipIf(!hasDatabaseUrl())(
         .where(inArray(documents.id, [INVOICE_DOC_ID, PRIVILEGED_SALARY_DOC_ID]))
       await db.delete(users).where(inArray(users.id, ALL_USER_IDS))
 
-      for (const u of [ADMIN_1, SENIOR_1, JUNIOR_STRANGER, ACCOUNTANT_1]) {
+      for (const u of [ADMIN_1, SENIOR_1, JUNIOR_STRANGER]) {
         await db.insert(users).values({
           id: u.id,
           email: u.email,
@@ -195,7 +182,7 @@ describe.skipIf(!hasDatabaseUrl())(
       })
       await db.insert(documents).values({
         id: PRIVILEGED_SALARY_DOC_ID,
-        ownerId: ACCOUNTANT_1.id,
+        ownerId: ADMIN_1.id,
         category: 'INVOICE',
         name: 'invoice-ad200001-salary.pdf',
         s3Key: `documents/invoice/${PRIVILEGED_SALARY_TX_ID}.pdf`,
@@ -205,8 +192,8 @@ describe.skipIf(!hasDatabaseUrl())(
       })
 
       // security-review PR #456 round 3, MED-2: a SALARY row whose RECEIVER
-      // (=counterparty, per `getCounterpartyId`) is ACCOUNTANT_1 — i.e. an
-      // ACCOUNTANT signing their OWN salary invoice. PAYOUT can't be used for
+      // (=counterparty, per `getCounterpartyId`) is ADMIN_1 — i.e. a
+      // privileged viewer signing their OWN salary invoice. PAYOUT can't be used for
       // this (`adminDeleteTransaction` refuses to delete PAYOUT/PAYOUT_ADMIN/
       // PAYOUT_CONFIRMED rows outright), so SALARY is the only type reachable
       // through the real delete path where a privileged viewer is also the
@@ -217,7 +204,7 @@ describe.skipIf(!hasDatabaseUrl())(
         status: 'PAID',
         amount: '1000',
         currency: 'USD',
-        receiverId: ACCOUNTANT_1.id,
+        receiverId: ADMIN_1.id,
         invoiceDocumentId: PRIVILEGED_SALARY_DOC_ID,
         salaryMonth: '2026-08',
         createdBy: ADMIN_1.id,
@@ -365,8 +352,8 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(notificationsService.create).not.toHaveBeenCalled()
       })
 
-      it('signInvoice — privileged counterparty (ACCOUNTANT signing their own deleted SALARY) gets 400, not a silent sign', async () => {
-        // ACCOUNTANT passes assertTransactionVisible's privileged-viewer bypass
+      it('signInvoice — privileged counterparty (ADMIN signing their own deleted SALARY) gets 400, not a silent sign', async () => {
+        // ADMIN passes assertTransactionVisible's privileged-viewer bypass
         // (sees the deleted row) AND is the row's own counterparty (passes the
         // RBAC check) — the ONLY persona shape that reaches
         // fetchWritableTransactionOrThrow's assertTransactionNotDeleted call.
@@ -387,7 +374,7 @@ describe.skipIf(!hasDatabaseUrl())(
         const svc = makeInvoicesSvc()
         const fakeReq = { ip: '1.2.3.4', headers: {} } as never
         await expect(
-          svc.signInvoice(ACCOUNTANT_1, PRIVILEGED_SALARY_TX_ID, fakeReq),
+          svc.signInvoice(ADMIN_1, PRIVILEGED_SALARY_TX_ID, fakeReq),
         ).rejects.toMatchObject({
           response: expect.objectContaining({ code: 'FINANCE_TRANSACTION_DELETED_RESTORE_FIRST' }),
         })

@@ -10,7 +10,7 @@
  *   1. Single-project SENIOR_INCOME → 1 invoice generated, amount matches
  *      the SENIOR_INCOME.
  *   2. Multi-project: senior has 2 active projects, posts SENIOR_INCOME on
- *      each, accountant validates both → 1 PAYOUT_REQUEST + 1 aggregate
+ *      each, admin validates both → 1 PAYOUT_REQUEST + 1 aggregate
  *      invoice (not 2 — the regression catcher for PR #80 aggregation logic).
  *      Invoice amount = sum across both incomes.
  *   3. After PAYOUT PAID, exactly 1 INVOICE Document references the
@@ -75,7 +75,7 @@ test.describe('Aggregate invoice — 1 per PAYOUT', () => {
       })
 
       // feat/finance-payout-flow (#7): validate only flips to VALIDATED.
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, txId)
 
       // SENIOR manually creates and pays the payout_request.
@@ -136,7 +136,7 @@ test.describe('Aggregate invoice — 1 per PAYOUT', () => {
       })
 
       // feat/finance-payout-flow (#7): validate only flips to VALIDATED.
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, txA)
       await validateTransactionViaAPI(page, txB)
 

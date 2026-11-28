@@ -15,7 +15,7 @@ import { NbuCurrencyService } from './nbu-currency.service'
 
 /**
  * BACKLOG item 121 (security-review on #560) — GET /api/finance/summary was
- * decorated with `@Roles('ADMIN','ACCOUNTANT')` in the SAME commit that added
+ * decorated with `@Roles('ADMIN')` in the SAME commit that added
  * this spec. Before that, `@UseGuards(RolesGuard)` on `FinanceSummaryController`
  * was a NO-OP for this route: `RolesGuard.canActivate` returns `true`
  * immediately when no `@Roles` metadata is present (see roles.guard.ts), so the
@@ -40,7 +40,7 @@ import { NbuCurrencyService } from './nbu-currency.service'
  *     i.e. the guard rejected the request BEFORE the controller method ran.
  *
  * PROOF THIS TEST CAN FAIL (AC5 — "умеет краснеть"): temporarily removing
- * `@Roles('ADMIN','ACCOUNTANT')` from `getSummary` in transactions.controller.ts
+ * `@Roles('ADMIN')` from `getSummary` in transactions.controller.ts
  * turns `RolesGuard.canActivate` back into the NO-OP described above. With the
  * stub never throwing, every one of the "→ 403" cases below would then resolve
  * 200 and `getSummaryCalls` would be 1 instead of 0 — every forbidden-role test
@@ -67,7 +67,6 @@ function persona(role: SessionUser['role'], suffix: string): SessionUser {
 }
 
 const ADMIN = persona('ADMIN', '01')
-const ACCOUNTANT = persona('ACCOUNTANT', '02')
 const SENIOR = persona('SENIOR', '03')
 const JUNIOR = persona('JUNIOR', '04')
 const HR = persona('HR', '05')
@@ -176,10 +175,7 @@ describe('GET /api/finance/summary — @Roles guard layer (stub service, never t
     })
   }
 
-  const allowed: Array<[string, SessionUser]> = [
-    ['ADMIN', ADMIN],
-    ['ACCOUNTANT', ACCOUNTANT],
-  ]
+  const allowed: Array<[string, SessionUser]> = [['ADMIN', ADMIN]]
   for (const [label, user] of allowed) {
     it(`${label} → 200, handler reached (guard lets it through)`, async () => {
       const res = await summary(user)
@@ -188,4 +184,16 @@ describe('GET /api/finance/summary — @Roles guard layer (stub service, never t
       expect(getSummaryCalls).toBe(1)
     })
   }
+
+  // PR 1b (design §13.3): the role-specific dashboard endpoint is gone. ADMIN
+  // is the strongest caller, so a 404 for ADMIN proves the route is unmounted
+  // rather than guarded.
+  it('GET /api/finance/accountant-summary → 404 for ADMIN (route removed)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/finance/accountant-summary',
+      cookies: { jwt: tokenFor(ADMIN) },
+    })
+    expect(res.statusCode).toBe(404)
+  })
 })

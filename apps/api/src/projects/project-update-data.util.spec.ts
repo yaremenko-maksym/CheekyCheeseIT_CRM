@@ -4,11 +4,9 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import type { UpdateProjectDto } from '@crm/shared'
 import {
   assertFinanceFieldsAllowed,
   buildProjectUpdateData,
-  isFinanceOnlyPatch,
   resolveActiveDropId,
 } from './project-update-data.util'
 
@@ -23,7 +21,7 @@ function codeOf(fn: () => void): { code: unknown; status: number } | null {
 }
 
 describe('assertFinanceFieldsAllowed', () => {
-  it.each(['ADMIN', 'ACCOUNTANT'] as const)('%s may send every finance field', (role) => {
+  it.each(['ADMIN'] as const)('%s may send every finance field', (role) => {
     expect(
       codeOf(() =>
         assertFinanceFieldsAllowed(
@@ -77,30 +75,6 @@ describe('assertFinanceFieldsAllowed', () => {
         assertFinanceFieldsAllowed({ dropSharePercentOverride: 5, paymentType: 'FOP' }, 'HR'),
       ),
     ).toEqual({ code: 'DROP_SHARE_OVERRIDE_FORBIDDEN', status: 403 })
-  })
-})
-
-describe('isFinanceOnlyPatch', () => {
-  it('empty patch is not finance-only', () => {
-    expect(isFinanceOnlyPatch({})).toBe(false)
-  })
-  it('only finance keys is finance-only', () => {
-    expect(
-      isFinanceOnlyPatch({
-        seniorSharePercentOverride: 1,
-        dropSharePercentOverride: 2,
-        paymentType: 'FOP',
-      }),
-    ).toBe(true)
-  })
-  it.each(['seniorSharePercentOverride', 'dropSharePercentOverride', 'paymentType'] as const)(
-    '%s alone is finance-only',
-    (k) => {
-      expect(isFinanceOnlyPatch({ [k]: null } as UpdateProjectDto)).toBe(true)
-    },
-  )
-  it('one non-finance key breaks it', () => {
-    expect(isFinanceOnlyPatch({ paymentType: 'FOP', name: 'x' })).toBe(false)
   })
 })
 

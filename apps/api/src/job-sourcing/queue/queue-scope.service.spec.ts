@@ -191,7 +191,7 @@ afterEach(() => {
 })
 
 describe('JobQueueScopeService.resolve', () => {
-  it.each(['SENIOR', 'JUNIOR', 'ACCOUNTANT', 'DROP'] as const)(
+  it.each(['SENIOR', 'JUNIOR', 'DROP'] as const)(
     '%s is a 403 and touches no data',
     async (role) => {
       const { svc, execute } = harness()
@@ -434,7 +434,7 @@ describe('JobQueueScopeService.resolveView / resolveWrite (task-hr-queue-all-tea
     expect(execute).not.toHaveBeenCalled()
   })
 
-  it.each(['SENIOR', 'JUNIOR', 'ACCOUNTANT'] as const)(
+  it.each(['SENIOR', 'JUNIOR'] as const)(
     '%s is still a 403 from the union entry points, touching no data',
     async (role) => {
       const { svc, execute } = harness()

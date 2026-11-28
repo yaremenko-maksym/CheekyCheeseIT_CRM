@@ -63,7 +63,7 @@ function scripted({
 }
 
 describe('JobQueueRecomputeService.enqueue', () => {
-  it.each(['HR', 'SENIOR', 'JUNIOR', 'ACCOUNTANT'] as const)(
+  it.each(['HR', 'SENIOR', 'JUNIOR'] as const)(
     'a %s is refused before any statement runs',
     async (role) => {
       const h = scripted()

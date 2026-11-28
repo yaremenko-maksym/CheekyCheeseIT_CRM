@@ -50,7 +50,6 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  *     J2 (member of B, NOT A)   → 403 IDOR guard
  *     HR_X (same team as S1)    → 200 access
  *     HR_Y (different team, no S1) → 403 cross-team scope
- *     ACCOUNTANT                → 403
  *
  *   PUT /api/projects/:projectId/legend (view==edit):
  *     J1 → 200 success (edit == view)
@@ -82,7 +81,7 @@ const JWT_SECRET = 'legends-rbac-integration-secret-32c'
 
 // ---------------------------------------------------------------------------
 // Test personas — stable IDs namespaced to THIS spec (no collision).
-// Real user UUIDs are used for ADMIN/ACCOUNTANT (seed data) to avoid needing
+// Real user UUIDs are used for ADMIN (seed data) to avoid needing
 // to insert extra users. Test-specific users (S1, D1, HR_X, HR_Y, J1, J2) get
 // fresh UUIDs inserted in beforeAll and deleted in afterAll.
 // ---------------------------------------------------------------------------
@@ -94,17 +93,6 @@ const ADMIN: SessionUser = {
   displayName: 'Admin',
   avatarUrl: null,
   role: 'ADMIN',
-  seniorSharePercent: 26,
-  legalFullName: null,
-}
-
-/** ACCOUNTANT from seed */
-const ACCOUNTANT: SessionUser = {
-  id: 'c7e8d9a0-b1c2-4d3e-8f5a-6b7c8d9e0fbb',
-  email: 'mykola.savchenko@cheekycheese.dev',
-  displayName: 'Mykola Savchenko',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
   seniorSharePercent: 26,
   legalFullName: null,
 }
@@ -627,15 +615,6 @@ describe.skipIf(!hasDatabaseUrl())(
         method: 'GET',
         url: `/api/projects/${PROJ_A_ID}/legend`,
         cookies: { jwt: tokenFor(HR_Y) },
-      })
-      expect(res.statusCode).toBe(403)
-    })
-
-    it('GET 8. ACCOUNTANT → 403 (no legend access)', async () => {
-      const res = await app.inject({
-        method: 'GET',
-        url: `/api/projects/${PROJ_A_ID}/legend`,
-        cookies: { jwt: tokenFor(ACCOUNTANT) },
       })
       expect(res.statusCode).toBe(403)
     })

@@ -13,7 +13,7 @@
  *   - ADMIN sees BOTH journal entries (DELETE then RESTORE) for a row it
  *     just deleted+restored, newest first, with the real actor's displayName
  *     resolved and the metadata (reason / previousDeletionReason) intact.
- *   - ACCOUNTANT (privileged for VISIBILITY, not for this journal) gets 403.
+ *   - accountant (privileged for VISIBILITY, not for this journal) gets 403.
  *   - A non-existent transaction id gets 404.
  *
  * DB-SKIP-GUARD:
@@ -47,15 +47,6 @@ const ADMIN_1: SessionUser = {
   seniorSharePercent: 26,
   legalFullName: null,
 }
-const ACCOUNTANT_1: SessionUser = {
-  id: 'ad100000-0000-4000-aa00-000000000002',
-  email: 'al-accountant@test.spec',
-  displayName: 'AL Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 26,
-  legalFullName: null,
-}
 const SENIOR_1: SessionUser = {
   id: 'ad100000-0000-4000-aa00-000000000003',
   email: 'al-senior@test.spec',
@@ -66,7 +57,7 @@ const SENIOR_1: SessionUser = {
   legalFullName: null,
 }
 
-const ALL_USER_IDS = [ADMIN_1, ACCOUNTANT_1, SENIOR_1].map((u) => u.id)
+const ALL_USER_IDS = [ADMIN_1, SENIOR_1].map((u) => u.id)
 const TX_ID = 'ad100001-0000-4000-b000-000000000001'
 const NONEXISTENT_TX_ID = 'ad100001-0000-4000-b000-00000000dead'
 
@@ -94,7 +85,7 @@ describe.skipIf(!hasDatabaseUrl())(
       Object.assign(dbSvc, { pool: _pool, db })
       svc = makeTransactionsService({ db: dbSvc })
 
-      for (const u of [ADMIN_1, ACCOUNTANT_1, SENIOR_1]) {
+      for (const u of [ADMIN_1, SENIOR_1]) {
         await db
           .insert(users)
           .values({
@@ -160,12 +151,6 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(deleteEntry!.actorName).toBe(ADMIN_1.displayName)
       expect(deleteEntry!.metadata['reason']).toBe('дубликат расхода')
       expect(deleteEntry!.metadata['type']).toBe('EXPENSE')
-    })
-
-    it('ACCOUNTANT (visibility-privileged, not audit-log-privileged) — 403', async () => {
-      await expect(svc.getTransactionAuditLog(TX_ID, ACCOUNTANT_1)).rejects.toThrow(
-        ForbiddenException,
-      )
     })
 
     it('SENIOR — 403', async () => {

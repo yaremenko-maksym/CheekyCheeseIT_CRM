@@ -53,7 +53,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  * COVERS (AC3, AC4, AC5):
  *   GET /api/projects/:id/credentials (list):
  *     ADMIN → 200 | own JUNIOR → 200 | foreign JUNIOR → 403 | HR same team → 200 |
- *     HR other team → 403 | SENIOR → 403 | DROP → 403 | ACCOUNTANT → 403
+ *     HR other team → 403 | SENIOR → 403 | DROP → 403
  *     + list body contains NO `password` and NO `ciphertext` key (AC3).
  *   GET /api/projects/:id/credentials/:cid/reveal:
  *     same RBAC matrix; allowed → correct plaintext; reveal → Cache-Control no-store (AC5).
@@ -157,17 +157,6 @@ const HR_Y: SessionUser = {
   legalFullName: null,
 }
 
-/** ACCOUNTANT — must be denied (allowlist is junior+hr+admin) */
-const ACCOUNTANT: SessionUser = {
-  id: 'c1d2e3f4-0000-4000-aa00-000000000008',
-  email: 'cred-rbac-acc@test.spec',
-  displayName: 'Cred RBAC Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
-
 const PROJ_A_ID = 'c1d2e3f4-0000-4000-bb00-000000000010'
 const PROJ_B_ID = 'c1d2e3f4-0000-4000-bb00-000000000011'
 const CRED_A_ID = 'c1d2e3f4-0000-4000-bb00-000000000020'
@@ -182,7 +171,7 @@ const TEAM_Y_ID = 'c1d2e3f4-0000-4000-bb00-000000000031'
 const PROJ_A_MEMBER_J1 = 'c1d2e3f4-0000-4000-bb00-000000000040'
 const PROJ_B_MEMBER_J2 = 'c1d2e3f4-0000-4000-bb00-000000000041'
 
-const TEST_USER_IDS = [S1.id, D1.id, J1.id, J2.id, S2.id, HR_X.id, HR_Y.id, ACCOUNTANT.id]
+const TEST_USER_IDS = [S1.id, D1.id, J1.id, J2.id, S2.id, HR_X.id, HR_Y.id, ADMIN.id]
 
 // ── Sentinel controller — mirrors the real credentials routes ───────────────
 const CREDENTIALS_SERVICE_TOKEN = 'CREDENTIALS_SERVICE_TOKEN_RBAC'
@@ -353,7 +342,7 @@ describe.skipIf(!hasDatabaseUrl())(
       await db
         .insert(users)
         .values(
-          [S1, D1, J1, J2, S2, HR_X, HR_Y, ACCOUNTANT].map((u) => ({
+          [S1, D1, J1, J2, S2, HR_X, HR_Y].map((u) => ({
             id: u.id,
             email: u.email,
             displayName: u.displayName,
@@ -560,10 +549,6 @@ describe.skipIf(!hasDatabaseUrl())(
       expect((await listReq(D1)).statusCode).toBe(403)
     })
 
-    it('LIST: ACCOUNTANT → 403', async () => {
-      expect((await listReq(ACCOUNTANT)).statusCode).toBe(403)
-    })
-
     // ── LIST never leaks the password (AC3) ────────────────────────────────────
 
     it('LIST: response contains NO password and NO ciphertext key (AC3)', async () => {
@@ -624,10 +609,6 @@ describe.skipIf(!hasDatabaseUrl())(
 
     it('REVEAL: DROP (D1) → 403', async () => {
       expect((await revealReq(D1)).statusCode).toBe(403)
-    })
-
-    it('REVEAL: ACCOUNTANT → 403', async () => {
-      expect((await revealReq(ACCOUNTANT)).statusCode).toBe(403)
     })
 
     // ── PATCH — RBAC matrix ───────────────────────────────────────────────────
@@ -694,10 +675,6 @@ describe.skipIf(!hasDatabaseUrl())(
     it('DELETE: foreign HR (HR_Y, different team) → 403', async () => {
       // Use CRED_PATCH_ID which still exists (not deleted by the ADMIN delete test above).
       expect((await deleteReq(HR_Y, CRED_PATCH_ID)).statusCode).toBe(403)
-    })
-
-    it('DELETE: ACCOUNTANT → 403', async () => {
-      expect((await deleteReq(ACCOUNTANT, CRED_PATCH_ID)).statusCode).toBe(403)
     })
 
     // ── IDOR — cross-project credential ID ───────────────────────────────────

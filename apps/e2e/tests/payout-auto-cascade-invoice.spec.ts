@@ -9,7 +9,7 @@
  * Real-API.
  *
  * Scenarios:
- *   1. SENIOR creates SENIOR_INCOME → ACCOUNTANT validates → SENIOR pays
+ *   1. SENIOR creates SENIOR_INCOME → ADMIN validates → SENIOR pays
  *      payout_request → cascade emits PAYOUT (PAID) + invoice (PENDING with
  *      COMPANY auto-sig).
  *   2. The invoice's `transactionId` equals the PAYOUT row id.
@@ -55,7 +55,7 @@ test.describe('Phase 2 PAYOUT cascade → aggregate invoice integration', () => 
       const { txId } = await createSeniorIncomeViaAPI(page, { projectId, amount: 1000 })
 
       // feat/finance-payout-flow (#7): validate only flips to VALIDATED.
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, txId)
 
       // SENIOR manually creates the payout_request.

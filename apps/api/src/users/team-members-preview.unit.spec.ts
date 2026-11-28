@@ -130,7 +130,7 @@ describe('getTeamMembersForUser — target lookup', () => {
 
 describe('getTeamMembersForUser — DROP target', () => {
   it('runs exactly findById -> own active memberships -> teammates, with exact SQL', async () => {
-    const mates = [preview('hr-1', 'HR'), preview('acc-1', 'ACCOUNTANT')]
+    const mates = [preview('hr-1', 'HR'), preview('hr-2', 'HR')]
     const h = makeHarness([[target('d1', 'DROP')], [{ teamId: 't1' }, { teamId: 't2' }], mates])
 
     const out = await h.service.getTeamMembersForUser('d1', 'ADMIN')
@@ -167,7 +167,7 @@ describe('getTeamMembersForUser — DROP target', () => {
 
   it('does not dedupe or reorder the teammate rows (passthrough)', async () => {
     const a = preview('x', 'HR')
-    const b = preview('y', 'ACCOUNTANT')
+    const b = preview('y', 'SENIOR')
     const h = makeHarness([[target('d1', 'DROP')], [{ teamId: 't1' }], [b, a, b]])
     const out = await h.service.getTeamMembersForUser('d1', 'ADMIN')
     expect(out).toEqual([b, a, b])
@@ -180,7 +180,7 @@ describe('getTeamMembersForUser — SENIOR target', () => {
     const h = makeHarness([
       [target('s1', 'SENIOR')],
       [{ teamId: 't1' }, { teamId: 't1' }, { teamId: 't2' }], // dup team id
-      [{ userId: 's1' }, { userId: 'hr-1' }, { userId: 'acc-1' }],
+      [{ userId: 's1' }, { userId: 'hr-1' }, { userId: 'hr-2' }],
       [{ id: 'p1' }, { id: 'p2' }],
       [{ userId: 'j-1' }, { userId: 'hr-1' }], // hr-1 repeated -> Set dedup
       final,
@@ -234,7 +234,7 @@ describe('getTeamMembersForUser — SENIOR target', () => {
       join: null,
       fields: PREVIEW_FIELDS,
       sql: '"users"."id" in ($1, $2, $3)',
-      params: ['hr-1', 'acc-1', 'j-1'],
+      params: ['hr-1', 'hr-2', 'j-1'],
     })
   })
 
@@ -293,7 +293,7 @@ describe('getTeamMembersForUser — JUNIOR target', () => {
   })
 })
 
-describe.each(['HR', 'ACCOUNTANT'] as const)('getTeamMembersForUser — %s target', (role) => {
+describe.each(['HR'] as const)('getTeamMembersForUser — %s target', (role) => {
   it('walks own active teams -> SENIORs of those teams (active) -> same pipeline', async () => {
     const h = makeHarness([
       [target('u1', role)],
@@ -361,7 +361,7 @@ describe('getTeamMembersForUser — viewer-role masking (RBAC core)', () => {
     preview('hr-1', 'HR', { avatarUrl: 'https://a/hr.png', avatarDocumentId: 'doc-1' }),
     preview('j-1', 'JUNIOR'),
     preview('s-2', 'SENIOR'),
-    preview('acc-1', 'ACCOUNTANT'),
+    preview('hr-2', 'HR'),
     preview('j-2', 'JUNIOR'),
   ]
 
@@ -381,26 +381,26 @@ describe('getTeamMembersForUser — viewer-role masking (RBAC core)', () => {
   it('SENIOR viewer: JUNIOR rows stripped on the DROP branch too', async () => {
     const h = makeHarness([[target('d1', 'DROP')], [{ teamId: 't1' }], rows])
     const out = await h.service.getTeamMembersForUser('d1', 'SENIOR')
-    expect(out.map((r) => r.id)).toEqual(['hr-1', 's-2', 'acc-1'])
+    expect(out.map((r) => r.id)).toEqual(['hr-1', 's-2', 'hr-2'])
   })
 
   it('SENIOR viewer on a JUNIOR target: junior peers are masked', async () => {
     const h = makeHarness([[target('j1', 'JUNIOR')], [{ seniorId: 'sA' }], [], [], [], [], rows])
     const out = await h.service.getTeamMembersForUser('j1', 'SENIOR')
-    expect(out.map((r) => r.id)).toEqual(['hr-1', 's-2', 'acc-1'])
+    expect(out.map((r) => r.id)).toEqual(['hr-1', 's-2', 'hr-2'])
   })
 
-  it.each(['ADMIN', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] as const)(
+  it.each(['ADMIN', 'JUNIOR', 'HR', 'DROP'] as const)(
     '%s viewer: roster is returned unfiltered (JUNIOR rows kept, same order)',
     async (viewer) => {
       const h = makeHarness([[target('s1', 'SENIOR')], [], [], [], [], rows])
       const out = await h.service.getTeamMembersForUser('s1', viewer)
       expect(out).toEqual(rows)
-      expect(out.map((r) => r.id)).toEqual(['hr-1', 'j-1', 's-2', 'acc-1', 'j-2'])
+      expect(out.map((r) => r.id)).toEqual(['hr-1', 'j-1', 's-2', 'hr-2', 'j-2'])
     },
   )
 
-  it.each(['ADMIN', 'HR', 'ACCOUNTANT', 'JUNIOR', 'DROP'] as const)(
+  it.each(['ADMIN', 'HR', 'JUNIOR', 'DROP'] as const)(
     '%s viewer on a DROP target: unfiltered passthrough',
     async (viewer) => {
       const h = makeHarness([[target('d1', 'DROP')], [{ teamId: 't1' }], rows])

@@ -13,7 +13,7 @@ import { BACKDATE_LIMIT_DAYS, resolveTransactionDateWithPolicy } from './transac
  * Owner decision D-2 (2026-10-22), implemented here verbatim:
  *   - future dates only for PENDING/planned rows;
  *   - SENIOR/DROP may backdate at most 31 days;
- *   - ADMIN/ACCOUNTANT may go beyond 31 days only with a mandatory reason,
+ *   - ADMIN may go beyond 31 days only with a mandatory reason,
  *     which is written to the audit log.
  *
  * The policy lives server-side rather than in the shared Zod schema because it
@@ -46,7 +46,7 @@ describe('resolveTransactionDateWithPolicy — the backdating window', () => {
 
   it('an omitted date keeps the real current instant for every role, with no reason needed', () => {
     const now = new Date('2026-10-05T18:12:34.567Z')
-    for (const role of ['ADMIN', 'ACCOUNTANT', 'SENIOR', 'DROP', 'JUNIOR', 'HR'] as const) {
+    for (const role of ['ADMIN', 'SENIOR', 'DROP', 'JUNIOR', 'HR'] as const) {
       const result = resolveTransactionDateWithPolicy(undefined, { role, ...EXECUTED, now })
       expect(result.txDate).toBe(now)
       expect(result.backdateReason).toBeNull()
@@ -96,8 +96,8 @@ describe('resolveTransactionDateWithPolicy — the backdating window', () => {
 })
 
 describe('resolveTransactionDateWithPolicy — the privileged backdate exemption', () => {
-  it('ADMIN and ACCOUNTANT may go beyond the window WITH a reason, which is returned for the audit log', () => {
-    for (const role of ['ADMIN', 'ACCOUNTANT'] as const) {
+  it('ADMIN may go beyond the window WITH a reason, which is returned for the audit log', () => {
+    for (const role of ['ADMIN'] as const) {
       const result = resolveTransactionDateWithPolicy(dayOffset(-120), {
         role,
         ...EXECUTED,
@@ -107,8 +107,8 @@ describe('resolveTransactionDateWithPolicy — the privileged backdate exemption
     }
   })
 
-  it('refuses ADMIN and ACCOUNTANT beyond the window when no reason is given', () => {
-    for (const role of ['ADMIN', 'ACCOUNTANT'] as const) {
+  it('refuses ADMIN beyond the window when no reason is given', () => {
+    for (const role of ['ADMIN'] as const) {
       const err = thrownFrom(() =>
         resolveTransactionDateWithPolicy(dayOffset(-120), { role, ...EXECUTED }),
       )
@@ -224,7 +224,7 @@ describe('resolveTransactionDateWithPolicy — the business day is the Kyiv day'
     // 21:30Z on 14 Jul: still 14 Jul in UTC, already 15 Jul in Kyiv. The stored
     // business date is the date-only value of the KYIV day (UTC midnight of 15 Jul),
     // never the current instant (which would read back as 14 Jul).
-    for (const role of ['ADMIN', 'ACCOUNTANT', 'SENIOR', 'DROP'] as const) {
+    for (const role of ['ADMIN', 'SENIOR', 'DROP'] as const) {
       const result = resolveTransactionDateWithPolicy(undefined, {
         role,
         flow: 'EXECUTED',

@@ -37,7 +37,6 @@ import { assertLogoDocument } from './project-logo.util'
 import {
   assertFinanceFieldsAllowed,
   buildProjectUpdateData,
-  isFinanceOnlyPatch,
   resolveActiveDropId,
 } from './project-update-data.util'
 import { UsersService } from '../users/users.service'
@@ -146,9 +145,7 @@ export class ProjectsService {
     // Д1: a DRAFT/REJECTED project is dropped from the list UNLESS the viewer
     // is ADMIN or was invited to approve it (senior/drop, current OR any past
     // generation — see `ApprovalsService.isApprover`'s own doc for why "ever
-    // asked" is correct here). Runs BEFORE the per-role filters below so
-    // ACCOUNTANT — who otherwise sees every ACTIVE project unconditionally —
-    // does not also see drafts it was never asked about.
+    // asked" is correct here). Runs BEFORE the per-role filters below.
     if (currentUser.role !== 'ADMIN') {
       const invitedProjectIds = await this.approvals.listSubjectIdsForApprover(
         ProjectsService.APPROVAL_SUBJECT_TYPE,
@@ -202,8 +199,10 @@ export class ProjectsService {
     } else if (currentUser.role === 'DROP') {
       // Drop role - phase 1: DROP sees only drop-projects they own.
       filtered = filtered.filter((p) => p.dropId === currentUser.id && p.archivedAt === null)
+    } else if (currentUser.role !== 'ADMIN') {
+      // Allowlist: ADMIN sees all; a role outside the five above (a retired one included) sees none.
+      filtered = []
     }
-    // ADMIN, ACCOUNTANT see all
 
     // task-team-senior-share-override. Batch-load team overrides for every
     // senior referenced by the filtered set so `mapProject` resolves the
@@ -275,7 +274,7 @@ export class ProjectsService {
   }
 
   async create(data: CreateProjectDto, currentUser: SessionUser) {
-    // Field-scoped RBAC (senior/drop override, paymentType: ADMIN/ACCOUNTANT only)
+    // Field-scoped RBAC (senior/drop override, paymentType: ADMIN only)
     // runs BEFORE the create-role check so an HR caller sending a finance field
     // still gets the more-specific 403.
     const role = currentUser.role
@@ -479,15 +478,11 @@ export class ProjectsService {
 
   async update(id: string, data: UpdateProjectDto, currentUser: SessionUser) {
     // Field-scoped RBAC (senior/drop override incl. explicit null, paymentType):
-    // ADMIN/ACCOUNTANT only. HR keeps full edit access to every other field.
-    // Checked BEFORE the role narrow so ACCOUNTANT-only finance patches pass.
+    // ADMIN only. HR keeps full edit access to every other field.
     const role = currentUser.role
     assertFinanceFieldsAllowed(data, role)
 
-    // ACCOUNTANT may patch only when EVERY field touched is finance-scoped.
-    const hasOnlyOverride = isFinanceOnlyPatch(data)
-
-    if (role !== 'ADMIN' && role !== 'HR' && !(role === 'ACCOUNTANT' && hasOnlyOverride)) {
+    if (role !== 'ADMIN' && role !== 'HR') {
       throw new ForbiddenException()
     }
 
@@ -503,9 +498,8 @@ export class ProjectsService {
     // asserted DRAFT/REJECTED visibility because at the time it was written
     // there was nothing draft-shaped to hide. Fix-round 1 (CR-M-1, SPEC-M-2)
     // started returning rejectionReason and the two ApprovalPending booleans
-    // from its response WITHOUT adding this gate, so HR/ACCOUNTANT — who
-    // findOne already 404s on any non-ACTIVE project, per assertAccess's own
-    // "INCLUDING ACCOUNTANT" comment below — could PATCH a field they are
+    // from its response WITHOUT adding this gate, so HR — who
+    // findOne already 404s on any non-ACTIVE project (see assertAccess) — could PATCH a field they are
     // allowed to touch (e.g. `name`) on a REJECTED project and get the full
     // rejection reason back in the response, despite never being able to
     // GET that project at all. Same gate, same place in the call order,
@@ -515,11 +509,7 @@ export class ProjectsService {
     await this.assertAccess(project, currentUser)
 
     // HR cross-team scoping: HR may only update projects for seniors in their own teams.
-    // ACCOUNTANT doing a hasOnlyOverride patch is exempted (their patch is finance-scoped,
-    // not team-scoped — the field-level RBAC check above already ran).
-    if (!(role === 'ACCOUNTANT' && hasOnlyOverride)) {
-      await this.access.assertHrCanManageProject(project, currentUser)
-    }
+    await this.access.assertHrCanManageProject(project, currentUser)
 
     // Drop role - phase 2: validate updated `dropId` (when present). Same
     // contract as create: `null` → clear, uuid → set to existing DROP user.
@@ -560,7 +550,7 @@ export class ProjectsService {
     // resolve when position 5 is scoped.
 
     // Round-3 implicit-null detection (PR #39 round 2): UI больше не имеет
-    // toggle/«Сбросить» — слайдер всегда виден. Когда ADMIN/ACCOUNTANT
+    // toggle/«Сбросить» — слайдер всегда виден. Когда ADMIN
     // ставит значение === эффективному дефолту синьера, мы интерпретируем
     // это как сброс переопределения (пишем `null`). Иначе — пишем число.
     // Это касается и `projects.seniorSharePercentOverride`, и mirror в
@@ -681,8 +671,8 @@ export class ProjectsService {
     //
     // task-648-fix-round-3 (SR-L-4): gated by role, exactly like `findOne` and
     // `loadForResponse` already were. `mapProject` below masks the field for
-    // every role except ADMIN and the affected SENIOR, and ACCOUNTANT is an
-    // admitted caller of this method (the propose-gate names them) — so this
+    // every role except ADMIN and the affected SENIOR, and HR is an admitted
+    // caller of this method (the role check at the top of `update`) — so this
     // was the third response path asking `approvals` a question whose answer
     // it then threw away, the one SR-bm-3 missed in round 2.
     const pendingSeniorShare = canSeePendingSeniorShare(currentUser.role)
@@ -694,7 +684,7 @@ export class ProjectsService {
         )
       : null
     // Pass currentUser.role so mapProject can apply SENIOR dropName masking
-    // (defense-in-depth: callers of update are ADMIN/HR/ACCOUNTANT whose role
+    // (defense-in-depth: callers of update are ADMIN/HR whose role
     // never triggers the mask, but the contract is explicit and mirrors findOne/findAll).
     return this.mapProject(
       updated,

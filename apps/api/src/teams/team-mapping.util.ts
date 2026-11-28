@@ -96,7 +96,7 @@ export function mapTeam(
   // The legend-subject persona boundary: JUNIOR interacts with the client-facing persona
   // (legend), not the real identity. displayName and avatarUrl are safe — they are the
   // persona display fields (kept by #157 single-directional rule).
-  // HR, ACCOUNTANT, and other non-legend-subject roles are NOT masked.
+  // HR, and other non-legend-subject roles are NOT masked.
   const isJuniorViewer = currentUser.role === 'JUNIOR'
 
   return {

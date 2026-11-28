@@ -2,7 +2,6 @@ import * as schema from '../schema'
 import {
   ANNA_ID,
   OLEKSIY_ID,
-  MYKOLA_ID,
   KATERYNA_ID,
   DMYTRO_ID,
   HR3_ID,
@@ -40,7 +39,6 @@ export async function seedTeams({ db }: SeedCtx): Promise<void> {
   await db.insert(schema.teamMembers).values([
     { teamId: team1.id, userId: ANNA_ID, joinedAt: d(2025, 6, 5) },
     { teamId: team1.id, userId: OLEKSIY_ID, joinedAt: d(2025, 6, 5) },
-    { teamId: team1.id, userId: MYKOLA_ID, joinedAt: d(2025, 6, 5) },
     // Task 7.6a job-queue E2E: a second HR, and the senior shared with Team Marchenko
     { teamId: team1.id, userId: HR2_ID, joinedAt: d(2025, 11, 15) },
     { teamId: team1.id, userId: SENIOR_SHARED_ID, joinedAt: d(2025, 11, 15) },
@@ -62,7 +60,6 @@ export async function seedTeams({ db }: SeedCtx): Promise<void> {
   await db.insert(schema.teamMembers).values([
     { teamId: team2.id, userId: KATERYNA_ID, joinedAt: d(2025, 7, 1) },
     { teamId: team2.id, userId: DMYTRO_ID, joinedAt: d(2025, 7, 1) },
-    { teamId: team2.id, userId: MYKOLA_ID, joinedAt: d(2025, 7, 1) },
     // Task 7.6a job-queue E2E: the senior shared with Team Kovalenko
     { teamId: team2.id, userId: SENIOR_SHARED_ID, joinedAt: d(2025, 11, 15) },
   ])
@@ -83,7 +80,6 @@ export async function seedTeams({ db }: SeedCtx): Promise<void> {
   await db.insert(schema.teamMembers).values([
     { teamId: team3.id, userId: HR3_ID, joinedAt: d(2025, 8, 15) },
     { teamId: team3.id, userId: ARTEM_ID, joinedAt: d(2025, 8, 15) },
-    { teamId: team3.id, userId: MYKOLA_ID, joinedAt: d(2025, 8, 15) },
   ])
 
   // Team 4: Nazar's team (Anna HR also manages)
@@ -102,7 +98,6 @@ export async function seedTeams({ db }: SeedCtx): Promise<void> {
   await db.insert(schema.teamMembers).values([
     { teamId: team4.id, userId: ANNA_ID, joinedAt: d(2025, 10, 1) },
     { teamId: team4.id, userId: NAZAR_ID, joinedAt: d(2025, 10, 1) },
-    { teamId: team4.id, userId: MYKOLA_ID, joinedAt: d(2025, 10, 1) },
   ])
   console.log('  ✓ 4 teams + members inserted')
 
@@ -110,9 +105,8 @@ export async function seedTeams({ db }: SeedCtx): Promise<void> {
   // Each of the 6 seed DROPs must belong to their OWN drop-team so the
   // drop-facing surfaces (teams list, «Мой проект» hub) have data for the
   // phase-2 UT. Mirrors the product flow `TeamsService.createDropTeam`
-  // exactly: type='DROP', name='Команда <displayName>', members = drop + HR(s)
-  // + the single ACCOUNTANT. No SENIOR by default (createDropTeam adds none).
-  // The 3 HRs are spread across the 6 drops; MYKOLA is the only accountant.
+  // exactly: type='DROP', name='Команда <displayName>', members = drop + HR(s).
+  // No SENIOR by default (createDropTeam adds none). The 3 HRs are spread across the 6 drops.
   const dropTeamSeed: { dropId: string; name: string; hrId: string; joinedAt: Date }[] = [
     { dropId: DROP1_ID, name: 'Команда Viktor Drozhzhyn', hrId: ANNA_ID, joinedAt: d(2025, 7, 1) },
     {
@@ -141,7 +135,6 @@ export async function seedTeams({ db }: SeedCtx): Promise<void> {
     await db.insert(schema.teamMembers).values([
       { teamId: dropTeam.id, userId: dt.dropId, joinedAt: dt.joinedAt },
       { teamId: dropTeam.id, userId: dt.hrId, joinedAt: dt.joinedAt },
-      { teamId: dropTeam.id, userId: MYKOLA_ID, joinedAt: dt.joinedAt },
     ])
   }
   console.log('  ✓ 6 drop-teams + members inserted')

@@ -133,7 +133,7 @@ describe('PayoutRequestService.createPayoutRequest', () => {
   })
 
   it('rejects every role except SENIOR and DROP before touching anything', async () => {
-    for (const role of ['ADMIN', 'ACCOUNTANT', 'JUNIOR', 'HR'] as const) {
+    for (const role of ['ADMIN', 'JUNIOR', 'HR'] as const) {
       const s = setup()
       await expect(s.svc.createPayoutRequest(['tx-1'], user(role))).rejects.toBeInstanceOf(
         ForbiddenException,

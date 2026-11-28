@@ -1,17 +1,13 @@
 import { ForbiddenException, HttpStatus, Injectable } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
-import type { AuditChange, PendingSeniorShare } from '@crm/shared'
+import type { PendingSeniorShare } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { userEmails, type User } from '../database/schema'
 import { ApprovalsService } from '../approvals/approvals.service'
 import { TosService } from '../tos/tos.service'
-import { AuditLogService, REDACTED_TOKEN } from './audit-log.service'
-import {
-  collectExposedRequisiteFields,
-  computePendingSeniorShare,
-  projectProfileUser,
-} from './profile-view.util'
+import { AuditLogService } from './audit-log.service'
+import { computePendingSeniorShare, projectProfileUser } from './profile-view.util'
 import { loadUserById } from './user-read.util'
 import { UsersAccessService } from './users-access.service'
 
@@ -19,8 +15,7 @@ import { UsersAccessService } from './users-access.service'
 export const SENIOR_SHARE_SUBJECT_TYPE = 'USER_SENIOR_SHARE'
 
 /**
- * Per-viewer masked profile read path (PII masking + the ACCOUNTANT
- * `requisites_read` audit). Reads users via `loadUserById` rather than
+ * Per-viewer masked profile read path (PII masking). Reads users via `loadUserById` rather than
  * `UsersService`, so there is no dependency cycle.
  */
 @Injectable()
@@ -34,16 +29,11 @@ export class UserProfileService {
   ) {}
 
   /**
-   * `actorImpersonatorId` (security-review round 2, authz-hardening):
-   * `viewer` is a DB row (no `impersonatorId` — that field only ever lives
-   * on the JWT), so unlike the other `SessionUser`-scoped fixes in this
-   * file, correcting the `requisites_read` audit attribution below needs it
-   * threaded in explicitly from the controller's `currentUser.impersonatorId`.
-   * Optional — both real callers (getMe/getProfile in UsersController) pass
-   * it; omitted call sites just fall back to `viewer.id` (unchanged
-   * pre-fix behavior).
+   * `_actorImpersonatorId` is unused since the role-specific `requisites_read`
+   * audit it attributed was removed with that role; kept so the callers that
+   * thread `currentUser.impersonatorId` stay unchanged.
    */
-  async buildProfileView(viewer: User, targetId: string, actorImpersonatorId?: string) {
+  async buildProfileView(viewer: User, targetId: string, _actorImpersonatorId?: string) {
     const target = await loadUserById(this.db.db, targetId)
     if (!target) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     const permissions = await this.accessService.getViewPermissions(viewer, target)
@@ -52,7 +42,7 @@ export class UserProfileService {
     // Mirror the guard pattern used in GET /:id/team — throw 403 before
     // leaking any user fields (displayName, email, phone, telegram, avatarUrl).
     // Rationale: isSelf always produces non-empty tabs; ADMIN always has tabs;
-    // HR has tabs for users in their team; ACCOUNTANT has tabs for all.
+    // HR has tabs for users in their team.
     // The only case of empty tabs is e.g. SENIOR viewing a JUNIOR — Broken
     // Access Control (OWASP A01) if we return 200 + personal data here.
     if (permissions.tabs.length === 0) {
@@ -76,8 +66,8 @@ export class UserProfileService {
 
     // task-648-fix-round-1 (QA-HIGH-1): gated on `fields.sharePending`, NOT
     // `fields.share` — the PENDING (unconfirmed) value is a narrower surface
-    // than the active one (task file: "только ADMIN и сам синьор"; ACCOUNTANT
-    // has `fields.share=true` for payroll need-to-know but must not learn a
+    // than the active one (task file: "only ADMIN and the senior themself"; a viewer
+    // with `fields.share=true` but not `fields.sharePending` must not learn a
     // change is even proposed). Only queried when that gate is open (avoids
     // the round-trip, and avoids leaking "something is pending" via
     // response-time side channel to a masked viewer).
@@ -129,31 +119,6 @@ export class UserProfileService {
       }
     }
     // Other tabs (finance, projects, team, interviews, requisites) — wired in later tasks
-
-    // Pre-deploy MEDIUM: read-access audit for the ACCOUNTANT requisites scope.
-    // The base audit log only tracked *writes*; an ACCOUNTANT can read the
-    // payout requisites (RNOKPP / IBAN / wallet) of any user company-wide for
-    // payroll. Record a `requisites_read` event when an accountant (never self)
-    // actually receives requisites, so the read is attributable. Values are NOT
-    // logged (it is a read of existing data, not a change) — `changes` records
-    // only WHICH fields were exposed, with redacted markers, mirroring how the
-    // write-audit redacts SENSITIVE_FIELDS.
-    if (viewer.role === 'ACCOUNTANT' && viewer.id !== target.id && permissions.fields.requisites) {
-      const exposedFields = collectExposedRequisiteFields(filteredUser)
-      if (exposedFields.length > 0) {
-        const changes: Record<string, AuditChange> = {}
-        for (const f of exposedFields) {
-          // Read-audit: record THAT the field was read, never its plaintext value.
-          changes[f] = { before: REDACTED_TOKEN, after: REDACTED_TOKEN }
-        }
-        await this.auditLogService.record({
-          actorId: actorImpersonatorId ?? viewer.id,
-          targetId: target.id,
-          action: 'requisites_read',
-          changes,
-        })
-      }
-    }
 
     return { user: filteredUser, permissions, data }
   }

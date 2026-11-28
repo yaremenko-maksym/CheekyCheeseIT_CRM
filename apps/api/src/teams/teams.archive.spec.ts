@@ -335,14 +335,13 @@ describe('TeamsService.archive', () => {
       teams: [
         { id: teamId, type: 'DROP', archivedAt: null as Date | null, name: 'Drop Team' },
       ] as Array<{ id: string; type: string; archivedAt: Date | null; name: string }>,
-      // task-archive-pending-modal (round 2, code-review MED-1): HR/ACCOUNTANT
+      // task-archive-pending-modal (round 2, code-review MED-1): HR
       // rows alongside the DROP row — the SAME table `archiveDropTeam` reads
       // to resolve the drop/senior. Present so the AC9-membership test below
       // can assert they are untouched by a REAL cascade run, not a stubbed one.
       teamMembers: [
         { id: 'tm-drop', teamId, userId: dropId, role: 'DROP', leftAt: null as Date | null },
         { id: 'tm-hr', teamId, userId: 'hr-1', role: 'HR', leftAt: null as Date | null },
-        { id: 'tm-acc', teamId, userId: 'acc-1', role: 'ACCOUNTANT', leftAt: null as Date | null },
       ] as Array<{ id: string; teamId: string; userId: string; role: string; leftAt: Date | null }>,
       users: [{ id: dropId, role: 'DROP', archivedAt: null as Date | null }] as Array<{
         id: string
@@ -546,14 +545,14 @@ describe('TeamsService.archive', () => {
   })
 
   // task-archive-pending-modal (round 2, code-review MED-1). The SENIOR path
-  // has a direct test proving HR/ACCOUNTANT/JUNIOR membership survives the
+  // has a direct test proving HR/JUNIOR membership survives the
   // cascade untouched (`users.archive.spec.ts`: "archives senior + team +
-  // projects; HR/Acc/Junior membership is left untouched"). The DROP path's
+  // projects; HR/Junior membership is left untouched"). The DROP path's
   // only coverage of the SAME claim was indirect — a salary-cron fixture
   // hard-codes `leftAt: null` as an INPUT rather than producing it by
   // actually running the cascade. This is the DROP-path mirror of the
   // SENIOR test, against the REAL `archiveDropTeam` (not a stub).
-  it('AC9 (DROP path): archives drop + team + projects; HR/Acc/Junior membership is left untouched', async () => {
+  it('AC9 (DROP path): archives drop + team + projects; HR/Junior membership is left untouched', async () => {
     const { db, store, teamId, dropId } = buildAtomicityFixture({})
     const usersService = { archive: vi.fn(), unarchive: vi.fn(), getArchiveImpact: vi.fn() }
     const service = new TeamsService(
@@ -572,10 +571,9 @@ describe('TeamsService.archive', () => {
     expect(store.projects.find((p) => p.id === 'proj-1')?.archivedAt).toBeInstanceOf(Date)
     expect(store.projects.find((p) => p.id === 'proj-2')?.archivedAt).toBeInstanceOf(Date)
 
-    // AC9: HR + ACCOUNTANT team_members stay active — archiving the team is
+    // AC9: HR team_members stay active — archiving the team is
     // not archiving them.
     expect(store.teamMembers.find((m) => m.userId === 'hr-1')?.leftAt).toBeNull()
-    expect(store.teamMembers.find((m) => m.userId === 'acc-1')?.leftAt).toBeNull()
 
     // The DROP's own team_member row is untouched by this cascade too (it's
     // the `users.archivedAt` update that marks the drop archived, not `leftAt`).
@@ -686,13 +684,13 @@ describe('TeamsService.getArchiveImpact', () => {
   // Drop-archive round 2 (B2+B5): DROP teams return drop-specific fields.
   // Verifies the dispatch + chain stubs by overriding the db chain to
   // return the appropriate rows per role lookup. The lookup order in the
-  // service is: drop → senior → HR → ACCOUNTANT → projects. We answer
+  // service is: drop → senior → HR → projects. We answer
   // each chained `.then` with the right row set.
   it('returns teamType=DROP + dropName + seniorWillBeDetached for drop-team', async () => {
     // Custom db builder — the production service runs several .select chains
     // against `users`+`team_members`+`projects`. We sequence them via a tiny
     // queue keyed by call order: 1) drop lookup, 2) senior lookup, 3) HR
-    // count, 4) ACCOUNTANT count, 5) drop-projects.
+    // count, 4) drop-projects.
     const dropTeam: FakeTeam = {
       id: 'team-drop-1',
       name: 'Drop Team',
@@ -706,7 +704,6 @@ describe('TeamsService.getArchiveImpact', () => {
       [{ id: 'drop-1', displayName: 'Дроп Иван' }], // drop lookup
       [{ id: 'senior-9', displayName: 'Отцепляющийся Синьор' }], // senior lookup
       [{ userId: 'hr-1' }, { userId: 'hr-2' }], // HR count
-      [{ userId: 'acc-1' }], // ACCOUNTANT count
       [
         { id: 'proj-1', name: 'Drop Proj 1' },
         { id: 'proj-2', name: 'Drop Proj 2' },
@@ -774,7 +771,7 @@ describe('TeamsService.getArchiveImpact', () => {
       projectNames: ['Drop Proj 1', 'Drop Proj 2', 'Drop Proj 3'],
       seniorWillBeDetached: true,
       projectsCount: 3,
-      membersAffected: 3, // 2 HR + 1 ACCOUNTANT
+      membersAffected: 2, // 2 HR
     })
     expect(usersService.getArchiveImpact).toHaveBeenCalledWith('drop-1', adminUser)
     // The `.select({...})` projection actually asked for `name` — not just
@@ -829,7 +826,6 @@ describe('TeamsService.getArchiveImpact', () => {
       [{ id: 'drop-2', displayName: 'Дроп Two' }], // drop lookup
       [], // no senior
       [], // no HR
-      [], // no ACCOUNTANT
       [], // no drop-projects
     ]
     const db = {

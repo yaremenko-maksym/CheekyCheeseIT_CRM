@@ -3,7 +3,7 @@
  *
  * The counterparty that is an INTERNAL company party — a specific ADMIN
  * partner (Максим/Константин) or the company account pool itself — must be
- * disclosed ONLY to ADMIN/ACCOUNTANT. Every other role (SENIOR/JUNIOR/DROP/HR)
+ * disclosed ONLY to ADMIN. Every other role (SENIOR/JUNIOR/DROP/HR)
  * sees the neutral brand «CheekyCheeseIT» with the admin's user id + displayName
  * stripped from the DTO. This is RBAC (server-side masking in mapTx), NOT a
  * CSS/front-end concern — the network payload itself must never carry the
@@ -23,16 +23,16 @@
  *         senderLabel='CheekyCheeseIT', senderId=null; ADMIN sees raw 'COMPANY'.
  *   CM-2  PAYOUT_DROP admin-personal (Максим paid): DROP viewer gets no admin
  *         id/name (senderLabel='CheekyCheeseIT', senderId/senderName=null);
- *         ACCOUNTANT sees the real admin id + displayName.
+ *         ADMIN sees the real admin id + displayName.
  *   CM-3  External-client SENIOR_INCOME: sender is the client company — NOT
  *         masked for SENIOR nor ADMIN (the recipient sees their real payer).
  *   CM-4  Security: the DROP's findAll payload does NOT contain the admin's
  *         displayName or id anywhere (whole-response grep).
  *   CM-5  findOne path masks the admin-personal counterparty for DROP, discloses
- *         it for ACCOUNTANT (second mapTx call site).
+ *         it for ADMIN (second mapTx call site).
  *   CM-6  findPayoutRequest path (third mapTx call site): the linked
  *         transaction's admin sender is masked for the owning DROP, real for
- *         ACCOUNTANT.
+ *         ADMIN.
  *   CM-7  The recipient (drop) is never masked — DROP sees their own id/name as
  *         the receiver on their own rows.
  *   CM-8  MED-1 (security review PR #384): admin-personal PAYOUT_DROP whose
@@ -45,10 +45,10 @@
  * CB — createdBy (registrar audit UUID) masking (follow-up hardening, same
  *      defense-in-depth class as the counterparty masking above):
  *   CB-1  findAll: a company-funded PAYOUT_DROP BOOKED BY an ADMIN
- *         (createdBy=admin) — DROP sees createdBy=null; ACCOUNTANT sees the
+ *         (createdBy=admin) — DROP sees createdBy=null; ADMIN sees the
  *         real admin UUID.
  *   CB-2  findOne (second mapTx call site): same mask for DROP / disclose for
- *         ACCOUNTANT.
+ *         ADMIN.
  *   CB-3  Self-preserve (non-regression): a row the viewer AUTHORED themselves
  *         (createdBy === viewer.id, e.g. self-declared income) keeps createdBy
  *         = their own id — nulling it would silently break the frontend author
@@ -59,7 +59,7 @@
  *   CB-5  findPayoutRequest path (third mapTx call site): a linked, company-
  *         funded PAYOUT_DROP booked AND validated by the admin
  *         (createdBy=admin, validatedBy=admin) — the owning DROP sees BOTH
- *         audit UUIDs = null; ADMIN/ACCOUNTANT see the real admin UUID. Proves
+ *         audit UUIDs = null; ADMIN see the real admin UUID. Proves
  *         the validatedBy mask (follow-up to createdBy) on the payout-request
  *         path, mirroring CM-6 for the counterparty.
  *
@@ -98,17 +98,6 @@ const ADMIN_MAKSYM: SessionUser = {
   displayName: 'Максим Тестовый',
   avatarUrl: null,
   role: 'ADMIN',
-  seniorSharePercent: 26,
-  legalFullName: null,
-}
-
-/** Privileged viewer that MUST see the real admin identity. */
-const ACCOUNTANT_1: SessionUser = {
-  id: 'ca5f0000-0000-4000-aa00-000000000002',
-  email: 'cm-accountant@test.spec',
-  displayName: 'CM Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
   seniorSharePercent: 26,
   legalFullName: null,
 }
@@ -189,7 +178,7 @@ const ALL_TX_IDS = [
   TX_CB_ADMIN_ID,
   TX_CB_PR_ADMIN_ID,
 ]
-const ALL_USER_IDS = [ADMIN_MAKSYM.id, ACCOUNTANT_1.id, SENIOR_1.id, DROP_1.id]
+const ALL_USER_IDS = [ADMIN_MAKSYM.id, SENIOR_1.id, DROP_1.id]
 
 // ---------------------------------------------------------------------------
 // DB-skip-guard
@@ -218,7 +207,7 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
     svc = makeTransactionsService({ db: dbSvc })
 
     // ── Users ────────────────────────────────────────────────────────────────
-    for (const u of [ADMIN_MAKSYM, ACCOUNTANT_1, SENIOR_1, DROP_1]) {
+    for (const u of [ADMIN_MAKSYM, SENIOR_1, DROP_1]) {
       await db
         .insert(users)
         .values({
@@ -450,9 +439,9 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
     expect(adminRow!.senderLabel).toBe('COMPANY')
   })
 
-  // ── CM-2 / CM-7: admin-personal — DROP masked (no admin identity), ACCOUNTANT real
+  // ── CM-2 / CM-7: admin-personal — DROP masked (no admin identity) real
 
-  it('CM-2 — admin-personal PAYOUT_DROP: DROP gets no admin id/name, ACCOUNTANT gets the real admin', async () => {
+  it('CM-2 — admin-personal PAYOUT_DROP: DROP gets no admin id/name, ADMIN gets the real admin', async () => {
     const dropRow = (await svc.findAll(DROP_1)).find((t) => t.id === TX_DROP_ADMIN_ID)
     expect(dropRow, 'drop must see their own PAYOUT_DROP row').toBeDefined()
     expect(dropRow!.senderLabel).toBe('CheekyCheeseIT')
@@ -462,8 +451,8 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
     expect(dropRow!.receiverId).toBe(DROP_1.id)
     expect(dropRow!.receiverName).toBe(DROP_1.displayName)
 
-    const acctRow = (await svc.findAll(ACCOUNTANT_1)).find((t) => t.id === TX_DROP_ADMIN_ID)
-    expect(acctRow, 'accountant sees the row').toBeDefined()
+    const acctRow = (await svc.findAll(ADMIN_MAKSYM)).find((t) => t.id === TX_DROP_ADMIN_ID)
+    expect(acctRow, 'admin sees the row').toBeDefined()
     expect(acctRow!.senderId).toBe(ADMIN_MAKSYM.id)
     expect(acctRow!.senderName).toBe(ADMIN_MAKSYM.displayName)
   })
@@ -495,22 +484,22 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
     expect(dropPayload).not.toContain(DELETED_ADMIN_LABEL)
   })
 
-  // ── CM-5: findOne path masks admin-personal for DROP, discloses for ACCOUNTANT
+  // ── CM-5: findOne path masks admin-personal for DROP, discloses for ADMIN
 
-  it('CM-5 — findOne masks the admin counterparty for DROP, discloses it for ACCOUNTANT', async () => {
+  it('CM-5 — findOne masks the admin counterparty for DROP, discloses it for ADMIN', async () => {
     const dropOne = await svc.findOne(TX_DROP_ADMIN_ID, DROP_1)
     expect(dropOne.senderLabel).toBe('CheekyCheeseIT')
     expect(dropOne.senderId).toBeNull()
     expect(dropOne.senderName).toBeNull()
 
-    const acctOne = await svc.findOne(TX_DROP_ADMIN_ID, ACCOUNTANT_1)
+    const acctOne = await svc.findOne(TX_DROP_ADMIN_ID, ADMIN_MAKSYM)
     expect(acctOne.senderId).toBe(ADMIN_MAKSYM.id)
     expect(acctOne.senderName).toBe(ADMIN_MAKSYM.displayName)
   })
 
   // ── CM-6: findPayoutRequest path (third mapTx call site) ──────────────────
 
-  it('CM-6 — findPayoutRequest masks the admin counterparty for the owning DROP, real for ACCOUNTANT', async () => {
+  it('CM-6 — findPayoutRequest masks the admin counterparty for the owning DROP, real for ADMIN', async () => {
     const dropReq = await svc.findPayoutRequest(PR_1_ID, DROP_1)
     const dropTx = dropReq.transactions.find((t) => t.id === TX_PR_ADMIN_ID)
     expect(dropTx, 'linked tx must be present for the owner').toBeDefined()
@@ -518,7 +507,7 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
     expect(dropTx!.senderId).toBeNull()
     expect(dropTx!.senderName).toBeNull()
 
-    const acctReq = await svc.findPayoutRequest(PR_1_ID, ACCOUNTANT_1)
+    const acctReq = await svc.findPayoutRequest(PR_1_ID, ADMIN_MAKSYM)
     const acctTx = acctReq.transactions.find((t) => t.id === TX_PR_ADMIN_ID)
     expect(acctTx!.senderId).toBe(ADMIN_MAKSYM.id)
     expect(acctTx!.senderName).toBe(ADMIN_MAKSYM.displayName)
@@ -536,8 +525,8 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
     expect(dropRow!.senderId).toBeNull()
     expect(dropRow!.senderName).toBeNull()
 
-    const acctRow = (await svc.findAll(ACCOUNTANT_1)).find((t) => t.id === TX_DROP_DELETED_ADMIN_ID)
-    expect(acctRow, 'accountant sees the row').toBeDefined()
+    const acctRow = (await svc.findAll(ADMIN_MAKSYM)).find((t) => t.id === TX_DROP_DELETED_ADMIN_ID)
+    expect(acctRow, 'admin sees the row').toBeDefined()
     // Privileged viewer still sees the raw snapshot label (the id is gone
     // regardless of viewer — that part of the FK cascade is unaffected by RBAC).
     expect(acctRow!.senderLabel).toBe(DELETED_ADMIN_LABEL)
@@ -554,15 +543,15 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
 
   // ── CB-1: createdBy (registrar) masking on findAll ────────────────────────
 
-  it('CB-1 — admin-booked row: DROP sees createdBy=null, ACCOUNTANT sees the real admin UUID', async () => {
+  it('CB-1 — admin-booked row: DROP sees createdBy=null, ADMIN sees the real admin UUID', async () => {
     const dropRow = (await svc.findAll(DROP_1)).find((t) => t.id === TX_CB_ADMIN_ID)
     expect(dropRow, 'drop must see their own PAYOUT_DROP row').toBeDefined()
     // The registrar audit UUID (an ADMIN) is stripped for the non-privileged
     // viewer — same defense-in-depth as the counterparty masking.
     expect(dropRow!.createdBy).toBeNull()
 
-    const acctRow = (await svc.findAll(ACCOUNTANT_1)).find((t) => t.id === TX_CB_ADMIN_ID)
-    expect(acctRow, 'accountant sees the row').toBeDefined()
+    const acctRow = (await svc.findAll(ADMIN_MAKSYM)).find((t) => t.id === TX_CB_ADMIN_ID)
+    expect(acctRow, 'admin sees the row').toBeDefined()
     expect(acctRow!.createdBy).toBe(ADMIN_MAKSYM.id)
 
     const adminRow = (await svc.findAll(ADMIN_MAKSYM)).find((t) => t.id === TX_CB_ADMIN_ID)
@@ -571,11 +560,11 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
 
   // ── CB-2: same masking on the findOne call site ───────────────────────────
 
-  it('CB-2 — findOne masks createdBy for DROP, discloses it for ACCOUNTANT', async () => {
+  it('CB-2 — findOne masks createdBy for DROP, discloses it for ADMIN', async () => {
     const dropOne = await svc.findOne(TX_CB_ADMIN_ID, DROP_1)
     expect(dropOne.createdBy).toBeNull()
 
-    const acctOne = await svc.findOne(TX_CB_ADMIN_ID, ACCOUNTANT_1)
+    const acctOne = await svc.findOne(TX_CB_ADMIN_ID, ADMIN_MAKSYM)
     expect(acctOne.createdBy).toBe(ADMIN_MAKSYM.id)
   })
 
@@ -610,7 +599,7 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
 
   // ── CB-5: createdBy + validatedBy masking on the findPayoutRequest path ────
 
-  it('CB-5 — findPayoutRequest masks createdBy AND validatedBy for the owning DROP, discloses both for ADMIN/ACCOUNTANT', async () => {
+  it('CB-5 — findPayoutRequest masks createdBy AND validatedBy for the owning DROP, discloses both for ADMIN', async () => {
     // The owning DROP views their own payout request. The linked, company-funded
     // row was booked AND validated by the admin — but the admin is NEITHER the
     // counterparty (company pool) NOR the viewer, so both audit UUIDs must be
@@ -622,7 +611,7 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
     expect(dropTx!.validatedBy).toBeNull()
 
     // Privileged viewers see the real admin UUID on BOTH audit fields.
-    const acctReq = await svc.findPayoutRequest(PR_1_ID, ACCOUNTANT_1)
+    const acctReq = await svc.findPayoutRequest(PR_1_ID, ADMIN_MAKSYM)
     const acctTx = acctReq.transactions.find((t) => t.id === TX_CB_PR_ADMIN_ID)
     expect(acctTx!.createdBy).toBe(ADMIN_MAKSYM.id)
     expect(acctTx!.validatedBy).toBe(ADMIN_MAKSYM.id)

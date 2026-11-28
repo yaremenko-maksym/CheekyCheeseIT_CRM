@@ -22,7 +22,7 @@ export function toAvailabilityDto(
  * RBAC, viewer → target (read and write alike):
  *   - SENIOR → self: allowed;
  *   - ADMIN → any active SENIOR: allowed (another role or an archived user: 404);
- *   - every other pair (SENIOR → another senior, HR, JUNIOR, ACCOUNTANT, DROP → anyone): 403.
+ *   - every other pair (SENIOR → another senior, HR, JUNIOR, DROP → anyone): 403.
  * The 403 is decided from the viewer alone, before the target is read, so it says nothing about
  * whether the target exists. HR sees a senior's availability only on the queue card, inside its
  * own scope (`seniorRows`), never here. The viewer's role is read fresh, not taken from the token.

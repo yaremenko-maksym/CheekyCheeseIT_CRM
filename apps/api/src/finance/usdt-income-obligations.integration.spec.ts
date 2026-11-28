@@ -61,14 +61,6 @@ const DROP: SessionUser = {
   displayName: 'USDT Drop',
   role: 'DROP',
 }
-const ACCOUNTANT: SessionUser = {
-  ...SENIOR,
-  id: 'ce440000-0000-4000-bb00-000000000006',
-  email: 'usdt-accountant@test.spec',
-  displayName: 'USDT Accountant',
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-}
 const JUNIOR: SessionUser = {
   ...SENIOR,
   id: 'ce440000-0000-4000-bb00-000000000007',
@@ -92,7 +84,7 @@ const ADMIN_KOSTYA: SessionUser = {
   displayName: 'USDT Kostya',
 }
 
-const TEST_OWN_USERS = [SENIOR, DROP, ACCOUNTANT, JUNIOR]
+const TEST_OWN_USERS = [SENIOR, DROP, JUNIOR]
 const TEST_OWN_USER_IDS = TEST_OWN_USERS.map((u) => u.id)
 
 const ACCOUNT_ID = 'ce440000-0000-4000-cc00-000000000001'
@@ -529,13 +521,13 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
   })
 
   // ── AC10: declareUsdtProjectIncome RBAC + receiver routing ─────────────────
-  it('AC10: only ADMIN may declare USDT income (ACCOUNTANT/SENIOR/DROP/JUNIOR → 403)', async () => {
+  it('AC10: only ADMIN may declare USDT income (SENIOR/DROP/JUNIOR → 403)', async () => {
     const body = {
       projectId: USDT_DROP_PROJECT,
       amount: 1000,
       receiverId: COMPANY_ACCOUNT_RECEIVER,
     }
-    for (const nonAdmin of [ACCOUNTANT, SENIOR, DROP, JUNIOR]) {
+    for (const nonAdmin of [SENIOR, DROP, JUNIOR]) {
       await expect(declare(body, nonAdmin)).rejects.toThrow()
     }
   })
@@ -856,7 +848,7 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
   // Neither DROP_PENDING_PAYOUT nor PAYOUT_DROP is blacklisted from the
   // sender/receiver-match rule (unlike PAYOUT_ADMIN/PAYOUT_CONFIRMED), so a
   // party (DROP/SENIOR) sees their OWN row; a non-party sees neither; ADMIN/
-  // ACCOUNTANT see everything. Proven against the REAL cascade rows, not mocks.
+  // ADMIN sees everything. Proven against the REAL cascade rows, not mocks.
   describe('MED-1: DROP_PENDING_PAYOUT / PAYOUT_DROP RBAC visibility (real DB)', () => {
     it('DROP sees their own DROP_PENDING_PAYOUT; SENIOR does NOT see it (findOne)', async () => {
       await declare(
@@ -876,8 +868,7 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
       expect(seenByDrop.type).toBe('DROP_PENDING_PAYOUT')
       // SENIOR is neither sender nor receiver of the DROP's IOU → 403.
       await expect(svc.findOne(dropPendingTxId!, SENIOR)).rejects.toThrow()
-      // ACCOUNTANT and ADMIN see everything (RBAC bypass for company-wide roles).
-      await expect(svc.findOne(dropPendingTxId!, ACCOUNTANT)).resolves.not.toThrow()
+      // ADMIN sees everything (RBAC bypass for the company-wide role).
       await expect(svc.findOne(dropPendingTxId!, ADMIN_MAKSYM)).resolves.not.toThrow()
       // JUNIOR is never a party to finance rows.
       await expect(svc.findOne(dropPendingTxId!, JUNIOR)).rejects.toThrow()
@@ -899,7 +890,6 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
       await expect(svc.findOne(seniorPendingTxId!, SENIOR)).resolves.not.toThrow()
       // DROP is neither sender nor receiver of the SENIOR's IOU → 403.
       await expect(svc.findOne(seniorPendingTxId!, DROP)).rejects.toThrow()
-      await expect(svc.findOne(seniorPendingTxId!, ACCOUNTANT)).resolves.not.toThrow()
       await expect(svc.findOne(seniorPendingTxId!, ADMIN_MAKSYM)).resolves.not.toThrow()
     })
 
@@ -916,11 +906,10 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
 
       await expect(svc.findOne(payoutDropId, DROP)).resolves.not.toThrow()
       await expect(svc.findOne(payoutDropId, SENIOR)).rejects.toThrow()
-      await expect(svc.findOne(payoutDropId, ACCOUNTANT)).resolves.not.toThrow()
       await expect(svc.findOne(payoutDropId, ADMIN_MAKSYM)).resolves.not.toThrow()
     })
 
-    it('findAll: DROP sees own DROP_PENDING_PAYOUT + PAYOUT_DROP; SENIOR list excludes them; ACCOUNTANT sees both', async () => {
+    it('findAll: DROP sees own DROP_PENDING_PAYOUT + PAYOUT_DROP; SENIOR list excludes them; ADMIN_MAKSYM sees both', async () => {
       // task-settle-in-place: a settle FLIPS the drop IOU (DROP_PENDING_PAYOUT →
       // PAYOUT_DROP) in place, so a single declare+settle leaves NO lingering
       // DROP_PENDING_PAYOUT. To exercise BOTH types' RBAC visibility at once we
@@ -948,9 +937,9 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
       expect(seniorList.some((t) => t.type === 'DROP_PENDING_PAYOUT')).toBe(false)
       expect(seniorList.some((t) => t.type === 'PAYOUT_DROP')).toBe(false)
 
-      const accountantList = await svc.findAll(ACCOUNTANT)
-      expect(accountantList.some((t) => t.type === 'DROP_PENDING_PAYOUT')).toBe(true)
-      expect(accountantList.some((t) => t.type === 'PAYOUT_DROP')).toBe(true)
+      const adminList = await svc.findAll(ADMIN_MAKSYM)
+      expect(adminList.some((t) => t.type === 'DROP_PENDING_PAYOUT')).toBe(true)
+      expect(adminList.some((t) => t.type === 'PAYOUT_DROP')).toBe(true)
     })
   })
 

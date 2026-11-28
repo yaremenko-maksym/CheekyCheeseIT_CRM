@@ -10,7 +10,7 @@
  * (real Fastify + JwtAuthGuard + RolesGuard + real crm_qa).
  *
  * What stays here (DB-independent, fast):
- *   - RBAC (AC2): JUNIOR / HR / ACCOUNTANT / DROP → ForbiddenException, thrown
+ *   - RBAC (AC2): JUNIOR / HR / DROP → ForbiddenException, thrown
  *     BEFORE any DB access; SENIOR / ADMIN → resolve.
  *   - Senior-share math (AC1): seniorShareIncome = Σ amount * sharePercent/100
  *     over PAID SENIOR_INCOME, split total vs this-month by txDate ?? createdAt.
@@ -103,7 +103,7 @@ const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1,
 const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 15))
 
 describe('getSeniorSummary — RBAC guard (AC2)', () => {
-  const forbiddenRoles: SessionUser['role'][] = ['JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
+  const forbiddenRoles: SessionUser['role'][] = ['JUNIOR', 'HR', 'DROP']
 
   for (const role of forbiddenRoles) {
     it(`throws ForbiddenException for ${role} (before any DB access)`, async () => {
@@ -598,7 +598,7 @@ describe('getSeniorSummary — mySalaryState / mySalaryStatus mapping', () => {
 
   // task-salary-month-gap-and-status security-review MED-3: `getSeniorSummary`
   // is reached ONLY by SENIOR/ADMIN (the RBAC gate at the top of the method),
-  // and the monthly cron NEVER processes either role (only HR/ACCOUNTANT/
+  // and the monthly cron NEVER processes either role (only HR/
   // JUNIOR are cron-eligible — see CRON_ELIGIBLE_SALARY_ROLES). A SENIOR with
   // `monthlySalary` configured and no row yet must NOT read as
   // AWAITING_CREATION (that would falsely imply an automatic accrual is
@@ -650,8 +650,8 @@ describe('getSeniorSummary — mySalaryState / mySalaryStatus mapping', () => {
 // resolveHrAccountantSalaryReceivers / resolveJuniorSalaryReceivers
 // target").
 describe('CRON_ELIGIBLE_SALARY_ROLES — exact membership (pinned directly, not through a caller)', () => {
-  it('contains exactly HR, ACCOUNTANT, JUNIOR — the roles createMonthlySalaries actually accrues to', () => {
-    expect([...CRON_ELIGIBLE_SALARY_ROLES].sort()).toEqual(['ACCOUNTANT', 'HR', 'JUNIOR'])
+  it('contains exactly HR, JUNIOR — the roles createMonthlySalaries actually accrues to', () => {
+    expect([...CRON_ELIGIBLE_SALARY_ROLES].sort()).toEqual(['HR', 'JUNIOR'])
   })
 
   it('does NOT contain SENIOR, DROP, or ADMIN — they can only ever get a MANUALLY created salary', () => {

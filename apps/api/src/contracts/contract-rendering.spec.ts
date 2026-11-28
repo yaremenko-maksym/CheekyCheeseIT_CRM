@@ -87,7 +87,6 @@ describe('renderContractTemplate', () => {
         ['SENIOR', 'Senior'],
         ['JUNIOR', 'Junior'],
         ['DROP', 'Drop'],
-        ['ACCOUNTANT', 'Accountant'],
       ]
       for (const [role, label] of cases) {
         const { body } = renderContractTemplate('{{role}}', makeUser({ role }), FIXED_DATE)
@@ -520,12 +519,6 @@ describe('renderContractTemplate', () => {
     it('JUNIOR: sharePercent="" (empty string)', () => {
       const user = makeUser({ role: 'JUNIOR', seniorSharePercent: 26, dropSharePercent: null })
       const { body } = renderContractTemplate('{{sharePercent}}', user, FIXED_DATE)
-      expect(body).toBe('')
-    })
-
-    it('ACCOUNTANT: companySharePercent="" (empty string)', () => {
-      const user = makeUser({ role: 'ACCOUNTANT', seniorSharePercent: 26, dropSharePercent: null })
-      const { body } = renderContractTemplate('{{companySharePercent}}', user, FIXED_DATE)
       expect(body).toBe('')
     })
 

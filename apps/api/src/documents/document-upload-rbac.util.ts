@@ -8,22 +8,22 @@ import { apiError } from '../common/api-error'
  *
  *   RESUME / SCAN:
  *     ADMIN/HR/SENIOR — any ownerId
- *     JUNIOR — ownerId == self only
- *     ACCOUNTANT — forbidden
+ *     JUNIOR / DROP — ownerId == self only
+ *     any other role — forbidden
  *   CONTRACT:
  *     ADMIN — any ownerId
  *     SENIOR — ownerId == self only
  *     others — forbidden
  *   RECEIPT:
- *     ADMIN/ACCOUNTANT — any ownerId
+ *     ADMIN — any ownerId
  *     SENIOR — ownerId == self only
- *     HR / JUNIOR — forbidden
+ *     HR / JUNIOR / DROP — forbidden
  *   AVATAR:
  *     ADMIN — any ownerId (impersonation)
  *     anyone else — ownerId == self only
  *   LOGO:
  *     ADMIN/HR/SENIOR — allowed (projectId scope is enforced elsewhere)
- *     JUNIOR/ACCOUNTANT — forbidden
+ *     JUNIOR / DROP — forbidden
  */
 export function assertCanUpload(
   role: Role,
@@ -36,7 +36,14 @@ export function assertCanUpload(
   switch (category) {
     case 'RESUME':
     case 'SCAN':
-      if (role === 'ACCOUNTANT') {
+      // Allowlist: a role outside these five (a retired one included) cannot upload.
+      if (
+        role !== 'ADMIN' &&
+        role !== 'HR' &&
+        role !== 'SENIOR' &&
+        role !== 'JUNIOR' &&
+        role !== 'DROP'
+      ) {
         throw apiError('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN', HttpStatus.FORBIDDEN, { category })
       }
       if (role === 'JUNIOR' && !isSelf) {
@@ -52,7 +59,7 @@ export function assertCanUpload(
       if (role === 'DROP' && isSelf) return
       throw apiError('DOCUMENT_UPLOAD_CONTRACT_RESTRICTED', HttpStatus.FORBIDDEN)
     case 'RECEIPT':
-      if (role === 'ADMIN' || role === 'ACCOUNTANT') return
+      if (role === 'ADMIN') return
       if (role === 'SENIOR') {
         if (isSelf) return
         // A senior CAN upload receipts, just not for someone else — the

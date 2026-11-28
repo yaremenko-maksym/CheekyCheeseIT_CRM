@@ -48,7 +48,6 @@ const JWT_SECRET = 'test-senior-share-integration-secret-xxxx'
 
 const ADMIN_ID = 'b1c2d3e4-f5a6-4bbb-8ccc-000000000001'
 const SENIOR_ID = 'b1c2d3e4-f5a6-4bbb-8ccc-000000000002'
-const ACCOUNTANT_ID = 'b1c2d3e4-f5a6-4bbb-8ccc-000000000003'
 const PROJECT_ID = 'b1c2d3e4-f5a6-4bbb-8ccc-000000000010'
 const TARGET_USER_ID = 'b1c2d3e4-f5a6-4bbb-8ccc-000000000011'
 
@@ -67,7 +66,6 @@ function makeSession(id: string, role: SessionUser['role']): SessionUser {
 const USERS = {
   admin: makeSession(ADMIN_ID, 'ADMIN'),
   senior: makeSession(SENIOR_ID, 'SENIOR'),
-  accountant: makeSession(ACCOUNTANT_ID, 'ACCOUNTANT'),
 }
 
 const onboardingServiceMock = { getStatus: vi.fn() }
@@ -367,7 +365,7 @@ describe('Senior-share approve/reject/cancel — guard-stack integration (SR-M-4
     },
   )
 
-  // ── cancel — ADMIN/ACCOUNTANT only (RBAC lives in the SERVICE, not a
+  // ── cancel — ADMIN only (RBAC lives in the SERVICE, not a
   // controller @Roles decorator — see both controllers' own doc comments on
   // why) ─────────────────────────────────────────────────────────────────
 
@@ -385,7 +383,7 @@ describe('Senior-share approve/reject/cancel — guard-stack integration (SR-M-4
   ]
 
   it.each(CANCEL_ROUTES)(
-    '$label: 403 when the real service throws ForbiddenException for a non-ADMIN(/ACCOUNTANT) caller',
+    '$label: 403 when the real service throws ForbiddenException for a non-ADMIN() caller',
     async (route) => {
       const { ForbiddenException } = await import('@nestjs/common')
       route.mock.mockRejectedValue(

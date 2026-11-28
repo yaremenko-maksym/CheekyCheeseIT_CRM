@@ -6,7 +6,7 @@
  * | Role                     | Own resume  | Another's   |
  * | ADMIN, HR                | read/write  | read/write  |
  * | SENIOR                   | read only   | NONE        |
- * | JUNIOR, ACCOUNTANT, DROP | NONE        | NONE        |
+ * | JUNIOR, DROP | NONE        | NONE        |
  *
  * [owner 2026-11-14] A SENIOR only VIEWS their resume; ADMIN and HR write it.
  * So `mode` decides the SENIOR row: `'read'` compares ids, anything else is false.
@@ -40,7 +40,7 @@ export function canAccessResume(
   if (RESUME_MANAGER_ROLES.has(viewer.role)) return true
   // SENIOR: reads own resume only. This comparison IS the check — see file header.
   if (viewer.role === 'SENIOR') return mode === 'read' && viewer.id === targetUserId
-  // JUNIOR, ACCOUNTANT, DROP and anything added later: no resume surface.
+  // JUNIOR, DROP and anything added later: no resume surface.
   return false
 }
 

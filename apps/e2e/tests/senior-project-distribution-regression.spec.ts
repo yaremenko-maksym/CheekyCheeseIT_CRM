@@ -10,7 +10,7 @@
  *
  * Flow:
  *   1. SENIOR posts $1000 SENIOR_INCOME (PENDING).
- *   2. ACCOUNTANT validates → PENDING_PAYMENT placeholder PAYOUT row
+ *   2. ADMIN validates → PENDING_PAYMENT placeholder PAYOUT row
  *      with amount = 1000 * (1 − 0.40) = $600.
  *   3. SENIOR pays the payout_request (simulate=success) → backend
  *      settles the PAYOUT row (PAID, fundingSource='COMPANY_ACCOUNT').
@@ -75,9 +75,9 @@ test.describe('Senior-project distribution regression — real API (AC7)', () =>
         currency: 'USDT',
       })
 
-      // 3) ACCOUNTANT validates → SENIOR_INCOME becomes VALIDATED (no auto-payout).
+      // 3) ADMIN validates → SENIOR_INCOME becomes VALIDATED (no auto-payout).
       // feat/finance-payout-flow (#7): validate no longer auto-creates payout_request.
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, txId)
 
       // 4) SENIOR manually creates payout_request (single income).

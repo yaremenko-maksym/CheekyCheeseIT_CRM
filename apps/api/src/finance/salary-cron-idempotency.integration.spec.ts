@@ -127,7 +127,7 @@ describe.skipIf(!hasDatabaseUrl())(
     // employee with `monthlySalary` set, not just this spec's own 2 throwaway
     // users. The original cleanup only deleted `receiverId IN MY_USER_IDS`,
     // silently leaving 9 orphaned SALARY/2099-12 rows behind for real seeded
-    // HR/ACCOUNTANT/JUNIOR employees on every run (confirmed empirically via a
+    // HR/JUNIOR employees on every run (confirmed empirically via a
     // before/after row-count diff on crm_qa).
     //
     // The far-future sentinel `MONTH = '2099-12'` (see const above) is already
@@ -250,8 +250,8 @@ describe.skipIf(!hasDatabaseUrl())(
           {
             id: ACCT_ID,
             email: 'cron-acct@test.spec',
-            displayName: 'Cron Acct',
-            role: 'ACCOUNTANT',
+            displayName: 'Cron HR 2',
+            role: 'HR',
             monthlySalary: '2000',
             googleId: `test-google-${ACCT_ID}`,
           },

@@ -64,7 +64,6 @@ function persona(role: SessionUser['role'], suffix: string): SessionUser {
 }
 
 const ADMIN = persona('ADMIN', '01')
-const ACCOUNTANT = persona('ACCOUNTANT', '02')
 const SENIOR = persona('SENIOR', '03')
 const JUNIOR = persona('JUNIOR', '04')
 const HR = persona('HR', '05')
@@ -79,10 +78,15 @@ const FIXED_TX = {
 } as const
 
 let updateCalls = 0
+let validateCalls = 0
 const stubTransactionsService = {
   updateDropIncome: () => {
     updateCalls++
     return Promise.resolve(FIXED_TX)
+  },
+  validateTransaction: () => {
+    validateCalls++
+    return Promise.resolve(undefined)
   },
 } as unknown as TransactionsService
 
@@ -101,7 +105,7 @@ const stubTransactionsService = {
 })
 class DropIncomeUpdateRolesGuardTestModule {}
 
-describe('PATCH /api/transactions/drop-income/:id — @Roles guard layer (stub service, never throws)', () => {
+describe('PATCH /api/transactions/drop-income/:id + /:id/validate — @Roles guard layer (stub service, never throws)', () => {
   let app: NestFastifyApplication
   let jwt: JwtService
 
@@ -133,6 +137,7 @@ describe('PATCH /api/transactions/drop-income/:id — @Roles guard layer (stub s
 
   beforeEach(() => {
     updateCalls = 0
+    validateCalls = 0
   })
 
   function tokenFor(user: SessionUser): string {
@@ -150,7 +155,6 @@ describe('PATCH /api/transactions/drop-income/:id — @Roles guard layer (stub s
 
   const forbidden: Array<[string, SessionUser]> = [
     ['ADMIN', ADMIN],
-    ['ACCOUNTANT', ACCOUNTANT],
     ['SENIOR', SENIOR],
     ['JUNIOR', JUNIOR],
     ['HR', HR],
@@ -172,5 +176,35 @@ describe('PATCH /api/transactions/drop-income/:id — @Roles guard layer (stub s
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.payload)).toEqual(FIXED_TX)
     expect(updateCalls).toBe(1)
+  })
+
+  // PR 1b (design §13.3): validating income is ADMIN-only now that the accountant role is
+  // retired. ADMIN must keep the route; every other role is refused by the guard.
+  async function validate(user: SessionUser) {
+    return app.inject({
+      method: 'PATCH',
+      url: `/api/transactions/${SOME_TX_ID}/validate`,
+      cookies: { jwt: tokenFor(user) },
+      payload: { action: 'validate' },
+    })
+  }
+
+  for (const [label, user] of [
+    ['SENIOR', SENIOR],
+    ['JUNIOR', JUNIOR],
+    ['HR', HR],
+    ['DROP', DROP],
+  ] as Array<[string, SessionUser]>) {
+    it(`PATCH /:id/validate: ${label} → 403, handler never called`, async () => {
+      const res = await validate(user)
+      expect(res.statusCode).toBe(403)
+      expect(validateCalls).toBe(0)
+    })
+  }
+
+  it('PATCH /:id/validate: ADMIN keeps the route (2xx, handler reached)', async () => {
+    const res = await validate(ADMIN)
+    expect(res.statusCode).toBeLessThan(300)
+    expect(validateCalls).toBe(1)
   })
 })

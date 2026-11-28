@@ -6,7 +6,7 @@
  * `transactions.senior_share_percent` at income-creation time, so an HR can
  * inflate/deflate the senior's financial share on every future transaction for
  * that team. ProjectsService correctly gates project-level override to ADMIN /
- * ACCOUNTANT — the same restriction must apply to the team-level override.
+ * accountant — the same restriction must apply to the team-level override.
  *
  * These are RED-first unit tests (same mock pattern as teams.service.spec.ts).
  * They will FAIL until TeamsService.update is patched.
@@ -28,7 +28,6 @@ import { makeNotificationsStub } from '../notifications/__test-helpers__/notific
 const TEAM_ID = 'cc000001-0000-4000-aa00-000000000001'
 const HR_ID = 'cc000001-0000-4000-bb00-000000000001'
 const ADMIN_ID = 'cc000001-0000-4000-bb00-000000000002'
-const ACCOUNTANT_ID = 'cc000001-0000-4000-bb00-000000000003'
 
 const hrUser: SessionUser = {
   id: HR_ID,
@@ -45,16 +44,6 @@ const adminUser: SessionUser = {
   role: 'ADMIN',
   displayName: 'Admin',
   email: 'admin-override@test.spec',
-  avatarUrl: null,
-  seniorSharePercent: 26,
-  legalFullName: null,
-}
-
-const accountantUser: SessionUser = {
-  id: ACCOUNTANT_ID,
-  role: 'ACCOUNTANT',
-  displayName: 'Accountant',
-  email: 'acc-override@test.spec',
   avatarUrl: null,
   seniorSharePercent: 26,
   legalFullName: null,
@@ -206,21 +195,6 @@ describe('TeamsService.update — AC3: seniorSharePercentOverride RBAC (SEC-04)'
     // Verify that seniorSharePercentOverride was included in the SET
     const setArg = setFn.mock.calls[0]?.[0] as Record<string, unknown>
     expect(setArg).toHaveProperty('seniorSharePercentOverride', 40)
-  })
-
-  it('AC3e: ACCOUNTANT CAN set seniorSharePercentOverride', async () => {
-    const team = makeTeamWithHr()
-    const { dbSvc, setFn } = makeDb(team)
-    const { service } = makeService(dbSvc)
-
-    await expect(
-      service.update(TEAM_ID, 'Alpha Team', undefined, null, accountantUser, undefined, {
-        seniorSharePercentOverride: 35,
-      }),
-    ).resolves.toBeDefined()
-
-    const setArg = setFn.mock.calls[0]?.[0] as Record<string, unknown>
-    expect(setArg).toHaveProperty('seniorSharePercentOverride', 35)
   })
 
   it('AC3f: ADMIN change of override is recorded in team_audit_log', async () => {

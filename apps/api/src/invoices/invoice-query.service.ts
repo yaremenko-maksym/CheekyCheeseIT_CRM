@@ -46,7 +46,7 @@ export class InvoiceQueryService {
     // (VIEW, see schema.ts) instead of the raw table + a hand-written
     // `TRANSACTION_NOT_DELETED` condition — a soft-deleted row cannot appear
     // in this list no matter what, there is no condition to omit. Excluded
-    // for EVERYONE (no ADMIN/ACCOUNTANT `includeDeleted` toggle like
+    // for EVERYONE (no ADMIN `includeDeleted` toggle like
     // `TransactionsService.findAll` — an admin inspecting a deleted row's
     // invoice uses the Finance ▸ Transactions view instead).
     const baseConditions = [
@@ -55,7 +55,7 @@ export class InvoiceQueryService {
     ]
 
     // ---- RBAC ----
-    if (viewer.role !== 'ADMIN' && viewer.role !== 'ACCOUNTANT') {
+    if (viewer.role !== 'ADMIN') {
       // Counterparty rule:
       //   - SENIOR_INCOME / SALARY counterparty = `receiverId`
       //   - PAYOUT counterparty = `senderId`
@@ -181,7 +181,7 @@ export class InvoiceQueryService {
       throw apiError('INVOICE_NOT_GENERATED_YET', HttpStatus.NOT_FOUND)
     }
 
-    // RBAC: ADMIN + ACCOUNTANT pass; others must be the counterparty.
+    // RBAC: ADMIN pass; others must be the counterparty.
     assertCanViewInvoice(viewer, tx)
 
     const signatures = await this.getSignaturesWithSignerNames(tx.id)

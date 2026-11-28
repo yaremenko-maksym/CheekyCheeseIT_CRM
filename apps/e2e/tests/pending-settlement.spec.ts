@@ -4,8 +4,8 @@
  * Phase 4-C pending settlement flows — the senior share from drop-projects
  * is owed by **THE COMPANY**, not by the DROP user. Covers:
  *
- *   GET  /api/pending-settlements/senior   — senior sees own; admin/accountant sees all.
- *   GET  /api/pending-settlements/company  — admin / accountant only.
+ *   GET  /api/pending-settlements/senior   — senior sees own; admin sees all.
+ *   GET  /api/pending-settlements/company  — admin only.
  *   POST /api/pending-settlements/:id/settle-company
  *                                         — closes the COMPANY debt IN PLACE.
  *   POST /api/pending-settlements/by-source-transaction/:sourceTransactionId/settle-company
@@ -77,7 +77,7 @@ interface CompanyObligationDto {
  *   1. Create DROP + onboard
  *   2. Ensure company wallet (required for payout_request)
  *   3. Create DROP project
- *   4. DROP posts income → ACCOUNTANT validates → payout_request created → DROP pays
+ *   4. DROP posts income → ADMIN validates → payout_request created → DROP pays
  *
  * The pay step books:
  *   - SENIOR_PENDING_PAYOUT (PENDING_PAYMENT) — the COMPANY debt obligation source tx
@@ -125,8 +125,8 @@ async function plantCompanyDebt(page: import('@playwright/test').Page): Promise<
     amount: 1000,
   })
 
-  // Step 6: ACCOUNTANT validates → get payoutRequestId
-  await loginViaApi(page, SEED_EMAILS.accountant)
+  // Step 6: ADMIN validates → get payoutRequestId
+  await loginViaApi(page, SEED_EMAILS.admin)
   const { payoutRequestId } = await validateTransactionViaAPI(page, incomeTxId)
 
   // Step 7: if validate didn't auto-create payout_request, create it explicitly

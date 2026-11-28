@@ -1,7 +1,10 @@
-import { ForbiddenException } from '@nestjs/common'
+import { ForbiddenException, HttpException } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 import type { TxWithRelations } from './transaction-mapper.util'
-import { assertTransactionReadAccess } from './transaction-visibility.util'
+import {
+  assertTransactionReadAccess,
+  assertTransactionVisible,
+} from './transaction-visibility.util'
 
 const ME = 'me-1'
 const OTHER = 'other-1'
@@ -23,7 +26,7 @@ function tx(over: { senderId?: string; receiverId?: string; type?: string }): Tx
 const check = (t: TxWithRelations, role: string) => () => assertTransactionReadAccess(t, user(role))
 
 describe('assertTransactionReadAccess', () => {
-  it.each(['ADMIN', 'ACCOUNTANT'])('%s reads any row, including PAYOUT_ADMIN', (role) => {
+  it.each(['ADMIN'])('%s reads any row, including PAYOUT_ADMIN', (role) => {
     expect(check(tx({}), role)).not.toThrow()
     expect(check(tx({ type: 'PAYOUT_ADMIN' }), role)).not.toThrow()
     expect(check(tx({ type: 'PAYOUT_CONFIRMED' }), role)).not.toThrow()
@@ -64,5 +67,40 @@ describe('assertTransactionReadAccess', () => {
 
   it('rejects an unknown role even on an own row', () => {
     expect(check(tx({ senderId: ME, receiverId: ME }), 'GUEST')).toThrow(ForbiddenException)
+  })
+})
+
+describe('assertTransactionVisible — who may see a deleted row', () => {
+  const deleted = { deletedAt: new Date('2026-01-01T00:00:00Z') }
+  const live = { deletedAt: null }
+
+  /** The HTTP status the gate threw, or null when it did not throw. */
+  function statusOf(fn: () => void): number | null {
+    try {
+      fn()
+      return null
+    } catch (err) {
+      if (err instanceof HttpException) return err.getStatus()
+      throw err
+    }
+  }
+
+  it('ADMIN sees a deleted row', () => {
+    expect(statusOf(() => assertTransactionVisible(deleted, user('ADMIN')))).toBeNull()
+  })
+
+  it.each(['SENIOR', 'JUNIOR', 'HR', 'DROP', 'ACCOUNTANT', 'GUEST'])(
+    '%s gets 404 on a deleted row',
+    (role) => {
+      expect(statusOf(() => assertTransactionVisible(deleted, user(role)))).toBe(404)
+    },
+  )
+
+  it('an anonymous caller (null) gets 404 on a deleted row, not a crash', () => {
+    expect(statusOf(() => assertTransactionVisible(deleted, null))).toBe(404)
+  })
+
+  it('an anonymous caller (null) sees a live row', () => {
+    expect(statusOf(() => assertTransactionVisible(live, null))).toBeNull()
   })
 })

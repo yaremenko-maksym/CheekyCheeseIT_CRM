@@ -63,7 +63,7 @@ async function plantPendingSeniorPayout(
   await loginViaApi(page, SEED_EMAILS.seniorA)
   const { txId } = await createSeniorIncomeViaAPI(page, { projectId, amount: 1000 })
 
-  await loginViaApi(page, SEED_EMAILS.accountant)
+  await loginViaApi(page, SEED_EMAILS.admin)
   await validateTransactionViaAPI(page, txId)
 
   // feat/finance-payout-flow (#7): validate only flips the income to VALIDATED —

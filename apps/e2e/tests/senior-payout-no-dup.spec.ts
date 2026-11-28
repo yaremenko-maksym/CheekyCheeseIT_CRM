@@ -64,7 +64,7 @@ test.describe('Senior payout — no duplicate payout_request regression (#7)', (
       })
 
       // Validate — ONLY flips to VALIDATED, no payout_request created.
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, txId)
 
       // SENIOR manually creates payout_request.
@@ -116,7 +116,7 @@ test.describe('Senior payout — no duplicate payout_request regression (#7)', (
       await loginViaApi(page, SEED_EMAILS.seniorA)
       const { txId } = await createSeniorIncomeViaAPI(page, { projectId, amount: 500 })
 
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, txId)
 
       // First createPayoutRequest — succeeds.
@@ -155,7 +155,7 @@ test.describe('Senior payout — no duplicate payout_request regression (#7)', (
       const { txId: tx2 } = await createSeniorIncomeViaAPI(page, { projectId, amount: 500 })
 
       // Both validated.
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, tx1)
       await validateTransactionViaAPI(page, tx2)
 

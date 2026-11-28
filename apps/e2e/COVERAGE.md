@@ -37,7 +37,7 @@ Format per row: **Business area** — _existing spec(s) that cover it_ →
 | Sub-area                                                                           | Spec                                    | Status                                          |
 | ---------------------------------------------------------------------------------- | --------------------------------------- | ----------------------------------------------- |
 | ADMIN confirms drop PAYOUT happy path                                              | `drop-confirm-payout.spec.ts`           | ✅                                              |
-| ACCOUNTANT confirms senior PAYOUT happy path                                       | `senior-confirm-payout.spec.ts`         | ✅                                              |
+| ADMIN confirms senior PAYOUT happy path                                            | `senior-confirm-payout.spec.ts`         | ✅                                              |
 | RBAC matrix on confirm-payout                                                      | `drop-confirm-payout-rbac.spec.ts`      | ✅                                              |
 | Edge cases (already paid / wrong type / invalid recipient)                         | `drop-confirm-payout-edges.spec.ts`     | ✅                                              |
 | **`method=CASH` vs `method=CRYPTO` radio behavior + DB `payment_method` snapshot** | _gap_ — existing specs always pick CASH | ❌ → **`payout-manual-confirm-method.spec.ts`** |
