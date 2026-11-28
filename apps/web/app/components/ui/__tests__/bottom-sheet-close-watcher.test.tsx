@@ -14,6 +14,7 @@ import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { BottomSheet } from '../bottom-sheet'
 import { DatePickerField } from '../date-picker'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../tooltip'
 
 const watchers = vi.hoisted(() => {
   Object.defineProperty(navigator, 'userAgent', {
@@ -46,9 +47,11 @@ function back(cancelable: boolean): Event {
 
 function Harness({
   dismissible = true,
+  tooltip = false,
   onOpenChange,
 }: {
   dismissible?: boolean
+  tooltip?: boolean
   onOpenChange: (open: boolean) => void
 }) {
   const [open, setOpen] = useState(true)
@@ -82,14 +85,22 @@ function Harness({
             <SelectItem value="b">Beta</SelectItem>
           </SelectContent>
         </Select>
+        {tooltip && (
+          <TooltipProvider>
+            <Tooltip defaultOpen>
+              <TooltipTrigger>Info</TooltipTrigger>
+              <TooltipContent>Hint</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
       </BottomSheet>
     </I18nTestProvider>
   )
 }
 
-async function renderSheet(dismissible = true) {
+async function renderSheet(dismissible = true, tooltip = false) {
   const onOpenChange = vi.fn()
-  render(<Harness dismissible={dismissible} onOpenChange={onOpenChange} />)
+  render(<Harness dismissible={dismissible} tooltip={tooltip} onOpenChange={onOpenChange} />)
   await screen.findByRole('dialog')
   return onOpenChange
 }
@@ -179,14 +190,74 @@ describe('BottomSheet Android back (fake CloseWatcher; happy-dom has none)', () 
     expect(onOpenChange).not.toHaveBeenCalled()
   })
 
-  // The browser lets one close request per user activation be prevented; Base UI closes on the
-  // next one regardless, so the caller's state must follow.
-  it('a non-cancelable back closes even a not-dismissible sheet and tells the caller', async () => {
+  // The browser lets one close request per user activation be prevented, and Base UI closes on a
+  // later one regardless. A not-dismissible sheet refuses it anyway: the caller is not told, the
+  // sheet stays open and a fresh watcher refuses the next back too.
+  it('a non-cancelable back keeps a not-dismissible sheet open, and the next back is refused too', async () => {
     const onOpenChange = await renderSheet(false)
+    const first = watchers.at(-1)
+
+    back(false)
+
+    await waitFor(() => expect(watchers.at(-1)).not.toBe(first))
+    expect(onOpenChange).not.toHaveBeenCalled()
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveAttribute('data-state', 'open')
+    expect(dialog).not.toHaveAttribute('data-ending-style')
+
+    expect(back(true).defaultPrevented).toBe(true)
+    back(false)
+
+    await waitFor(() => expect(watchers).toHaveLength(1))
+    expect(onOpenChange).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toHaveAttribute('data-state', 'open')
+  })
+
+  it('a non-cancelable back closes a dismissible sheet and tells the caller', async () => {
+    const onOpenChange = await renderSheet()
 
     back(false)
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  // A tooltip is a popper too, but it is not a layer the back press or a tap should close first.
+  it('with a tooltip open, back closes a dismissible sheet', async () => {
+    const onOpenChange = await renderSheet(true, true)
+    // The tooltip portals outside the modal sheet, which hides the rest of the page from roles.
+    await waitFor(() => expect(screen.getByRole('tooltip', { hidden: true })).toBeInTheDocument())
+
+    const event = back(true)
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(event.defaultPrevented).toBe(false)
+  })
+
+  it('with a tooltip open, an outside press closes a dismissible sheet', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never })
+    const onOpenChange = await renderSheet(true, true)
+    // The tooltip portals outside the modal sheet, which hides the rest of the page from roles.
+    await waitFor(() => expect(screen.getByRole('tooltip', { hidden: true })).toBeInTheDocument())
+
+    await user.click(document.body)
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  // Device note: Android back with a select open inside a not-dismissible sheet.
+  it('with a select open in a not-dismissible sheet, back closes the select and keeps the sheet', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never })
+    const onOpenChange = await renderSheet(false)
+    screen.getByRole('combobox', { name: 'Kind' }).focus()
+    await user.keyboard('{Enter}')
+    await screen.findByRole('listbox')
+
+    const event = back(true)
+
+    await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
+    expect(event.defaultPrevented).toBe(true)
+    expect(onOpenChange).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 })
