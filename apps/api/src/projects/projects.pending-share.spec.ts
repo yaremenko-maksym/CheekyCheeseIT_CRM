@@ -15,6 +15,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
+import { ProjectAccessService } from './project-access.service'
 import { projectFinanceSettings, projects, transactions } from '../database/schema'
 import { resolveSeniorShare } from '../finance/senior-share-resolver'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
@@ -661,29 +662,11 @@ describe('ProjectsService.findOne — pendingSeniorShare (JUNIOR skip-the-lookup
     ).toBe(33)
   })
 
-  // task-648-fix-round-1 (QA-HIGH-1): ACCOUNTANT is the exact role QA caught
+  // task-648-fix-round-1 (QA-HIGH-1): accountant is the exact role QA caught
   // seeing this field (it has unconditional `assertAccess`, unlike HR/DROP
   // which need extra scope-membership mocking this harness does not set up —
   // those two are covered instead in `projects.service.spec.ts`, which
   // already has richer HR/DROP-access fixtures).
-  it('is null for an ACCOUNTANT viewer, and skips the approvals.getStatus lookup entirely (narrower than mapProject masking JUNIOR alone)', async () => {
-    const h = buildHarness({
-      seniorSharePercentOverride: null,
-      pendingSeniorSharePercentOverride: 40,
-    })
-    const accountantUser: SessionUser = {
-      id: 'accountant-1',
-      role: 'ACCOUNTANT',
-      displayName: 'Accountant',
-      email: 'accountant-1@x.com',
-      avatarUrl: null,
-      avatarDocumentId: null,
-      seniorSharePercent: null,
-    }
-    const result = await h.service.findOne('proj-1', accountantUser)
-    expect(h.approvals.getStatus).not.toHaveBeenCalled()
-    expect(result.pendingSeniorShare).toBeNull()
-  })
 
   it('skips the approvals.getStatus lookup entirely for a JUNIOR viewer (never just masks after the fact)', async () => {
     const h = buildHarness({
@@ -877,7 +860,7 @@ describe('ProjectsService — SR-M-8: uniform lock order (approvals → projects
 // pending-proposal lookup by role (ADMIN or the affected SENIOR — everyone
 // else has the field masked by `mapProject` one line later). `update()`'s own
 // tail did not: it resolved the proposal for every caller, including the
-// ACCOUNTANT the propose-gate explicitly admits. Same defect SR-bm-3 fixed on
+// accountant the propose-gate explicitly admits. Same defect SR-bm-3 fixed on
 // `loadForResponse` in round 2, on the one response path that was missed.
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -920,7 +903,7 @@ describe('ProjectsService.mapProject — the pending-share mask itself', () => {
     expect(callMapProject(role).pendingSeniorShare).not.toBeNull()
   })
 
-  it.each(['ACCOUNTANT', 'HR', 'JUNIOR', 'DROP', undefined])(
+  it.each(['HR', 'JUNIOR', 'DROP', undefined])(
     'masks it to null for %s, even when a live value is handed in',
     (role) => {
       expect(callMapProject(role).pendingSeniorShare).toBeNull()
@@ -929,24 +912,35 @@ describe('ProjectsService.mapProject — the pending-share mask itself', () => {
 })
 
 describe('ProjectsService.update — SR-L-4: pending lookup gated by role, like findOne', () => {
-  const accountantUser: SessionUser = {
-    id: 'acc-1',
-    role: 'ACCOUNTANT',
-    displayName: 'Accountant',
-    email: 'acc@x.com',
+  const hrUser: SessionUser = {
+    id: 'hr-1',
+    role: 'HR',
+    displayName: 'HR',
+    email: 'hr@x.com',
     avatarUrl: null,
     avatarDocumentId: null,
     seniorSharePercent: null,
   }
 
-  // `paymentType` (not `rate`) because ACCOUNTANT's own gate in `update()`
-  // admits them only when EVERY patched field is finance-scoped — and it is
-  // deliberately a field that opens no proposal, so the `getStatus` call this
-  // asserts about could only come from the unconditional tail lookup.
-  it('does not ask approvals for a role that cannot see the field (ACCOUNTANT)', async () => {
+  // HR can PATCH a project it manages but cannot see the pending share. The
+  // HR scope check is stubbed (it is not what this test is about); `name`
+  // opens no proposal, so a `getStatus` call could only come from the
+  // unconditional tail lookup.
+  it('does not ask approvals for a role that cannot see the field (HR)', async () => {
     const h = buildHarness({ seniorSharePercentOverride: 26 })
-    await h.service.update('proj-1', { paymentType: 'USDT' }, accountantUser)
-    expect(h.approvals.getStatus).not.toHaveBeenCalled()
+    const manage = vi
+      .spyOn(ProjectAccessService.prototype, 'assertHrCanManageProject')
+      .mockResolvedValue(undefined)
+    const access = vi
+      .spyOn(ProjectAccessService.prototype, 'assertAccess')
+      .mockResolvedValue(undefined)
+    try {
+      await h.service.update('proj-1', { name: 'Renamed' }, hrUser)
+      expect(h.approvals.getStatus).not.toHaveBeenCalled()
+    } finally {
+      manage.mockRestore()
+      access.mockRestore()
+    }
   })
 
   it('still asks for ADMIN, who can see it', async () => {
@@ -960,7 +954,7 @@ describe('ProjectsService.update — SR-L-4: pending lookup gated by role, like 
 })
 
 describe('ProjectsService.cancelSeniorShareChange — RBAC + actual effect', () => {
-  it('rejects a SENIOR caller (RBAC: only ADMIN/ACCOUNTANT may cancel a proposal they did not open)', async () => {
+  it('rejects a SENIOR caller (RBAC: only ADMIN may cancel a proposal they did not open)', async () => {
     const h = buildHarness()
     await expect(h.service.cancelSeniorShareChange('proj-1', seniorUser)).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY' }),
@@ -983,22 +977,6 @@ describe('ProjectsService.cancelSeniorShareChange — RBAC + actual effect', () 
     // The ACTIVE override is untouched — cancel withdraws the PROPOSAL,
     // never the value that is already live.
     expect(h.projectRow.seniorSharePercentOverride).toBe(26)
-  })
-
-  it('ACCOUNTANT may also cancel (same RBAC as the propose-gate in update())', async () => {
-    const h = buildHarness({ pendingSeniorSharePercentOverride: 40 })
-    const accountantUser: SessionUser = {
-      id: 'acc-1',
-      role: 'ACCOUNTANT',
-      displayName: 'Accountant',
-      email: 'acc@x.com',
-      avatarUrl: null,
-      avatarDocumentId: null,
-      seniorSharePercent: null,
-    }
-    await h.service.cancelSeniorShareChange('proj-1', accountantUser)
-    expect(h.approvals.cancelInTx).toHaveBeenCalledOnce()
-    expect(h.projectRow.pendingSeniorSharePercentOverride).toBeNull()
   })
 
   // task-648-fix-round-2 (SR-M-7 / CR-M-2). Withdrawing a proposal moved
@@ -1036,28 +1014,6 @@ describe('ProjectsService.cancelSeniorShareChange — RBAC + actual effect', () 
       expect.objectContaining({ actorId: 'real-admin-9' }),
       h.txHandle,
     )
-  })
-
-  // task-648-fix-round-2 (SR-bm-3). `loadForResponse` resolved the pending
-  // proposal for EVERY caller, including an ACCOUNTANT — whose DTO
-  // `mapProject` then zeroes out one line later. A wasted `approvals`
-  // round-trip is the small half; the real point is that `findOne` already
-  // gates this exact lookup by role and `loadForResponse` silently did not,
-  // so the two response paths disagreed about who may even ASK.
-  it('SR-bm-3: does not resolve the pending proposal for a role that cannot see it (ACCOUNTANT)', async () => {
-    const h = buildHarness({ pendingSeniorSharePercentOverride: 40 })
-    const accountantUser: SessionUser = {
-      id: 'acc-1',
-      role: 'ACCOUNTANT',
-      displayName: 'Accountant',
-      email: 'acc@x.com',
-      avatarUrl: null,
-      avatarDocumentId: null,
-      seniorSharePercent: null,
-    }
-    const result = await h.service.cancelSeniorShareChange('proj-1', accountantUser)
-    expect(h.approvals.getStatus).not.toHaveBeenCalled()
-    expect((result as { pendingSeniorShare: unknown }).pendingSeniorShare).toBeNull()
   })
 
   // task-648-fix-round-2 (SR-bm-3): the gate names TWO roles, and only one of

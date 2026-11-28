@@ -69,7 +69,7 @@ test.describe('0 PAYOUT_ADMIN after payout — both cascade branches (Variant-A 
         currency: 'USDT',
       })
 
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, txId)
 
       await loginViaApi(page, SEED_EMAILS.seniorA)
@@ -122,7 +122,7 @@ test.describe('0 PAYOUT_ADMIN after payout — both cascade branches (Variant-A 
       await loginViaApi(page, dropEmail)
       const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 1000 })
 
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, txId)
 
       // Validate only flips the income to VALIDATED (task-drop-payout-company-account);

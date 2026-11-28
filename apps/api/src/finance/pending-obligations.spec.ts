@@ -25,15 +25,6 @@ const adminUser: SessionUser = {
   avatarDocumentId: null,
   seniorSharePercent: 26,
 }
-const accountantUser: SessionUser = {
-  id: 'accountant-1',
-  role: 'ACCOUNTANT',
-  displayName: 'Accountant',
-  email: 'ac@x.com',
-  avatarUrl: null,
-  avatarDocumentId: null,
-  seniorSharePercent: 26,
-}
 const seniorA: SessionUser = {
   id: 'senior-a',
   role: 'SENIOR',
@@ -138,16 +129,14 @@ function makeObligation(overrides: Partial<ObligationRow> = {}): ObligationRow {
 
 describe('assertCanReadAdminBalance', () => {
   const svc = makeService()
-  it('ACCOUNTANT can read any admin balance', () => {
-    expect(() => svc.assertCanReadAdminBalance(accountantUser, 'any-admin')).not.toThrow()
-  })
+
   it('ADMIN can read own balance', () => {
     expect(() => svc.assertCanReadAdminBalance(adminUser, adminUser.id)).not.toThrow()
   })
   // SEC-13: Phase 4-B "any admin" behaviour reverted. ADMIN is scoped to own
   // balance only — reading a partner's breakdown is a data-leak. The /stats
   // page ONLY passes viewer.id as targetAdminId, so ADMIN sees only their own
-  // share on that page (ACCOUNTANT unrestricted and sees both partners).
+  // share on that page.
   it("ADMIN cannot read another admin's balance → ForbiddenException", () => {
     expect(() => svc.assertCanReadAdminBalance(adminUser, 'other-admin')).toThrow(
       "Only that admin or an accountant can see an admin's balance",
@@ -167,9 +156,7 @@ describe('assertCanReadSeniorBalance', () => {
   it('ADMIN can read any senior balance', () => {
     expect(() => svc.assertCanReadSeniorBalance(adminUser, seniorA.id)).not.toThrow()
   })
-  it('ACCOUNTANT can read any senior balance', () => {
-    expect(() => svc.assertCanReadSeniorBalance(accountantUser, seniorA.id)).not.toThrow()
-  })
+
   it('SENIOR can read own balance', () => {
     expect(() => svc.assertCanReadSeniorBalance(seniorA, seniorA.id)).not.toThrow()
   })
@@ -192,9 +179,7 @@ describe('assertCanListPendingObligations', () => {
   it('ADMIN allowed', () => {
     expect(() => svc.assertCanListPendingObligations(adminUser)).not.toThrow()
   })
-  it('ACCOUNTANT allowed', () => {
-    expect(() => svc.assertCanListPendingObligations(accountantUser)).not.toThrow()
-  })
+
   it('SENIOR allowed (will be scoped to self by the controller)', () => {
     expect(() => svc.assertCanListPendingObligations(seniorA)).not.toThrow()
   })

@@ -63,13 +63,6 @@ const ADMIN: SessionUser = {
   displayName: 'DPC Admin',
   role: 'ADMIN',
 }
-const ACCOUNTANT: SessionUser = {
-  ...DROP,
-  id: `${PREFIX}-bb00-000000000003`,
-  email: 'dpc-accountant@test.spec',
-  displayName: 'DPC Accountant',
-  role: 'ACCOUNTANT',
-}
 // projects.senior_id is NOT NULL — every project (drop-attached or not)
 // still needs a senior owner. Unused by any assertion here; just satisfies
 // the FK so the drop-only obligation can be seeded.
@@ -82,7 +75,7 @@ const SENIOR: SessionUser = {
   seniorSharePercent: 26,
 }
 
-const ALL_USERS = [DROP, ADMIN, ACCOUNTANT, SENIOR]
+const ALL_USERS = [DROP, ADMIN, SENIOR]
 const ALL_USER_IDS = ALL_USERS.map((u) => u.id)
 const PROJECT_ID = `${PREFIX}-dd00-000000000001`
 const ACCOUNT_ID = `${PREFIX}-cc00-000000000001`
@@ -324,7 +317,7 @@ describe.skipIf(!hasDatabaseUrl())(
         FIXED_RATES,
       )
 
-      const result = await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      const result = await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN.id,
         currency: 'UAH',
@@ -360,7 +353,7 @@ describe.skipIf(!hasDatabaseUrl())(
         FIXED_RATES,
       )
 
-      await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN.id,
         currency: 'EUR',
@@ -380,7 +373,7 @@ describe.skipIf(!hasDatabaseUrl())(
     it('AC2/AC4: COMPANY_ACCOUNT (forced USDT, same as obligation) — amount unchanged, original snapshot still stamped', async () => {
       const before = await gateBalance()
 
-      await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
         fundingSource: 'COMPANY_ACCOUNT',
         currency: 'USDT',
         ...EXPLORER_RECEIPT,
@@ -402,7 +395,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
     // ── AC7: obligation closes in FULL regardless of currency — no residual ──
     it('AC7: obligation closes fully in a cross-currency settle — no residual PENDING debt left, idempotent', async () => {
-      await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN.id,
         currency: 'UAH',
@@ -421,7 +414,7 @@ describe.skipIf(!hasDatabaseUrl())(
       // obligation left to close (proves the conditional UPDATE never compares
       // amounts — only status — so a currency change can't leave it dangling).
       await expect(
-        settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+        settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
           fundingSource: 'ADMIN_PERSONAL',
           payerAdminId: ADMIN.id,
           currency: 'USD',
@@ -443,7 +436,7 @@ describe.skipIf(!hasDatabaseUrl())(
     // which stays USDT/USD only for a SENIOR obligation) ──
     it('BIZ-03 exemption: a DROP settle in UAH does not throw', async () => {
       await expect(
-        settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+        settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
           fundingSource: 'ADMIN_PERSONAL',
           payerAdminId: ADMIN.id,
           currency: 'UAH',
@@ -463,7 +456,7 @@ describe.skipIf(!hasDatabaseUrl())(
         .where(eq(pendingObligations.id, OBLIGATION_ID))
 
       await expect(
-        settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+        settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
           fundingSource: 'ADMIN_PERSONAL',
           payerAdminId: ADMIN.id,
           ...FILE_RECEIPT,
@@ -500,7 +493,7 @@ describe.skipIf(!hasDatabaseUrl())(
       )
 
       await expect(
-        staleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+        staleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
           fundingSource: 'ADMIN_PERSONAL',
           payerAdminId: ADMIN.id,
           currency: 'UAH',
@@ -532,7 +525,7 @@ describe.skipIf(!hasDatabaseUrl())(
         .set({ amount: '0' })
         .where(eq(pendingObligations.id, OBLIGATION_ID))
 
-      await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN.id,
         currency: 'USDT',
@@ -594,7 +587,7 @@ describe.skipIf(!hasDatabaseUrl())(
         dateAwareNbu as NbuCurrencyService,
       )
 
-      await dateSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      await dateSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN.id,
         currency: 'UAH',

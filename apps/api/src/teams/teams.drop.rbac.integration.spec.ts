@@ -45,7 +45,7 @@ import { makeNotificationsStub } from '../notifications/__test-helpers__/notific
  *     ADMIN   → sees both teams
  *
  *   GET /api/teams/:id  (findOne):
- *     DROP_A → 200 for own team; members include SENIOR + HR + ACCOUNTANT
+ *     DROP_A → 200 for own team; members include SENIOR + HR
  *     DROP_A → 403 for foreign team (IDOR guard)
  *     DROP_B → 403 for DROP_A's team (cross-drop IDOR)
  *     ADMIN  → 200 for any team
@@ -124,21 +124,11 @@ const HR_1: SessionUser = {
   legalFullName: null,
 }
 
-const ACCOUNTANT_1: SessionUser = {
-  id: 'a9b8c7d6-e5f4-4003-aa00-000000000005',
-  email: 'drop-rbac-acc1@test.spec',
-  displayName: 'Drop RBAC Acc1',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
-
 // IDs for test DB rows (bb00 group — separate from user IDs above)
 const DROP_TEAM_A_ID = 'a9b8c7d6-e5f4-4003-bb00-000000000010'
 const DROP_TEAM_B_ID = 'a9b8c7d6-e5f4-4003-bb00-000000000011'
 
-const TEST_USER_IDS = [DROP_A.id, DROP_B.id, SENIOR_1.id, HR_1.id, ACCOUNTANT_1.id]
+const TEST_USER_IDS = [DROP_A.id, DROP_B.id, SENIOR_1.id, HR_1.id]
 const TEST_TEAM_IDS = [DROP_TEAM_A_ID, DROP_TEAM_B_ID]
 
 // ── Sentinel controller — mirrors only findAll + findOne routes ───────────────
@@ -299,18 +289,11 @@ describe.skipIf(!hasDatabaseUrl())(
             role: 'HR',
             googleId: `test-google-${HR_1.id}`,
           },
-          {
-            id: ACCOUNTANT_1.id,
-            email: ACCOUNTANT_1.email,
-            displayName: ACCOUNTANT_1.displayName,
-            role: 'ACCOUNTANT',
-            googleId: `test-google-${ACCOUNTANT_1.id}`,
-          },
         ])
         .onConflictDoNothing()
 
       // 2. Teams
-      //    Team A: drop-team for DROP_A (+ SENIOR_1 + HR_1 + ACCOUNTANT_1)
+      //    Team A: drop-team for DROP_A (+ SENIOR_1 + HR_1)
       //    Team B: drop-team for DROP_B only (no shared members)
       await db
         .insert(teams)
@@ -329,7 +312,7 @@ describe.skipIf(!hasDatabaseUrl())(
         .onConflictDoNothing()
 
       // 3. Team members
-      //    Team A: DROP_A (owner), SENIOR_1, HR_1, ACCOUNTANT_1
+      //    Team A: DROP_A (owner), SENIOR_1, HR_1
       //    Team B: DROP_B (owner)
       await db
         .insert(teamMembers)
@@ -337,7 +320,6 @@ describe.skipIf(!hasDatabaseUrl())(
           { teamId: DROP_TEAM_A_ID, userId: DROP_A.id },
           { teamId: DROP_TEAM_A_ID, userId: SENIOR_1.id },
           { teamId: DROP_TEAM_A_ID, userId: HR_1.id },
-          { teamId: DROP_TEAM_A_ID, userId: ACCOUNTANT_1.id },
           { teamId: DROP_TEAM_B_ID, userId: DROP_B.id },
         ])
         .onConflictDoNothing()
@@ -418,7 +400,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
     // ── GET /api/teams/:id — findOne RBAC ──────────────────────────────────────
 
-    it('DETAIL 5. DROP_A → 200 for own team; members include SENIOR, HR, ACCOUNTANT', async () => {
+    it('DETAIL 5. DROP_A → 200 for own team; members include SENIOR, HR', async () => {
       const res = await app.inject({
         method: 'GET',
         url: `/api/teams/${DROP_TEAM_A_ID}`,
@@ -428,12 +410,11 @@ describe.skipIf(!hasDatabaseUrl())(
       const body = res.json() as { id: string; type: string; members: Array<{ role: string }> }
       expect(body.id).toBe(DROP_TEAM_A_ID)
       expect(body.type).toBe('DROP')
-      // Members visible to DROP: self (DROP) + SENIOR + HR + ACCOUNTANT (all active, no ADMIN/JUNIOR)
+      // Members visible to DROP: self (DROP) + SENIOR + HR (all active, no ADMIN/JUNIOR)
       const roles = body.members.map((m) => m.role)
       expect(roles).toContain('DROP')
       expect(roles).toContain('SENIOR')
       expect(roles).toContain('HR')
-      expect(roles).toContain('ACCOUNTANT')
     })
 
     it('DETAIL 6. DROP_A → 403 for foreign drop-team (IDOR guard)', async () => {

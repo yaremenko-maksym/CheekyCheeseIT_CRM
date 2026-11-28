@@ -19,7 +19,7 @@
  *      obligations: SENIOR_PENDING_PAYOUT (company owes the project's
  *      senior) and DROP_PENDING_PAYOUT (company owes the bound drop) —
  *      both visible on /finance.
- *   3. ADMIN/ACCOUNTANT settles EACH obligation via the «Выплатить» UI
+ *   3. ADMIN settles EACH obligation via the «Выплатить» UI
  *      action (SettleSeniorPayoutDialog — reused verbatim for both row
  *      types since `settle-drop-btn`, a fix that landed on `main` before
  *      this PR: the earlier `task-drop-share-e2e` gap where a
@@ -451,27 +451,5 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await cleanupDropViaAPI(page, dropId)
     }
-  })
-
-  test('ACCOUNTANT gets the constrained "Счёт получателя" toggle, not the flat admin receiver Select (AC10)', async ({
-    page,
-  }) => {
-    // task-admin-income-unified (§2, ADR Q4 successor): the separate
-    // «USDT-приход» type is gone for EVERY role — ADMIN_INCOME is the only
-    // admin-income type now. ACCOUNTANT's constraint moved from "doesn't see
-    // this type" to "doesn't see the flat admin receiver Select" — the
-    // server rejects a specific-admin receiverId for this role (AC10), so
-    // the UI never offers that choice; the accountant keeps the toggle-shaped
-    // "project owner / Счёт компании" selector instead. This is a
-    // UI-rendering check, NOT a duplicate of the backend 403 guard (covered
-    // by transactions.create-accountant.rbac.integration.spec.ts AC10).
-    await loginViaApi(page, SEED_EMAILS.accountant)
-    await page.goto('/finance')
-    await page.getByTestId('finance-create-transaction-button').click()
-    const dialog = page.getByTestId('create-transaction-dialog')
-    await expect(dialog).toBeVisible()
-    await expect(dialog.getByTestId('create-transaction-type-admin_income')).toBeVisible()
-    await expect(dialog.getByTestId('admin-income-receiver-trigger')).not.toBeAttached()
-    await expect(dialog.getByTestId('create-transaction-funding-source-section')).toBeVisible()
   })
 })

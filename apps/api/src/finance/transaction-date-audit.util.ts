@@ -2,7 +2,7 @@ import type { SessionUser } from '@crm/shared'
 import { formatTransactionBusinessDate } from './transaction-date.util'
 
 /**
- * SR-809-L-3 / owner decision D-2 — "ADMIN/ACCOUNTANT may go beyond 31 days
+ * SR-809-L-3 / owner decision D-2 — "ADMIN may go beyond 31 days
  * only with a mandatory reason written to the audit log".
  *
  * This is the "written to the audit log" half. The create flows do not assemble

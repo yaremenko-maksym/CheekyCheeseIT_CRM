@@ -790,7 +790,6 @@ export class UsersService {
       teamMode: 'CREATE_NEW' | 'JOIN_DROP_TEAM'
       dropTeamId?: string
       hrIds?: string[]
-      accountantId?: string | null
     },
   ): Promise<{ teamId: string }> {
     return this.rejoinTeamSvc.rejoinTeam(seniorId, data)

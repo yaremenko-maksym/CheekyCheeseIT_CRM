@@ -42,7 +42,7 @@ export function isRegistryConflict(err: unknown): boolean {
  * A transaction "side" (sender or receiver) is an **internal company party**
  * — either the company account pool itself, or a specific ADMIN partner
  * (Максим/Константин) — whose real identity is disclosed ONLY to
- * ADMIN/ACCOUNTANT. For every other role the side is rebranded to
+ * ADMIN. For every other role the side is rebranded to
  * «CheekyCheeseIT» with the user id + displayName stripped (see the
  * `senderMasked`/`receiverMasked` branches in `mapTx`), so a
  * SENIOR/JUNIOR/DROP/HR can never learn which admin funded a payout nor

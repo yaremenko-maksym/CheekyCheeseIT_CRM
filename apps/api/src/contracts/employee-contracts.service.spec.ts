@@ -820,13 +820,6 @@ describe('EmployeeContractsService', () => {
       expect(v?.isEmpty).toBe(false)
     })
 
-    it('ACCOUNTANT: companySharePercent isEmpty=false (not applicable)', async () => {
-      const service = makeServiceForVariables('ACCOUNTANT', '{{companySharePercent}}')
-      const result = await service.getContractVariables('user-uuid')
-      const v = result.variables.find((x) => x.key === 'companySharePercent')
-      expect(v?.isEmpty).toBe(false)
-    })
-
     it('SENIOR: sharePercent isEmpty=false (has seniorSharePercent=26)', async () => {
       const service = makeServiceForVariables('SENIOR', '{{sharePercent}}')
       const result = await service.getContractVariables('user-uuid')

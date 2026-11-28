@@ -200,11 +200,11 @@ export class OnChainClaimService {
    * Before this, a release was blind: the only way to learn who owned a claim
    * was to call the release, which destroyed it. A typo therefore silently
    * freed somebody ELSE's legitimate claim — the same "act without seeing"
-   * failure this whole PR is about. ADMIN/ACCOUNTANT (the roles that already
+   * failure this whole PR is about. ADMIN (the roles that already
    * see the finance ledger) can now look first.
    */
   async inspectOnChainHash(txHash: string, currentUser: SessionUser) {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    if (currentUser.role !== 'ADMIN') {
       throw new ForbiddenException()
     }
     const normalized = normalizeOnChainTxHash(txHash)

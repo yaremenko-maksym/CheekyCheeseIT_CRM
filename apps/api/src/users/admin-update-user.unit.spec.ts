@@ -419,7 +419,7 @@ describe('UsersService.adminUpdateUser — role-escalation guard (only on an ACT
     })
   })
 
-  it.each(['HR', 'SENIOR', 'JUNIOR', 'ACCOUNTANT'] as const)(
+  it.each(['HR', 'SENIOR', 'JUNIOR'] as const)(
     'JUNIOR -> %s (a normal role change) is allowed',
     async (role) => {
       const h = makeHarness({ existing: makeUser({ role: role === 'JUNIOR' ? 'HR' : 'JUNIOR' }) })
@@ -1110,17 +1110,6 @@ describe('UsersService.adminUpdateUser — SENIOR team composition + team telegr
       h.tx,
       'target-1',
       { hrIds: [], accountantId: undefined },
-      'admin-1',
-    )
-  })
-
-  it('accountantId null (explicit clear) triggers reconcile with { hrIds: undefined, accountantId: null }', async () => {
-    const h = makeHarness(senior())
-    await edit(h, { accountantId: null }, 'admin-1')
-    expect(h.reconcileSeniorTeamTx).toHaveBeenCalledWith(
-      h.tx,
-      'target-1',
-      { hrIds: undefined, accountantId: null },
       'admin-1',
     )
   })

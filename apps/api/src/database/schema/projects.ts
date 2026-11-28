@@ -63,7 +63,7 @@ export const projects = pgTable('projects', {
   notesGeneral: varchar('notes_general', { length: 1000 }),
   // Per-project override for SENIOR's share percent (0-100). NULL = use
   // users.seniorSharePercent (global default for the senior). Editable only
-  // by ADMIN and ACCOUNTANT (enforced in projects.service.ts). Mirrors the
+  // by ADMIN (enforced in projects.service.ts). Mirrors the
   // existing project_finance_settings.seniorSharePercentOverride so the
   // existing transactions.service.ts finance flow keeps reading the same
   // effective value.
@@ -89,7 +89,7 @@ export const projects = pgTable('projects', {
   pendingSeniorSharePercentOverride: integer('pending_senior_share_percent_override'),
   // task-drop-share-override-and-receiver (Part A). Per-project override for the
   // DROP's share percent (0-100). NULL = use users.dropSharePercent (→ 5).
-  // Editable only by ADMIN/ACCOUNTANT. Resolved by resolveDropShare and
+  // Editable only by ADMIN. Resolved by resolveDropShare and
   // snapshotted onto DROP_INCOME / obligation rows. Mirror column below in
   // project_finance_settings for symmetry with the senior override.
   dropSharePercentOverride: integer('drop_share_percent_override'),
@@ -201,7 +201,7 @@ export const confirmedProjects = pgView('confirmed_projects').as((qb) =>
   qb.select().from(projects).where(CONFIRMED_PROJECTS_PREDICATE),
 )
 
-// Per-project finance overrides (ADMIN/ACCOUNTANT only)
+// Per-project finance overrides (ADMIN only)
 export const projectFinanceSettings = pgTable('project_finance_settings', {
   id: uuid('id').defaultRandom().primaryKey(),
   projectId: uuid('project_id')

@@ -14,7 +14,7 @@
  *   4. Pay/settle (PaySalaryDialog / SettleSeniorPayoutDialog) also gate on
  *      the receipt.
  *   5. The generic attach/replace endpoint (`PATCH /transactions/:id/receipt`)
- *      RBAC + status matrix: ADMIN/ACCOUNTANT any transaction; the author
+ *      RBAC + status matrix: ADMIN any transaction; the author
  *      only their own; replace after PAID is privileged-only.
  *   6. Regression: pre-existing receipt-less rows (seed data / SALARY
  *      reminders) keep rendering without error.
@@ -557,12 +557,12 @@ test.describe('Transaction receipts — pay/settle без чека → блок'
     try {
       // Plant a fresh SENIOR_PENDING_PAYOUT via the same drop-income cascade
       // used elsewhere (pending-settlement.spec.ts `plantCompanyDebt`): drop
-      // posts income (WITH a receipt — mandatory) → accountant validates →
+      // posts income (WITH a receipt — mandatory) → admin validates →
       // drop pays → cascade books the company-owes-senior IOU.
       await loginViaApi(page, dropEmail)
       const { txId: incomeTxId } = await createDropIncomeViaAPI(page, { projectId, amount: 400 })
 
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
       const { payoutRequestId } = await validateTransactionViaAPI(page, incomeTxId)
       let prId = payoutRequestId
       if (!prId) {
@@ -687,7 +687,7 @@ test.describe('Transaction receipts — attach/replace (RBAC + статусы)',
     expect(body.receiptExternalUrl).toBeTruthy()
   })
 
-  test('API: не-автор, не-ADMIN/ACCOUNTANT → 403', async ({ page }) => {
+  test('API: не-автор, не-ADMIN → 403', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     const seniorAId = await userIdByEmail(page, SEED_EMAILS.seniorA)
     const target = await findTx(
@@ -703,7 +703,7 @@ test.describe('Transaction receipts — attach/replace (RBAC + статусы)',
     expect(res.status()).toBe(403)
   })
 
-  test('API: replace после PAID — автор 403, ADMIN/ACCOUNTANT ok', async ({ page }) => {
+  test('API: replace после PAID — автор 403, ADMIN ok', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     const seniorAId = await userIdByEmail(page, SEED_EMAILS.seniorA)
     const target = await findTx(
@@ -726,13 +726,12 @@ test.describe('Transaction receipts — attach/replace (RBAC + статусы)',
     })
     expect(authorRes.status()).toBe(403)
 
-    // ACCOUNTANT (privileged) CAN replace it.
-    await loginViaApi(page, SEED_EMAILS.accountant)
-    const accountantRes = await page.request.patch(
-      `${REAL_API}/transactions/${target.id}/receipt`,
-      { data: { receiptExternalUrl: `https://etherscan.io/tx/0xaccountant${uniqueSuffix()}` } },
-    )
-    expect(accountantRes.status()).toBeLessThan(300)
+    // ADMIN (privileged) CAN replace it.
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    const adminRes = await page.request.patch(`${REAL_API}/transactions/${target.id}/receipt`, {
+      data: { receiptExternalUrl: `https://etherscan.io/tx/0xadminreplace${uniqueSuffix()}` },
+    })
+    expect(adminRes.status()).toBeLessThan(300)
   })
 
   test('API: attach к USDT-транзакции файлом → блок; explorer-ссылкой → ok', async ({ page }) => {

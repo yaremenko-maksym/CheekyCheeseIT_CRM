@@ -47,14 +47,6 @@ const juniorUser: SessionUser = {
   avatar: null,
   seniorSharePercent: 26,
 }
-const accountantUser: SessionUser = {
-  id: 'acc-1',
-  role: 'ACCOUNTANT',
-  displayName: 'Acc',
-  email: 'acc@cc.com',
-  avatar: null,
-  seniorSharePercent: 26,
-}
 
 const makeMember = (userId: string, role: string, leftAt: Date | null = null) => ({
   id: `m-${userId}`,
@@ -206,13 +198,6 @@ describe('TeamsService.findAll', () => {
     const result = await service.findAll(seniorUser)
     expect(result).toHaveLength(1)
     expect(result[0]!.id).toBe('team-1')
-  })
-
-  it('ACCOUNTANT sees all teams', async () => {
-    const teams = [makeTeam({ id: 'team-1' }), makeTeam({ id: 'team-2' })]
-    const service = makeService(makeDb({ teamList: teams }))
-    const result = await service.findAll(accountantUser)
-    expect(result).toHaveLength(2)
   })
 })
 
@@ -484,17 +469,6 @@ describe('TeamsService.removeMember', () => {
     })
   })
 
-  it('throws BadRequestException when removing the last ACCOUNTANT', async () => {
-    const team = makeTeam({ members: [makeMember('acc-1', 'ACCOUNTANT')] })
-    const service = makeService(makeDb({ team }))
-    await expect(service.removeMember('team-1', 'acc-1', adminUser)).rejects.toMatchObject({
-      response: expect.objectContaining({
-        code: 'TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE',
-        statusCode: 400,
-      }),
-    })
-  })
-
   it('throws NotFoundException when member not in team', async () => {
     const team = makeTeam({ members: [] })
     const service = makeService(makeDb({ team }))
@@ -518,7 +492,7 @@ describe('TeamsService.removeMember', () => {
 // When viewer is JUNIOR, email/phone/telegram of SENIOR and DROP members
 // must be null in the returned team shape. displayName and avatarUrl are
 // never masked (persona display).
-// HR/ACCOUNTANT members' contacts are NOT masked even for JUNIOR viewer.
+// HR members' contacts are NOT masked even for JUNIOR viewer.
 // ---------------------------------------------------------------------------
 
 const makeMemberWithContacts = (

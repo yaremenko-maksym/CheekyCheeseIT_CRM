@@ -70,14 +70,15 @@ export class TeamReconcileService {
    * transaction can commit them atomically with the user UPDATE.
    *
    * Active members (`leftAt IS NULL`) are diffed against the target sets:
-   *  - new HR/Acc -> insert team_member or restore via leftAt=NULL on existing row
-   *  - removed HR/Acc -> set leftAt=now()
+   *  - new HR -> insert team_member or restore via leftAt=NULL on existing row
+   *  - removed HR -> set leftAt=now()
+   * Rows of any other role (a legacy accountant row included) are never touched.
    * Each delta is logged into `team_audit_log`.
    */
   async reconcileSeniorTeamTx(
     tx: DrizzleTx,
     seniorId: string,
-    data: { hrIds?: string[] | undefined; accountantId?: string | null | undefined },
+    data: { hrIds?: string[] | undefined },
     actorId: string | null,
   ): Promise<void> {
     // Resolve the senior's team via team_members (teams has no seniorId column —
@@ -104,15 +105,12 @@ export class TeamReconcileService {
 
     const desiredHrIds = new Set(data.hrIds ?? [])
     const currentHrIds = new Set(activeMembers.filter((m) => m.role === 'HR').map((m) => m.userId))
-    const currentAccId = activeMembers.find((m) => m.role === 'ACCOUNTANT')?.userId ?? null
     // To add: desired but not currently active.
     const hrToAdd = [...desiredHrIds].filter((id) => !currentHrIds.has(id))
-    const accToAdd =
-      data.accountantId && data.accountantId !== currentAccId ? data.accountantId : null
     // SR-M-1 follow-up (#999): only NEWLY enrolled members are role-checked (an existing member
     // who was archived since must not block unrelated edits), and BEFORE the first write below
     // so a rejection leaves the team untouched.
-    await assertTeamStaffRoles(tx, hrToAdd, accToAdd)
+    await assertTeamStaffRoles(tx, hrToAdd)
 
     if (data.hrIds !== undefined) {
       // To remove: currently active HR not in desired set.
@@ -157,53 +155,6 @@ export class TeamReconcileService {
           },
           tx,
         )
-      }
-    }
-
-    if (data.accountantId !== undefined) {
-      const desiredId = data.accountantId ?? null
-      const currentId = currentAccId
-
-      if (currentId !== desiredId) {
-        if (currentId) {
-          await tx
-            .update(teamMembers)
-            .set({ leftAt: now })
-            .where(
-              and(
-                eq(teamMembers.teamId, teamId),
-                eq(teamMembers.userId, currentId),
-                isNull(teamMembers.leftAt),
-              ),
-            )
-          await this.teamAuditLogService.record(
-            {
-              actorId,
-              targetId: teamId,
-              action: 'team_member_removed',
-              changes: {
-                userId: { before: currentId, after: null },
-                role: { before: 'ACCOUNTANT', after: null },
-              },
-            },
-            tx,
-          )
-        }
-        if (desiredId) {
-          await this.upsertTeamMemberTx(tx, teamId, desiredId)
-          await this.teamAuditLogService.record(
-            {
-              actorId,
-              targetId: teamId,
-              action: 'team_member_added',
-              changes: {
-                userId: { before: null, after: desiredId },
-                role: { before: null, after: 'ACCOUNTANT' },
-              },
-            },
-            tx,
-          )
-        }
       }
     }
   }

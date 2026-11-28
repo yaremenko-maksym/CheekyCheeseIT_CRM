@@ -19,10 +19,10 @@ import { transactions, users, visibleProjects } from '../database/schema'
  * their active project count (N), plus the list of projects WITHOUT a counted
  * income for the expand drawer. Sorted laggards-first.
  *
- * RBAC: ADMIN + ACCOUNTANT ONLY. Defense-in-depth — the controller's @Roles
+ * RBAC: ADMIN ONLY. Defense-in-depth — the controller's @Roles
  * gate runs first, and this service-side check throws 403 too (kept
  * intentionally, never replaced; same belt-and-suspenders as
- * getAccountantSummary / getSeniorSummary). Because this aggregates MANY
+ * getSeniorSummary). Because this aggregates MANY
  * receivers' figures, it must never reach a SENIOR / JUNIOR / HR / DROP. The
  * SET of receivers is derived SOLELY from active-project ownership
  * (`seniorId`/`dropId`) — task-compliance-overview-pending-types (AC3) keeps
@@ -69,12 +69,12 @@ export async function getIncomeComplianceOverview(
   currentUser: SessionUser,
   month?: string,
 ): Promise<IncomeComplianceOverviewDto> {
-  if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+  if (currentUser.role !== 'ADMIN') {
     throw apiError('FINANCE_INCOME_COMPLIANCE_FORBIDDEN', HttpStatus.FORBIDDEN)
   }
 
   // ── Resolve the target month window [monthStart, nextMonthStart) in UTC ────
-  // Consistent with getAccountantSummary / getSeniorSummary (all UTC). When a
+  // Consistent with getSeniorSummary (all UTC). When a
   // `month` is given it is already validated as YYYY-MM by the controller's Zod
   // schema; default = current UTC month.
   const now = new Date()

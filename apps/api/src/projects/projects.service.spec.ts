@@ -8,7 +8,7 @@
  *  - HR PATCH с другими полями (БЕЗ override) → 200, поле projects не трогается
  *  - ADMIN PATCH со `seniorSharePercentOverride: 30` → 200, projects.* и
  *    project_finance_settings синхронизированы
- *  - ACCOUNTANT PATCH со `seniorSharePercentOverride: 35` → 200, синхронизация
+ *  - accountant PATCH со `seniorSharePercentOverride: 35` → 200, синхронизация
  *  - ADMIN PATCH со `seniorSharePercentOverride: null` → projects.* = null,
  *    project_finance_settings.seniorSharePercentOverride = null
  *  - mapProject возвращает seniorSharePercentDefault = senior.seniorSharePercent
@@ -42,15 +42,6 @@ const hrUser: SessionUser = {
   role: 'HR',
   displayName: 'HR',
   email: 'h@x.com',
-  avatarUrl: null,
-  avatarDocumentId: null,
-  seniorSharePercent: 26,
-}
-const accountantUser: SessionUser = {
-  id: 'acc-1',
-  role: 'ACCOUNTANT',
-  displayName: 'Acc',
-  email: 'ac@x.com',
   avatarUrl: null,
   avatarDocumentId: null,
   seniorSharePercent: 26,
@@ -331,7 +322,7 @@ describe('ProjectsService.update — seniorSharePercentOverride RBAC', () => {
   })
 
   // task-pending-share follow-up (AC9 mutation-gate gap-fill, 2026-09-03):
-  // an ADMIN/ACCOUNTANT PATCH that OMITS seniorSharePercentOverride entirely
+  // an ADMIN PATCH that OMITS seniorSharePercentOverride entirely
   // must not propose ANYTHING — distinct from the HR test above, which never
   // reaches this branch at all (HR is rejected earlier, by RBAC, before
   // `overrideEffective` is even consulted). A mutant that forces just the
@@ -381,28 +372,6 @@ describe('ProjectsService.update — seniorSharePercentOverride RBAC', () => {
     expect(h.getFinanceInsertCount()).toBe(0)
     expect(h.getFinanceUpdateCount()).toBe(0)
     expect(h.auditRecord).not.toHaveBeenCalled()
-  })
-
-  it('allows ACCOUNTANT PATCH with seniorSharePercentOverride: 35 (only override) — opens a proposal', async () => {
-    const h = buildHarness()
-    await h.service.update('proj-1', { seniorSharePercentOverride: 35 }, accountantUser)
-    expect(h.projectRow.seniorSharePercentOverride).toBeNull()
-    expect(h.projectRow.pendingSeniorSharePercentOverride).toBe(35)
-    expect(h.approvals.proposeInTx).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ proposedByUserId: accountantUser.id }),
-    )
-  })
-
-  it('rejects ACCOUNTANT PATCH that also touches other fields (cannot piggyback edits)', async () => {
-    const h = buildHarness()
-    // Not a migrated code — `hasOnlyOverride` still throws a bare
-    // `new ForbiddenException()` (no message/code at all), a separate
-    // throw-site from the field-scoped RBAC checks above it. Out of this
-    // task's discovery grep by construction (no literal to migrate).
-    await expect(
-      h.service.update('proj-1', { seniorSharePercentOverride: 35, rate: 9999 }, accountantUser),
-    ).rejects.toThrow(ForbiddenException)
   })
 
   it('allows ADMIN PATCH with seniorSharePercentOverride: null (reset) — proposes clearing, live column untouched', async () => {
@@ -468,7 +437,7 @@ describe('ProjectsService.update — seniorSharePercentOverride RBAC', () => {
 
 // ---------------------------------------------------------------------------
 // task-drop-share-override-and-receiver (AC6): field-scoped RBAC for
-// dropSharePercentOverride + paymentType — only ADMIN/ACCOUNTANT may send them.
+// dropSharePercentOverride + paymentType — only ADMIN may send them.
 // ---------------------------------------------------------------------------
 describe('ProjectsService.update — dropSharePercentOverride + paymentType field-scoped RBAC', () => {
   it('rejects HR PATCH with dropSharePercentOverride → ForbiddenException', async () => {
@@ -527,18 +496,6 @@ describe('ProjectsService.update — dropSharePercentOverride + paymentType fiel
     )
   })
 
-  it('allows ACCOUNTANT PATCH with ONLY dropSharePercentOverride (finance-scoped) — persists', async () => {
-    const h = buildHarness()
-    await h.service.update('proj-1', { dropSharePercentOverride: 18 }, accountantUser)
-    expect(h.projectRow.dropSharePercentOverride).toBe(18)
-  })
-
-  it('allows ACCOUNTANT PATCH with ONLY paymentType (finance-scoped) — persists valid enum', async () => {
-    const h = buildHarness()
-    await h.service.update('proj-1', { paymentType: 'USDT' }, accountantUser)
-    expect(h.projectRow.paymentType).toBe('USDT')
-  })
-
   it('allows ADMIN PATCH with paymentType: GIG_CONTRACT — persists', async () => {
     const h = buildHarness()
     await h.service.update('proj-1', { paymentType: 'GIG_CONTRACT' }, adminUser)
@@ -550,15 +507,6 @@ describe('ProjectsService.update — dropSharePercentOverride + paymentType fiel
     await expect(
       h.service.update('proj-1', { paymentType: 'Crypto USDT' }, adminUser),
     ).rejects.toThrow()
-  })
-
-  it('rejects ACCOUNTANT PATCH that piggybacks a non-finance field (dropSharePercentOverride + rate)', async () => {
-    const h = buildHarness()
-    // Not a migrated code — same bare `new ForbiddenException()` as the
-    // senior-override piggyback test above.
-    await expect(
-      h.service.update('proj-1', { dropSharePercentOverride: 18, rate: 9999 }, accountantUser),
-    ).rejects.toThrow(ForbiddenException)
   })
 })
 
@@ -635,26 +583,6 @@ describe('ProjectsService.update — DTO mapping', () => {
       approverId: 'senior-1',
       approverName: 'Senior One',
     })
-  })
-
-  // task-648-fix-round-1 (QA-HIGH-1/QA-MED-2): ACCOUNTANT sees the ACTIVE
-  // override (payroll need-to-know — asserted by the sibling ACCOUNTANT PATCH
-  // test above in this file) but must not learn a change is even proposed.
-  it('pendingSeniorShare is null for an ACCOUNTANT viewer, even while a proposal is PENDING', async () => {
-    const h = buildHarness()
-    h.approvals.getStatus.mockResolvedValue('PENDING')
-    // ACCOUNTANT may only PATCH finance-scoped fields (RBAC above) — using
-    // one here so the PATCH itself succeeds; the response is built through
-    // the SAME `mapProject` this whole describe block tests, without
-    // needing `findOne`'s extra `computeEffectiveTeam` call (this file's
-    // harness does not mock `db.db.query.teamMembers`, only `update()`'s
-    // narrower read path).
-    const result = await h.service.update(
-      'proj-1',
-      { seniorSharePercentOverride: 30 },
-      accountantUser,
-    )
-    expect((result as { pendingSeniorShare: unknown }).pendingSeniorShare).toBeNull()
   })
 
   // task-648-fix-round-1 (QA-MED-2): HR sees the ACTIVE override (RBAC
@@ -1023,17 +951,6 @@ describe('ProjectsService.update — HR cross-team IDOR protection', () => {
     await expect(service.update('proj-target', { rate: 5000 }, adminUser)).resolves.not.toThrow()
   })
 
-  it('ACCOUNTANT can update override on any project → resolves', async () => {
-    const { service } = buildHrScopingHarness({
-      hrId: HR_A_ID,
-      hrSeniorIds: [SENIOR_A_ID],
-      projectSeniorId: SENIOR_B_ID,
-    })
-    await expect(
-      service.update('proj-target', { seniorSharePercentOverride: 30 }, accountantUser),
-    ).resolves.not.toThrow()
-  })
-
   it('HR in scope only through the drop cannot move the project to a foreign drop → 403', async () => {
     const h = buildHrScopingHarness({
       hrId: HR_A_ID,
@@ -1376,7 +1293,7 @@ describe('ProjectsService — not-found / row-state guards (mutation-gate closur
     })
   })
 
-  it('addMember: PROJECT_MEMBER_ROLE_RESTRICTED for a role outside JUNIOR/HR/ACCOUNTANT', async () => {
+  it('addMember: PROJECT_MEMBER_ROLE_RESTRICTED for a role outside JUNIOR/HR', async () => {
     const projectRow = { id: 'proj-1', seniorId: 'senior-1', senior: null, drop: null, members: [] }
     const seniorAsMember = { id: 'user-1', role: 'SENIOR', archivedAt: null }
     const service = makeMinimalService({

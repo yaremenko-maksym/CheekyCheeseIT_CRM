@@ -74,13 +74,6 @@ describe('InvoiceQueryService.listInvoices — compiled query', () => {
     expect(rec.ordered).toBe(true)
   })
 
-  it('ACCOUNTANT is unscoped like ADMIN', async () => {
-    const { svc, rec } = makeDb([])
-    await svc.listInvoices(viewer('ACCOUNTANT'), {})
-    const q = compile(rec.where!)
-    expect(q.params).toEqual(['SENIOR_INCOME', 'SALARY', 'PAYOUT'])
-  })
-
   it.each(['SENIOR', 'JUNIOR', 'HR'] as const)(
     '%s is scoped to own invoices (receiver for income/salary, sender for payout)',
     async (role) => {

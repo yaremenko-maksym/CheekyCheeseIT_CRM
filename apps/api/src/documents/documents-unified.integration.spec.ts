@@ -23,6 +23,7 @@ import {
   employeeContracts,
   invoiceSignatures,
   transactions,
+  users,
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
@@ -40,7 +41,6 @@ import { resolveTransactionDate } from '../finance/transaction-date.util'
  * WHAT it covers (PR-2 AC1):
  *   1. ADMIN sees ALL users' non-CANCELLED employee_contract virtual entries
  *   2. SENIOR sees only own employee_contract virtual entry
- *   3. ACCOUNTANT sees only non-CANCELLED contract for themselves (if any)
  *   4. INVOICE file rows carry statusBadge {kind:'invoice', state:'ready'/'signed'}
  *      derived from invoice_signatures completeness
  *   5. RECEIPT file rows carry statusBadge {kind:'receipt', state} derived from
@@ -59,7 +59,6 @@ import { resolveTransactionDate } from '../finance/transaction-date.util'
  *   - ADMIN:       yaremenkomaksym99@gmail.com  (a8f4d3b1-...)
  *   - SENIOR:      artem.kravchenko             (d8f9e0b1-...) SIGNED contract
  *   - SENIOR 2:    dmytro.marchenko             (d2f3e4b5-...) READY_TO_SIGN contract
- *   - ACCOUNTANT:  mykola.savchenko             (c7e8d9a0-...)
  *
  * SETUP: creates temporary documents + transactions + invoice_signatures rows
  * in beforeAll, tagged with a unique run-id. Cleans up in afterAll.
@@ -108,17 +107,6 @@ const DMYTRO: SessionUser = {
   role: 'SENIOR',
   seniorSharePercent: 26,
   legalFullName: 'Марченко Дмитро Олексійович',
-}
-
-/** ACCOUNTANT */
-const ACCOUNTANT: SessionUser = {
-  id: 'c7e8d9a0-b1c2-4d3e-8f5a-6b7c8d9e0fbb',
-  email: 'mykola.savchenko@cheekycheese.dev',
-  displayName: 'Mykola Savchenko',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 26,
-  legalFullName: null,
 }
 
 // ---------------------------------------------------------------------------
@@ -612,7 +600,7 @@ describe.skipIf(!hasDatabaseUrl())('PR-2 documents unified list — real backend
     expect(virtualEntries.length).toBeGreaterThan(0)
   })
 
-  // ── 9. ACCOUNTANT: 401 without JWT ──────────────────────────────────────
+  // ── 9. 401 without JWT ───────────────────────────────────────────────────────────────────────────
 
   it('9. Unauthenticated request → 401', async () => {
     const res = await app.inject({
@@ -621,23 +609,6 @@ describe.skipIf(!hasDatabaseUrl())('PR-2 documents unified list — real backend
     })
 
     expect(res.statusCode).toBe(401)
-  })
-
-  // ── 10. ACCOUNTANT can list (no access restriction on list) ──────────────
-
-  it('10. ACCOUNTANT: GET /api/documents returns 200 (no restriction on list)', async () => {
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/documents',
-      cookies: { jwt: tokenFor(ACCOUNTANT) },
-    })
-
-    // ACCOUNTANT has no employee_contract (only SENIOR/JUNIOR/HR/ACCOUNTANT-role users
-    // may have contracts — in seed data only SENIORs/JUNIORs do).
-    // Just verify the endpoint returns 200 and is an array.
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as DocumentDto[]
-    expect(Array.isArray(body)).toBe(true)
   })
 
   // ── 11–12. DRAFT contract visibility: ADMIN sees DRAFT, non-ADMIN does not ─
@@ -1018,5 +989,118 @@ describe.skipIf(!hasDatabaseUrl())(
       // Sanity: at least one entry returned (proves we self-scoped, not zeroed out).
       expect(body.length).toBeGreaterThan(0)
     })
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Upload role set for RESUME / SCAN (PR 1b SPEC-M-1) — real DocumentsService +
+// real Postgres. The check is an allowlist in the service body
+// (assertCanUpload), not a @Roles decorator, so only a call through the
+// service proves the set: ADMIN / HR / SENIOR may upload for another owner,
+// JUNIOR / DROP only for themselves, any other role (a retired one included)
+// is refused before a row is written. Own users, own rows, removed in afterAll.
+// ---------------------------------------------------------------------------
+
+const UPLOAD_TAG = `upload-role-set-spec-${Date.now()}`
+const uploadPersona = (n: number, role: SessionUser['role']): SessionUser => ({
+  ...ADMIN,
+  id: `f0c10000-0000-4000-aa00-00000000000${n}`,
+  email: `${UPLOAD_TAG}-${n}@example.test`,
+  displayName: `${UPLOAD_TAG} ${role}`,
+  role,
+})
+const UP_ADMIN = uploadPersona(1, 'ADMIN')
+const UP_HR = uploadPersona(2, 'HR')
+const UP_SENIOR = uploadPersona(3, 'SENIOR')
+const UP_JUNIOR = uploadPersona(4, 'JUNIOR')
+const UP_DROP = uploadPersona(5, 'DROP')
+const UP_OWNER = uploadPersona(6, 'SENIOR')
+// A role outside the allowlist (a retired one included), passed to upload() as the actor's role.
+const UP_UNKNOWN: SessionUser = { ...uploadPersona(7, 'SENIOR'), role: 'X' as SessionUser['role'] }
+const UP_USERS = [UP_ADMIN, UP_HR, UP_SENIOR, UP_JUNIOR, UP_DROP, UP_OWNER, UP_UNKNOWN]
+const UP_IDS = UP_USERS.map((u) => u.id)
+const PDF_FILE = {
+  buffer: Buffer.from('%PDF-1.4\n%upload-role-set\n'),
+  mimetype: 'application/pdf',
+  originalname: 'role-set.pdf',
+}
+const refused = (code: string) => ({ response: { code, statusCode: 403 } })
+
+describe.skipIf(!hasDatabaseUrl())(
+  'RESUME / SCAN upload role set — real-Postgres integration',
+  () => {
+    let app: NestFastifyApplication
+    let svc: DocumentsService
+    let db: DatabaseService['db']
+
+    beforeAll(async () => {
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        await probePool.end()
+      } catch {
+        throw new Error('[upload-role-set integration] FAILED — no DB reachable at DATABASE_URL')
+      }
+      const moduleRef = await Test.createTestingModule({
+        imports: [DocumentsUnifiedTestModule],
+      }).compile()
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.init()
+      svc = moduleRef.get(DocumentsService)
+      db = moduleRef.get(DatabaseService).db
+      // FK targets for owner_id / uploaded_by. upload() reads actor.role, never the DB row role.
+      await db
+        .insert(users)
+        .values(UP_USERS.map((u) => ({ id: u.id, email: u.email, displayName: u.displayName })))
+        .onConflictDoNothing()
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        await db.delete(documents).where(inArray(documents.uploadedBy, UP_IDS))
+        await db.delete(documents).where(inArray(documents.ownerId, UP_IDS))
+        await db.delete(users).where(inArray(users.id, UP_IDS))
+      } finally {
+        await app.close()
+      }
+    }, 15_000)
+
+    const rowsUploadedBy = async (actorId: string): Promise<number> =>
+      (
+        await db
+          .select({ id: documents.id })
+          .from(documents)
+          .where(eq(documents.uploadedBy, actorId))
+      ).length
+
+    for (const category of ['RESUME', 'SCAN'] as const) {
+      it(`${category}: ADMIN / HR / SENIOR upload for another owner`, async () => {
+        for (const actor of [UP_ADMIN, UP_HR, UP_SENIOR]) {
+          const doc = await svc.upload(actor, PDF_FILE, { category, ownerId: UP_OWNER.id })
+          expect(doc.ownerId).toBe(UP_OWNER.id)
+          expect(doc.category).toBe(category)
+        }
+      })
+
+      it(`${category}: JUNIOR / DROP upload for themselves only`, async () => {
+        for (const actor of [UP_JUNIOR, UP_DROP]) {
+          const own = await svc.upload(actor, PDF_FILE, { category })
+          expect(own.ownerId).toBe(actor.id)
+          await expect(
+            svc.upload(actor, PDF_FILE, { category, ownerId: UP_OWNER.id }),
+          ).rejects.toMatchObject(refused('DOCUMENT_UPLOAD_SELF_ONLY'))
+        }
+      })
+
+      it(`${category}: an unknown role is refused and writes no row`, async () => {
+        await expect(svc.upload(UP_UNKNOWN, PDF_FILE, { category })).rejects.toMatchObject(
+          refused('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN'),
+        )
+        await expect(
+          svc.upload(UP_UNKNOWN, PDF_FILE, { category, ownerId: UP_OWNER.id }),
+        ).rejects.toMatchObject(refused('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN'))
+        expect(await rowsUploadedBy(UP_UNKNOWN.id)).toBe(0)
+      })
+    }
   },
 )

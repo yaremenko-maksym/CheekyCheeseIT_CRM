@@ -11,7 +11,6 @@ export const IVAN_ID = 'e3a4f5c6-d7e8-4f9a-8b1c-2d3e4f5a6b77'
 export const SOFIA_ID = 'f4b5a6d7-e8f9-4a0b-9c2d-3e4f5a6b7c88'
 export const ANNA_ID = 'a5c6b7e8-f9a0-4b1c-ad3e-4f5a6b7c8d99'
 export const KATERYNA_ID = 'b6d7c8f9-a0b1-4c2d-be4f-5a6b7c8d9eaa'
-export const MYKOLA_ID = 'c7e8d9a0-b1c2-4d3e-8f5a-6b7c8d9e0fbb'
 // Additional users
 export const ARTEM_ID = 'd8f9e0b1-c2d3-4e4f-9a6b-7c8d9e0f1acc'
 export const NAZAR_ID = 'e9a0f1c2-d3e4-4f5a-ab7c-8d9e0f1a2bdd'

@@ -215,16 +215,16 @@ describe('«вас добавили в команду» и «в команде �
       members: [
         { id: 'm-1', userId: 'ghost-1', role: null, leftAt: null },
         { id: 'm-2', userId: 'senior-1', role: 'SENIOR', leftAt: null },
-        { id: 'm-3', userId: 'acc-1', role: 'ACCOUNTANT', leftAt: null },
+        { id: 'm-3', userId: 'hr-2', role: 'HR', leftAt: null },
       ],
       addedUser: { id: 'junior-1', role: 'JUNIOR', displayName: 'Пётр Джунов' },
     })
 
     await h.svc.addMember('team-1', 'junior-1', ADMIN)
 
-    // Рассылка при этом НЕ падает и не схлопывается: бухгалтер узнаёт, сам
+    // Рассылка при этом НЕ падает и не схлопывается: HR узнаёт, сам
     // добавленный узнаёт. Молчат только те, кому имя джуна не положено.
-    expect(h.created.map((c) => c['userId'])).toEqual(['junior-1', 'acc-1'])
+    expect(h.created.map((c) => c['userId'])).toEqual(['junior-1', 'hr-2'])
     const names = h.created.map((c) => JSON.stringify(c['data']))
     expect(names.filter((n) => n.includes('Пётр Джунов'))).toHaveLength(1)
   })
@@ -274,19 +274,19 @@ describe('«вас добавили в команду» и «в команде �
   // Раскрытие. `mapTeam` прячет джунов от синьора целиком, а от другого джуна —
   // всех, кроме него самого. Колокольчик обязан подчиняться тому же контуру:
   // иначе он рассказывал бы то, что экран прячет.
-  it('о новом ДЖУНЕ не узнаёт ни синьор, ни другой джун — а бухгалтер узнаёт', async () => {
+  it('о новом ДЖУНЕ не узнаёт ни синьор, ни другой джун — а HR узнаёт', async () => {
     const h = makeHarness({
       members: [
         { id: 'm-1', userId: 'senior-1', role: 'SENIOR', leftAt: null },
         { id: 'm-2', userId: 'junior-2', role: 'JUNIOR', leftAt: null },
-        { id: 'm-3', userId: 'acc-1', role: 'ACCOUNTANT', leftAt: null },
+        { id: 'm-3', userId: 'hr-2', role: 'HR', leftAt: null },
       ],
       addedUser: { id: 'junior-1', role: 'JUNIOR', displayName: 'Пётр Иванов' },
     })
 
     await h.svc.addMember('team-1', 'junior-1', ADMIN)
 
-    expect(h.created.map((c) => c['userId'])).toEqual(['junior-1', 'acc-1'])
+    expect(h.created.map((c) => c['userId'])).toEqual(['junior-1', 'hr-2'])
   })
 
   it('о новом синьоре джун узнаёт — его личность экран и так показывает', async () => {

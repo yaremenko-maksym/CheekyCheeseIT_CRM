@@ -24,7 +24,7 @@ function codeOf(fn: () => void): { code: unknown; status: number } | null {
 }
 
 describe('assertCanAddMember', () => {
-  it.each(['JUNIOR', 'HR', 'ACCOUNTANT'])('allows active %s', (role) => {
+  it.each(['JUNIOR', 'HR'])('allows active %s', (role) => {
     expect(codeOf(() => assertCanAddMember({ archivedAt: null, role }))).toBeNull()
   })
 
@@ -79,7 +79,7 @@ describe('assertNoActiveJunior', () => {
 
 describe('assertCanRemoveMember', () => {
   const hr = (leftAt: Date | null): MemberRowSlice => ({ leftAt, user: { role: 'HR' } })
-  const acc = (leftAt: Date | null): MemberRowSlice => ({ leftAt, user: { role: 'ACCOUNTANT' } })
+  const jun = (leftAt: Date | null): MemberRowSlice => ({ leftAt, user: { role: 'JUNIOR' } })
 
   it('rejects removing the last active HR', () => {
     expect(codeOf(() => assertCanRemoveMember({ role: 'HR' }, [hr(null), hr(D)]))).toEqual({
@@ -88,19 +88,13 @@ describe('assertCanRemoveMember', () => {
     })
   })
 
-  it('rejects removing the last active ACCOUNTANT', () => {
-    expect(codeOf(() => assertCanRemoveMember({ role: 'ACCOUNTANT' }, [acc(null)]))?.code).toBe(
-      'CANNOT_REMOVE_LAST_ROLE_MEMBER',
-    )
-  })
-
   it('allows removal when a second active of the same role exists', () => {
     expect(codeOf(() => assertCanRemoveMember({ role: 'HR' }, [hr(null), hr(null)]))).toBeNull()
   })
 
   it('counts only the same role (other-role actives do not rescue)', () => {
     expect(
-      codeOf(() => assertCanRemoveMember({ role: 'HR' }, [hr(null), acc(null), acc(null)]))?.code,
+      codeOf(() => assertCanRemoveMember({ role: 'HR' }, [hr(null), jun(null), jun(null)]))?.code,
     ).toBe('CANNOT_REMOVE_LAST_ROLE_MEMBER')
   })
 

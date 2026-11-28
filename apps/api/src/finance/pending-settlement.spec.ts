@@ -9,7 +9,7 @@
  *     row IN PLACE (SENIOR_PENDING_PAYOUT → SENIOR_INCOME, status → PAID) +
  *     triggers invoice auto-create. NO second transaction is inserted (the
  *     phantom bug fixed by ADR 2026-07-14).
- *   - settleByCompany RBAC: ADMIN/ACCOUNTANT only; DROP → 403, SENIOR → 403.
+ *   - settleByCompany RBAC: ADMIN only; DROP → 403, SENIOR → 403.
  *   - settleByDrop / listDropObligations removed — no tests for them.
  *   - Edge: already-settled obligation → 400; non-existent obligation → 404.
  */
@@ -50,10 +50,10 @@ const seniorUser: SessionUser = {
   avatarDocumentId: null,
   seniorSharePercent: 26,
 }
-const accountantUser: SessionUser = {
-  id: 'acc-1',
-  role: 'ACCOUNTANT',
-  displayName: 'Accountant',
+const settlerAdmin: SessionUser = {
+  id: 'settler-1',
+  role: 'ADMIN',
+  displayName: 'Settler',
   email: 'a@x.com',
   avatarUrl: null,
   avatarDocumentId: null,
@@ -601,7 +601,7 @@ function makeService(initial: Partial<MockState> = {}) {
 describe('PendingSettlementService.settleByCompany', () => {
   it('closes COMPANY obligation by flipping the source IOU to SENIOR_INCOME in place (no second tx)', async () => {
     const { svc, getInsertsFor, getUpdatesFor, getFlips, settledTx, state } = makeService()
-    const result = await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+    const result = await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)
 
     // task-settle-in-place: NO second transaction is inserted — the money write
     // is an in-place flip of the source IOU row.
@@ -675,7 +675,7 @@ describe('PendingSettlementService.settleByCompany', () => {
     const { svc } = makeService({
       obligations: new Map([[OBLIGATION_COMPANY, makeObligation({ payoutRequestId: REQUEST_ID })]]),
     })
-    const result = await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+    const result = await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)
     expect(result.obligation.payoutRequestId).toBe(REQUEST_ID)
   })
 
@@ -697,7 +697,7 @@ describe('PendingSettlementService.settleByCompany', () => {
       // 1st read = loadObligation (real); 2nd read = post-commit read-back (gone).
       return reads === 1 ? baseFindFirst(args) : undefined
     }
-    const result = await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+    const result = await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)
     expect(reads).toBe(2)
     expect(result.obligation.id).toBe(OBLIGATION_COMPANY)
     expect(result.obligation.status).toBe('PAID')
@@ -705,7 +705,7 @@ describe('PendingSettlementService.settleByCompany', () => {
 
   it('triggers invoice auto-create on the flipped SENIOR_INCOME row (self id)', async () => {
     const { svc, state } = makeService()
-    await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+    await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)
     expect(state.invoiceCalls).toHaveLength(1)
     // The invoice fires on the flipped row — which reuses the source IOU id.
     expect(state.invoiceCalls[0]).toBe(SOURCE_TX_ID)
@@ -730,11 +730,11 @@ describe('PendingSettlementService.settleByCompany', () => {
     const { svc, getInsertsFor, getUpdatesFor, getFlips, state } = makeService()
 
     // First settle succeeds: one flip, one PAID obligation flip.
-    await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+    await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)
 
     // Second settle of the SAME obligation must be rejected (already closed) and
     // must NOT flip a second time or debit the company again.
-    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toMatchObject({
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).rejects.toMatchObject({
       response: { code: 'FINANCE_OBLIGATION_ALREADY_CLOSED', statusCode: 400 },
     })
 
@@ -786,7 +786,7 @@ describe('PendingSettlementService.settleByCompany', () => {
       return baseFindFirst(args)
     }
 
-    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toMatchObject({
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).rejects.toMatchObject({
       response: { code: 'FINANCE_OBLIGATION_ALREADY_CLOSED', statusCode: 400 },
     })
     // Transaction aborted: no flip and no insert → no double payout.
@@ -814,7 +814,7 @@ describe('PendingSettlementService.settleByCompany', () => {
       ]),
     })
 
-    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toMatchObject({
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).rejects.toMatchObject({
       response: { code: 'FINANCE_OBLIGATION_CLOSE_SOURCE_NOT_PENDING', statusCode: 400 },
     })
     // The flip's own status-guarded UPDATE matched zero rows → no flip recorded,
@@ -844,7 +844,7 @@ describe('PendingSettlementService.settleByCompany', () => {
       // in the transactions table — resolveSource's `if (!source)` branch.
       sourceTxs: new Map(),
     })
-    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toMatchObject({
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).rejects.toMatchObject({
       response: { statusCode: 400 },
     })
     // The flip can never find a row to match — no flip, no insert.
@@ -856,7 +856,7 @@ describe('PendingSettlementService.settleByCompany', () => {
     // task-drop-payout-company-account: the company-account debit gate refuses to
     // drive the balance negative. Obligation is 560; balance only 100.
     const { svc, getFlips } = makeService({ companyBalance: 100 })
-    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toMatchObject({
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).rejects.toMatchObject({
       response: { code: 'FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS', statusCode: 400 },
     })
     // Nothing flipped when the gate fails.
@@ -887,7 +887,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         companyBalance: 200,
         staleLoadAmount: '100',
       })
-      await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+      await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).rejects.toThrow(
         /changed after loading/,
       )
       // Nothing money-mutating ran: no flip, and the ledger gate's own
@@ -901,7 +901,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         companyBalance: 1_000_000,
         staleLoadAmount: '999',
       })
-      await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+      await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).rejects.toThrow(
         /changed after loading/,
       )
       expect(getFlips()).toHaveLength(0)
@@ -909,7 +909,7 @@ describe('PendingSettlementService.settleByCompany', () => {
 
     it('an UNCHANGED amount (staleLoadAmount identical to the real one) settles normally — no false positive', async () => {
       const { svc, getFlips } = makeService({ staleLoadAmount: '560' })
-      await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).resolves.toBeDefined()
+      await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).resolves.toBeDefined()
       expect(getFlips()).toHaveLength(1)
     })
 
@@ -920,7 +920,7 @@ describe('PendingSettlementService.settleByCompany', () => {
     // invisible to them by construction; this asserts the ARGUMENT itself).
     it('the conditional claim selects BOTH id and amount in its own .returning(...) — not just id', async () => {
       const { svc, getObligationReturningArg } = makeService()
-      await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+      await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)
       const arg = getObligationReturningArg() as Record<string, unknown>
       expect(Object.keys(arg).sort()).toEqual(['amount', 'id'])
     })
@@ -928,7 +928,7 @@ describe('PendingSettlementService.settleByCompany', () => {
     it('ADMIN_PERSONAL funding (no balance gate at all) still catches the SAME race — the check runs unconditionally, not only inside the gate branch', async () => {
       const { svc, getFlips } = makeService({ staleLoadAmount: '1' })
       await expect(
-        svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+        svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin, {
           fundingSource: 'ADMIN_PERSONAL',
           payerAdminId: ADMIN_PAYER_ID,
           receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
@@ -978,7 +978,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         [OBLIGATION_COMPANY, makeObligation({ debtorType: 'TOV', debtorUserId: null })],
       ]),
     })
-    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toMatchObject({
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).rejects.toMatchObject({
       response: { code: 'FINANCE_OBLIGATION_NOT_COMPANY_TYPE', statusCode: 400 },
     })
   })
@@ -987,14 +987,14 @@ describe('PendingSettlementService.settleByCompany', () => {
     const { svc } = makeService({
       obligations: new Map([[OBLIGATION_COMPANY, makeObligation({ status: 'PAID' })]]),
     })
-    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toMatchObject({
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).rejects.toMatchObject({
       response: { code: 'FINANCE_OBLIGATION_ALREADY_CLOSED', statusCode: 400 },
     })
   })
 
   it('obligation not found → 404', async () => {
     const { svc } = makeService({ obligations: new Map() })
-    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toMatchObject({
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).rejects.toMatchObject({
       response: { code: 'FINANCE_OBLIGATION_NOT_FOUND', statusCode: 404 },
     })
   })
@@ -1007,7 +1007,7 @@ describe('PendingSettlementService.settleByCompany', () => {
   describe('settled-amount snapshot (task-settled-amount-snapshot)', () => {
     it('AC4/AC5: first-time settle stamps settled_amount = obligation amount, settled_currency = the settle currency, settled_share_percent = the snapshot that was just nulled', async () => {
       const { svc, getFlips } = makeService()
-      await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+      await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)
       const flip = getFlips()[0]!
       // Obligation amount is '560', settled from a NULL prior (first-ever
       // settle of this row) — the accumulator starts at 0 + 560.
@@ -1025,7 +1025,7 @@ describe('PendingSettlementService.settleByCompany', () => {
       const { svc, state } = makeService()
 
       // Step 1: settle the full 560 obligation.
-      await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+      await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)
       const afterFirst = state.sourceTxs.get(SOURCE_TX_ID)!
       expect(afterFirst['settledAmount']).toBe('560.000000')
 
@@ -1059,7 +1059,7 @@ describe('PendingSettlementService.settleByCompany', () => {
       state.ledgerSelectCount = 0
 
       // Step 3: the top-up. Only the DIFFERENCE is owed — 680 − 560 = 120.
-      await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+      await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)
       const afterSecond = state.sourceTxs.get(SOURCE_TX_ID)!
 
       // The accumulator must be the SUM of both settles (560 + 120 = 680),
@@ -1083,7 +1083,7 @@ describe('PendingSettlementService.settleByCompany', () => {
       const { svc, state } = makeService()
 
       // Step 1: settle in USDT (COMPANY_ACCOUNT default).
-      await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+      await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)
       const afterFirst = state.sourceTxs.get(SOURCE_TX_ID)!
       expect(afterFirst['settledCurrency']).toBe('USDT')
 
@@ -1108,7 +1108,7 @@ describe('PendingSettlementService.settleByCompany', () => {
       // MED-1 guard must refuse it. Pin the actual message content (not just
       // the exception class) — kills the StringLiteral→'' mutant.
       await expect(
-        svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+        svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin, {
           fundingSource: 'ADMIN_PERSONAL',
           payerAdminId: ADMIN_PAYER_ID,
           currency: 'USD',
@@ -1178,7 +1178,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         const { svc, state, getFlips } = makeService()
         reopen(state, '680', '560.000000')
 
-        await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+        await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)
 
         // 680 − 560 = 120 was owed; 560 + 120 = 680 is the total ever paid.
         // Stated as the DELTA actually applied, so a settle that pays the full
@@ -1191,7 +1191,7 @@ describe('PendingSettlementService.settleByCompany', () => {
       it('leaves `amount` untouched — the cascade already wrote the new full share there', async () => {
         const { svc, state, getFlips } = makeService()
         reopen(state, '680', '560.000000')
-        await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+        await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)
         expect(getFlips().at(-1)!['amount']).toBeUndefined()
         expect(state.sourceTxs.get(SOURCE_TX_ID)!['amount']).toBe('680')
       })
@@ -1202,13 +1202,13 @@ describe('PendingSettlementService.settleByCompany', () => {
         // top-up.
         const { svc, state } = makeService({ companyBalance: 200 })
         reopen(state, '680', '560.000000')
-        await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).resolves.toBeDefined()
+        await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).resolves.toBeDefined()
       })
 
       it('still refuses when the balance cannot cover even the DIFFERENCE', async () => {
         const { svc, state } = makeService({ companyBalance: 50 })
         reopen(state, '680', '560.000000')
-        await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+        await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).rejects.toThrow(
           /Insufficient funds/,
         )
       })
@@ -1226,7 +1226,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         const { svc, state, getFlips } = makeService()
         reopen(state, '560', '560.000000')
 
-        await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).resolves.toBeDefined()
+        await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).resolves.toBeDefined()
 
         expect(state.obligations.get(OBLIGATION_COMPANY)?.status).toBe('PAID')
         expect(state.sourceTxs.get(SOURCE_TX_ID)!['status']).toBe('PAID')
@@ -1244,7 +1244,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         // Only reachable if the cascade's `max(newAmount, settledAmount)` floor
         // (AC5) were bypassed; kept as a fail-loud tripwire, not as a path.
         reopen(state, '400', '560.000000')
-        await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+        await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).rejects.toThrow(
           /More has been paid on this obligation than was owed/,
         )
       })
@@ -1256,13 +1256,13 @@ describe('PendingSettlementService.settleByCompany', () => {
         const { svc, state } = makeService()
         state.obligations.set(OBLIGATION_COMPANY, makeObligation({ amount: '0' }))
         state.sourceTxs.set(SOURCE_TX_ID, makeSourceTx({ amount: '0' }))
-        await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).resolves.toBeDefined()
+        await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).resolves.toBeDefined()
       })
 
       it('guards the flip on the accumulator not having moved since it was read', async () => {
         const { svc, state, getFlipRecords } = makeService()
         reopen(state, '680', '560.000000')
-        await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+        await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)
 
         const compiled = new PgDialect().sqlToQuery(getFlipRecords().at(-1)!.where as SQL)
         expect(compiled.sql).toMatch(/settled_amount"?\s+is\s+not\s+distinct\s+from/i)
@@ -1277,11 +1277,9 @@ describe('PendingSettlementService.settleByCompany', () => {
         reopen(state, '680', '600.000000')
         state.staleSettledAmount = '560.000000'
 
-        await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toMatchObject(
-          {
-            response: { code: 'FINANCE_OBLIGATION_CLOSE_SOURCE_NOT_PENDING', statusCode: 400 },
-          },
-        )
+        await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).rejects.toMatchObject({
+          response: { code: 'FINANCE_OBLIGATION_CLOSE_SOURCE_NOT_PENDING', statusCode: 400 },
+        })
         // Rolled back whole: the accumulator is untouched by the loser.
         expect(getFlips()).toHaveLength(0)
         expect(state.sourceTxs.get(SOURCE_TX_ID)!['settledAmount']).toBe('600.000000')
@@ -1291,7 +1289,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         // "Never settled" and "settled zero" are different states; NULL-safe
         // equality is what makes the guard work for both.
         const { svc, getFlipRecords } = makeService()
-        await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+        await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)
         const compiled = new PgDialect().sqlToQuery(getFlipRecords().at(-1)!.where as SQL)
         expect(compiled.params).toContain(null)
       })
@@ -1349,7 +1347,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         reopenFundedBy(state, 'COMPANY_ACCOUNT')
 
         await expect(
-          svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+          svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin, {
             fundingSource: 'ADMIN_PERSONAL',
             payerAdminId: ADMIN_PAYER_ID,
             currency: 'USDT',
@@ -1366,7 +1364,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         const { svc, state, getFlips } = makeService()
         reopenFundedBy(state, null)
 
-        await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+        await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).rejects.toThrow(
           /from the same source/,
         )
         expect(getFlips()).toHaveLength(0)
@@ -1377,7 +1375,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         reopenFundedBy(state, 'COMPANY_ACCOUNT')
         const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
         await expect(
-          svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+          svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin, {
             fundingSource: 'ADMIN_PERSONAL',
             payerAdminId: ADMIN_PAYER_ID,
             currency: 'USDT',
@@ -1395,7 +1393,7 @@ describe('PendingSettlementService.settleByCompany', () => {
       it('ALLOWS a top-up from the same source — the guard is about change, not about topping up', async () => {
         const { svc, state } = makeService()
         reopenFundedBy(state, 'COMPANY_ACCOUNT')
-        await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).resolves.toBeDefined()
+        await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).resolves.toBeDefined()
         expect(state.sourceTxs.get(SOURCE_TX_ID)!['settledAmount']).toBe('680.000000')
       })
 
@@ -1417,7 +1415,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         reopenFundedBy(state, null, { senderId: ADMIN_PAYER_ID, senderLabel: 'Admin' })
 
         await expect(
-          svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+          svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin, {
             fundingSource: 'ADMIN_PERSONAL',
             payerAdminId: ADMIN_PAYER_2_ID,
             currency: 'USDT',
@@ -1436,7 +1434,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         reopenFundedBy(state, null, { senderId: ADMIN_PAYER_ID, senderLabel: 'Admin' })
 
         await expect(
-          svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+          svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin, {
             fundingSource: 'ADMIN_PERSONAL',
             payerAdminId: ADMIN_PAYER_ID,
             currency: 'USDT',
@@ -1458,7 +1456,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         reopenFundedBy(state, null, { senderId: ADMIN_PAYER_ID, senderLabel: 'Admin' })
 
         await expect(
-          svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+          svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin, {
             fundingSource: 'ADMIN_PERSONAL',
             payerAdminId: ADMIN_PAYER_ID,
             currency: 'USDT',
@@ -1476,7 +1474,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         reopenFundedBy(state, null, { senderId: ADMIN_PAYER_ID, senderLabel: 'Admin' })
         let caught: unknown
         try {
-          await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+          await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin, {
             fundingSource: 'ADMIN_PERSONAL',
             payerAdminId: ADMIN_PAYER_2_ID,
             currency: 'USDT',
@@ -1497,7 +1495,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         reopenFundedBy(state, null, { senderId: ADMIN_PAYER_ID, senderLabel: null as never })
         let caught: unknown
         try {
-          await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+          await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin, {
             fundingSource: 'ADMIN_PERSONAL',
             payerAdminId: ADMIN_PAYER_2_ID,
             currency: 'USDT',
@@ -1516,7 +1514,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         reopenFundedBy(state, 'COMPANY_ACCOUNT')
         let caught: unknown
         try {
-          await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+          await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin, {
             fundingSource: 'ADMIN_PERSONAL',
             payerAdminId: ADMIN_PAYER_ID,
             currency: 'USDT',
@@ -1538,7 +1536,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         // comparison to the pair must not start refusing the ordinary case.
         const { svc, state } = makeService()
         reopenFundedBy(state, 'COMPANY_ACCOUNT')
-        await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).resolves.toBeDefined()
+        await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).resolves.toBeDefined()
       })
 
       it('does NOT constrain a FIRST settle — there is no earlier source to match', async () => {
@@ -1547,7 +1545,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         // reopen helper above: this test does not call it.)
         const { svc, getFlips } = makeService()
         await expect(
-          svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, {
+          svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin, {
             fundingSource: 'ADMIN_PERSONAL',
             payerAdminId: ADMIN_PAYER_ID,
             currency: 'USDT',
@@ -1630,7 +1628,7 @@ describe('PendingSettlementService.settleByCompany', () => {
 
       it('closes the remainder: the accumulator reaches the obligation, not twice it', async () => {
         const { svc, state } = makeService(partlyPaidFromCompany())
-        await expect(svc.settleByCompany(DROP_OBLIGATION_ID, accountantUser)).resolves.toBeDefined()
+        await expect(svc.settleByCompany(DROP_OBLIGATION_ID, settlerAdmin)).resolves.toBeDefined()
         const row = state.sourceTxs.get(DROP_SOURCE_TX_ID)! as unknown as Record<string, unknown>
         // 40 already paid + 60 owed = 100. Paying the obligation's full figure
         // a second time would leave 140 here, and the drop 40 richer than the
@@ -1647,7 +1645,7 @@ describe('PendingSettlementService.settleByCompany', () => {
 
       it('and re-stamps the payment fact onto the closure as a whole', async () => {
         const { svc, state } = makeService(partlyPaidFromCompany())
-        await svc.settleByCompany(DROP_OBLIGATION_ID, accountantUser)
+        await svc.settleByCompany(DROP_OBLIGATION_ID, settlerAdmin)
         const row = state.sourceTxs.get(DROP_SOURCE_TX_ID)! as unknown as Record<string, unknown>
         expect(row['originalAmount']).toBe('100')
         expect(row['originalCurrency']).toBe('USDT')
@@ -1664,11 +1662,9 @@ describe('PendingSettlementService.settleByCompany', () => {
         // Letting it through drops the row out of the ledger terms that
         // recorded the first payment.
         const { svc, state, getFlips } = makeService(makeDropFixture('40.000000'))
-        await expect(svc.settleByCompany(DROP_OBLIGATION_ID, accountantUser)).rejects.toMatchObject(
-          {
-            response: { code: 'FINANCE_SETTLEMENT_FUNDING_SOURCE_MUST_MATCH', statusCode: 400 },
-          },
-        )
+        await expect(svc.settleByCompany(DROP_OBLIGATION_ID, settlerAdmin)).rejects.toMatchObject({
+          response: { code: 'FINANCE_SETTLEMENT_FUNDING_SOURCE_MUST_MATCH', statusCode: 400 },
+        })
         expect(getFlips()).toHaveLength(0)
         expect(state.obligations.get(DROP_OBLIGATION_ID)?.status).toBe('PENDING')
         expect(state.sourceTxs.get(DROP_SOURCE_TX_ID)!['settledAmount']).toBe('40.000000')
@@ -1676,7 +1672,7 @@ describe('PendingSettlementService.settleByCompany', () => {
 
       it('the FIRST settle of a drop obligation is unchanged by any of this', async () => {
         const { svc, getFlips } = makeService(makeDropFixture(null))
-        await expect(svc.settleByCompany(DROP_OBLIGATION_ID, accountantUser)).resolves.toBeDefined()
+        await expect(svc.settleByCompany(DROP_OBLIGATION_ID, settlerAdmin)).resolves.toBeDefined()
         expect(getFlips()).toHaveLength(1)
         expect(getFlips()[0]!['type']).toBe('PAYOUT_DROP')
         expect(getFlips()[0]!['originalAmount']).toBe('100')
@@ -1687,7 +1683,7 @@ describe('PendingSettlementService.settleByCompany', () => {
       const { svc, getFlips } = makeService({
         obligations: new Map([[OBLIGATION_COMPANY, makeObligation({ amount: 'not-a-number' })]]),
       })
-      await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toMatchObject({
+      await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).rejects.toMatchObject({
         response: { code: 'FINANCE_SETTLED_AMOUNT_NOT_NUMBER', statusCode: 400 },
       })
       // Refused before the transaction — no flip, no partial write.
@@ -1703,7 +1699,7 @@ describe('PendingSettlementService.settleByCompany', () => {
       // (the OVERPAID tripwire) fires BEFORE `settledAmountError` is ever
       // called — the OLD assertion (a bare `BadRequestException` class check)
       // could not distinguish the two; this pins the ACTUAL code that fires.
-      await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toMatchObject({
+      await expect(svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)).rejects.toMatchObject({
         response: { code: 'FINANCE_OBLIGATION_OVERPAID', statusCode: 400 },
       })
       expect(getFlips()).toHaveLength(0)
@@ -1721,7 +1717,7 @@ describe('PendingSettlementService.settleByCompany', () => {
 describe('PendingSettlementService.settleByCompanySourceTransaction', () => {
   it('resolves the obligation by source tx id and flips it in place (one SENIOR_INCOME, no second tx)', async () => {
     const { svc, getInsertsFor, getUpdatesFor, getFlips, settledTx, state } = makeService()
-    const result = await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser)
+    const result = await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, settlerAdmin)
 
     expect(getInsertsFor(transactions)).toHaveLength(0)
     const flips = getFlips()
@@ -1742,7 +1738,7 @@ describe('PendingSettlementService.settleByCompanySourceTransaction', () => {
 
   it('triggers invoice auto-create on the resulting SENIOR_INCOME row (self id)', async () => {
     const { svc, state } = makeService()
-    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser)
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, settlerAdmin)
     expect(state.invoiceCalls).toHaveLength(1)
     expect(state.invoiceCalls[0]).toBe(SOURCE_TX_ID)
   })
@@ -1758,9 +1754,9 @@ describe('PendingSettlementService.settleByCompanySourceTransaction', () => {
   // for that source tx (the first flipped it to PAID) → 404, no second payout.
   it('repeated settle of one source tx pays the senior exactly once', async () => {
     const { svc, getInsertsFor, getFlips } = makeService()
-    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser)
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, settlerAdmin)
     await expect(
-      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser),
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, settlerAdmin),
     ).rejects.toMatchObject({
       response: { code: 'FINANCE_OPEN_OBLIGATION_NOT_FOUND_FOR_TRANSACTION', statusCode: 404 },
     })
@@ -1773,7 +1769,7 @@ describe('PendingSettlementService.settleByCompanySourceTransaction', () => {
   it('rejects when company balance is insufficient (no money booked)', async () => {
     const { svc, getFlips } = makeService({ companyBalance: 100 })
     await expect(
-      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser),
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, settlerAdmin),
     ).rejects.toMatchObject({
       response: { code: 'FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS', statusCode: 400 },
     })
@@ -1808,13 +1804,29 @@ describe('PendingSettlementService.settleByCompanySourceTransaction', () => {
     })
   })
 
+  // PR #1521 (ACCOUNTANT removed): the role gate runs BEFORE the obligation
+  // lookup, so a non-ADMIN caller gets 403 even for a source tx id with no
+  // open obligation — a 404 here would let them enumerate ids.
+  it.each(['SENIOR', 'JUNIOR', 'HR', 'DROP', 'ACCOUNTANT', 'GUEST'])(
+    '%s on an unknown source tx → 403, not 404',
+    async (role) => {
+      const { svc } = makeService()
+      const caller = { ...juniorUser, role } as unknown as SessionUser
+      await expect(
+        svc.settleByCompanySourceTransaction('ffffffff-ffff-4fff-8fff-ffffffffffff', caller),
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN', statusCode: 403 },
+      })
+    },
+  )
+
   it('no open obligation for the source tx → 404', async () => {
     // Obligation already PAID → the PENDING-scoped lookup finds nothing.
     const { svc, getFlips } = makeService({
       obligations: new Map([[OBLIGATION_COMPANY, makeObligation({ status: 'PAID' })]]),
     })
     await expect(
-      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser),
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, settlerAdmin),
     ).rejects.toMatchObject({
       response: { code: 'FINANCE_OPEN_OBLIGATION_NOT_FOUND_FOR_TRANSACTION', statusCode: 404 },
     })
@@ -1824,7 +1836,7 @@ describe('PendingSettlementService.settleByCompanySourceTransaction', () => {
   it('unknown source tx id → 404', async () => {
     const { svc } = makeService()
     await expect(
-      svc.settleByCompanySourceTransaction('ffffffff-ffff-4fff-8fff-ffffffffffff', accountantUser),
+      svc.settleByCompanySourceTransaction('ffffffff-ffff-4fff-8fff-ffffffffffff', settlerAdmin),
     ).rejects.toMatchObject({
       response: { code: 'FINANCE_OPEN_OBLIGATION_NOT_FOUND_FOR_TRANSACTION', statusCode: 404 },
     })
@@ -1833,7 +1845,7 @@ describe('PendingSettlementService.settleByCompanySourceTransaction', () => {
 
 // ── settle with owner / funding selection (task-senior-settle-owner) ─────────
 // The senior IOU is now paid via the SAME funding selection as a SALARY: the
-// ADMIN/ACCOUNTANT chooses COMPANY_ACCOUNT (default — debits the shared account,
+// ADMIN chooses COMPANY_ACCOUNT (default — debits the shared account,
 // USDT) or ADMIN_PERSONAL (paid by a chosen admin partner; the company account
 // is NOT touched). Proven on BOTH settle entry points (obligation-id +
 // source-transaction-id) so neither path drifts. task-settle-in-place: the
@@ -1859,7 +1871,7 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
   // ── COMPANY_ACCOUNT (explicit) ──────────────────────────────────────────────
   it('COMPANY_ACCOUNT (source tx) → flips IOU to SENIOR_INCOME debiting company (fundingSource=COMPANY_ACCOUNT, USDT, no sender)', async () => {
     const { svc, getInsertsFor, settledTx } = makeService()
-    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, COMPANY_FUNDING)
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, settlerAdmin, COMPANY_FUNDING)
 
     expect(getInsertsFor(transactions)).toHaveLength(0)
     const row = settledTx()!
@@ -1874,7 +1886,7 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
   it('COMPANY_ACCOUNT rejects when company balance is insufficient (no money booked)', async () => {
     const { svc, getFlips } = makeService({ companyBalance: 100 })
     await expect(
-      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, COMPANY_FUNDING),
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, settlerAdmin, COMPANY_FUNDING),
     ).rejects.toMatchObject({
       response: { code: 'FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS', statusCode: 400 },
     })
@@ -1884,7 +1896,7 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
   // ── ADMIN_PERSONAL ──────────────────────────────────────────────────────────
   it('ADMIN_PERSONAL (source tx) → flips IOU to SENIOR_INCOME senderId=payer, no company marker, chosen currency', async () => {
     const { svc, getInsertsFor, settledTx } = makeService()
-    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, ADMIN_FUNDING)
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, settlerAdmin, ADMIN_FUNDING)
 
     expect(getInsertsFor(transactions)).toHaveLength(0)
     const row = settledTx()!
@@ -1902,7 +1914,7 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
   it('ADMIN_PERSONAL does NOT gate the company balance (settles even with empty company account)', async () => {
     // Company balance is 0, but an ADMIN_PERSONAL payout never touches it → success.
     const { svc, settledTx } = makeService({ companyBalance: 0 })
-    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, ADMIN_FUNDING)
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, settlerAdmin, ADMIN_FUNDING)
     const row = settledTx()!
     expect(row['fundingSource']).toBeNull()
     expect(row['senderId']).toBe(ADMIN_PAYER_2_ID)
@@ -1911,7 +1923,7 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
   it('ADMIN_PERSONAL with a non-ADMIN payerAdminId → 400 (and no money booked)', async () => {
     const { svc, getFlips } = makeService()
     await expect(
-      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, {
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: SENIOR_ID, // a SENIOR, not an ADMIN
         currency: 'USD',
@@ -1943,7 +1955,7 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
   // which all pass an explicit currency through the still-supported safety net).
   it('ADMIN_PERSONAL with NO currency in the payload → defaults to obligation.currency (USDT)', async () => {
     const { svc, settledTx } = makeService()
-    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, {
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_2_ID,
       receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
@@ -1956,7 +1968,7 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
 
   it('COMPANY_ACCOUNT with NO currency in the payload → still USDT (forced regardless of default)', async () => {
     const { svc, settledTx } = makeService()
-    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, {
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, settlerAdmin, {
       fundingSource: 'COMPANY_ACCOUNT',
       receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
     })
@@ -1968,9 +1980,9 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
   // ── idempotency under funding selection ─────────────────────────────────────
   it('repeated ADMIN_PERSONAL settle of one source tx pays the senior exactly once', async () => {
     const { svc, getInsertsFor, getFlips } = makeService()
-    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, ADMIN_FUNDING)
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, settlerAdmin, ADMIN_FUNDING)
     await expect(
-      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, ADMIN_FUNDING),
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, settlerAdmin, ADMIN_FUNDING),
     ).rejects.toMatchObject({
       response: { code: 'FINANCE_OPEN_OBLIGATION_NOT_FOUND_FOR_TRANSACTION', statusCode: 404 },
     })
@@ -2018,7 +2030,7 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
       ]),
     })
     await expect(
-      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, ADMIN_FUNDING),
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, settlerAdmin, ADMIN_FUNDING),
     ).rejects.toThrow(BadRequestException)
     expect(getFlips()).toHaveLength(0)
     expect(getInsertsFor(transactions)).toHaveLength(0)
@@ -2027,7 +2039,7 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
   // ── obligation-id entry point honours the same funding selection ────────────
   it('settleByCompany (obligation id) with ADMIN_PERSONAL → senderId=payer, no company marker', async () => {
     const { svc, settledTx } = makeService()
-    await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, ADMIN_FUNDING)
+    await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin, ADMIN_FUNDING)
     const row = settledTx()!
     expect(row['senderId']).toBe(ADMIN_PAYER_2_ID)
     expect(row['fundingSource']).toBeNull()
@@ -2037,7 +2049,7 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
 
   it('settleByCompany (obligation id) with no funding arg keeps legacy COMPANY_ACCOUNT behaviour', async () => {
     const { svc, settledTx } = makeService()
-    await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+    await svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin)
     const row = settledTx()!
     expect(row['fundingSource']).toBe('COMPANY_ACCOUNT')
     expect(row['senderId']).toBeNull()
@@ -2055,10 +2067,12 @@ describe('PendingSettlementService.listSeniorObligations', () => {
     expect(result[0]?.debtorType).toBe('COMPANY')
   })
 
-  it('ACCOUNTANT sees all senior obligations', async () => {
+  it('a role without a branch is forbidden → 403 (allowlist, not fall-through)', async () => {
     const { svc } = makeService()
-    const result = await svc.listSeniorObligations(accountantUser)
-    expect(result).toHaveLength(1)
+    const unknownRole = { ...adminUser, role: 'X' as SessionUser['role'] }
+    await expect(svc.listSeniorObligations(unknownRole)).rejects.toMatchObject({
+      response: { code: 'FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN', statusCode: 403 },
+    })
   })
 
   it('ADMIN sees all', async () => {
@@ -2090,10 +2104,12 @@ describe('PendingSettlementService.listCompanyObligations', () => {
     expect(result[0]?.debtorType).toBe('COMPANY')
   })
 
-  it('ACCOUNTANT sees pending COMPANY debts', async () => {
+  it('a role without a branch is forbidden → 403', async () => {
     const { svc } = makeService()
-    const result = await svc.listCompanyObligations(accountantUser)
-    expect(result).toHaveLength(1)
+    const unknownRole = { ...adminUser, role: 'X' as SessionUser['role'] }
+    await expect(svc.listCompanyObligations(unknownRole)).rejects.toMatchObject({
+      response: { code: 'FINANCE_COMPANY_OBLIGATIONS_LIST_FORBIDDEN', statusCode: 403 },
+    })
   })
 
   it('DROP forbidden → 403', async () => {
@@ -2150,14 +2166,14 @@ describe('settleByCompany — business-date upper bound (SR-809-M-2 / CR-809-H-1
     const future = kyivDayOffset(10)
     const { svc } = withSourceDate(new Date(`${future}T00:00:00Z`))
     await expect(
-      svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, settleFunding(future)),
+      svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin, settleFunding(future)),
     ).resolves.toBeDefined()
   })
 
   it('rejects a date later than BOTH today and the source date', async () => {
     const { svc } = withSourceDate(new Date('2026-05-30T00:00:00Z'))
     await expect(
-      svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, settleFunding(kyivDayOffset(1))),
+      svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin, settleFunding(kyivDayOffset(1))),
     ).rejects.toMatchObject({
       response: { code: 'FINANCE_TX_DATE_IN_FUTURE', statusCode: 400 },
     })
@@ -2167,7 +2183,7 @@ describe('settleByCompany — business-date upper bound (SR-809-M-2 / CR-809-H-1
     const future = kyivDayOffset(10)
     const { svc } = withSourceDate(new Date(`${future}T00:00:00Z`))
     await expect(
-      svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, settleFunding(kyivDayOffset(11))),
+      svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin, settleFunding(kyivDayOffset(11))),
     ).rejects.toMatchObject({
       response: { code: 'FINANCE_TX_DATE_IN_FUTURE', statusCode: 400 },
     })
@@ -2185,19 +2201,19 @@ describe('settleByCompany — business-date upper bound (SR-809-M-2 / CR-809-H-1
         ]),
       }).svc
     await expect(
-      source().settleByCompany(OBLIGATION_COMPANY, accountantUser, settleFunding('2026-10-20')),
+      source().settleByCompany(OBLIGATION_COMPANY, settlerAdmin, settleFunding('2026-10-20')),
     ).rejects.toMatchObject({
       response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', statusCode: 400 },
     })
     await expect(
-      source().settleByCompany(OBLIGATION_COMPANY, accountantUser, settleFunding('2026-10-21')),
+      source().settleByCompany(OBLIGATION_COMPANY, settlerAdmin, settleFunding('2026-10-21')),
     ).resolves.toBeDefined()
   })
 
   it('today is still accepted when the source row is in the past', async () => {
     const { svc } = withSourceDate(new Date('2026-05-30T00:00:00Z'))
     await expect(
-      svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, settleFunding(kyivToday())),
+      svc.settleByCompany(OBLIGATION_COMPANY, settlerAdmin, settleFunding(kyivToday())),
     ).resolves.toBeDefined()
   })
 })

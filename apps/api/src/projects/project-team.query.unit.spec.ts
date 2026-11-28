@@ -92,11 +92,11 @@ describe('computeEffectiveTeam — team_members query wiring', () => {
   it('senior with membership -> membership lookup is filtered and rows feed hrs/accountants', async () => {
     const h = harness({
       membership: { teamId: 't1' },
-      rows: [row('h1', 'HR'), row('a1', 'ACCOUNTANT')],
+      rows: [row('h1', 'HR'), row('s1', 'SENIOR')],
     })
     const t = await h.compute({ senior: SENIOR, members: [], drop: null }, 'ADMIN')
     expect(t.hrs.map((r) => r.id)).toEqual(['h1'])
-    expect(t.accountants.map((r) => r.id)).toEqual(['a1'])
+    expect(t.accountants).toEqual([])
     const arg = h.findFirst.mock.calls[0][0] as { where?: unknown }
     expect(arg.where).toBeDefined()
     expect(Object.keys(h.select.mock.calls[0][0] as object).sort()).toEqual([

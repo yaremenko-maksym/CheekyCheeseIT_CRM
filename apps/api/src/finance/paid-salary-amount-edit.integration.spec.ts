@@ -424,7 +424,7 @@ describe.skipIf(!HAS_DB_URL)(
       expect(await row(id)).toEqual(before)
     })
 
-    it.each(['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] as const)(
+    it.each(['SENIOR', 'JUNIOR', 'HR', 'DROP'] as const)(
       'FM-5: a %s cannot preview or edit a paid salary — 403, nothing written',
       async (role) => {
         const id = await paidSalary()

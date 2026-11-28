@@ -102,7 +102,7 @@ export const users = pgTable(
     // For DROP: percentage the drop keeps from project income (0-100, default 5).
     // Nullable for non-DROP roles. Drop role - phase 1.
     dropSharePercent: integer('drop_share_percent').default(5),
-    // For JUNIOR/HR/ACCOUNTANT: fixed monthly salary (currency set separately)
+    // For JUNIOR/HR: fixed monthly salary (currency set separately)
     monthlySalary: numeric('monthly_salary', { precision: 10, scale: 2 }),
     salaryCurrency: currencyEnum('salary_currency').default('USD'),
     // Legal full name (Cyrillic, order: Surname First Patronymic).

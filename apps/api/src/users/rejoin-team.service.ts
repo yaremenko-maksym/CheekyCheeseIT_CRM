@@ -36,7 +36,6 @@ export class RejoinTeamService {
       teamMode: 'CREATE_NEW' | 'JOIN_DROP_TEAM'
       dropTeamId?: string
       hrIds?: string[]
-      accountantId?: string | null
     },
   ): Promise<{ teamId: string }> {
     const user = await this.helpers.findById(seniorId)
@@ -82,8 +81,8 @@ export class RejoinTeamService {
       throw apiError('HR_REQUIRED_MINIMUM_ONE', HttpStatus.BAD_REQUEST)
     }
     // SR-M-1 follow-up (#999): same role invariant as createUser CREATE_NEW — a teamless SENIOR
-    // may only enrol real, non-archived HRs / an ACCOUNTANT. Validated BEFORE any write.
-    await assertTeamStaffRoles(this.db.db, [...new Set(data.hrIds)], data.accountantId)
+    // may only enrol real, non-archived HRs. Validated BEFORE any write.
+    await assertTeamStaffRoles(this.db.db, [...new Set(data.hrIds)])
     return this.db.db.transaction(async (tx) => {
       const inserted = await tx
         .insert(teams)
@@ -91,11 +90,7 @@ export class RejoinTeamService {
         .returning()
       const team = inserted[0]
       if (!team) throw new Error('Failed to create senior team')
-      const memberIds = [
-        seniorId,
-        ...data.hrIds!,
-        ...(data.accountantId ? [data.accountantId] : []),
-      ]
+      const memberIds = [seniorId, ...data.hrIds!]
       for (const userId of memberIds) {
         await tx.insert(teamMembers).values({ teamId: team.id, userId })
       }

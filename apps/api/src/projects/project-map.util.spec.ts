@@ -171,7 +171,6 @@ describe('mapProjectToDto', () => {
 
   it.each<[Role, string | null]>([
     ['ADMIN', 'Drp'],
-    ['ACCOUNTANT', 'Drp'],
     ['HR', 'Drp'],
     ['DROP', 'Drp'],
     ['SENIOR', null],
@@ -342,7 +341,6 @@ describe('mapProjectToDto', () => {
     }
     it.each<[Role, string | null]>([
       ['ADMIN', 'sen1'],
-      ['ACCOUNTANT', 'sen1'],
       ['SENIOR', null],
       ['HR', null],
       ['DROP', null],
@@ -368,7 +366,6 @@ describe('mapProjectToDto', () => {
     it.each<[Role, boolean]>([
       ['ADMIN', true],
       ['SENIOR', true],
-      ['ACCOUNTANT', false],
       ['HR', false],
       ['DROP', false],
       ['JUNIOR', false],
@@ -390,12 +387,9 @@ describe('mapProjectToDto', () => {
     it('REJECTED + ADMIN without an entry gets null', () => {
       expect(map(fixture({ status: 'REJECTED' }), 'ADMIN').rejectionReason).toBeNull()
     })
-    it.each<Role>(['SENIOR', 'DROP', 'HR', 'ACCOUNTANT', 'JUNIOR'])(
-      'REJECTED + %s gets null',
-      (role) => {
-        expect(map(fixture({ status: 'REJECTED' }), role, reasons).rejectionReason).toBeNull()
-      },
-    )
+    it.each<Role>(['SENIOR', 'DROP', 'HR', 'JUNIOR'])('REJECTED + %s gets null', (role) => {
+      expect(map(fixture({ status: 'REJECTED' }), role, reasons).rejectionReason).toBeNull()
+    })
     it('non-REJECTED ADMIN gets null even with an entry', () => {
       expect(map(fixture({ status: 'ACTIVE' }), 'ADMIN', reasons).rejectionReason).toBeNull()
     })

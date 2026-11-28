@@ -24,14 +24,14 @@ export class TeamMembersPreviewService {
 
   /**
    * Returns flat list of teammates for a given user. Combines:
-   *  - team_members of teams associated with the user (HR, ACCOUNTANT, SENIOR)
+   *  - team_members of teams associated with the user (HR, SENIOR)
    *  - JUNIORs active in projects owned by those teams' seniors
    * Excludes the user themselves.
    *
    * Mapping of "user → their team(s)":
    *  - SENIOR: teams owned by this senior (teams.senior_id = user.id is implicit via team_members)
    *  - JUNIOR: teams of seniors whose projects this junior is active in
-   *  - HR / ACCOUNTANT: teams where the user is a team_member
+   *  - HR: teams where the user is a team_member
    *  - ADMIN: no teams (returns empty)
    */
   /**
@@ -109,9 +109,9 @@ export class TeamMembersPreviewService {
     // BRANCH-MASK-1/2 (non-empty DROP rosters) catch. No suppression needed.
     if (user.role === 'DROP') {
       // Drop role - phase 1: drop's "team members" are the drop-team itself
-      // (HR + accountant + optional active senior). JUNIORs are not surfaced
-      // (no JUNIOR row can exist in `team_members` — that table only ever
-      // gets SENIOR/HR/ACCOUNTANT/DROP rows). The viewerRole filter below
+      // (HR + optional active senior). JUNIORs are not surfaced (no JUNIOR
+      // row can exist in `team_members` — new rows are only ever SENIOR/HR/DROP;
+      // a pre-retirement accountant row is returned as stored). The viewerRole filter below
       // still applies to whatever this branch produces regardless.
       //
       // security-review PR #541 round 5 (mutation-gate suppression rework):
@@ -159,7 +159,7 @@ export class TeamMembersPreviewService {
       // Equivalence proof: `seniorIds` is always overwritten synchronously or
       // via a DB lookup by exactly one of the four role branches below before
       // it is ever read (SENIOR: `[user.id]`; JUNIOR: derived from active
-      // projects; HR/ACCOUNTANT: derived from team_members, or left `[]` when
+      // projects; HR: derived from team_members, or left `[]` when
       // this user has no team memberships of their own). In that last case a
       // mutated placeholder value is "washed out" downstream: `seniorIds`
       // only ever feeds `inArray(...)` filters (never returned directly), and
@@ -181,9 +181,9 @@ export class TeamMembersPreviewService {
           .innerJoin(projects, eq(projectMembers.projectId, projects.id))
           .where(and(eq(projectMembers.userId, userId), isNull(projectMembers.leftAt)))
         seniorIds = Array.from(new Set(activeProjects.map((p) => p.seniorId)))
-      } else if (user.role === 'HR' || user.role === 'ACCOUNTANT') {
+      } else if (user.role === 'HR') {
         // MED-2 (security-review round 2): `isNull(leftAt)` — a soft-removed
-        // HR/ACCOUNTANT membership must not resolve a team roster anymore.
+        // HR membership must not resolve a team roster anymore.
         // Mirrors the HIGH-1 fix in teams.service.ts (isHrOfTeam/assertAccess).
         //
         // security-review PR #541 round 5: no `if (memberships.length > 0)`
@@ -219,11 +219,11 @@ export class TeamMembersPreviewService {
         seniorIds = Array.from(new Set(seniorsInTeams.map((s) => s.userId)))
       }
 
-      // Step 2: Collect team_members (SENIOR + HR + ACCOUNTANT) across those seniors' teams.
+      // Step 2: Collect team_members (SENIOR + HR) across those seniors' teams.
       // Teams are linked to senior via team_members (the SENIOR is itself a member).
       // MED-2 (security-review round 2): `isNull(leftAt)` on BOTH queries below —
       // a detached (rotated-out) senior's team_members row must not resolve a
-      // team, and a departed HR/ACCOUNTANT/SENIOR row must not surface in the
+      // team, and a departed HR/SENIOR row must not surface in the
       // roster returned to the caller (stale-member leak, distinct from the
       // team-access class of bug already fixed in teams.service.ts).
       //
@@ -269,7 +269,7 @@ export class TeamMembersPreviewService {
       // legitimately owns active projects with active JUNIOR members during
       // that gap, and this method is also how a SENIOR views their OWN "team"
       // tab (`seniorIds = [user.id]` in Step 1's SENIOR branch, always exactly
-      // themselves — never contaminated by the HR/ACCOUNTANT leak this PR
+      // themselves — never contaminated by the HR leak this PR
       // actually closes). Restored to raw `seniorIds`: the real vulnerability
       // (a rotated-out senior surfacing in an HR VIEWER's roster) is already
       // closed at its actual source — the `isNull(teamMembers.leftAt)` filter

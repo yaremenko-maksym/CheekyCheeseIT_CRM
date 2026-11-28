@@ -171,49 +171,6 @@ describe('UsersService.createDrop — validation/RBAC', () => {
     })
   })
 
-  // Bug-fix: accountant is OPTIONAL for drop creation. A workspace with 0
-  // accountants must still be able to create a drop.
-  it('creates a drop without an accountant — passes null to createDropTeam', async () => {
-    const { service, createDropTeam } = makeService()
-    const result = await service.createDrop(
-      {
-        email: 'drop@cc.com',
-        displayName: 'New Drop',
-        paymentMethod: 'USDT_ERC20',
-        walletUsdtErc20: '0x1111111111111111111111111111111111111111',
-        hrIds: ['hr-1'],
-        // accountantId omitted — no accountant in the workspace.
-      },
-      adminUser,
-    )
-    expect(result.teamId).toBe('team-1')
-    // 3rd arg (accountantId) must be null, not undefined, so the drop-team is
-    // provisioned WITHOUT an accountant member (see createDropTeam).
-    expect(createDropTeam).toHaveBeenCalledWith('drop-new', ['hr-1'], null, null, expect.anything())
-  })
-
-  it('creates a drop WITH an accountant — passes the id through to createDropTeam', async () => {
-    const { service, createDropTeam } = makeService()
-    await service.createDrop(
-      {
-        email: 'drop@cc.com',
-        displayName: 'New Drop',
-        paymentMethod: 'USDT_ERC20',
-        walletUsdtErc20: '0x1111111111111111111111111111111111111111',
-        hrIds: ['hr-1'],
-        accountantId: 'acc-1',
-      },
-      adminUser,
-    )
-    expect(createDropTeam).toHaveBeenCalledWith(
-      'drop-new',
-      ['hr-1'],
-      'acc-1',
-      null,
-      expect.anything(),
-    )
-  })
-
   // Owner request: stop auto-generating dicebear avatars for new users — the
   // UI already renders an initials fallback when avatarUrl is null.
   it('stores null avatarUrl when omitted — no dicebear auto-generation', async () => {

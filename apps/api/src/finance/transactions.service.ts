@@ -301,7 +301,7 @@ export class TransactionsService {
       /**
        * task-soft-delete-and-money-audit (AC3). «Показать удалённые» toggle.
        * Default (undefined/false): the list NEVER includes a deleted row, for
-       * ANY role — including ADMIN/ACCOUNTANT. Only when a privileged caller
+       * ANY role — including ADMIN. Only when a privileged caller
        * explicitly passes `true` do deleted rows appear alongside active ones
        * (each still carrying `deletedAt`/`deletedBy`/`deletionReason` so the
        * UI can render them distinctly). A non-privileged caller passing this
@@ -312,7 +312,7 @@ export class TransactionsService {
       includeDeleted?: boolean
     },
   ) {
-    const privileged = currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
+    const privileged = currentUser.role === 'ADMIN'
     const showDeleted = privileged && filters?.includeDeleted === true
 
     const allTxs = (await this.db.db.query.transactions.findMany({
@@ -402,8 +402,11 @@ export class TransactionsService {
           tx.type !== 'PAYOUT_ADMIN' &&
           tx.type !== 'PAYOUT_CONFIRMED',
       )
+    } else if (currentUser.role !== 'ADMIN') {
+      // Allowlist, not fall-through: ADMIN sees all; a role without a branch
+      // above sees nothing.
+      result = []
     }
-    // ADMIN, ACCOUNTANT see all
 
     // Apply optional filters
     if (filters?.type) result = result.filter((tx) => tx.type === filters.type)
@@ -560,7 +563,7 @@ export class TransactionsService {
     return this.findOne(id, currentUser)
   }
 
-  /** ACCOUNTANT/ADMIN confirms a PAYOUT landed on an admin partner off-platform. */
+  /** ADMIN confirms a PAYOUT landed on an admin partner off-platform. */
   confirmPayout(
     payoutTxId: string,
     recipientAdminId: string,
@@ -631,7 +634,7 @@ export class TransactionsService {
     )
   }
 
-  /** ADMIN/ACCOUNTANT off-chain payout confirmation — delegates to PayoutSettlementService. */
+  /** ADMIN off-chain payout confirmation — delegates to PayoutSettlementService. */
   manualConfirmPayout(
     requestId: string,
     method: ManualPayoutMethod,
@@ -655,10 +658,6 @@ export class TransactionsService {
 
   getSummary(currentUser: SessionUser) {
     return this.summaryService.getSummary(currentUser)
-  }
-
-  getAccountantSummary(currentUser: SessionUser) {
-    return this.summaryService.getAccountantSummary(currentUser)
   }
 
   getSeniorSummary(currentUser: SessionUser): Promise<SeniorSummaryDto> {
@@ -706,7 +705,7 @@ export class TransactionsService {
   }
 
   /**
-   * GET /api/finance/salary-month-gap — thin delegate; the ADMIN + ACCOUNTANT
+   * GET /api/finance/salary-month-gap — thin delegate; the ADMIN
    * RBAC guard lives WITH the body in `SalaryService.getSalaryMonthGapReport`.
    */
   getSalaryMonthGapReport(
@@ -717,7 +716,7 @@ export class TransactionsService {
   }
 
   /**
-   * GET /api/finance/salary-parts — thin delegate; the ADMIN + ACCOUNTANT RBAC
+   * GET /api/finance/salary-parts — thin delegate; the ADMIN RBAC
    * guard lives WITH the body in `SalaryService.getSalaryParts` (SR-795-M-1,
    * owner decision D-3).
    */

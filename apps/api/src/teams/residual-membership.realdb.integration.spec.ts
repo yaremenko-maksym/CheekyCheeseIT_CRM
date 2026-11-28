@@ -8,7 +8,7 @@
  *   AC-A: UsersService.getTeamMembersForUser — a removed HR viewing their
  *         OWN profile's "Команда" tab must get an EMPTY roster, not the
  *         team they were just removed from (users.service.ts memberships
- *         query, HR/ACCOUNTANT branch).
+ *         query, HR branch).
  *   AC-B: UsersService.getTeamMembersForUser — an ACTIVE HR's roster must
  *         NOT leak a previously-departed member (users.service.ts
  *         seniorMemberships + tmRows queries, Step 2).
@@ -29,7 +29,7 @@
  *   AC-G (security-review round 3, follow-up to #436): after a DROP-team
  *         senior rotation, the team's ACTIVE HR must NOT see the
  *         rotated-out (now teamless) senior in their `getTeamMembersForUser`
- *         roster (Step 1's `seniorsInTeams` query, HR/ACCOUNTANT branch —
+ *         roster (Step 1's `seniorsInTeams` query, HR branch —
  *         the actual leak the round-3 `isNull(leftAt)` fix closes).
  *   AC-H (security-review round 3, MED-3, follow-up to #436; REWRITTEN by
  *         security-review PR #541 follow-up, HIGH): a rotated-out (teamless)

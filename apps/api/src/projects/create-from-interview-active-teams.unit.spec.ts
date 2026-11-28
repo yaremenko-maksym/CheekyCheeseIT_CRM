@@ -1,5 +1,5 @@
 /**
- * Backlog #136 — `createFromInterview` must inherit HR/ACCOUNTANT only from the
+ * Backlog #136 — `createFromInterview` must inherit HR only from the
  * senior's CURRENTLY active team(s), not every team they have ever belonged to.
  *
  * `apps/api/src/projects/projects.service.ts:1326` (`createFromInterview`) ran
@@ -8,12 +8,12 @@
  *   1. `seniorTeamMemberships` — every `team_members` row for `interview.seniorId`,
  *      unfiltered by `left_at`. A senior who left team A six months ago and is now
  *      only in team B still had team A's id come back in `teamIds`.
- *   2. `teammates` — every HR/ACCOUNTANT in those `teamIds`.
+ *   2. `teammates` — every HR in those `teamIds`.
  *
  * Query 2 already carries `isNull(teamMembers.leftAt)` (added by
  * task-archived-user-completeness, MED-3 — see `add-member-archived.unit.spec.ts`),
  * so an HR who left team B themselves was already excluded. Query 1 did not, so a
- * team the SENIOR had left kept contributing its HR/ACCOUNTANT to every new
+ * team the SENIOR had left kept contributing its HR to every new
  * project the senior's next interview produced — a stale team membership
  * outliving the membership itself.
  *

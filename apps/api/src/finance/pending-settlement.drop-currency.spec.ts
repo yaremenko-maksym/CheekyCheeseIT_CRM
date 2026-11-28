@@ -41,10 +41,10 @@ const OBLIGATION_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const SOURCE_TX_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const ADMIN_PAYER_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 
-const accountantUser: SessionUser = {
-  id: 'acc-1',
-  role: 'ACCOUNTANT',
-  displayName: 'Accountant',
+const settlerAdmin: SessionUser = {
+  id: 'settler-1',
+  role: 'ADMIN',
+  displayName: 'Settler',
   email: 'a@x.com',
   avatarUrl: null,
   avatarDocumentId: null,
@@ -369,7 +369,7 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
   // dereferencing a property of `undefined`.
   it('no funding arg at all (legacy call) — resolves the date-of-record safely, defaults to COMPANY_ACCOUNT/USDT', async () => {
     const { svc, settledTx, obligationStatus } = makeService()
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(obligationStatus()).toBe('PAID')
     const row = settledTx()
     expect(row['currency']).toBe('USDT')
@@ -378,7 +378,7 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
 
   it('AC2/AC4: default currency (omitted) — no NBU call, amount unchanged, exchangeRate=1, original snapshot stamped', async () => {
     const { svc, settledTx, getRates } = makeService()
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       ...RECEIPT_EXPLORER,
@@ -394,7 +394,7 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
 
   it('AC3/AC4: UAH settle — amount matches an independently-computed convertToBase prediction to the penny', async () => {
     const { svc, settledTx, state } = makeService()
-    const result = await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    const result = await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       currency: 'UAH',
@@ -429,7 +429,7 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
 
   it('AC3: EUR settle — amount matches convertToBase triangulation, rounded to money precision', async () => {
     const { svc, settledTx, state } = makeService()
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       currency: 'EUR',
@@ -449,7 +449,7 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
   // The written amount must be the ROUNDED, payable figure, not the raw one.
   it('LOW: the written amount is rounded to 2 decimals — not the raw division result', async () => {
     const { svc, settledTx, state } = makeService()
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       currency: 'EUR',
@@ -478,7 +478,7 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
 
   it('AC7: the obligation closes in FULL regardless of the settled currency — no residual left', async () => {
     const { svc, obligationStatus } = makeService()
-    const result = await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    const result = await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       currency: 'EUR',
@@ -488,7 +488,7 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
     expect(result.obligation.status).toBe('PAID')
     // A second settle of the SAME obligation is rejected — nothing left open.
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'USD',
@@ -502,7 +502,7 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
   it('BIZ-03 exemption: a DROP settle in UAH does NOT throw (contrast with the SENIOR-only guard)', async () => {
     const { svc } = makeService()
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'UAH',
@@ -514,7 +514,7 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
   it('BIZ-03 exemption: a DROP settle in EUR does NOT throw', async () => {
     const { svc } = makeService()
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'EUR',
@@ -529,7 +529,7 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
     // the HTTP boundary — this proves the SERVICE itself does not trust an
     // out-of-band caller either: `currency` is force-overwritten to USDT in
     // the COMPANY_ACCOUNT branch regardless of what `funding.currency` says.
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'COMPANY_ACCOUNT',
       currency: 'UAH' as never,
       ...RECEIPT_EXPLORER,
@@ -551,7 +551,7 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
       obligation: makeObligation({ amount: '1000000000' }),
       rates: { usdUah: '0.000000005', usdtUah: '0.000000005', eurUah: '44.80', date: '20260812' },
     })
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       currency: 'UAH',
@@ -575,7 +575,7 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
       obligation: makeObligation({ amount: '0.00001' }),
       rates: { usdUah: '20000000000', usdtUah: '20000000000', eurUah: '44.80', date: '20260812' },
     })
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       currency: 'UAH',
@@ -595,7 +595,7 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
   it('LOW (defense-in-depth): a corrupted NEGATIVE obligation.amount is rejected outright (caught by the paidAmount guard, not silently converted)', async () => {
     const { svc } = makeService({ obligation: makeObligation({ amount: '-100' }) })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'UAH',
@@ -645,7 +645,7 @@ describe('settleByCompany — DROP obligation.currency invariant (MED-1, securit
     // this exact "no conversion needed" shortcut and copied `amount` verbatim
     // under the EUR label — a clean rename of a USDT-denominated figure.
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         ...RECEIPT_FILE,
@@ -656,7 +656,7 @@ describe('settleByCompany — DROP obligation.currency invariant (MED-1, securit
   it('a corrupted obligation.currency (EUR) with a DIFFERENT target currency is ALSO rejected (invariant checked before either branch)', async () => {
     const { svc } = makeService({ obligation: makeObligation({ currency: 'EUR' }) })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'UAH',
@@ -670,7 +670,7 @@ describe('settleByCompany — DROP obligation.currency invariant (MED-1, securit
   it('a normal USDT obligation is unaffected by the invariant check', async () => {
     const { svc } = makeService()
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'UAH',
@@ -691,7 +691,7 @@ describe('settleByCompany — stale NBU rate (MED-2, security-review PR #521 rou
   it('a stale rate is REFUSED when a real conversion is needed — no amount is written', async () => {
     const { svc, settledTx } = makeService({ rates: { ...DEFAULT_RATES, stale: true } })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'UAH',
@@ -705,7 +705,7 @@ describe('settleByCompany — stale NBU rate (MED-2, security-review PR #521 rou
   it('a FRESH (non-stale) rate succeeds for the identical conversion', async () => {
     const { svc } = makeService({ rates: { ...DEFAULT_RATES, stale: false } })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'UAH',
@@ -717,7 +717,7 @@ describe('settleByCompany — stale NBU rate (MED-2, security-review PR #521 rou
   it('a stale rate does NOT block a settle that needs no conversion (same currency — NBU is never even called)', async () => {
     const { svc, getRates } = makeService({ rates: { ...DEFAULT_RATES, stale: true } })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'USDT',
@@ -730,7 +730,7 @@ describe('settleByCompany — stale NBU rate (MED-2, security-review PR #521 rou
   it('a stale rate does NOT block COMPANY_ACCOUNT (forced USDT — no conversion, NBU never called)', async () => {
     const { svc, getRates } = makeService({ rates: { ...DEFAULT_RATES, stale: true } })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'COMPANY_ACCOUNT',
         ...RECEIPT_EXPLORER,
       }),
@@ -752,7 +752,7 @@ describe('settleByCompany — server-computed amount still bounded (LOW round 2,
     // ~2 075 000, almost 4× the project's own MAX_TRANSACTION_AMOUNT (500 000).
     const { svc, settledTx } = makeService({ obligation: makeObligation({ amount: '50000' }) })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'UAH',
@@ -769,7 +769,7 @@ describe('settleByCompany — server-computed amount still bounded (LOW round 2,
     // (Postgres numeric literally accepts the string `'NaN'`) unless caught.
     const { svc } = makeService({ obligation: makeObligation({ amount: 'not-a-number' }) })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'USDT',
@@ -795,7 +795,7 @@ describe('settleByCompany — zero-amount DROP obligation closes (MED-A, securit
     const { svc, settledTx, obligationStatus } = makeService({
       obligation: makeObligation({ amount: '0' }),
     })
-    const result = await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    const result = await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       currency: 'USDT',
@@ -814,7 +814,7 @@ describe('settleByCompany — zero-amount DROP obligation closes (MED-A, securit
 
   it('a zero-amount obligation settles successfully through an actual currency conversion too (0 × rate = 0)', async () => {
     const { svc, settledTx } = makeService({ obligation: makeObligation({ amount: '0' }) })
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       currency: 'UAH',
@@ -828,7 +828,7 @@ describe('settleByCompany — zero-amount DROP obligation closes (MED-A, securit
   it('negative/NaN/over-ceiling paid amounts are still rejected — only the floor moved from ">0" to ">=0"', async () => {
     const { svc: svcNegative } = makeService({ obligation: makeObligation({ amount: '-1' }) })
     await expect(
-      svcNegative.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svcNegative.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'USDT',
@@ -842,7 +842,7 @@ describe('settleByCompany — zero-amount DROP obligation closes (MED-A, securit
       obligation: makeObligation({ amount: '50000' }),
     })
     await expect(
-      svcOverCeiling.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svcOverCeiling.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'UAH',
@@ -863,7 +863,7 @@ describe('settleByCompany — zero-amount DROP obligation closes (MED-A, securit
     // obligation itself is genuinely non-zero.
     const { svc } = makeService({ obligation: makeObligation({ amount: '0.0001' }) })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'UAH',
@@ -884,7 +884,7 @@ describe('settleByCompany — USD⇄USDT peg pair skips the NBU round-trip (LOW,
   it('paying a USDT obligation out in USD needs no rate — a stale/outage rate does NOT block it', async () => {
     const { svc, getRates, settledTx } = makeService({ rates: { ...DEFAULT_RATES, stale: true } })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'USD',
@@ -919,7 +919,7 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
         '20260710': { usdUah: '40.00', usdtUah: '40.00', eurUah: '44.80', date: '20260710' },
       },
     })
-    const resultA = await svcA.svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    const resultA = await svcA.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       currency: 'UAH',
@@ -938,7 +938,7 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
         '20260720': { usdUah: '45.00', usdtUah: '45.00', eurUah: '44.80', date: '20260720' },
       },
     })
-    const resultB = await svcB.svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    const resultB = await svcB.svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       currency: 'UAH',
@@ -958,7 +958,7 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
   it('no txDate sent → legacy behaviour: "now" is used for the rate, txDate column is left untouched', async () => {
     const { svc, settledTx, getRates, state } = makeService()
     const originalTxDate = state.sourceTx.txDate
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       currency: 'UAH',
@@ -976,7 +976,7 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
       obligation: makeObligation({ createdAt: new Date('2026-08-01T00:00:00Z') }),
     })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'USDT',
@@ -991,7 +991,7 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
       obligation: makeObligation({ createdAt: new Date('2026-08-01T00:00:00Z') }),
     })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'USDT',
@@ -1011,7 +1011,7 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
     })
 
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'USDT',
@@ -1031,7 +1031,7 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
     })
 
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'USDT',
@@ -1045,7 +1045,7 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
     const { svc, settledTx, getRates } = makeService({
       obligation: makeObligation({ createdAt: new Date('2026-08-01T00:00:00Z') }),
     })
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       currency: 'USDT',
@@ -1064,7 +1064,7 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
       createdAt: new Date('2026-08-01T00:00:00Z'),
     })
     const { svc, settledTx } = makeService({ sourceTx })
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       txDate: '2026-08-05',
@@ -1092,7 +1092,7 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
       },
     })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'UAH',
@@ -1117,7 +1117,7 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
       },
     })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'UAH',
@@ -1148,7 +1148,7 @@ describe('settleByCompany — DROP obligation: MED-1 TOCTOU race (obligation.amo
   it('refuses when the amount changed since loadObligation — no flip, the stale-derived paidAmount is never written', async () => {
     const { svc, getRates } = makeService({ staleLoadAmount: '1' })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         ...RECEIPT_EXPLORER,
@@ -1163,7 +1163,7 @@ describe('settleByCompany — DROP obligation: MED-1 TOCTOU race (obligation.amo
     const { svc, settledTx } = makeService({ staleLoadAmount: '1' })
     const before = settledTx()
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'UAH',
@@ -1179,7 +1179,7 @@ describe('settleByCompany — DROP obligation: MED-1 TOCTOU race (obligation.amo
   it('an UNCHANGED amount settles normally — no false positive on the DROP branch either', async () => {
     const { svc, settledTx } = makeService({ staleLoadAmount: '1000' })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         ...RECEIPT_EXPLORER,
@@ -1199,7 +1199,7 @@ describe('settleByCompany — DROP obligation: MED-1 TOCTOU race (obligation.amo
 describe('settleByCompany — settled-amount snapshot, DROP currency conversion (task-settled-amount-snapshot)', () => {
   it('AC3/AC4: a DROP settle converted to EUR stamps settled_amount = the CONVERTED fact (not the 1000 USDT obligation amount) and settled_currency = EUR (not USDT)', async () => {
     const { svc, settledTx, state } = makeService()
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       currency: 'EUR',
@@ -1226,7 +1226,7 @@ describe('settleByCompany — settled-amount snapshot, DROP currency conversion 
 
   it('AC4: the same-currency (USDT) default settle stamps settled_amount = the full 1000, settled_currency = USDT', async () => {
     const { svc, settledTx } = makeService()
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       ...RECEIPT_EXPLORER,
@@ -1238,7 +1238,7 @@ describe('settleByCompany — settled-amount snapshot, DROP currency conversion 
 
   it('AC5: settled_share_percent snapshots the DROP side (dropSharePercent=26), never the SENIOR side (seniorSharePercent, null on a drop row)', async () => {
     const { svc, settledTx } = makeService()
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       ...RECEIPT_EXPLORER,
@@ -1309,7 +1309,7 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
     // for a 130 obligation, and `amount` (130) parts ways with `settled_amount`
     // (230), which is the invariant ledger term 9 stands on.
     const { svc, state } = toppedUpService()
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(state.flips).toHaveLength(1)
     expect(fragmentDelta(state.flips[0]!.rawSet['settledAmount'])).toBe(30)
   })
@@ -1345,7 +1345,7 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
     // `settled_amount` going to `-100.000000`. Identity here, evaluation
     // there: deliberately two tests, because neither one can see both.
     const { svc, state } = toppedUpService()
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     const raw = state.flips[0]!.rawSet
     expect(raw['amount']).toBe(raw['settledAmount'])
     // …and it IS a DB-side expression, not a JS literal that happens to match.
@@ -1355,7 +1355,7 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
 
   it('AC4: both columns therefore land on the accumulated figure, not on this payment', async () => {
     const { svc, settledTx } = toppedUpService()
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     const row = settledTx()
     expect(row['amount']).toBe('130.000000')
     expect(row['settledAmount']).toBe('130.000000')
@@ -1369,7 +1369,7 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
     // USDT→USDT settle that converted nothing, and T1
     // (`amount = original_amount × exchange_rate`) would be false on the row.
     const { svc, settledTx } = toppedUpService()
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     const row = settledTx()
     expect(row['originalAmount']).toBe('130')
     expect(row['originalCurrency']).toBe('USDT')
@@ -1386,7 +1386,7 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
     // "not the old value" as well as "the new one" is what tells a re-stamp
     // apart from an implementation that never touched the columns.
     const { svc, settledTx } = toppedUpService()
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(settledTx()['originalAmount']).not.toBe('100')
     expect(settledTx()['originalAmount']).toBe('130')
   })
@@ -1395,7 +1395,7 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
     // `cumulativePaid === paidAmount` when the accumulator is empty — the whole
     // reason AC3/AC5 could be changed without a branch.
     const { svc, settledTx } = makeService()
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     const row = settledTx()
     expect(row['amount']).toBe('1000.000000')
     expect(row['originalAmount']).toBe('1000')
@@ -1409,7 +1409,7 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
       obligation: makeObligation({ amount: '0' }),
       sourceTx: makeSourceTx({ amount: '0', dropSharePercent: 0 }),
     })
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     const row = settledTx()
     expect(row['originalAmount']).toBe('0')
     expect(row['originalCurrency']).toBe('USDT')
@@ -1434,7 +1434,7 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
         senderLabel: 'COMPANY',
       }),
     })
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(obligationStatus()).toBe('PAID')
     const row = settledTx()
     expect(row['amount']).toBe('100.000000')
@@ -1452,7 +1452,7 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
       rates: { ...DEFAULT_RATES, usdUah: '0.0001', usdtUah: '0.0001' },
     })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'UAH',
@@ -1465,13 +1465,13 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
     // 30 is owed and the account holds exactly 30. Gating on the full 130 would
     // refuse a top-up the company can demonstrably afford.
     const { svc, obligationStatus } = toppedUpService({ companyBalance: '30' })
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
     expect(obligationStatus()).toBe('PAID')
   })
 
   it('AC7: and it is still a real gate — one cent short and the settle refuses', async () => {
     const { svc } = toppedUpService({ companyBalance: '29.99' })
-    await expect(svc.settleByCompany(OBLIGATION_ID, accountantUser)).rejects.toThrow(
+    await expect(svc.settleByCompany(OBLIGATION_ID, settlerAdmin)).rejects.toThrow(
       /Insufficient funds/,
     )
   })
@@ -1497,7 +1497,7 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
       }),
     })
     await expect(
-      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'UAH',
@@ -1523,7 +1523,7 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
     })
     let caught: unknown
     try {
-      await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_PAYER_ID,
         currency: 'UAH',
@@ -1554,7 +1554,7 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
     // second one to average with, and `task-drop-payout-currency` keeps working
     // exactly as it did.
     const { svc, settledTx } = makeService()
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       currency: 'UAH',
@@ -1568,8 +1568,8 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
 
   it('AC12: a second top-up on an already-closed row hits the existing idempotency refusal', async () => {
     const { svc } = toppedUpService()
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser)
-    await expect(svc.settleByCompany(OBLIGATION_ID, accountantUser)).rejects.toThrow(
+    await svc.settleByCompany(OBLIGATION_ID, settlerAdmin)
+    await expect(svc.settleByCompany(OBLIGATION_ID, settlerAdmin)).rejects.toThrow(
       /already closed or cancelled/,
     )
   })
@@ -1622,7 +1622,7 @@ describe('settleByCompany — DROP top-up of a partly paid obligation (task 3b)'
           })
           let refused = false
           await svc
-            .settleByCompany(OBLIGATION_ID, accountantUser, {
+            .settleByCompany(OBLIGATION_ID, settlerAdmin, {
               fundingSource: 'ADMIN_PERSONAL',
               payerAdminId: ADMIN_PAYER_ID,
               currency: targetCurrency,

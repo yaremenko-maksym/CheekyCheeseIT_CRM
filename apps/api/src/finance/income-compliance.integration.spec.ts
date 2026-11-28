@@ -25,7 +25,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * Income compliance — «Контроль приходов» real-backend integration spec (real
- * Postgres, no mocks). AC4 (RBAC: ADMIN/ACCOUNTANT → 200, everyone else → 403)
+ * Postgres, no mocks). AC4 (RBAC: ADMIN → 200, everyone else → 403)
  * + AC1/AC2/AC3 (X/N correctness, VALIDATED|PAID criterion, only active projects).
  *
  * WHY (feedback_mocked_e2e_guards, recurred 3×): this is a COMPANY-WIDE finance
@@ -34,13 +34,13 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  * to a non-privileged caller. This spec drives the REAL
  * `TransactionsService.getIncomeComplianceOverview` through a Fastify request
  * with a real JwtAuthGuard + RolesGuard against REAL PostgreSQL so the RBAC gate
- * (ADMIN/ACCOUNTANT → 200, everyone else → 403) is enforced against an actual
+ * (ADMIN → 200, everyone else → 403) is enforced against an actual
  * JWT request, not a unit stub.
  *
  * Same #234-review pattern as senior-summary.integration.spec.ts: the production
  * `FinanceSummaryController` uses type-based constructor injection (no
  * `design:paramtypes` under vitest/esbuild), so it can't be DI-mounted here.
- * A sentinel re-declares the SAME @Roles('ADMIN','ACCOUNTANT') gate and delegates
+ * A sentinel re-declares the SAME @Roles('ADMIN') gate and delegates
  * to the REAL service, exercising live 403/200 over real HTTP; the FINAL
  * describe block asserts the SHIPPING controller carries the identical gate
  * metadata.
@@ -113,15 +113,6 @@ const HR: SessionUser = {
   displayName: 'Inc Comp HR',
   avatarUrl: null,
   role: 'HR',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
-const ACCOUNTANT: SessionUser = {
-  id: 'e1000000-0000-4000-aa00-000000000007',
-  email: 'inc-comp-accountant@test.spec',
-  displayName: 'Inc Comp Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
   seniorSharePercent: 0,
   legalFullName: null,
 }
@@ -276,7 +267,7 @@ const TEST_USER_IDS = [
   SENIOR_DONE.id,
   JUNIOR.id,
   HR.id,
-  ACCOUNTANT.id,
+  ADMIN.id,
   DROP.id,
   SENIOR_ACCRUED.id,
   DROP_ACCRUED.id,
@@ -322,7 +313,7 @@ class SentinelFinanceController {
   constructor(@Inject(TX_SERVICE) private readonly svc: TransactionsService) {}
 
   @Get('income-compliance')
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   incomeCompliance(@CurrentUser() user: SessionUser, @Query() query: unknown) {
     const { month } = incomeComplianceQuerySchema.parse(query ?? {})
     return this.svc.getIncomeComplianceOverview(user, month)
@@ -453,7 +444,6 @@ describe.skipIf(!hasDatabaseUrl())(
             SENIOR_DONE,
             JUNIOR,
             HR,
-            ACCOUNTANT,
             DROP,
             SENIOR_ACCRUED,
             DROP_ACCRUED,
@@ -826,24 +816,15 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(res.statusCode).toBe(200)
     })
 
-    it('RBAC: ACCOUNTANT → 200', async () => {
-      const res = await app.inject({
-        method: 'GET',
-        url: '/api/finance/income-compliance',
-        cookies: { jwt: tokenFor(ACCOUNTANT) },
-      })
-      expect(res.statusCode).toBe(200)
-    })
-
-    it('ADMIN and ACCOUNTANT see the IDENTICAL overview (same company-wide list)', async () => {
+    it('ADMIN see the IDENTICAL overview (same company-wide list)', async () => {
       const a = await overviewAs(ADMIN)
-      const b = await overviewAs(ACCOUNTANT)
+      const b = await overviewAs(ADMIN)
       expect(a).toEqual(b)
     })
 
     // ── X/N correctness (AC1/AC2/AC3) ─────────────────────────────────────────────
     it('SENIOR_LAG: 1/2 — only the VALIDATED project counted; PENDING is a badge', async () => {
-      const r = await overviewAs(ACCOUNTANT)
+      const r = await overviewAs(ADMIN)
       const lag = r.receivers.find((x) => x.userId === SENIOR_LAG.id)!
       expect(lag.role).toBe('SENIOR')
       expect(lag.expected).toBe(2) // archived project excluded from N (AC3)
@@ -855,7 +836,7 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('archived project is NOT in the receiver denominator (AC3)', async () => {
-      const r = await overviewAs(ACCOUNTANT)
+      const r = await overviewAs(ADMIN)
       const lag = r.receivers.find((x) => x.userId === SENIOR_LAG.id)!
       const ids = lag.missingProjects.map((p) => p.projectId)
       expect(ids).not.toContain(PROJ_ARCHIVED)
@@ -863,7 +844,7 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('SENIOR_DONE: PROJ_DONE counted (1) but PROJ_DROP missing (no SENIOR_INCOME) → 1/2', async () => {
-      const r = await overviewAs(ACCOUNTANT)
+      const r = await overviewAs(ADMIN)
       const done = r.receivers.find((x) => x.userId === SENIOR_DONE.id)!
       expect(done.expected).toBe(2) // PROJ_DONE + PROJ_DROP (both active, senior = SENIOR_DONE)
       expect(done.submitted).toBe(1) // only PROJ_DONE has a SENIOR_INCOME
@@ -872,7 +853,7 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('ADMIN-as-senior: ADMIN_INCOME PAID counts → 1/1, role ADMIN_SENIOR', async () => {
-      const r = await overviewAs(ACCOUNTANT)
+      const r = await overviewAs(ADMIN)
       const adminOwner = r.receivers.find((x) => x.userId === ADMIN_OWNER.id)!
       expect(adminOwner.role).toBe('ADMIN_SENIOR')
       expect(adminOwner.expected).toBe(1)
@@ -881,7 +862,7 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('DROP receiver: DROP_INCOME VALIDATED → 1/1, role DROP', async () => {
-      const r = await overviewAs(ACCOUNTANT)
+      const r = await overviewAs(ADMIN)
       const drop = r.receivers.find((x) => x.userId === DROP.id)!
       expect(drop.role).toBe('DROP')
       expect(drop.expected).toBe(1)
@@ -890,7 +871,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
     // ── Obligation model (task-compliance-overview-pending-types) ────────────────
     it('SENIOR_ACCRUED: booked-not-yet-paid SENIOR_PENDING_PAYOUT → accrued, NOT submitted, NOT the red false alarm', async () => {
-      const r = await overviewAs(ACCOUNTANT)
+      const r = await overviewAs(ADMIN)
       const senior = r.receivers.find((x) => x.userId === SENIOR_ACCRUED.id)!
       expect(senior.role).toBe('SENIOR')
       expect(senior.expected).toBe(1)
@@ -907,7 +888,7 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('DROP_ACCRUED: booked-not-yet-paid DROP_PENDING_PAYOUT → accrued, NOT submitted', async () => {
-      const r = await overviewAs(ACCOUNTANT)
+      const r = await overviewAs(ADMIN)
       const drop = r.receivers.find((x) => x.userId === DROP_ACCRUED.id)!
       expect(drop.role).toBe('DROP')
       expect(drop.submitted).toBe(0)
@@ -924,7 +905,7 @@ describe.skipIf(!hasDatabaseUrl())(
     // place) must count as submitted, 1/1 — the false «Нет приходов» accusation
     // this task exists to fix.
     it('DROP_SETTLED: settled PAYOUT_DROP (PAID) counts as submitted — the reported false-lag regression', async () => {
-      const r = await overviewAs(ACCOUNTANT)
+      const r = await overviewAs(ADMIN)
       const drop = r.receivers.find((x) => x.userId === DROP_SETTLED.id)!
       expect(drop.role).toBe('DROP')
       expect(drop.expected).toBe(1)
@@ -938,7 +919,7 @@ describe.skipIf(!hasDatabaseUrl())(
     // must not surface that person as a receiver, nor perturb the real owner's
     // (ADMIN_OWNER's) figures — real DB, real query, not a unit stub.
     it('AC3: a stray obligation row for a non-owner (ORPHAN) does not add a receiver, and does not perturb the real owner', async () => {
-      const r = await overviewAs(ACCOUNTANT)
+      const r = await overviewAs(ADMIN)
       expect(r.receivers.some((x) => x.userId === ORPHAN.id)).toBe(false)
       const adminOwner = r.receivers.find((x) => x.userId === ADMIN_OWNER.id)!
       expect(adminOwner.expected).toBe(1)
@@ -947,9 +928,9 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(adminOwner.missingProjects).toHaveLength(0)
     })
 
-    it('ADMIN and ACCOUNTANT see the IDENTICAL obligation-model receivers too', async () => {
+    it('ADMIN see the IDENTICAL obligation-model receivers too', async () => {
       const a = await overviewAs(ADMIN)
-      const b = await overviewAs(ACCOUNTANT)
+      const b = await overviewAs(ADMIN)
       const pick = (dto: IncomeComplianceOverviewDto, id: string) =>
         dto.receivers.find((x) => x.userId === id)
       expect(pick(a, SENIOR_ACCRUED.id)).toEqual(pick(b, SENIOR_ACCRUED.id))
@@ -961,7 +942,7 @@ describe.skipIf(!hasDatabaseUrl())(
     // obligation must NOT be inherited by the NEW owner. Evidence is keyed by
     // (project, type, receiver), not project+type alone.
     it("MED-1: reassigned project — the NEW owner does NOT inherit the OLD owner's obligation evidence", async () => {
-      const r = await overviewAs(ACCOUNTANT)
+      const r = await overviewAs(ADMIN)
       // DROP_PREVIOUS_OWNER owns no active project — never a receiver, despite
       // having a real DROP_PENDING_PAYOUT row in the DB.
       expect(r.receivers.find((x) => x.userId === DROP_PREVIOUS_OWNER.id)).toBeUndefined()
@@ -985,7 +966,7 @@ describe.skipIf(!hasDatabaseUrl())(
     // income mid-payout-request (status flipped to PENDING_PAYMENT by
     // createPayoutRequest) must count as submitted, never accrued.
     it("MED-2: a senior's VALIDATED income mid-payout-request (PENDING_PAYMENT) counts as submitted, not accrued", async () => {
-      const r = await overviewAs(ACCOUNTANT)
+      const r = await overviewAs(ADMIN)
       const senior = r.receivers.find((x) => x.userId === SENIOR_PAYOUT_REQUESTED.id)!
       expect(senior.role).toBe('SENIOR')
       expect(senior.expected).toBe(1)
@@ -995,7 +976,7 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('laggards-first sort: SENIOR_LAG / SENIOR_DONE (0.5) above ADMIN_OWNER / DROP (1.0)', async () => {
-      const r = await overviewAs(ACCOUNTANT)
+      const r = await overviewAs(ADMIN)
       const order = r.receivers.map((x) => x.userId)
       const idxLag = order.indexOf(SENIOR_LAG.id)
       const idxAdmin = order.indexOf(ADMIN_OWNER.id)
@@ -1011,7 +992,7 @@ describe.skipIf(!hasDatabaseUrl())(
       //   1. The roll-up is INTERNALLY consistent with the receivers array
       //      (Σ per-receiver figures === totals), proving the aggregation is sound.
       //   2. OUR four seeded receivers contribute exactly the expected sub-totals.
-      const r = await overviewAs(ACCOUNTANT)
+      const r = await overviewAs(ADMIN)
 
       // (1) Internal consistency over the FULL receivers list.
       const sumExpected = r.receivers.reduce((s, x) => s + x.expected, 0)
@@ -1051,18 +1032,17 @@ describe.skipIf(!hasDatabaseUrl())(
   () => {
     const reflector = new Reflector()
 
-    it('getIncomeCompliance handler ships @Roles(ADMIN, ACCOUNTANT)', () => {
+    it('getIncomeCompliance handler ships @Roles(ADMIN)', () => {
       const roles = reflector.get<string[]>(
         ROLES_KEY,
         FinanceSummaryController.prototype.getIncomeCompliance,
       )
-      expect(roles).toEqual(['ADMIN', 'ACCOUNTANT'])
+      expect(roles).toEqual(['ADMIN'])
     })
 
     it('FinanceSummaryController is guarded by @UseGuards(RolesGuard) at class level', () => {
       const guards = Reflect.getMetadata('__guards__', FinanceSummaryController) as
-        | unknown[]
-        | undefined
+        unknown[] | undefined
       expect(guards).toBeDefined()
       expect(guards).toContain(RolesGuard)
     })

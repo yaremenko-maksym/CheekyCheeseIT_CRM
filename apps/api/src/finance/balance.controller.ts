@@ -56,7 +56,7 @@ export class BalanceController {
 
   /**
    * GET /api/balances/total-earned/:userId — lifetime «всего заработано с нами».
-   * RBAC: ADMIN / ACCOUNTANT only (assertCanReadTotalEarned). Returns a
+   * RBAC: ADMIN only (assertCanReadTotalEarned). Returns a
    * TotalEarnedDto for any target user (SENIOR / DROP / JUNIOR / HR / …),
    * computed by SQL aggregation of PAID rows mapped to the target's role.
    */
@@ -95,7 +95,7 @@ export class PendingObligationsController {
     }
 
     // SENIOR can only see their own obligations regardless of the query
-    // string. ADMIN/ACCOUNTANT may filter by an explicit creditorUserId or
+    // string. ADMIN may filter by an explicit creditorUserId or
     // omit it for the full list.
     if (user.role === 'SENIOR') {
       filter.creditorUserId = user.id

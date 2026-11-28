@@ -6,9 +6,9 @@
  *
  *   1. ADMIN creates a senior-project (no dropId).
  *   2. SENIOR posts a $1000 SENIOR_INCOME (PENDING).
- *   3. ACCOUNTANT validates → backend creates payout_request +
+ *   3. ADMIN validates → backend creates payout_request +
  *      placeholder PAYOUT row (PENDING_PAYMENT).
- *   4. ACCOUNTANT opens /finance, clicks «Подтвердить оплату» on the
+ *   4. ADMIN opens /finance, clicks «Подтвердить оплату» on the
  *      PAYOUT row, picks Kostya, submits — Phase 3 manual confirmation
  *      records that money already arrived to Kostya off-platform.
  *   5. Asserts:
@@ -50,7 +50,7 @@ function uniqueSuffix(): string {
 const REAL_API = `${REAL_API_BASE}/api`
 
 test.describe('Senior confirm-payout — manual confirmation (AC3)', () => {
-  test('ACCOUNTANT confirms senior PAYOUT → row PAID + PAYOUT_CONFIRMED for Kostya', async ({
+  test('ADMIN confirms senior PAYOUT → row PAID + PAYOUT_CONFIRMED for Kostya', async ({
     page,
   }) => {
     const uk = await loadMessages('uk')
@@ -74,9 +74,9 @@ test.describe('Senior confirm-payout — manual confirmation (AC3)', () => {
         currency: 'USDT',
       })
 
-      // ACCOUNTANT validates → SENIOR_INCOME becomes VALIDATED (no auto-payout).
+      // ADMIN validates → SENIOR_INCOME becomes VALIDATED (no auto-payout).
       // feat/finance-payout-flow (#7): SENIOR must manually create the payout.
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
       await validateTransactionViaAPI(page, incomeTxId)
 
       // SENIOR creates the payout_request. We deliberately SKIP payPayoutRequest
@@ -86,8 +86,8 @@ test.describe('Senior confirm-payout — manual confirmation (AC3)', () => {
       const { payoutRequestId } = await createPayoutRequestViaAPI(page, [incomeTxId])
       expect(payoutRequestId).toBeTruthy()
 
-      // Switch back to ACCOUNTANT for the UI confirmation flow.
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      // Switch back to ADMIN for the UI confirmation flow.
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
 
       // ── Pre-confirmation invariant ───────────────────────────────────
       const pendingPayouts = await findPendingPayoutsForProjectViaAPI(page, projectId)
@@ -96,7 +96,7 @@ test.describe('Senior confirm-payout — manual confirmation (AC3)', () => {
       const payoutAmount = parseFloat(payoutTx.amount)
       expect(payoutAmount).toBeGreaterThan(0)
 
-      // ── UI: ACCOUNTANT opens /finance and confirms ───────────────
+      // ── UI: ADMIN opens /finance and confirms ───────────────
       await page.goto('/finance')
       const confirmButton = page.getByTestId(`confirm-payout-button-${payoutTx.id}`)
       await expect(confirmButton).toBeVisible({ timeout: 15_000 })

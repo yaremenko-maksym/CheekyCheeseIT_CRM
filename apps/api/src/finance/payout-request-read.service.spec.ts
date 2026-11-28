@@ -1,6 +1,6 @@
 /**
  * Unit coverage for PayoutRequestReadService: role-scoped list, field mapping,
- * and the ADMIN/ACCOUNTANT-only audit-field gate. Detail-path RBAC and the
+ * and the ADMIN-only audit-field gate. Detail-path RBAC and the
  * obligation merge are pinned through the facade in transactions.rbac-f1-f2.spec.ts.
  */
 import { ForbiddenException } from '@nestjs/common'
@@ -64,8 +64,8 @@ function makeService(rows: ReturnType<typeof row>[]) {
 describe('PayoutRequestReadService.findPayoutRequests', () => {
   const rows = [row('r1', 'senior-id'), row('r2', 'other-id')]
 
-  it('ADMIN and ACCOUNTANT see every request, through an unfiltered query', async () => {
-    for (const role of ['ADMIN', 'ACCOUNTANT'] as const) {
+  it('ADMIN see every request, through an unfiltered query', async () => {
+    for (const role of ['ADMIN'] as const) {
       const { svc, findMany } = makeService(rows)
       expect((await svc.findPayoutRequests(user(role))).map((r) => r.id)).toEqual(['r1', 'r2'])
       expect(findMany.mock.calls[0]![0].where).toBeUndefined()
@@ -123,9 +123,9 @@ describe('PayoutRequestReadService.findPayoutRequests', () => {
     expect((await svc.findPayoutRequests(user('ADMIN')))[0]!.seniorName).toBe('')
   })
 
-  it('exposes the on-chain sender address to ADMIN/ACCOUNTANT only', async () => {
+  it('exposes the on-chain sender address to ADMIN only', async () => {
     const own = [row('r1', 'owner')]
-    for (const role of ['ADMIN', 'ACCOUNTANT'] as const) {
+    for (const role of ['ADMIN'] as const) {
       const { svc } = makeService(own)
       expect((await svc.findPayoutRequests(user(role)))[0]!.txFromAddress).toBe('0xsender')
     }
@@ -183,8 +183,6 @@ describe('PayoutRequestReadService.findPayoutRequest', () => {
       createdAt: '2026-01-02T03:04:05.000Z',
       updatedAt: '2026-02-03T04:05:06.000Z',
     })
-    const accountant = await svc.findPayoutRequest('r1', user('ACCOUNTANT'))
-    expect(accountant.txFromAddress).toBe('0xsender')
     const owner = await svc.findPayoutRequest('r1', user('SENIOR', 'owner'))
     expect(owner.txFromAddress).toBeNull()
   })

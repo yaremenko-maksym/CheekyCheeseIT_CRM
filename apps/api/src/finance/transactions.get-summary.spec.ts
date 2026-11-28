@@ -4,9 +4,8 @@
  * Coverage (matches task review findings):
  *
  *  HIGH#1 — RBAC:
- *   1. Non-ADMIN/non-ACCOUNTANT roles (SENIOR, JUNIOR, HR, DROP) → ForbiddenException.
+ *   1. Non-ADMIN roles (SENIOR, JUNIOR, HR, DROP) → ForbiddenException.
  *   2. ADMIN → resolves (no exception).
- *   3. ACCOUNTANT → resolves (no exception).
  *
  *  HIGH#2 — pendingCount correctness:
  *   4. DROP_INCOME row with {senderId: null, receiverId: drop.id, status: 'PENDING'}
@@ -185,59 +184,10 @@ describe('getSummary — HIGH#1: RBAC guard', () => {
     const svc = makeStub([], [], [])
     await expect(svc.getSummary(user('ADMIN'))).resolves.toBeDefined()
   })
-
-  it('does NOT throw for ACCOUNTANT', async () => {
-    const svc = makeStub([], [], [])
-    await expect(svc.getSummary(user('ACCOUNTANT'))).resolves.toBeDefined()
-  })
 })
 
-// task-accountant-sees-admin-balances (2026-08-17, owner decision): #214/#215
-// zeroed `adminBalances` for ACCOUNTANT; that zeroing is REVERSED (SEC-3 on
-// #551 made the contradiction with `assertCanReadAdminBalance` live — see the
-// comment above `canSeeAdminBalances` in transactions.service.ts). This
-// block pins the reversal AND proves `dropBalances` is untouched — that half
-// of #214/#215 stands. MUST FAIL RED if `adminBalances: []` is restored for
-// ACCOUNTANT (verified manually against the pre-fix code — see PR body).
-describe('getSummary — task-accountant-sees-admin-balances: adminBalances reversal', () => {
-  const ADMIN_ID = 'admin-x'
-
-  function ledgerWithOneAdminBalance() {
-    return [tx({ type: 'PAYOUT_ADMIN', amount: '500', receiverId: ADMIN_ID })]
-  }
-
-  it('ACCOUNTANT: adminBalances is NON-EMPTY and carries the real balance (literal assert)', async () => {
-    const svc = makeStub(ledgerWithOneAdminBalance(), [], [adminUser(ADMIN_ID, 'Admin X')])
-    const result = await svc.getSummary(user('ACCOUNTANT'))
-    expect(result.adminBalances).toHaveLength(1)
-    expect(result.adminBalances[0]).toEqual({
-      userId: ADMIN_ID,
-      displayName: 'Admin X',
-      balance: 500,
-      stale: false,
-    })
-  })
-
-  it('ACCOUNTANT and ADMIN see the SAME adminBalances for the same ledger (two screens no longer disagree)', async () => {
-    const svcAccountant = makeStub(
-      ledgerWithOneAdminBalance(),
-      [],
-      [adminUser(ADMIN_ID, 'Admin X')],
-    )
-    const svcAdmin = makeStub(ledgerWithOneAdminBalance(), [], [adminUser(ADMIN_ID, 'Admin X')])
-    const [accountantResult, adminResult] = await Promise.all([
-      svcAccountant.getSummary(user('ACCOUNTANT')),
-      svcAdmin.getSummary(user('ADMIN')),
-    ])
-    expect(accountantResult.adminBalances).toEqual(adminResult.adminBalances)
-  })
-
-  it('ACCOUNTANT: dropBalances is STILL EMPTY — #214/#215 unchanged for drops', async () => {
-    const svc = makeStub([makePaidDropIncome(DROP_ID)], [dropUserStub], [])
-    const result = await svc.getSummary(user('ACCOUNTANT'))
-    expect(result.dropBalances).toEqual([])
-  })
-
+// dropBalances stays populated for ADMIN (the #214/#215 drop half stands).
+describe('getSummary — dropBalances for ADMIN', () => {
   it('ADMIN: dropBalances is still NON-EMPTY (no regression on the untouched half)', async () => {
     const svc = makeStub([makePaidDropIncome(DROP_ID)], [dropUserStub], [])
     const result = await svc.getSummary(user('ADMIN'))

@@ -166,21 +166,10 @@ const HR_B = persona('05', 'HR', 'hr-b')
 /** No active team; owns INTERVIEW_C. */
 const SENIOR_TEAMLESS = persona('06', 'SENIOR', 'senior-teamless')
 const JUNIOR = persona('07', 'JUNIOR', 'junior')
-const ACCOUNTANT = persona('08', 'ACCOUNTANT', 'accountant')
 /** TEAM_A senior whose onboarding is incomplete → OnboardingGuard 403. */
 const NOT_ONBOARDED = persona('09', 'SENIOR', 'not-onboarded')
 
-const ALL_USERS = [
-  ADMIN,
-  SENIOR_A,
-  SENIOR_B,
-  HR_A,
-  HR_B,
-  SENIOR_TEAMLESS,
-  JUNIOR,
-  ACCOUNTANT,
-  NOT_ONBOARDED,
-]
+const ALL_USERS = [ADMIN, SENIOR_A, SENIOR_B, HR_A, HR_B, SENIOR_TEAMLESS, JUNIOR, NOT_ONBOARDED]
 
 const TEAM_A_ID = 'd7e8f9a0-1b2c-4d3e-bb00-000000000001'
 const TEAM_B_ID = 'd7e8f9a0-1b2c-4d3e-bb00-000000000002'
@@ -451,7 +440,6 @@ describe.skipIf(!hasDatabaseUrl())(
         ['HR is denied an interview of a senior off their team', HR_B, 403],
         ['teamless SENIOR is denied (foreign interview)', SENIOR_TEAMLESS, 403],
         ['JUNIOR is denied by role', JUNIOR, 403],
-        ['ACCOUNTANT is denied by role', ACCOUNTANT, 403],
         ['anonymous is rejected', null, 401],
       ]
       it.each(cases)('%s', async (_label, user, status) => {
@@ -499,15 +487,13 @@ describe.skipIf(!hasDatabaseUrl())(
         ['off-team HR is denied', HR_B, 403],
         ['teamless SENIOR is denied', SENIOR_TEAMLESS, 403],
         ['JUNIOR is denied by role', JUNIOR, 403],
-        ['ACCOUNTANT is denied by role', ACCOUNTANT, 403],
         ['anonymous is rejected', null, 401],
       ]
       it.each(linkedCases)('%s', async (_label, user, status) => {
         const res = await request('GET', `/api/interview-recordings/${RECORDING_A_ID}`, user)
         const body = res.json() as { id?: string; code?: string }
         // The service-level denial carries its own code; a RolesGuard denial does not.
-        const deniedByService =
-          status === 403 && user !== null && user.role !== 'JUNIOR' && user.role !== 'ACCOUNTANT'
+        const deniedByService = status === 403 && user !== null && user.role !== 'JUNIOR'
         expect({
           status: res.statusCode,
           id: status === 200 ? body.id : undefined,
@@ -555,7 +541,6 @@ describe.skipIf(!hasDatabaseUrl())(
         ['SENIOR is denied', SENIOR_A, 403],
         ['HR is denied', HR_A, 403],
         ['JUNIOR is denied', JUNIOR, 403],
-        ['ACCOUNTANT is denied', ACCOUNTANT, 403],
         ['anonymous is rejected', null, 401],
       ]
       it.each(cases)('%s', async (_label, user, status) => {
@@ -576,7 +561,6 @@ describe.skipIf(!hasDatabaseUrl())(
         ['SENIOR is denied (even onto own interview)', SENIOR_A, 403],
         ['HR is denied', HR_A, 403],
         ['JUNIOR is denied', JUNIOR, 403],
-        ['ACCOUNTANT is denied', ACCOUNTANT, 403],
         ['anonymous is rejected', null, 401],
       ]
       it.each(deniedCases)('%s', async (_label, user, status) => {

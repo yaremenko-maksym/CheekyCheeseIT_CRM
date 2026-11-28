@@ -46,7 +46,12 @@ const ADMIN: SessionUser = {
   avatarUrl: null,
   seniorSharePercent: 0,
 }
-const ACCOUNTANT: SessionUser = { ...ADMIN, id: 'accountant-caller', role: 'ACCOUNTANT' }
+// A role with no branch in the gates (allowlist proof, survives the enum narrowing).
+const UNBRANCHED: SessionUser = {
+  ...ADMIN,
+  id: 'unbranched-caller',
+  role: 'X' as SessionUser['role'],
+}
 const JUNIOR: SessionUser = { ...ADMIN, id: 'junior-caller', role: 'JUNIOR' }
 const SENIOR: SessionUser = { ...ADMIN, id: 'senior-caller', role: 'SENIOR' }
 
@@ -177,8 +182,8 @@ describe('TransactionEntryService.createExpense', () => {
     receiptExternalUrl: 'https://x.io/r',
   }
 
-  it('rejects any role other than ADMIN / ACCOUNTANT before touching the db', async () => {
-    for (const user of [JUNIOR, SENIOR]) {
+  it('rejects any role other than ADMIN before touching the db', async () => {
+    for (const user of [JUNIOR, SENIOR, UNBRANCHED]) {
       const h = make()
       await expect(h.svc.createExpense(base, user)).rejects.toBeInstanceOf(ForbiddenException)
       expect(h.inserted).toHaveLength(0)
@@ -222,12 +227,12 @@ describe('TransactionEntryService.createExpense', () => {
     expect(h.lifecycle.afterTransactionCreated).toHaveBeenCalledWith('new-tx-id', expected, ADMIN)
   })
 
-  it('ACCOUNTANT books the expense with its own id as sender/creator; absent notes become null', async () => {
+  it('absent notes become null', async () => {
     const h = make()
-    await h.svc.createExpense(base, ACCOUNTANT)
+    await h.svc.createExpense(base, ADMIN)
     expect(h.inserted[0]).toMatchObject({
-      senderId: ACCOUNTANT.id,
-      createdBy: ACCOUNTANT.id,
+      senderId: ADMIN.id,
+      createdBy: ADMIN.id,
       notes: null,
     })
   })
@@ -371,10 +376,12 @@ describe('TransactionEntryService.createSalary', () => {
     txDate: 'AUTO',
   }
 
-  it('rejects any role other than ADMIN / ACCOUNTANT before touching the db', async () => {
-    const h = make()
-    await expect(h.svc.createSalary(base, JUNIOR)).rejects.toBeInstanceOf(ForbiddenException)
-    expect(h.txFindFirst).not.toHaveBeenCalled()
+  it('rejects any role other than ADMIN before touching the db', async () => {
+    for (const user of [JUNIOR, UNBRANCHED]) {
+      const h = make()
+      await expect(h.svc.createSalary(base, user)).rejects.toBeInstanceOf(ForbiddenException)
+      expect(h.txFindFirst).not.toHaveBeenCalled()
+    }
   })
 
   it('requires an idempotency key', async () => {
@@ -433,13 +440,10 @@ describe('TransactionEntryService.createSalary', () => {
     expect(h.inserted).toHaveLength(0)
   })
 
-  it.each(['JUNIOR', 'HR', 'ACCOUNTANT', 'SENIOR', 'DROP'])(
-    'accepts a %s receiver',
-    async (role) => {
-      const h = make({ users: [{ ...employee, role }] })
-      await expect(h.svc.createSalary(base, ACCOUNTANT)).resolves.toEqual({ id: 'new-tx-id' })
-    },
-  )
+  it.each(['JUNIOR', 'HR', 'SENIOR', 'DROP'])('accepts a %s receiver', async (role) => {
+    const h = make({ users: [{ ...employee, role }] })
+    await expect(h.svc.createSalary(base, ADMIN)).resolves.toEqual({ id: 'new-tx-id' })
+  })
 
   it('inserts a neutral PENDING manual salary (default USD) and fires the lifecycle hook', async () => {
     const h = make({ users: [employee] })
@@ -618,45 +622,12 @@ describe('TransactionEntryService.createAdminTransfer', () => {
   const partner = { id: 'partner-1', role: 'ADMIN', archivedAt: null }
   const base = { receiverId: 'partner-1', amount: 25, receiptExternalUrl: EXPLORER_URL }
 
-  it('rejects any role other than ADMIN / ACCOUNTANT before touching the db', async () => {
-    const h = make()
-    await expect(h.svc.createAdminTransfer(base, SENIOR)).rejects.toBeInstanceOf(ForbiddenException)
-    expect(h.usersFindFirst).not.toHaveBeenCalled()
-  })
-
-  it('an ACCOUNTANT must name the sender', async () => {
-    const h = make()
-    await expect(h.svc.createAdminTransfer(base, ACCOUNTANT)).rejects.toMatchObject({
-      response: { code: 'FINANCE_TRANSFER_SENDER_ID_REQUIRED' },
-      status: 400,
-    })
-    expect(h.usersFindFirst).not.toHaveBeenCalled()
-  })
-
-  it('an ACCOUNTANT-named sender must resolve to an ADMIN', async () => {
-    const h = make({ users: [{ id: 's1', role: 'SENIOR' }] })
-    await expect(
-      h.svc.createAdminTransfer({ ...base, senderId: 's1' }, ACCOUNTANT),
-    ).rejects.toMatchObject({
-      response: { code: 'FINANCE_TRANSFER_SENDER_MUST_BE_ADMIN' },
-      status: 400,
-    })
-    const [args] = h.usersFindFirst.mock.calls[0] as unknown as [{ where: unknown }]
-    expect(paramsOf(args.where)).toEqual(['s1'])
-  })
-
-  it('an ACCOUNTANT-named sender that does not exist is refused', async () => {
-    const h = make({ users: [undefined] })
-    await expect(
-      h.svc.createAdminTransfer({ ...base, senderId: 's1' }, ACCOUNTANT),
-    ).rejects.toMatchObject({ response: { code: 'FINANCE_TRANSFER_SENDER_MUST_BE_ADMIN' } })
-  })
-
-  it('an ACCOUNTANT books a transfer between two admins, recording itself as creator', async () => {
-    const h = make({ users: [{ id: 'sender-admin', role: 'ADMIN' }, partner] })
-    const res = await h.svc.createAdminTransfer({ ...base, senderId: 'sender-admin' }, ACCOUNTANT)
-    expect(res).toEqual({ id: 'new-tx-id' })
-    expect(h.inserted[0]).toMatchObject({ senderId: 'sender-admin', createdBy: ACCOUNTANT.id })
+  it('rejects any role other than ADMIN before touching the db', async () => {
+    for (const user of [SENIOR, UNBRANCHED]) {
+      const h = make()
+      await expect(h.svc.createAdminTransfer(base, user)).rejects.toBeInstanceOf(ForbiddenException)
+      expect(h.usersFindFirst).not.toHaveBeenCalled()
+    }
   })
 
   it('an ADMIN always sends from self, ignoring a supplied senderId (no sender lookup)', async () => {

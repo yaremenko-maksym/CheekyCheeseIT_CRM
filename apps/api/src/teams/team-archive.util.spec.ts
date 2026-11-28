@@ -257,14 +257,13 @@ describe('getTeamArchiveImpact', () => {
       params: ['team-X', role],
     })
 
-    it('builds the full impact from drop / senior / HR / accountant / project queries', async () => {
+    it('builds the full impact from drop / senior / HR / project queries', async () => {
       const { deps, usersService, calls } = makeDeps(
         dropTeam,
         [
           [idName('drop-1', 'Drop Owner')],
           [idName('sen-1', 'Sen Name')],
           [{ userId: 'h1' }, { userId: 'h2' }],
-          [{ userId: 'a1' }],
           [
             { id: 'p1', name: 'Proj One' },
             { id: 'p2', name: 'Proj Two' },
@@ -287,7 +286,7 @@ describe('getTeamArchiveImpact', () => {
         seniorName: 'Sen Name',
         projectsCount: 2,
         projectNames: ['Proj One', 'Proj Two'],
-        membersAffected: 3,
+        membersAffected: 2,
         teamType: 'DROP',
         dropName: 'Drop Owner',
         seniorWillBeDetached: true,
@@ -295,7 +294,7 @@ describe('getTeamArchiveImpact', () => {
       })
       expect(usersService.getArchiveImpact).toHaveBeenCalledWith('drop-1', admin)
 
-      expect(calls).toHaveLength(5)
+      expect(calls).toHaveLength(4)
       const idNameProj = { id: users.id, displayName: users.displayName }
       // drop owner
       expect(calls[0]!.projection).toEqual(idNameProj)
@@ -318,26 +317,17 @@ describe('getTeamArchiveImpact', () => {
         '("team_members"."team_id" = $1 and "team_members"."left_at" is null and "users"."role" = $2)',
       )
       expect(hrQ.params).toEqual(['team-X', 'HR'])
-      // accountants
-      expect(calls[3]!.projection).toEqual({ userId: teamMembers.userId })
-      expect(calls[3]!.from).toBe(teamMembers)
-      expect(calls[3]!.joins).toBe(1)
-      const accQ = render(calls[3]!.where as SQL)
-      expect(accQ.sql).toBe(
-        '("team_members"."team_id" = $1 and "team_members"."left_at" is null and "users"."role" = $2)',
-      )
-      expect(accQ.params).toEqual(['team-X', 'ACCOUNTANT'])
       // drop projects
-      expect(calls[4]!.projection).toEqual({ id: projects.id, name: projects.name })
-      expect(calls[4]!.from).toBe(projects)
-      expect(calls[4]!.joins).toBe(0)
-      const pQ = render(calls[4]!.where as SQL)
+      expect(calls[3]!.projection).toEqual({ id: projects.id, name: projects.name })
+      expect(calls[3]!.from).toBe(projects)
+      expect(calls[3]!.joins).toBe(0)
+      const pQ = render(calls[3]!.where as SQL)
       expect(pQ.sql).toBe('("projects"."drop_id" = $1 and "projects"."archived_at" is null)')
       expect(pQ.params).toEqual(['drop-1'])
     })
 
     it('no active drop member: empty names, no projects query, no pending forward, no senior', async () => {
-      const { deps, usersService, calls } = makeDeps(dropTeam, [[], [], [], []])
+      const { deps, usersService, calls } = makeDeps(dropTeam, [[], [], []])
       const res = await getTeamArchiveImpact(deps, 'team-X', admin)
       expect(res).toEqual({
         type: 'team',
@@ -352,7 +342,7 @@ describe('getTeamArchiveImpact', () => {
         seniorWillBeDetached: false,
         pendingTransactions: [],
       })
-      expect(calls).toHaveLength(4)
+      expect(calls).toHaveLength(3)
       expect(usersService.getArchiveImpact).not.toHaveBeenCalled()
     })
 

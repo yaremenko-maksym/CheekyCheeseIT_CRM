@@ -63,7 +63,7 @@ describe('SalaryService.resolveHrAccountantSalaryReceivers', () => {
           id: 'ac-1',
           email: 'ac@x.io',
           displayName: 'Ada',
-          role: 'ACCOUNTANT',
+          role: 'HR',
           monthlySalary: '1500.00',
         },
         { id: 'hr-2', email: 'nosal@x.io', displayName: 'Nina', role: 'HR', monthlySalary: null },
@@ -75,7 +75,7 @@ describe('SalaryService.resolveHrAccountantSalaryReceivers', () => {
         id: 'ac-1',
         email: 'ac@x.io',
         displayName: 'Ada',
-        role: 'ACCOUNTANT',
+        role: 'HR',
         monthlySalary: '1500.00',
       },
     ])
@@ -203,7 +203,6 @@ describe('SalaryService.resolveSalaryMonthGap', () => {
       employees: [
         { id: 'hr-1', email: 'a', displayName: 'A', role: 'HR', monthlySalary: '100.00' },
         { id: 'hr-2', email: 'b', displayName: 'B', role: 'HR', monthlySalary: '200.50' },
-        { id: 'ac-1', email: 'c', displayName: 'C', role: 'ACCOUNTANT', monthlySalary: '300.00' },
       ],
       members: [
         {
@@ -260,7 +259,7 @@ describe('SalaryService.getSalaryMonthGapReport — RBAC guard', () => {
     },
   )
 
-  it.each(['ADMIN', 'ACCOUNTANT'] as const)('lets %s read the requested month', async (role) => {
+  it.each(['ADMIN'] as const)('lets %s read the requested month', async (role) => {
     const { svc } = makeService({})
     expect(await svc.getSalaryMonthGapReport(sessionUser(role), '2026-08')).toEqual({
       month: '2026-08',

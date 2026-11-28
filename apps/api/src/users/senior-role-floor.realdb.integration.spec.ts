@@ -55,7 +55,7 @@ const JWT_SECRET = 'senior-tech-floor-realdb-integration-secret'
 const EMAIL_PREFIX = 'stf-'
 const EMAIL_DOMAIN = '@test.spec'
 
-type Role = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
+type Role = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR'
 interface Persona {
   id: string
   email: string
@@ -80,11 +80,6 @@ const JUNIOR: Persona = {
   email: 'stf-junior@test.spec',
   role: 'JUNIOR',
   techStack: ['React', 'Go'],
-}
-const ACCOUNTANT: Persona = {
-  id: '5f5f0000-0000-4000-aa00-000000000004',
-  email: 'stf-acc@test.spec',
-  role: 'ACCOUNTANT',
 }
 // A SENIOR with roles and a stack.
 const SENIOR3: Persona = {
@@ -114,7 +109,7 @@ const SELF3: Persona = {
   techStack: ['React', 'Go', 'AWS'],
   technicalRoles: ['FRONTEND_ENGINEER'],
 }
-const PERSONAS = [ADMIN, HR, JUNIOR, ACCOUNTANT, SENIOR3, LEGACY2, LEGACY1, SELF3]
+const PERSONAS = [ADMIN, HR, JUNIOR, SENIOR3, LEGACY2, LEGACY1, SELF3]
 
 const WALLET = '0x' + '1'.repeat(40)
 
@@ -295,7 +290,7 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     describe('POST /users — create a SENIOR', () => {
-      it.each([JUNIOR, ACCOUNTANT, SENIOR3])('$role gets 403 before any validation', async (p) => {
+      it.each([JUNIOR, SENIOR3])('$role gets 403 before any validation', async (p) => {
         const email = `${EMAIL_PREFIX}forbidden-${p.role.toLowerCase()}${EMAIL_DOMAIN}`
         expect(await call('POST', '/api/users', p, adminSeniorBody(email))).toMatchObject({
           status: 403,

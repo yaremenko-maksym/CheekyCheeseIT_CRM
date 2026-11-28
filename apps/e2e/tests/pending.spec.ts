@@ -251,7 +251,6 @@ test.describe('/pending — AC5: nav badge + notifications-bell footer link', ()
       email: `pending-badge-${suffix}@cheekycheese.dev`,
       displayName: `Pending Badge Drop ${suffix}`,
       hrEmails: [SEED_EMAILS.hrA],
-      accountantEmail: SEED_EMAILS.accountant,
     })
 
     try {
@@ -295,7 +294,7 @@ test.describe('/pending — AC5: nav badge + notifications-bell footer link', ()
 // in the schema and in the aggregate — it becomes reachable the day a
 // contract appears for an ALREADY-onboarded user — and it keeps its
 // server-side coverage (`pending.integration.spec.ts` AC1's
-// JUNIOR/HR/ACCOUNTANT cases build it against a real Postgres) plus its
+// JUNIOR/HR cases build it against a real Postgres) plus its
 // client-side rendering coverage (`PendingItemRow.test.tsx`'s
 // CONTRACT_TO_SIGN cases). What cannot exist today is the live browser path,
 // so there is no test pretending to walk it.
@@ -380,7 +379,6 @@ test.describe('/pending — SR-L-6: dashboard widget reads GET /pending, never G
       email: `pending-widget-${suffix}@cheekycheese.dev`,
       displayName: `Pending Widget Drop ${suffix}`,
       hrEmails: [SEED_EMAILS.hrA],
-      accountantEmail: SEED_EMAILS.accountant,
     })
 
     try {

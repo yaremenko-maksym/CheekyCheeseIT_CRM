@@ -39,7 +39,7 @@
  * The SENIOR_INCOME − term (task-drop-payout-company-account) closes the
  * drop-payout loop: when a DROP settles to the company the FULL payable is
  * credited (+PAYOUT COMPANY_ACCOUNT), but the senior's share of that payable is
- * owed by the company. ADMIN/ACCOUNTANT later closes that obligation via
+ * owed by the company. ADMIN later closes that obligation via
  * settleByCompany, which pays the senior a SENIOR_INCOME funded from the company
  * account — so it MUST debit the company balance, else the senior share would be
  * double-counted (held by the company AND received by the senior). The marker is

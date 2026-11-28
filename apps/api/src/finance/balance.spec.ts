@@ -371,13 +371,6 @@ describe('R3 — BalanceService RBAC helpers: assertCanReadAdminBalance', () => 
     )
   })
 
-  it('ACCOUNTANT can read any admin balance', () => {
-    const svc = makeService()
-    expect(() =>
-      svc.assertCanReadAdminBalance(makeViewer('ACCOUNTANT'), TARGET_ADMIN_ID),
-    ).not.toThrow()
-  })
-
   it('SENIOR cannot read admin balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('SENIOR'), TARGET_ADMIN_ID)).toThrow(
@@ -422,13 +415,6 @@ describe('R3 — BalanceService RBAC helpers: assertCanReadSeniorBalance', () =>
     expect(() => svc.assertCanReadSeniorBalance(makeViewer('ADMIN'), SENIOR_A_ID)).not.toThrow()
   })
 
-  it('ACCOUNTANT can read any senior balance', () => {
-    const svc = makeService()
-    expect(() =>
-      svc.assertCanReadSeniorBalance(makeViewer('ACCOUNTANT'), SENIOR_A_ID),
-    ).not.toThrow()
-  })
-
   it('SENIOR_B cannot read SENIOR_A balance → ForbiddenException', () => {
     const svc = makeService()
     const viewer = makeViewer('SENIOR', SENIOR_B_ID)
@@ -463,11 +449,6 @@ describe('R3 — BalanceService RBAC helpers: assertCanListPendingObligations', 
   it('ADMIN can list pending obligations', () => {
     const svc = makeService()
     expect(() => svc.assertCanListPendingObligations(makeViewer('ADMIN'))).not.toThrow()
-  })
-
-  it('ACCOUNTANT can list pending obligations', () => {
-    const svc = makeService()
-    expect(() => svc.assertCanListPendingObligations(makeViewer('ACCOUNTANT'))).not.toThrow()
   })
 
   it('SENIOR can list (own) pending obligations', () => {

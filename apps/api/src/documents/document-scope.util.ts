@@ -59,17 +59,6 @@ export async function getHrSeniorIds(db: DatabaseService, hrId: string): Promise
  *      those projects.
  * PLUS `actorId` itself always — "собственные документы у всех остаются
  * доступны всегда" must hold even with zero active team membership.
- *
- * ACCOUNTANT is NOT routed through this helper at all — they keep
- * unconditional SCAN access (owner decision 2026-08-03, security-review
- * round 2 — see the SCAN branch of `buildVisibilityClause` for the full
- * rationale). Routing them through this predicate would not even be a
- * narrowing in practice: ACCOUNTANT IS added to every team at creation
- * time, so it would resolve to "the whole company" anyway — the round-1
- * attempt at scoping ACCOUNTANT used a DIFFERENT mechanism (a
- * transaction-existence check, since reverted) precisely because this
- * team/project predicate can't meaningfully restrict a role that's a
- * member of literally every team.
  */
 export async function getTeammateIds(
   db: DatabaseService,

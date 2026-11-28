@@ -36,7 +36,7 @@ import { EmployeeContractsService } from './employee-contracts.service'
  * SIGNED; subsequent sign() calls reach getReadyForSigning() which throws 409 —
  * preventing double-signing of the same contract.
  *
- * `findById` enforces RBAC: ADMIN, ACCOUNTANT, or the owner of the row.
+ * `findById` enforces RBAC: ADMIN, or the owner of the row.
  * `findMine` returns the caller's own signed contracts.
  */
 @Injectable()
@@ -231,7 +231,7 @@ export class SignedContractsService {
     })
     if (!row) throw apiError('SIGNED_CONTRACT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
-    if (requester.role === 'ADMIN' || requester.role === 'ACCOUNTANT') return row
+    if (requester.role === 'ADMIN') return row
     if (row.userId === requester.id) return row
     throw new ForbiddenException()
   }
@@ -246,7 +246,7 @@ export class SignedContractsService {
   /**
    * Resolve the data needed to render a signed contract PDF.
    *
-   * Reuses `findById` for the RBAC check (owner | ADMIN | ACCOUNTANT) — a
+   * Reuses `findById` for the RBAC check (owner | ADMIN) — a
    * non-authorised caller gets the same Forbidden/NotFound as the JSON read.
    * No IP is exposed in the PDF (AC7); the full IP stays in the DB for audit.
    */

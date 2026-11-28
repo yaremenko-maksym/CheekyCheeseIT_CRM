@@ -44,7 +44,7 @@ import { makeNotificationsStub } from '../notifications/__test-helpers__/notific
  *   DROP-CRT-5a  POST {dropId: null} → 201/200, column NULL (explicit null)
  *   DROP-CRT-5b  POST without dropId key → 201/200, column NULL (absent = no drop)
  *   DROP-CRT-6   POST {dropId: 'invalid-uuid'} → 400 from createProjectSchema.parse (Zod)
- *   DROP-CRT-7   RBAC denials: SENIOR / JUNIOR / DROP / ACCOUNTANT POST with a
+ *   DROP-CRT-7   RBAC denials: SENIOR / JUNIOR / DROP POST with a
  *                valid dropId → 403 (outer role gate — `role !== 'ADMIN' && role !== 'HR'`)
  *   DROP-CRT-8   RBAC positive: HR of project senior's own team → 201/200;
  *                HR of a foreign team → 403 (assertHrCanManageProject)
@@ -122,17 +122,6 @@ const DROP2_ARCHIVED: SessionUser = {
   avatarUrl: null,
   role: 'DROP',
   seniorSharePercent: 0,
-  legalFullName: null,
-}
-
-/** ACCOUNTANT from canonical seed */
-const ACCOUNTANT: SessionUser = {
-  id: 'c7e8d9a0-b1c2-4d3e-8f5a-6b7c8d9e0fbb',
-  email: 'mykola.savchenko@cheekycheese.dev',
-  displayName: 'Mykola Savchenko',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 26,
   legalFullName: null,
 }
 
@@ -640,21 +629,6 @@ describe.skipIf(!hasDatabaseUrl())(
       ).toBe(403)
       const body = res.json() as { message?: string }
       expect(body.message, "DROP 403 body must contain 'Forbidden'").toContain('Forbidden')
-    })
-
-    it('DROP-CRT-7d. ACCOUNTANT POST {dropId: validDrop} → 403 Forbidden', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/projects',
-        cookies: { jwt: tokenFor(ACCOUNTANT) },
-        payload: buildPayload(DROP1.id),
-      })
-      expect(
-        res.statusCode,
-        'ACCOUNTANT must be denied (403) when trying to create with dropId',
-      ).toBe(403)
-      const body = res.json() as { message?: string }
-      expect(body.message, "ACCOUNTANT 403 body must contain 'Forbidden'").toContain('Forbidden')
     })
 
     // ── DROP-CRT-8: RBAC positive — HR scoping via assertHrCanManageProject ─────

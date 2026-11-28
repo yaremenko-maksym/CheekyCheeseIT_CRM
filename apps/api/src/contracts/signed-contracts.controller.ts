@@ -16,8 +16,8 @@ import { EmployeeContractsService } from './employee-contracts.service'
  *   POST /api/contracts/sign           — any authenticated non-ADMIN
  *   GET  /api/contracts/me             — caller's own signed contracts
  *   GET  /api/contracts/me/status      — caller's employee_contract status (AC1 fix)
- *   GET  /api/contracts/:id            — ADMIN | ACCOUNTANT | owner
- *   GET  /api/contracts/:id/pdf        — owner | ADMIN | ACCOUNTANT
+ *   GET  /api/contracts/:id            — ADMIN | owner
+ *   GET  /api/contracts/:id/pdf        — owner | ADMIN
  *
  * A3-1: GET /api/contracts/preview-pdf REMOVED — replaced by per-employee
  * contract PDF endpoints:
@@ -90,7 +90,7 @@ export class SignedContractsController {
 
   /**
    * Download a signed contract as a PDF. RBAC is enforced inside
-   * `getPdfData` → `findById` (owner | ADMIN | ACCOUNTANT).
+   * `getPdfData` → `findById` (owner | ADMIN).
    *
    * Uses `@Res()` to stream the binary directly — bypasses the global
    * serializer interceptor (which would try to JSON-encode the Buffer).

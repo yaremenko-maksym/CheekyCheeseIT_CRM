@@ -16,7 +16,7 @@ import { getUserViaAPI } from './drop'
 //     DROP user routed by `project.dropId` may call this. Inserts a PENDING
 //     DROP_INCOME row.
 //   - validateTransactionViaAPI — PATCH /api/transactions/:id/validate;
-//     ACCOUNTANT/ADMIN-only. Flips DROP_INCOME→VALIDATED, creates the
+//     ADMIN-only. Flips DROP_INCOME→VALIDATED, creates the
 //     payout_request + placeholder PAYOUT row. The drop distribution math
 //     fires later when `payPayoutRequest` is called.
 //

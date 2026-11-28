@@ -6,10 +6,7 @@ describe('canSeePendingSeniorShare', () => {
     expect(canSeePendingSeniorShare(role)).toBe(true)
   })
 
-  it.each(['JUNIOR', 'HR', 'ACCOUNTANT', 'DROP', 'admin', 'senior', '', undefined])(
-    'denies %s',
-    (role) => {
-      expect(canSeePendingSeniorShare(role)).toBe(false)
-    },
-  )
+  it.each(['JUNIOR', 'HR', 'DROP', 'admin', 'senior', '', undefined])('denies %s', (role) => {
+    expect(canSeePendingSeniorShare(role)).toBe(false)
+  })
 })

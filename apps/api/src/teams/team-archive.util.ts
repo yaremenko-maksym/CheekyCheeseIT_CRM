@@ -148,17 +148,6 @@ export async function getTeamArchiveImpact(
       .from(teamMembers)
       .innerJoin(users, eq(users.id, teamMembers.userId))
       .where(and(eq(teamMembers.teamId, teamId), isNull(teamMembers.leftAt), eq(users.role, 'HR')))
-    const accountants = await deps.db
-      .select({ userId: teamMembers.userId })
-      .from(teamMembers)
-      .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(
-        and(
-          eq(teamMembers.teamId, teamId),
-          isNull(teamMembers.leftAt),
-          eq(users.role, 'ACCOUNTANT'),
-        ),
-      )
     // Drop-projects count + names (AC8).
     const dropProjects = dropRow
       ? await deps.db
@@ -186,7 +175,7 @@ export async function getTeamArchiveImpact(
       seniorName: seniorRow?.displayName ?? '',
       projectsCount: dropProjects.length,
       projectNames: dropProjects.map((p) => p.name),
-      membersAffected: others.length + accountants.length,
+      membersAffected: others.length,
       teamType: 'DROP',
       dropName: dropRow?.displayName ?? '',
       seniorWillBeDetached: !!seniorRow,

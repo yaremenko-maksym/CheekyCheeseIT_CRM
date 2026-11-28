@@ -198,9 +198,9 @@ describe('mapTeam — senior-team envelope', () => {
     expect(out.members[0].email).toBe('s@x.test')
   })
 
-  it('non-JUNIOR viewers never mask contacts (ADMIN, HR, ACCOUNTANT)', () => {
+  it('non-JUNIOR viewers never mask contacts (ADMIN, HR)', () => {
     const t = team('SENIOR', [member('s', user('s', 'SENIOR'))])
-    for (const role of ['ADMIN', 'HR', 'ACCOUNTANT']) {
+    for (const role of ['ADMIN', 'HR']) {
       expect(mapTeam(t, [], viewer('v', role)).members[0].email).toBe('s@x.test')
     }
   })
@@ -259,7 +259,6 @@ describe('mapTeam — DROP branch', () => {
         member('d', user('d', 'DROP')),
         member('s', user('s', 'SENIOR')),
         member('h', user('h', 'HR')),
-        member('acc', user('acc', 'ACCOUNTANT')),
         member('adm', user('adm', 'ADMIN')),
         member('jun', user('jun', 'JUNIOR')),
         member('gone', user('gone', 'HR'), D2),
@@ -286,7 +285,7 @@ describe('mapTeam — DROP branch', () => {
       createdAt: D,
       updatedAt: D2,
     })
-    expect(out.members.map((m) => m.userId)).toEqual(['d', 's', 'h', 'acc'])
+    expect(out.members.map((m) => m.userId)).toEqual(['d', 's', 'h'])
     // The drop team's SENIOR carries its technical roles too.
     expect(out.members[1]?.technicalRoles).toEqual(['BACKEND_ENGINEER'])
     expect(out.members[0]).toEqual({
@@ -342,14 +341,14 @@ describe('mapTeam — DROP branch', () => {
     })
   })
 
-  it('JUNIOR viewer: DROP and SENIOR contacts masked, HR/ACCOUNTANT not', () => {
+  it('JUNIOR viewer: DROP and SENIOR contacts masked, HR not', () => {
     const out = mapTeam(dropTeam(), [], viewer('me', 'JUNIOR'))
     const byId = Object.fromEntries(out.members.map((m) => [m.userId, m]))
     for (const id of ['d', 's']) {
       expect(byId[id]).toMatchObject({ email: null, phone: null, telegram: null })
       expect(byId[id].displayName).toBe(`name-${id}`)
     }
-    for (const id of ['h', 'acc']) {
+    for (const id of ['h']) {
       expect(byId[id]).toMatchObject({ email: `${id}@x.test`, phone: `+1${id}` })
     }
   })

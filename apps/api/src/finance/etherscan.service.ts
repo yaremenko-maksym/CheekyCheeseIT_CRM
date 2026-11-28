@@ -96,7 +96,7 @@ export interface DepositVerification {
   // straight from an exchange, so `from` is the EXCHANGE's hot wallet rather
   // than their registered address — gating on it would reject honest payments.
   // It is therefore recorded on the payout / deposit row and surfaced to
-  // ADMIN/ACCOUNTANT for investigation, while the enforcement barriers are:
+  // ADMIN for investigation, while the enforcement barriers are:
   // the RECIPIENT match (`toMatches`), the EXACT amount match (caller-side,
   // `amountUsdtMinor`), and the cross-path consumed-hash registry.
   fromAddress: string | null
@@ -331,7 +331,7 @@ export class EtherscanService {
     //   sender was neither filtered nor recorded. It is now READ a few lines
     //   below (`fromAddress`, from `topics[1]` of the crediting Transfer log,
     //   tx-level `from` as fallback) and PERSISTED by the callers on the payout
-    //   / deposit row (`tx_from_address`), surfaced to ADMIN/ACCOUNTANT.
+    //   / deposit row (`tx_from_address`), surfaced to ADMIN.
     //   It is deliberately NOT a gate: staff often withdraw straight from an
     //   exchange, whose hot wallet is the `from` — gating would reject honest
     //   payments (owner decision). The enforcing barriers are the RECIPIENT

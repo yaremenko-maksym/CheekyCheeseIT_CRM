@@ -40,12 +40,12 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  * PLUS the money-path closure this task's defect report calls out explicitly:
  * createSeniorIncome/createDropIncome do NOT book a company obligation
  * themselves (unlike declareUsdtProjectIncome) — a SENIOR_INCOME/DROP_INCOME
- * row only turns into an obligation later, when an ACCOUNTANT validates it and
+ * row only turns into an obligation later, when an ADMIN validates it and
  * the SENIOR/DROP bundles their VALIDATED incomes into a payout request
  * (createPayoutRequest sums ALL bundled rows' amounts; for a drop-project the
  * pay cascade then books a senior IOU + a drop IOU off that sum via
  * bookCompanyObligations). A double-click that created TWO identical PENDING
- * rows would let an ACCOUNTANT validate both (they look identical — nothing
+ * rows would let an ADMIN validate both (they look identical — nothing
  * flags a duplicate) and the SENIOR/DROP bundle both into one payout,
  * DOUBLING incomeAmount/payableAmount and therefore the booked obligation.
  * The "closes the loop" tests below (AC5) drive a double-submit all the way
@@ -515,7 +515,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
     // ── AC5 (money-path closure): double-submit → validate → payout → confirm ──
     // Drives the ORIGINAL defect report end to end: a double-click that used to
-    // create two DROP_INCOME rows would let an ACCOUNTANT validate both and the
+    // create two DROP_INCOME rows would let an ADMIN validate both and the
     // DROP bundle both into one payout request, doubling the amount
     // createPayoutRequest sums and therefore the senior/drop obligations
     // bookCompanyObligations books off it. With the fix there is only ever ONE
@@ -550,7 +550,7 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(second.id).toBe(first.id)
       expect(await countTxType('DROP_INCOME', DROP_PROJECT)).toBe(1)
 
-      // ACCOUNTANT-equivalent step: validate the ONE row (ADMIN may validate too).
+      // ADMIN-equivalent step: validate the ONE row (ADMIN may validate too).
       await svc.validateTransaction(first.id, 'validate', undefined, ADMIN_MAKSYM)
 
       // DROP bundles their (single) VALIDATED income into a payout request.

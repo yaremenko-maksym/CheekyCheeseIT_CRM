@@ -6,12 +6,12 @@
  *
  *   1. ADMIN provisions a fresh DROP + drop-team + drop-project.
  *   2. DROP posts a $1000 DROP_INCOME (PENDING).
- *   3. ACCOUNTANT validates → backend cascade (transactions.service §validate)
+ *   3. ADMIN validates → backend cascade (transactions.service §validate)
  *      flips DROP_INCOME→VALIDATED, creates the payout_request + placeholder
  *      PAYOUT row (PENDING_PAYMENT). NOTE: Phase 2 distribution math
  *      (PAYOUT_DROP + 2× PAYOUT_ADMIN inserts) fires LATER in
  *      `payPayoutRequest` — the manual confirmation flow lives BEFORE that
- *      step (DROP hasn't paid yet → ADMIN/ACCOUNTANT records that money
+ *      step (DROP hasn't paid yet → ADMIN records that money
  *      already arrived off-platform).
  *   4. ADMIN opens /finance, clicks «Подтвердить оплату» on the PAYOUT row.
  *   5. Picks Maksym in the recipient select → submits.
@@ -104,7 +104,7 @@ test.describe('Drop confirm-payout — manual confirmation happy path (AC2)', ()
       })
       expect(incomeTxId).toBeTruthy()
 
-      // 4) ACCOUNTANT validates (flips PENDING → VALIDATED only — task-drop-
+      // 4) ADMIN validates (flips PENDING → VALIDATED only — task-drop-
       //    payout-company-account removed the auto-create-payout_request
       //    side-effect). The DROP then explicitly bundles their own
       //    VALIDATED income into a payout_request, which is what creates the
@@ -112,7 +112,7 @@ test.describe('Drop confirm-payout — manual confirmation happy path (AC2)', ()
       //    works on, BEFORE the DROP triggers `payPayoutRequest` — calling
       //    pay AFTER confirm-payout would 404 on the idempotency guard
       //    (PAYOUT must be PENDING_PAYMENT).
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, incomeTxId)
 
       await loginViaApi(page, dropEmail)

@@ -17,7 +17,7 @@ import type { SessionUser } from '@crm/shared'
  * `@Roles` guard). Neither SENIOR nor ADMIN is ever a member of this set,
  * so `.has(currentUser.role)` is FALSE for every real caller regardless of
  * what this set actually contains — gutting it to `[]`, or blanking any of
- * its 3 string literals, changed nothing any existing test could observe
+ * its string literals, changed nothing any existing test could observe
  * through that call site alone (all 4 mutants survived). A direct
  * membership test on the export is the only way to pin the invariant the
  * docblock above already claims ("mirrors exactly what
@@ -26,6 +26,5 @@ import type { SessionUser } from '@crm/shared'
  */
 export const CRON_ELIGIBLE_SALARY_ROLES: ReadonlySet<SessionUser['role']> = new Set([
   'HR',
-  'ACCOUNTANT',
   'JUNIOR',
 ])
