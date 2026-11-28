@@ -119,8 +119,8 @@ case_red drz apps/e2e/helpers/seed.ts modified $'import a from "./a"\nimport { e
   "e2e file importing drizzle-orm -> refused"
 case_red schema apps/web/app/lib/y.ts modified "import { transactions } from '../../../api/src/database/schema'" \
   "api-source" "importing the drizzle schema (a finance table) -> refused"
-case_red api apps/landing/src/z.ts modified "const s = require('@crm/api/finance')" "api-source" \
-  "require of @crm/api -> refused"
+case_red api apps/landing/src/z.ts modified "import s from '@crm/api/finance'" "api-source" \
+  "import of @crm/api -> refused"
 case_red fin apps/web/app/lib/f.ts modified "const m = await import('./payouts.service')" "finance: apps/web/app/lib/f.ts" \
   "literal dynamic import of a finance service -> refused"
 case_red ctl apps/web/server/users.controller.ts added 'export class X {}' "controller: apps/web/server/users.controller.ts" \
@@ -139,9 +139,9 @@ case_red mvown apps/web/app/lib/moved.ts renamed 'export const a = 1' "moved-fro
   "BYPASS rename from an owned path -> refused" apps/api/src/users/users.service.ts
 case_red cpown apps/web/app/lib/copy.ts copied 'export const a = 1' "moved-from-owned" \
   "BYPASS copy from an owned path -> refused" apps/api/src/users/users.service.ts
-case_red tpl apps/web/app/lib/d2.ts modified 'const m = require(`${base}/database/schema`)' "dynamic-specifier" \
+case_red tpl apps/web/app/lib/d2.ts modified 'const m = require(`${base}/database/schema`)' "loader-alias" \
   "BYPASS template-literal require -> refused"
-case_red dyn apps/landing/src/d.ts modified $'const name = "p" + "g"\nconst m = require(name)' "dynamic-specifier" \
+case_red dyn apps/landing/src/d.ts modified $'const name = "p" + "g"\nconst m = require(name)' "loader-alias" \
   "BYPASS computed require(name) -> refused"
 case_red ralias apps/web/app/lib/ra.ts modified $'const r = require\nr(\'pg\')' "loader-alias" \
   "BYPASS const r = require; r('x') -> refused"
@@ -165,6 +165,35 @@ case_red nf apps/web/app/lib/nf.ts modified "const f = new Function('return 1')"
 case_red ctor apps/web/app/lib/ct.ts modified "const f = (()=>{}).constructor('return 1')" "eval" \
   ".constructor(...) -> refused"
 case_red bad apps/web/app/lib/bad.ts modified 'import { from' "unparseable" "a file that does not parse -> refused"
+
+# Master addendum 3: inverted loader detection — only a literal static ESM import is allowed
+case_red lreq apps/web/app/lib/lr.ts modified "const t = require('./t')" "reference to \`require\`" \
+  "a literal require('./t') is a trigger too"
+case_red proc apps/e2e/helpers/p.ts modified "const b = process.binding('fs')" "reference to \`process\`" \
+  "a reference to process -> refused"
+case_red modx apps/landing/src/mx.cjs modified "module.exports = {}" "reference to \`module\`" \
+  "a reference to module -> refused"
+case_red expo apps/landing/src/ex.cjs modified "exports.a = 1" "reference to \`exports\`" \
+  "a reference to exports -> refused"
+case_red nwr apps/web/app/lib/nw.ts modified "const x = __non_webpack_require__('pg')" "__non_webpack_require__" \
+  "__non_webpack_require__ -> refused"
+case_red short_proc apps/web/app/lib/sp.ts modified "const o = { process }" "reference to \`process\`" \
+  "a shorthand { process } is a reference -> refused"
+case_red gcomp apps/web/app/lib/gc.ts modified "const r = globalThis['req' + 'uire']" "globalThis[...]" \
+  "a computed member of globalThis -> refused"
+case_red wcomp apps/web/app/lib/wc.ts modified "const r = window[name]" "window[...]" \
+  "a computed member of window -> refused"
+case_red gprop apps/web/app/lib/gp.ts modified "const r = self.eval" "self.eval" "self.eval -> refused"
+case_red nodefs apps/e2e/helpers/fs.ts modified "import { readFileSync } from 'node:fs'" "module specifier node:fs" \
+  "a node:* import -> refused"
+case_red cp apps/e2e/helpers/cp.ts modified "import { exec } from 'child_process'" "module specifier child_process" \
+  "a child_process import -> refused"
+case_red nmod apps/e2e/helpers/nm.ts modified "import { createRequire as c } from 'module'" "module specifier module" \
+  "an import of 'module' (renamed binding) -> refused"
+case_red ieq apps/web/app/lib/ie.ts modified "import x = require('./x')" "import = require" \
+  "import x = require(...) -> refused"
+case_red ctor2 apps/web/app/lib/c2.ts modified "const f = ''['constructor']['constructor']('return 1')" "eval" \
+  "a ['constructor'] call -> refused"
 
 printf '* @o\napps/**\n' >"$T/open-co"
 src pj '{ "dependencies": { "db": "npm:pg@8" } }'
@@ -214,8 +243,8 @@ assert_green "fetch plan lists only the unowned code file" --contains "apps/web/
 # Verdict parsing (owner requirement 2 + 5): fresh / stale / BLOCK / non-owner / owner-authored
 src v "import pg from 'pg'"
 mk v apps/web/app/lib/x.ts added
-review() { # <author> <state> <body>
-  node -e 'console.log(JSON.stringify({ author: process.argv[1], state: process.argv[2], body: process.argv[3] }))' "$@"
+review() { # <author> <state> <body> [commit_id]
+  node -e 'console.log(JSON.stringify({ author: process.argv[1], state: process.argv[2], body: process.argv[3], commit_id: process.argv[4] }))' "$1" "$2" "$3" "${4:-$HEAD}"
 }
 verdict_case() { # <name> <reviews-json> [author]
   cp "$T/v.files.json" "$T/$1.files.json"
@@ -226,10 +255,15 @@ FRESH="$(review "$OWNER" COMMENTED $'Owner Verdict: APPROVE\n\nCommit: '"$HEAD")
 verdict_case fresh "[$FRESH]"
 assert_green "fresh owner APPROVE (COMMENT review) on head -> passes, triggers listed" --contains "[approved]" \
   --contains "db-client" -- run fresh
-verdict_case fresh7 "[$(review "$OWNER" APPROVED $'Owner Verdict: APPROVE\nCommit: `1111111`')]"
-assert_green "APPROVE review state + short sha in backticks -> passes" --contains "[approved]" -- run fresh7
+verdict_case short7 "[$(review "$OWNER" APPROVED $'Owner Verdict: APPROVE\nCommit: `1111111`')]"
+assert_red "a 7-char Commit: prefix is rejected (full 40 hex only)" --contains "[stale]" -- run short7
 verdict_case stale "[$(review "$OWNER" COMMENTED $'Owner Verdict: APPROVE\nCommit: '"$OLD")]"
 assert_red "APPROVE for an older commit (push after verdict) -> stale" --contains "[stale]" -- run stale
+verdict_case cid "[$(review "$OWNER" COMMENTED $'Owner Verdict: APPROVE\nCommit: '"$HEAD" "$OLD")]"
+assert_red "Commit: names the head but the review's commit_id is older -> stale" --contains "[stale]" \
+  --contains "submitted on 2222222" -- run cid
+verdict_case nocid "[$(review "$OWNER" COMMENTED $'Owner Verdict: APPROVE\nCommit: '"$HEAD" null)]"
+assert_red "review with no commit_id -> stale" --contains "[stale]" -- run nocid
 verdict_case nocommit "[$(review "$OWNER" COMMENTED 'Owner Verdict: APPROVE')]"
 assert_red "APPROVE without a Commit: line -> stale" --contains "[stale]" -- run nocommit
 verdict_case block "[$FRESH,$(review "$OWNER" COMMENTED $'Owner Verdict: BLOCK\nCommit: '"$HEAD")]"
@@ -254,11 +288,11 @@ assert_green "--json carries the status for the merge workflow" --contains '"sta
 src ui "import { TransactionsTable } from './TransactionsTable'
 import { z } from 'zod'
 import { api } from '@/lib/axios'
-import type { Foo } from 'node:fs'
 const Page = lazy(() => import('./page'))
 // a comment mentioning require(name) and import.meta.glob is prose, not code
-const t = require('./t')
-const u = import.meta.env.VITE_X"
+const u = import.meta.env.VITE_X
+const cfg = { module: 'x', require: false }
+const v = cfg.process"
 mk ui apps/web/app/components/x.tsx modified
 assert_green "UI file with ordinary / literal imports -> passes" --contains "[not-required]" -- run ui
 src reprot "import pg from 'pg'"

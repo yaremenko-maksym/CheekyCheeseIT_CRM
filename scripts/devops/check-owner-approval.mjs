@@ -15,14 +15,14 @@
 // (fetched through the REST API as data, never checked out). Every module specifier from the AST
 // is resolved (relative paths against the file's directory; tsconfig `paths` of the owning package,
 // read from the BASE branch; `@crm/<pkg>` workspace names) and then matched. Anything the scanner
-// cannot pin to a literal module — a computed loader argument, `require` used as a value,
-// createRequire, module.require, import.meta.glob*, eval, new Function, `.constructor(...)`, an
+// cannot pin to a literal module — any reference to require / module / process / exports / eval / Function /
+// createRequire, a computed member of a global object, `.constructor(...)`, a node:* specifier, import.meta.glob*, an
 // unresolved alias, a non-code non-inert file type — is itself a trigger. A trigger is not a
 // verdict of malice; it means "the owner looks".
 //
 // VERDICT: the owner's (login OWNER) latest review whose first non-empty line is
 // `Owner Verdict: APPROVE|BLOCK` decides; DISMISSED reviews do not count. APPROVE needs state
-// COMMENTED or APPROVED and a `Commit: <sha>` line (>= 7 hex) that prefixes the head — a push after
+// COMMENTED or APPROVED and a `Commit: <sha>` line (full 40 hex) equal to the head, and the review's commit_id equal to the head — a push after
 // the verdict makes it stale. A label is not used: any write-role user can set one.
 //
 // Usage:
@@ -230,7 +230,23 @@ export function classifySpecifier(filename, spec, aliases) {
 }
 
 // ── AST scan ─────────────────────────────────────────────────────────────────────────────
+// shortcut: static analysis cannot prove absence of dynamic loading; owner review is the backstop
+// Inverted (Master addendum 3): a static ESM import with a literal specifier is the only loader
+// allowed without a verdict (a literal `import('x')` is resolved and judged the same way). Any
+// reference to an identifier below — called, aliased, passed or shadowed — is a trigger.
 const META_OK = new Set(['env', 'url', 'hot', 'dirname', 'filename', 'main'])
+const LOADER_IDS = new Set([
+  'require',
+  'module',
+  'process',
+  'exports',
+  '__non_webpack_require__',
+  'createRequire',
+  'eval',
+  'Function',
+])
+const GLOBAL_OBJECTS = new Set(['globalThis', 'global', 'window', 'self'])
+const LOADER_SPEC = /^(module|child_process|node:.*)(\/|$)/
 
 function scriptKind(filename) {
   const k = ts().ScriptKind
@@ -256,8 +272,16 @@ export function scanCode(filename, content, aliases) {
     out.push({ kind, file: filename, detail: `${detail} (line ${at(node)})` })
   const literal = (n) => n && (T.isStringLiteral(n) || T.isNoSubstitutionTemplateLiteral(n))
   const spec = (node, text) => {
+    if (LOADER_SPEC.test(text)) return push('loader-alias', node, `module specifier ${text}`)
     const c = classifySpecifier(filename, text, aliases)
     if (c) push(c.kind, node, c.detail)
+  }
+  // A declaration's or property's own name is not a reference; a shorthand `{ process }` is.
+  const isReference = (node) => {
+    const p = node.parent
+    if (!p || T.isShorthandPropertyAssignment(p)) return true
+    if (T.isQualifiedName(p) && p.right === node) return false
+    return !('name' in p && p.name === node)
   }
   if (sf.parseDiagnostics?.length)
     out.push({
@@ -274,23 +298,16 @@ export function scanCode(filename, content, aliases) {
       T.isImportEqualsDeclaration(node) &&
       T.isExternalModuleReference(node.moduleReference)
     ) {
-      const e = node.moduleReference.expression
-      if (literal(e)) spec(node, e.text)
-      else push('dynamic-specifier', node, 'import = require(<non-literal>)')
+      push('loader-alias', node, 'import = require(...)')
     } else if (T.isImportTypeNode(node)) {
       const a = node.argument
       if (T.isLiteralTypeNode(a) && literal(a.literal)) spec(node, a.literal.text)
     } else if (T.isCallExpression(node)) {
       const callee = node.expression
-      const isImport = callee.kind === SK.ImportKeyword
-      const isRequire = T.isIdentifier(callee) && callee.text === 'require'
-      if (isImport || isRequire) {
+      if (callee.kind === SK.ImportKeyword) {
         const a = node.arguments[0]
         if (literal(a)) spec(node, a.text)
-        else push('dynamic-specifier', node, `${isImport ? 'import' : 'require'}(<non-literal>)`)
-      }
-      if (T.isIdentifier(callee) && (callee.text === 'eval' || callee.text === 'Function')) {
-        push('eval', node, `${callee.text}(...)`)
+        else push('dynamic-specifier', node, 'import(<non-literal>)')
       }
       const name = T.isPropertyAccessExpression(callee)
         ? callee.name.text
@@ -301,25 +318,29 @@ export function scanCode(filename, content, aliases) {
       if (T.isIdentifier(callee) && callee.text === 'Controller' && T.isDecorator(node.parent)) {
         push('controller', node, '@Controller(...)')
       }
-    } else if (
-      T.isNewExpression(node) &&
-      T.isIdentifier(node.expression) &&
-      node.expression.text === 'Function'
-    ) {
-      push('eval', node, 'new Function(...)')
     } else if (T.isIdentifier(node)) {
-      const p = node.parent
-      const isCallee = T.isCallExpression(p) && p.expression === node
-      if (node.text === 'require' && !isCallee)
-        push('loader-alias', node, '`require` used as a value')
-      if (node.text === 'createRequire') push('loader-alias', node, 'createRequire')
-      if (node.text === 'eval' && !isCallee) push('eval', node, '`eval` used as a value')
-    } else if (T.isPropertyAccessExpression(node) && T.isMetaProperty(node.expression)) {
-      if (node.expression.keywordToken === SK.ImportKeyword && !META_OK.has(node.name.text)) {
-        push('loader-alias', node, `import.meta.${node.name.text}`)
+      if (LOADER_IDS.has(node.text) && isReference(node)) {
+        const k = node.text === 'eval' || node.text === 'Function' ? 'eval' : 'loader-alias'
+        push(k, node, `reference to \`${node.text}\``)
       }
-    } else if (T.isElementAccessExpression(node) && T.isMetaProperty(node.expression)) {
-      push('loader-alias', node, 'import.meta[...]')
+    } else if (T.isPropertyAccessExpression(node)) {
+      const obj = node.expression
+      if (T.isMetaProperty(obj) && obj.keywordToken === SK.ImportKeyword) {
+        if (!META_OK.has(node.name.text))
+          push('loader-alias', node, `import.meta.${node.name.text}`)
+      } else if (
+        T.isIdentifier(obj) &&
+        GLOBAL_OBJECTS.has(obj.text) &&
+        LOADER_IDS.has(node.name.text)
+      ) {
+        push('loader-alias', node, `${obj.text}.${node.name.text}`)
+      }
+    } else if (T.isElementAccessExpression(node)) {
+      const obj = node.expression
+      if (T.isMetaProperty(obj)) push('loader-alias', node, 'import.meta[...]')
+      else if (T.isIdentifier(obj) && GLOBAL_OBJECTS.has(obj.text)) {
+        push('loader-alias', node, `${obj.text}[...] (computed global member)`)
+      }
     }
     T.forEachChild(node, visit)
   }
@@ -386,8 +407,9 @@ export function latestVerdict(reviews, owner) {
         ?.trim() ?? ''
     const m = first.match(/^Owner Verdict:\s*(APPROVE|BLOCK)\s*$/)
     if (!m) continue
-    const c = body.match(/^\s*Commit:\s*`?([0-9a-f]{7,40})`?\s*$/m)
-    latest = { verdict: m[1], commit: c ? c[1] : null, state: r.state }
+    // Full 40-hex only: a short prefix could be satisfied by a later commit (Master addendum 3).
+    const c = body.match(/^\s*Commit:\s*`?([0-9a-f]{40})`?\s*$/m)
+    latest = { verdict: m[1], commit: c ? c[1] : null, state: r.state, commitId: r.commit_id }
   }
   return latest
 }
@@ -404,11 +426,21 @@ export function verdictStatus(reviews, owner, headSha) {
     }
   }
   if (!v.commit)
-    return { status: 'stale', reason: 'the APPROVE verdict has no `Commit: <sha>` line' }
-  if (!headSha.startsWith(v.commit)) {
+    return {
+      status: 'stale',
+      reason: 'the APPROVE verdict has no `Commit: <full 40-hex sha>` line',
+    }
+  if (v.commit !== headSha) {
     return {
       status: 'stale',
       reason: `the APPROVE verdict is for ${v.commit.slice(0, 7)}, head is ${headSha.slice(0, 7)}`,
+    }
+  }
+  // The review's own commit_id is set by GitHub, not typed by anyone: it must be the head too.
+  if (v.commitId !== headSha) {
+    return {
+      status: 'stale',
+      reason: `the APPROVE review was submitted on ${String(v.commitId).slice(0, 7)}, head is ${headSha.slice(0, 7)}`,
     }
   }
   return {
