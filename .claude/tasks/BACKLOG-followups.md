@@ -8944,3 +8944,56 @@ component to the 2 px `focus-visible` ring; every Select in the app picks it up.
 toolbar controls, on light and dark themes.
 
 Sources: PR #1508 design review, UX-L-1 (ui-ux-designer).
+
+## 495. Integration specs wait on real clocks for 10–24 s per test (2026-11-28)
+
+**Human-planned (medium, Coder + AutoTest; touches service timeouts).** Several Postgres integration
+specs spend most of their time waiting out a real timeout instead of a configured short one. Measured on
+PR run 45849497324 (`--reporter=verbose`): `verification-runner.integration.spec.ts` "writer unavailable"
+and "a run that fails at the writer uploads nothing" take exactly 20.0 s each, "re-submit from
+AWAITING_CONFIRM" 24.1 s; the forward-DDL partial-index specs for `job_dirty_work` take 12.0 s each; the
+`transactions.tx_date NOT NULL` "fails fast (lock_timeout …)" case 10.0 s; the recompute-worker
+"infrastructure failure is RETRY" case 15.1 s; `createDrizzleModelHealthStore` "a write blocked by a lock"
+3.0 s ×4. Together about 130 s of integration time. Shortening them means injecting a smaller writer /
+lock timeout into the service under test (or fake timers where no real DB wait is involved), which can
+change product defaults — not a gardener auto-fix.
+**Verify:** the verbose integration log lists none of these cases at ≥ 10 s, and each still asserts the
+same outcome (FAILED WRITER_UNAVAILABLE, the `lock_timeout` refusal, RETRY).
+
+Sources: Codebase Gardener run 2026-11-28 (CI timing audit).
+
+## 496. The apps/api unit suite spends twice as long importing as testing (2026-11-28)
+
+**Human-planned (medium, Coder).** The apps/api vitest run (job `quality_core`, before PR #1516) reports
+`Duration 497.56s (transform 39.72s, import 900.20s, tests 430.59s)` over 782 files: module loading costs
+more than the tests themselves (wide barrel imports pulling the Nest module graph into unit specs is the
+likely cause, unproven). Slowest files: `contact-scan.round4.spec.ts` 50.4 s (a 20 000-generated-texts
+property loop), `resume-text-extraction.service.spec.ts` 35.9 s, `app.module.container.spec.ts` 34.1 s,
+`next-slot.spec.ts` 18.7 s plus two more tz projects (12.9 s / 14.8 s). Lowering a property-test iteration
+count weakens the test and is the owner's call; trimming import graphs is a refactor.
+**Verify:** the same Duration line shows `import` below `tests`, with the same file and test counts.
+
+Sources: Codebase Gardener run 2026-11-28 (CI timing audit).
+
+## 497. The ledger concurrency spec runs 1000 iterations (124 s) on every PR (2026-11-28)
+
+**Human-planned (low, owner decision).** `job-run-ledger.concurrency.integration.spec.ts` "1000 iterations,
+no deadlock" takes 124.4 s per PR run; the count comes from `T3_CONCURRENCY_ITERATIONS` (default 1000).
+PR #1516 gives it its own integration leg so it no longer lengthens a hash shard. Whether every PR needs
+1000 iterations (versus a lower PR count and the full count nightly) is a coverage trade-off for the owner.
+**Verify:** the owner's choice is recorded on this entry; if the PR count is lowered, the ledger leg's
+log shows the lower iteration count and a nightly run still sets `T3_CONCURRENCY_ITERATIONS=1000`.
+
+Sources: Codebase Gardener run 2026-11-28 (CI timing audit).
+
+## 498. The legal knowledge files are still in Russian (2026-11-28)
+
+**Open (low, owner; Legal reviews the translation).** `.claude/knowledge/legal/domain-lessons.md` and both `cross-cutting/` files
+(`citation-rules.md`, `escalation-zones.md`) are Russian prose the Legal agent reads as rules. The gardener
+translated only the README: these carry legal conclusions and citation rules where a translation slip
+changes meaning. The knowledge-base README makes the owner its maintainer (the Legal agent does not edit
+it), so the translation goes through an owner PR that the Legal agent reviews; keep Ukrainian statute names and quotes in
+the original.
+**Verify:** the Cyrillic left in those files is Ukrainian legal terms or quotations only.
+
+Sources: Codebase Gardener run 2026-11-28 (meta audit).
