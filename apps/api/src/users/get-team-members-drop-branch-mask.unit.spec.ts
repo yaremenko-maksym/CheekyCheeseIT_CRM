@@ -12,7 +12,7 @@
  * today a SENIOR viewer can never reach this branch (the access matrix
  * blocks SENIOR from ever opening a DROP target's "Команда" tab, checked
  * upstream in `UsersAccessService.getViewPermissions`) AND no JUNIOR row can
- * exist in `team_members` (only SENIOR/HR/ACCOUNTANT/DROP rows are ever
+ * exist in `team_members` (only SENIOR/HR/DROP rows are ever
  * inserted there) — but BOTH of those are invariants of OTHER code, not of
  * this method. Widen the access matrix, or let a JUNIOR row into
  * `team_members` some other way, and the bypass opens with zero red tests.
@@ -133,7 +133,7 @@ function extractParamValues(node: unknown, acc: unknown[] = []): unknown[] {
 
 /**
  * In-memory fake DB for the tables `getTeamMembersForUser` touches across all
- * of its branches (DROP / SENIOR self / JUNIOR-via-projects / HR-ACCOUNTANT).
+ * of its branches (DROP / SENIOR self / JUNIOR-via-projects / HR).
  * Routes by real table name (`getTableName`, not the `t._` shortcut used
  * elsewhere in this codebase — verified empirically that `_` is `undefined`
  * on a plain `pgTable()` result in this drizzle-orm version, which would make
@@ -190,7 +190,7 @@ function makeDb(store: Store) {
           // StringLiteral mutation on the production code's `'SENIOR'`
           // literal (-> `''`) is observable: no real user has an empty-string
           // role, so a mutated filter matches nothing.
-          const KNOWN_ROLES = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
+          const KNOWN_ROLES = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP']
           const roleFilterValue = params.find(
             (p): p is string => typeof p === 'string' && KNOWN_ROLES.includes(p),
           )
@@ -204,13 +204,13 @@ function makeDb(store: Store) {
           fieldKeys.length === 1 &&
           fieldKeys.includes('userId')
         ) {
-          // seniorsInTeams query (Step 1, HR/ACCOUNTANT branch): `{userId}
+          // seniorsInTeams query (Step 1, HR branch): `{userId}
           // FROM team_members INNER JOIN users WHERE teamId IN teamIds AND
           // users.role = 'SENIOR' AND leftAt IS NULL` — projects the
           // team_members row's OWN userId (not the joined user's other
           // fields), gated on the joined user's role (read from `params`,
           // same as the seniorMemberships case above).
-          const KNOWN_ROLES = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
+          const KNOWN_ROLES = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP']
           const roleFilterValue = params.find(
             (p): p is string => typeof p === 'string' && KNOWN_ROLES.includes(p),
           )
@@ -402,12 +402,12 @@ describe('getTeamMembersForUser — DROP branch is covered by the SAME viewerRol
     // branch check. ADMIN_TARGET_ID has an (incidental/legacy) team_members
     // row alongside a real HR teammate AND a real SENIOR teammate in the SAME
     // team: the CORRECT code takes neither the DROP branch nor the
-    // SENIOR/JUNIOR/HR-ACCOUNTANT branch for an ADMIN target (`rows` stays
+    // SENIOR/JUNIOR/HR branch for an ADMIN target (`rows` stays
     // its initial `[]`) — but a `if (user.role === 'DROP')` mutated to
     // always-true WOULD wrongly enter the DROP branch and leak the HR
     // teammate, and an `else if (user.role === 'HR' || user.role ===
-    // 'ACCOUNTANT')` mutated to always-true (round 5 mutation-gate
-    // follow-up) WOULD wrongly enter the HR/ACCOUNTANT branch, resolve the
+    // 'accountant')` mutated to always-true (round 5 mutation-gate
+    // follow-up) WOULD wrongly enter the HR branch, resolve the
     // SENIOR teammate via `seniorsInTeams`, and leak THEIR JUNIORs/teammates
     // through Step 2 — an earlier version of this fixture had no SENIOR in
     // the incidental team, so entering that branch by mistake still resolved
@@ -453,10 +453,10 @@ describe('getTeamMembersForUser — DROP branch is covered by the SAME viewerRol
   it('BRANCH-SELECT-1. SENIOR target with a real team + project → Step 2 AND Step 3 rosters are derived (pins the non-ADMIN/non-DROP branch selection)', async () => {
     // security-review PR #541 round 4 (mutation-gate follow-up): `else if
     // (user.role !== 'ADMIN')` (the branch gating Step 1-3 for
-    // SENIOR/JUNIOR/HR/ACCOUNTANT targets) survived TWO of its four mutants
+    // SENIOR/JUNIOR/HR targets) survived TWO of its four mutants
     // even with DROP-BRANCH-MASK-4 in place. Root cause: DROP-BRANCH-MASK-4
     // only exercises an ADMIN target, and Step 1's inner role-checks
-    // (SENIOR/JUNIOR/HR/ACCOUNTANT) never match 'ADMIN' either way — so
+    // (SENIOR/JUNIOR/HR) never match 'ADMIN' either way — so
     // forcing entry into this branch for an ADMIN target is a genuine no-op,
     // not something any test could observe (see the `// Stryker disable`
     // comment on this condition for the two mutants that really are
@@ -569,18 +569,18 @@ describe('getTeamMembersForUser — DROP branch is covered by the SAME viewerRol
     ).toContain(HR_ID)
   })
 
-  it("BRANCH-SELECT-3. HR target → their team's SENIOR is resolved via Step 1's HR/ACCOUNTANT lookup (not treated as a fake JUNIOR)", async () => {
+  it("BRANCH-SELECT-3. HR target → their team's SENIOR is resolved via Step 1's HR lookup (not treated as a fake JUNIOR)", async () => {
     // security-review PR #541 round 4 (mutation-gate follow-up): `else if
     // (user.role === 'JUNIOR')` survived — BRANCH-SELECT-2 only ever uses a
     // JUNIOR target, for whom that condition is already true either way. An
     // HR target discriminates it: entering the JUNIOR branch by mistake
     // would try to resolve `seniorIds` via `project_members` (a table this HR
     // has no rows in), finding nothing, instead of correctly walking their
-    // own `team_members` row to the team's SENIOR — the accountant teammate
+    // own `team_members` row to the team's SENIOR — the HR teammate
     // on that same team would then be missing from the result.
     const HR_TARGET_ID = 'hr-target-uuid-9011'
     const SENIOR_OF_HR_ID = 'senior-of-hr-uuid-9012'
-    const ACCOUNTANT_ID = 'accountant-of-hr-uuid-9013'
+    const HR_MATE_ID = 'hr-mate-of-hr-uuid-9013'
     const store = {
       users: [
         {
@@ -598,9 +598,9 @@ describe('getTeamMembersForUser — DROP branch is covered by the SAME viewerRol
           avatarDocumentId: null,
         },
         {
-          id: ACCOUNTANT_ID,
-          displayName: 'Accountant Of HR',
-          role: 'ACCOUNTANT',
+          id: HR_MATE_ID,
+          displayName: 'HR Mate Of HR',
+          role: 'HR',
           avatarUrl: null,
           avatarDocumentId: null,
         },
@@ -608,7 +608,7 @@ describe('getTeamMembersForUser — DROP branch is covered by the SAME viewerRol
       teamMembers: [
         { teamId: TEAM_ID, userId: HR_TARGET_ID, leftAt: null },
         { teamId: TEAM_ID, userId: SENIOR_OF_HR_ID, leftAt: null },
-        { teamId: TEAM_ID, userId: ACCOUNTANT_ID, leftAt: null },
+        { teamId: TEAM_ID, userId: HR_MATE_ID, leftAt: null },
       ],
     }
     const service = buildService(store)
@@ -619,15 +619,14 @@ describe('getTeamMembersForUser — DROP branch is covered by the SAME viewerRol
       ids,
       "HR target's own team SENIOR must be resolved via Step 1's team_members lookup",
     ).toContain(SENIOR_OF_HR_ID)
-    expect(
-      ids,
-      "HR target's ACCOUNTANT teammate (same team, found via Step 2) must appear",
-    ).toContain(ACCOUNTANT_ID)
+    expect(ids, "HR target's HR teammate (same team, found via Step 2) must appear").toContain(
+      HR_MATE_ID,
+    )
   })
 
-  it("DROP-BRANCH-MASK-5. DROP target whose drop-team ALSO has a SENIOR → the SENIOR's OTHER team is not leaked in (proves the HR/ACCOUNTANT branch selection excludes DROP)", async () => {
+  it("DROP-BRANCH-MASK-5. DROP target whose drop-team ALSO has a SENIOR → the SENIOR's OTHER team is not leaked in (proves the HR branch selection excludes DROP)", async () => {
     // security-review PR #541 round 4 (mutation-gate follow-up): `else if
-    // (user.role === 'HR' || user.role === 'ACCOUNTANT')` survived —
+    // (user.role === 'HR' || user.role === 'accountant')` survived —
     // BRANCH-SELECT-3 only ever uses an HR target, for whom that condition
     // is already true either way. A DROP target discriminates it
     // differently from the SENIOR/JUNIOR cases above: DROP is NOT excluded

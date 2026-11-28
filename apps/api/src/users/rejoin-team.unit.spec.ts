@@ -180,7 +180,7 @@ describe('UsersService.rejoinTeam — caller gates', () => {
     expect(h.db.transaction).not.toHaveBeenCalled()
   })
 
-  it.each(['ADMIN', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])(
+  it.each(['ADMIN', 'JUNIOR', 'HR', 'DROP'])(
     '400 REJOIN_TEAM_SENIOR_ONLY for role %s; membership is never probed',
     async (role) => {
       const h = makeHarness({ user: makeUser({ role }) })

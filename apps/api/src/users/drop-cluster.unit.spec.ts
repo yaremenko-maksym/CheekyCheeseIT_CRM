@@ -149,7 +149,7 @@ const insertOf = (log: Array<Record<string, unknown>>, table: string) =>
   log.find((e) => e.op === 'insert' && e.table === table)
 
 describe('UsersService.createDrop — RBAC gate and pre-flight checks', () => {
-  it.each(['SENIOR', 'HR', 'JUNIOR', 'ACCOUNTANT', 'DROP'] as const)(
+  it.each(['SENIOR', 'HR', 'JUNIOR', 'DROP'] as const)(
     'rejects %s actor with 403 DROP_CREATE_ADMIN_ONLY before touching the db',
     async (role) => {
       const h = makeHarness()

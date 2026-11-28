@@ -68,7 +68,7 @@ describe('UsersService.createUser — role gates (before any db access)', () => 
     ).rejects.toMatchObject(code('DROP_CREATE_VIA_DEDICATED_ENDPOINT', 400))
   })
 
-  it.each(['HR', 'JUNIOR', 'ACCOUNTANT'] as const)(
+  it.each(['HR', 'JUNIOR'] as const)(
     'JOIN_DROP_TEAM is senior-only: role %s -> 400 JOIN_DROP_TEAM_SENIOR_ONLY (checked before dropTeamId)',
     async (role) => {
       const h = makeHarness()
@@ -127,7 +127,7 @@ describe('UsersService.createUser — role gates (before any db access)', () => 
     expect(h.addSeniorToDropTeam).toHaveBeenCalledWith('dt-1', 'user-new')
   })
 
-  it.each(['ADMIN', 'SENIOR', 'ACCOUNTANT'] as const)(
+  it.each(['ADMIN', 'SENIOR'] as const)(
     'non-HR actor %s is exempt from the drop-team membership scope',
     async (actorRole) => {
       const h = makeHarness({ isMember: false, created: { ...CREATED, role: 'SENIOR' } })
@@ -149,17 +149,14 @@ describe('UsersService.createUser — role gates (before any db access)', () => 
     expect(h.isActiveMemberOfTeam).not.toHaveBeenCalled()
   })
 
-  it.each(['SENIOR', 'HR', 'JUNIOR', 'ACCOUNTANT'] as const)(
-    'role %s is creatable',
-    async (role) => {
-      const h = makeHarness({ created: { ...CREATED, role } })
-      await expect(h.service.createUser(baseInput({ role }))).resolves.toEqual({
-        ...CREATED,
-        role,
-      })
-      expect(usersInsertValues(h.log).role).toBe(role)
-    },
-  )
+  it.each(['SENIOR', 'HR', 'JUNIOR'] as const)('role %s is creatable', async (role) => {
+    const h = makeHarness({ created: { ...CREATED, role } })
+    await expect(h.service.createUser(baseInput({ role }))).resolves.toEqual({
+      ...CREATED,
+      role,
+    })
+    expect(usersInsertValues(h.log).role).toBe(role)
+  })
 })
 
 describe('UsersService.createUser — email pre-flight', () => {
@@ -675,14 +672,11 @@ describe('UsersService.createUser — team / project linkage (post-commit, plain
     },
   )
 
-  it.each(['SENIOR', 'HR', 'ACCOUNTANT'] as const)(
-    'projectId is ignored for role %s',
-    async (role) => {
-      const h = makeHarness({ created: { ...CREATED, role } })
-      await h.service.createUser(baseInput({ role, projectId: 'proj-1' }))
-      expect(inserts(h.log, 'project_members')).toHaveLength(0)
-    },
-  )
+  it.each(['SENIOR', 'HR'] as const)('projectId is ignored for role %s', async (role) => {
+    const h = makeHarness({ created: { ...CREATED, role } })
+    await h.service.createUser(baseInput({ role, projectId: 'proj-1' }))
+    expect(inserts(h.log, 'project_members')).toHaveLength(0)
+  })
 
   it('team / project linkage is skipped entirely when audit fails to run (ordering: audit precedes linkage)', async () => {
     const h = makeHarness({ created: senior })

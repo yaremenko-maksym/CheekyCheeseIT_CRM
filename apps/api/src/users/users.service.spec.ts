@@ -444,7 +444,7 @@ describe('UsersService.findAll — legalFullName not present in list response', 
 
 /**
  * GET /api/users (list) must NOT carry PII / finance for every user to the
- * ADMIN/HR/ACCOUNTANT audience — pickers only need id/displayName/role.
+ * ADMIN/HR audience — pickers only need id/displayName/role.
  *
  * Stronger than the legalFullName test above: rather than simulating Drizzle's
  * projection by deleting keys from the mock row, this captures the *actual
@@ -2097,11 +2097,11 @@ describe('UsersService.createUser — SENIOR', () => {
 })
 
 // ---------------------------------------------------------------------------
-// createUser — other roles (HR, ACCOUNTANT)
+// createUser — other roles (HR)
 // ---------------------------------------------------------------------------
 
 describe('UsersService.createUser — HR', () => {
-  it.each(['HR', 'ACCOUNTANT'] as const)(
+  it.each(['HR'] as const)(
     'creates a %s user with only a users insert (no team, no project)',
     async (role) => {
       const user = makeUser({ role, email: `${role.toLowerCase()}@example.com` })
@@ -3394,66 +3394,7 @@ describe('UsersService.buildProfileView — legalFullName masking', () => {
     expect((result.user as Record<string, unknown>).legalFullName).toBeNull()
   })
 
-  // ── Pre-deploy MEDIUM #1: ACCOUNTANT requisites — wallet exclusion + read-audit ──
-
-  const targetWithRequisites = makeUser({
-    id: 'target-id',
-    role: 'ADMIN',
-    paymentMethod: 'USDT_ERC20',
-    walletUsdtErc20: '0xADMINWALLET',
-    walletUsdtLabel: 'admin wallet',
-    bankUahRecipient: 'Admin FOP',
-    bankUahIban: 'UA000000000000000000000000001',
-    bankUahRnokpp: '1234567890',
-    bankUahBankName: 'PrivatBank',
-  } as Record<string, unknown>)
-
-  it('ACCOUNTANT viewing an ADMIN — wallet/IBAN/RNOKPP masked (requisitesExcludeWallet)', async () => {
-    const viewer = makeUser({ id: 'acc-id', role: 'ACCOUNTANT' })
-    const permissions = {
-      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
-      actions: [],
-      // mirrors what UsersAccessService emits for ACCOUNTANT → ADMIN
-      fields: { requisites: true, requisitesExcludeWallet: true, techStack: true },
-    }
-    const service = makeServiceForProfileView(targetWithRequisites, permissions)
-    const result = await service.buildProfileView(viewer as never, 'target-id')
-    const u = result.user as Record<string, unknown>
-    // Payout destination fields are excluded for the admin target…
-    expect(u.walletUsdtErc20).toBeNull()
-    expect(u.walletUsdtLabel).toBeNull()
-    expect(u.bankUahRecipient).toBeNull()
-    expect(u.bankUahIban).toBeNull()
-    expect(u.bankUahRnokpp).toBeNull()
-    expect(u.bankUahBankName).toBeNull()
-    // …but the method type (no destination) is still surfaced.
-    expect(u.paymentMethod).toBe('USDT_ERC20')
-  })
-
-  it('ACCOUNTANT viewing a non-ADMIN — wallet/IBAN visible (no exclusion)', async () => {
-    const seniorTarget = makeUser({
-      id: 'target-id',
-      role: 'SENIOR',
-      paymentMethod: 'BANK_UAH_FOP',
-      walletUsdtErc20: '0xSENIORWALLET',
-      bankUahIban: 'UA000000000000000000000000002',
-      bankUahRnokpp: '9876543210',
-    } as Record<string, unknown>)
-    const viewer = makeUser({ id: 'acc-id', role: 'ACCOUNTANT' })
-    const permissions = {
-      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
-      actions: [],
-      fields: { requisites: true, requisitesExcludeWallet: false, techStack: true },
-    }
-    const service = makeServiceForProfileView(seniorTarget, permissions)
-    const result = await service.buildProfileView(viewer as never, 'target-id')
-    const u = result.user as Record<string, unknown>
-    expect(u.walletUsdtErc20).toBe('0xSENIORWALLET')
-    expect(u.bankUahIban).toBe('UA000000000000000000000000002')
-    expect(u.bankUahRnokpp).toBe('9876543210')
-  })
-
-  it('ADMIN reading requisites does NOT write a requisites_read audit (accountant-only)', async () => {
+  it('ADMIN reading requisites does NOT write a requisites_read audit', async () => {
     const seniorTarget = makeUser({
       id: 'target-id',
       role: 'SENIOR',
@@ -3533,7 +3474,7 @@ describe('UsersService.buildProfileView — pendingSeniorShare', () => {
   })
 
   // task-648-fix-round-1 (QA-HIGH-1): the exact bug this fix closes — a
-  // viewer (ACCOUNTANT-shaped) who sees the ACTIVE share (`share: true`,
+  // viewer (accountant-shaped) who sees the ACTIVE share (`share: true`,
   // payroll need-to-know) must NOT learn a change is even proposed. Before
   // this fix, both flags were the same underlying `fields.share` value, so
   // this exact combination was unreachable and the leak went unnoticed.
@@ -3853,8 +3794,7 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
     expect((result.user as Record<string, unknown>).displayName).toBe('Senior Dev')
   })
 
-  // ── ACCOUNTANT viewing any user ───────────────────────────────────────────
-  // ACCOUNTANT has requisites access but NOT adminNote, NOT fopPii, contacts visible
+  // accountant has requisites access but NOT adminNote, NOT fopPii, contacts visible
 
   // ── HR viewing their SENIOR ───────────────────────────────────────────────
 
@@ -4041,15 +3981,14 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
   // produced the exact same wire value — `personalEmail: null`,
   // `personalEmailCanLogin: null` — leaving a viewer with real access (e.g.
   // ADMIN on a user who never got a personal address) indistinguishable,
-  // over the API, from a viewer masked from the field entirely (ACCOUNTANT,
-  // or HR outside their own team). Both branches below are RED against that
+  // over the API, from a viewer masked from the field entirely (  // or HR outside their own team). Both branches below are RED against that
   // older shape (comment out `personalContactVisible` in
   // `buildProfileView` to reproduce — both assertions on that field fail;
   // the SIBLING `null` assertions stay green either way, which is exactly
   // the ambiguity this pins).
   describe('personalContactVisible (UX-M-1) — "no access" vs "not set" are distinguishable', () => {
     it('no access: personalContactVisible is false (the masked case)', async () => {
-      const viewer = makeUser({ id: 'accountant-id', role: 'ACCOUNTANT' })
+      const viewer = makeUser({ id: 'junior-id', role: 'JUNIOR' })
       const noContactsPermissions = {
         tabs: ['overview'],
         actions: [],

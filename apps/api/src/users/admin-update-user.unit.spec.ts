@@ -419,7 +419,7 @@ describe('UsersService.adminUpdateUser — role-escalation guard (only on an ACT
     })
   })
 
-  it.each(['HR', 'SENIOR', 'JUNIOR', 'ACCOUNTANT'] as const)(
+  it.each(['HR', 'SENIOR', 'JUNIOR'] as const)(
     'JUNIOR -> %s (a normal role change) is allowed',
     async (role) => {
       const h = makeHarness({ existing: makeUser({ role: role === 'JUNIOR' ? 'HR' : 'JUNIOR' }) })

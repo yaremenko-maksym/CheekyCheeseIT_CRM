@@ -70,7 +70,7 @@ import { UsersService } from './users.service'
 
 const JWT_SECRET = 'personal-email-controller-guards-rbac-secret-32c'
 
-type Role = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
+type Role = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'DROP'
 
 interface Persona {
   id: string
@@ -98,20 +98,15 @@ const HR: Persona = {
   email: 'pecg-hr@test.spec',
   role: 'HR',
 }
-const ACCOUNTANT: Persona = {
-  id: 'fec90000-0000-4000-aa00-000000000005',
-  email: 'pecg-accountant@test.spec',
-  role: 'ACCOUNTANT',
-}
 const DROP: Persona = {
   id: 'fec90000-0000-4000-aa00-000000000006',
   email: 'pecg-drop@test.spec',
   role: 'DROP',
 }
 
-const ALL: Persona[] = [ADMIN, SENIOR, JUNIOR, HR, ACCOUNTANT, DROP]
+const ALL: Persona[] = [ADMIN, SENIOR, JUNIOR, HR, DROP]
 // SR-M-17's explicit list — every role that must NOT reach either handler.
-const NON_ADMIN: Persona[] = [SENIOR, JUNIOR, HR, ACCOUNTANT, DROP]
+const NON_ADMIN: Persona[] = [SENIOR, JUNIOR, HR, DROP]
 
 const ROLE_ROWS = new Map<string, { role: Role; archivedAt: Date | null }>(
   ALL.map((p) => [p.id, { role: p.role, archivedAt: null }]),

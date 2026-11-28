@@ -229,7 +229,7 @@ describe('UsersController.createUser — HR dialog payload (no requisites)', () 
     )
   })
 
-  it.each(['JUNIOR', 'HR', 'ACCOUNTANT', 'ADMIN', 'DROP'])(
+  it.each(['JUNIOR', 'HR', 'ADMIN', 'DROP'])(
     'HR actor: role %s → 403 HR_SENIOR_ONLY_CREATION, service never called',
     async (role) => {
       const createUser = vi.fn()

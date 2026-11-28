@@ -1,12 +1,9 @@
 /**
- * task-accountant-create-transaction — GET /api/users list RBAC.
+ * GET /api/users list RBAC (finance/RBAC mandatory coverage).
  *
- * WHY this exists (RBAC widening, finance/RBAC mandatory coverage):
- *   ACCOUNTANT gains create-parity with ADMIN on the finance page.
  *   CreateTransactionDialog needs the user directory (GET /api/users) for the
- *   admin set — SALARY receiver picker, ADMIN_TRANSFER party picker, and
- *   identifying admin-owned projects for ACCOUNTANT-registered ADMIN_INCOME.
- *   This PR therefore widens `UsersController.findAll` to also allow ACCOUNTANT.
+ *   admin set — SALARY receiver picker and ADMIN_TRANSFER party picker. The
+ *   accountant role that once shared this list is retired (plan PR 1b).
  *
  * The role gate lives in the controller method BODY (not a decorator), so this
  * spec drives the REAL `UsersController.findAll` directly (the service list
@@ -15,7 +12,6 @@
  * for controller constructor injection) while still exercising the production
  * gate code, not a copy:
  *
- *   ACCOUNTANT → findAllIncludingAdmin (admins visible for transfer/owner) — NEW
  *   ADMIN      → findAllIncludingAdmin (regression)
  *   HR         → findAll (admins excluded — regression, unchanged)
  *   SENIOR / JUNIOR / DROP → ForbiddenException (no over-grant)
