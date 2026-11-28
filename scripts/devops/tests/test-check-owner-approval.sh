@@ -86,9 +86,10 @@ assert_green "every apps/web auth/finance re-protect line is a critical zone" --
 
 # ── AC 2 + owner requirement: the gate ────────────────────────────────────────────────────
 # pr <name> <reviews-json> [changedFiles] [author]
-pr() {
-  printf '{"headSha":"%s","author":"%s","counts":{"changedFiles":%s},"reviews":%s}\n' \
-    "$HEAD" "${4-$AUTHOR}" "${3:-1}" "$2" >"$T/$1.pr.json"
+pr() { # [5: baseRetargetedAt JSON, default null; `absent` drops the key]
+  printf '{"headSha":"%s","author":"%s","counts":{"changedFiles":%s},"reviews":%s%s}\n' \
+    "$HEAD" "${4-$AUTHOR}" "${3:-1}" "$2" \
+    "$([ "${5:-null}" = absent ] || printf ',"baseRetargetedAt":%s' "${5:-null}")" >"$T/$1.pr.json"
 }
 # mk <name> <filename> <status> [previous_filename] — content (if any) is read from $T/<name>.src
 mk() {
@@ -450,14 +451,14 @@ assert_green "fetch plan lists only the unowned code file" --contains "apps/web/
 # Verdict parsing (owner requirement 2 + 5): fresh / stale / BLOCK / non-owner / owner-authored
 src v "import pg from 'pg'"
 mk v apps/web/app/lib/x.ts added
-review() { # <author> <state> <body> [commit_id] [edited: true|false|absent]
-  node -e 'const [author, state, body, commit_id, e] = process.argv.slice(1); const r = { author, state, body, commit_id }
-    if (e !== "absent") r.edited = e === "true"; console.log(JSON.stringify(r))' "$1" "$2" "$3" "${4:-$HEAD}" "${5:-false}"
+review() { # <author> <state> <body> [commit_id] [edited: true|false|absent] [submittedAt]
+  node -e 'const [author, state, body, commit_id, e, submittedAt] = process.argv.slice(1); const r = { author, state, body, commit_id, submittedAt }
+    if (e !== "absent") r.edited = e === "true"; console.log(JSON.stringify(r))' "$1" "$2" "$3" "${4:-$HEAD}" "${5:-false}" "${6-2026-11-28T12:00:00Z}"
 }
-verdict_case() { # <name> <reviews-json> [author]
+verdict_case() { # <name> <reviews-json> [author] [baseRetargetedAt JSON | absent]
   cp "$T/v.files.json" "$T/$1.files.json"
   cp "$T/v.contents.json" "$T/$1.contents.json"
-  pr "$1" "$2" 1 "${3:-$AUTHOR}"
+  pr "$1" "$2" 1 "${3:-$AUTHOR}" "${4:-null}"
 }
 FRESH="$(review "$OWNER" COMMENTED $'Owner Verdict: APPROVE\n\nCommit: '"$HEAD")"
 verdict_case fresh "[$FRESH]"
@@ -499,6 +500,33 @@ verdict_case loosemid "[$(review "$OWNER" COMMENTED $'Owner Verdict: APPROVE\nCo
 assert_red "SO-M-1: a loose verdict line anywhere in the APPROVE review -> BLOCK" --contains "[blocked]" -- run loosemid
 verdict_case loosedism "[$(review "$OWNER" DISMISSED '**Owner Verdict: BLOCK**')]"
 assert_red "SO-M-1: a dismissed non-exact BLOCK still blocks" --contains "[blocked]" -- run loosedism
+# SO-M-1b: a dismissed CHANGES_REQUESTED review comes back as DISMISSED with its own body.
+DISMISSED_CR="$(review "$OWNER" DISMISSED 'the rounding is wrong')"
+verdict_case dismcr "[$FRESH,$DISMISSED_CR]"
+assert_red "SO-M-1b: owner APPROVE, then an owner CHANGES_REQUESTED that was dismissed -> BLOCK" \
+  --contains "[blocked]" -- run dismcr
+verdict_case dismcr2 "[$FRESH,$DISMISSED_CR,$FRESH]"
+assert_green "SO-M-1b: ... then a fresh owner APPROVE on the head -> passes" --contains "[approved]" -- run dismcr2
+verdict_case dismappr "[$FRESH,$(review "$OWNER" DISMISSED $'Owner Verdict: APPROVE\nCommit: '"$HEAD")]"
+assert_green "SO-M-1b: a dismissed exact APPROVE still does not count (the earlier APPROVE stands)" \
+  --contains "[approved]" -- run dismappr
+
+# SO-M-2: the APPROVE must postdate the latest base retarget; an unread timeline fails closed.
+verdict_case retgt "[$FRESH]" "$AUTHOR" '"2026-11-28T13:00:00Z"'
+assert_red "SO-M-2: base retargeted after the APPROVE -> stale" --contains "[stale]" \
+  --contains "does not postdate the base retarget" -- run retgt
+verdict_case retgteq "[$FRESH]" "$AUTHOR" '"2026-11-28T12:00:00Z"'
+assert_red "SO-M-2: base retargeted at the same second as the APPROVE -> stale" --contains "[stale]" -- run retgteq
+verdict_case retgtok "[$FRESH]" "$AUTHOR" '"2026-11-28T11:00:00Z"'
+assert_green "SO-M-2: an APPROVE after the base retarget -> passes" --contains "[approved]" -- run retgtok
+verdict_case retgtnosub "[$(review "$OWNER" COMMENTED $'Owner Verdict: APPROVE\nCommit: '"$HEAD" "$HEAD" false '')]" \
+  "$AUTHOR" '"2026-11-28T11:00:00Z"'
+assert_red "SO-M-2: an APPROVE with no submittedAt after a retarget -> stale" --contains "[stale]" -- run retgtnosub
+verdict_case retgtunread "[$FRESH]" "$AUTHOR" absent
+assert_red "SO-M-2: no base-retarget timeline in the PR data -> stale (fail closed)" --contains "[stale]" \
+  --contains "timeline was not read" -- run retgtunread
+assert_green "SO-M-2: the Owner Verdict workflow re-runs on \`edited\` (a base retarget fires it)" \
+  --contains "types: [opened, synchronize, reopened, edited," -- cat "$REPO/.github/workflows/flow-gate.yml"
 verdict_case dism "[$(review "$OWNER" DISMISSED $'Owner Verdict: APPROVE\nCommit: '"$HEAD")]"
 assert_red "a DISMISSED review does not count" --contains "[missing]" -- run dism
 verdict_case own '[]' "$OWNER"
@@ -703,7 +731,12 @@ FSTUB="$T/stub-fetch-gh"
 cat >"$FSTUB" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
-  *graphql*) cat "$FX/graphql" ;;
+  # A raw GraphQL page (graphql.raw) gets the caller's own --jq, as gh does; else a pre-shaped page.
+  *graphql*) if [ -f "$FX/graphql.raw" ]; then
+      while [ $# -gt 0 ]; do [ "$1" = --jq ] && { jq -c "$2" "$FX/graphql.raw"; exit; }; shift; done
+    fi
+    cat "$FX/graphql" ;;
+  *"--jq .head.sha"*) echo "${FX_HEAD_BEFORE:-$FX_HEAD}" ;;
   *"/files?"*) printf '{"filename":"apps/web/app/x.ts","previous_filename":null,"status":"modified"}\n' ;;
   *"/contents/"*) if [ -f "$FX/content" ]; then cat "$FX/content"; else echo "HTTP 404" >&2; exit 1; fi ;;
   *) printf '{"headSha":"%s","author":"some-manager","counts":{"changedFiles":1}}\n' "$FX_HEAD" ;;
@@ -712,11 +745,12 @@ STUB
 chmod +x "$FSTUB"
 FX="$T/fx"
 mkdir -p "$FX"
-fetch() { # <pr-number> [head]
+fetch() { # <pr-number> [head] [head before the file list]
   rm -rf "$T/fd"
-  (cd "$REPO" && env REPO=acme/crm PR_NUMBER="$1" D="$T/fd" GH_BIN="$FSTUB" FX="$FX" FX_HEAD="${2:-$HEAD}" bash "$FETCH")
+  (cd "$REPO" && env REPO=acme/crm PR_NUMBER="$1" D="$T/fd" GH_BIN="$FSTUB" FX="$FX" FX_HEAD="${2:-$HEAD}" \
+    FX_HEAD_BEFORE="${3:-}" bash "$FETCH")
 }
-printf '{"total":1,"nodes":[{"author":"%s","state":"COMMENTED","body":"x","commit_id":"%s","edited":false}]}\n' \
+printf '{"total":1,"base":{"read":true,"at":null},"nodes":[{"author":"%s","state":"COMMENTED","body":"x","commit_id":"%s","edited":false}]}\n' \
   "$OWNER" "$HEAD" >"$FX/graphql"
 printf 'export const a = 1\n' >"$FX/content"
 assert_green "Fetch: reviews, files and contents land in D" --contains "reviews=1" --contains "fetched=1" \
@@ -726,11 +760,33 @@ rm -f "$FX/content"
 assert_green "Fetch: a content fetch that fails is recorded as unavailable (fail closed)" \
   --contains "unavailable=1" -- fetch 7
 assert_green "Fetch: ... and the scanner reads it as a trigger" --contains '"unavailable":true' -- jq -c . "$T/fd/contents.json"
-printf '{"total":2,"nodes":[{"author":"x","state":"COMMENTED","body":"","commit_id":null,"edited":false}]}\n' >"$FX/graphql"
+assert_green "SO-M-2: no retarget -> baseRetargetedAt is null (present)" --contains "null" \
+  -- jq -c 'has("baseRetargetedAt"), .baseRetargetedAt' "$T/fd/pr.json"
+assert_red "SO-L-3: the head moved while the file list was read -> refused" --contains "the PR head moved" \
+  -- fetch 7 "$HEAD" "$OLD"
+printf '{"total":2,"base":{"read":true,"at":null},"nodes":[{"author":"x","state":"COMMENTED","body":"","commit_id":null,"edited":false}]}\n' >"$FX/graphql"
 assert_red "Fetch: GraphQL pages short of totalCount -> refused" --contains "do not add up" -- fetch 7
 assert_red "Fetch: a non-numeric PR_NUMBER -> refused" --contains "PR_NUMBER is not a number" -- fetch 7x
-printf '{"total":0,"nodes":[]}\n' >"$FX/graphql"
+printf '{"total":0,"base":{"read":true,"at":null},"nodes":[]}\n' >"$FX/graphql"
 assert_red "Fetch: a head sha that is not 40-hex -> refused" --contains "no head sha" -- fetch 7 abc
+# SO-M-2 on the raw GraphQL shape: the fetch's own --jq maps the timeline.
+graphql_raw() { # <timelineItems JSON or the literal `none`>
+  node -e 'const [t, owner, head] = process.argv.slice(1); const pr = { reviews: { totalCount: 1, nodes: [{ author: { login: owner }, state: "COMMENTED", body: "x", submittedAt: "2026-11-28T12:00:00Z", commit: { oid: head }, lastEditedAt: null, includesCreatedEdit: false, userContentEdits: { totalCount: 0 } }] } }
+    if (t !== "none") pr.timelineItems = JSON.parse(t); console.log(JSON.stringify({ data: { repository: { pullRequest: pr } } }))' \
+    "$1" "$OWNER" "$HEAD" >"$FX/graphql.raw"
+}
+printf 'export const a = 1\n' >"$FX/content"
+graphql_raw '{"totalCount":50,"nodes":[{"createdAt":"2026-11-28T13:00:00Z"}]}'
+assert_green "SO-M-2: a base retarget lands in pr.json, with the review's submittedAt" \
+  --contains '"2026-11-28T13:00:00Z"' --contains '"2026-11-28T12:00:00Z"' \
+  -- sh -c "cd '$REPO' && env REPO=acme/crm PR_NUMBER=7 D='$T/fd' GH_BIN='$FSTUB' FX='$FX' FX_HEAD='$HEAD' bash '$FETCH' >/dev/null && jq -c '[.baseRetargetedAt, .reviews[0].submittedAt]' '$T/fd/pr.json'"
+graphql_raw '{"totalCount":50,"nodes":[]}'
+assert_green "SO-M-2: no retarget event -> null" --contains "[null]" \
+  -- sh -c "cd '$REPO' && env REPO=acme/crm PR_NUMBER=7 D='$T/fd' GH_BIN='$FSTUB' FX='$FX' FX_HEAD='$HEAD' bash '$FETCH' >/dev/null && jq -c '[.baseRetargetedAt]' '$T/fd/pr.json'"
+graphql_raw none
+assert_red "SO-M-2: the timeline did not come back -> the fetch fails (fail closed)" \
+  --contains "base-retarget timeline was not read" -- fetch 7
+rm -f "$FX/graphql.raw"
 
 # Flow Gate reviews (SR-M-4): GraphQL, and an edited review is never positive evidence.
 FGR="$GUARD_DIR/flow-gate-reviews.sh"
@@ -830,6 +886,7 @@ cat >"$T/stub-recheck-gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *graphql*) cat "$FX/graphql" ;;
+  *"--jq .head.sha"*) echo "$FX_HEAD" ;;
   *"/files?"*) printf '{"filename":"apps/web/app/lib/x.ts","previous_filename":null,"status":"added"}\n' ;;
   *"/contents/"*) printf "import pg from 'pg'\n" ;;
   *labels*) echo ready ;;
@@ -840,7 +897,7 @@ chmod +x "$T/stub-recheck-gh"
 recheck() { # <verdict word> [head the PR reports; the verdict names it too]
   local h="${2:-$HEAD}"
   rm -rf "$T/rd"
-  printf '{"total":1,"nodes":[%s]}\n' "$(review "$OWNER" COMMENTED $'Owner Verdict: '"$1"$'\n\nCommit: '"$h" "$h")" \
+  printf '{"total":1,"base":{"read":true,"at":null},"nodes":[%s]}\n' "$(review "$OWNER" COMMENTED $'Owner Verdict: '"$1"$'\n\nCommit: '"$h" "$h")" \
     >"$FX/graphql"
   (cd "$REPO" && env REPO=acme/crm PR_NUMBER=7 HEAD_SHA="$HEAD" D="$T/rd" OWNER="$OWNER" \
     GH_BIN="$T/stub-recheck-gh" FX="$FX" FX_HEAD="$h" GITHUB_OUTPUT= bash "$RECHECK")

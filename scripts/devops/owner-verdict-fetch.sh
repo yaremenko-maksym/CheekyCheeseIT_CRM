@@ -6,7 +6,8 @@
 # Run from a checkout of main (needs .github/CODEOWNERS and scripts/devops/). Never runs PR code.
 # A content fetch that fails is recorded as `unavailable` — the scanner reads that as a trigger.
 # Reviews come from GraphQL (with an `edited` flag); a page set that does not add up to
-# totalCount fails the fetch.
+# totalCount fails the fetch. pr.json also carries `baseRetargetedAt` (the latest base retarget,
+# null if none; SO-M-2), and the head sha is read before and after the file list (SO-L-3).
 # Env: GH_TOKEN, REPO, PR_NUMBER, D (output dir), GH_BIN (default gh; tests point it at a stub).
 # Tests: scripts/devops/tests/test-check-owner-approval.sh (section "Fetch").
 set -euo pipefail
@@ -16,6 +17,7 @@ set -euo pipefail
 GH_BIN="${GH_BIN:-gh}"
 mkdir -p "$D"
 
+head_before=$("$GH_BIN" api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')
 "$GH_BIN" api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" \
   --jq '.[] | {filename, previous_filename, status}' | jq -s . >"$D/files.json"
 # Reviews through GraphQL, not REST: only GraphQL says whether a review body was edited after it
@@ -26,23 +28,44 @@ Q='query($owner: String!, $name: String!, $number: Int!, $endCursor: String) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
     reviews(first: 100, after: $endCursor) {
       totalCount pageInfo { hasNextPage endCursor }
-      nodes { author { login } state body commit { oid } lastEditedAt includesCreatedEdit
-              userContentEdits { totalCount } } } } } }'
+      nodes { author { login } state body submittedAt commit { oid } lastEditedAt includesCreatedEdit
+              userContentEdits { totalCount } } }
+    timelineItems(last: 1, itemTypes: [BASE_REF_CHANGED_EVENT, BASE_REF_FORCE_PUSHED_EVENT,
+                                       AUTOMATIC_BASE_CHANGE_SUCCEEDED_EVENT]) {
+      nodes { ... on BaseRefChangedEvent { createdAt } ... on BaseRefForcePushedEvent { createdAt }
+              ... on AutomaticBaseChangeSucceededEvent { createdAt } } } } } }'
+# SO-M-2: the latest base retarget (`base.at`, null if none). An APPROVE submitted before it is
+# stale; a timeline that did not come back (`base.read` false) fails the fetch — never "none".
+# (timelineItems.totalCount ignores itemTypes, so only `nodes` is read.)
 "$GH_BIN" api graphql --paginate -f query="$Q" -f owner="${REPO%%/*}" -f name="${REPO#*/}" \
   -F number="$PR_NUMBER" \
-  --jq '.data.repository.pullRequest.reviews | {total: .totalCount, nodes: [.nodes[] | {
-      author: (.author.login // ""), state, body: (.body // ""), commit_id: (.commit.oid // null),
+  --jq '.data.repository.pullRequest | (.timelineItems.nodes) as $t | .reviews | {total: .totalCount,
+      base: (if ($t | type) == "array" then {read: true, at: ([$t[].createdAt // empty] | max)}
+             else {read: false} end),
+      nodes: [.nodes[] | {
+      author: (.author.login // ""), state, body: (.body // ""), submittedAt: (.submittedAt // null),
+      commit_id: (.commit.oid // null),
       edited: (.lastEditedAt != null or .includesCreatedEdit == true
                or (.userContentEdits.totalCount // 0) > 0)}]}' >"$D/reviews.pages"
 jq -es 'if length > 0 and (.[0].total | type) == "number" and ([.[].nodes[]] | length) == .[0].total
         then [.[].nodes[]] else error("review pages do not add up to totalCount") end' \
   "$D/reviews.pages" >"$D/reviews.json"
+# `-s`, not `-es`: a null result (no retarget) is valid; error() still exits non-zero.
+jq -s 'if length > 0 and all(.[]; .base.read == true and ((.base.at | type) == "string" or .base.at == null))
+        then [.[].base.at] | max else error("the base-retarget timeline was not read") end' \
+  "$D/reviews.pages" >"$D/base.json"
 "$GH_BIN" api "repos/$REPO/pulls/$PR_NUMBER" \
   --jq '{headSha: .head.sha, author: .user.login, counts: {changedFiles: .changed_files}}' >"$D/pr0.json"
-jq --slurpfile r "$D/reviews.json" '. + {reviews: $r[0]}' "$D/pr0.json" >"$D/pr.json"
+jq --slurpfile r "$D/reviews.json" --slurpfile b "$D/base.json" \
+  '. + {reviews: $r[0], baseRetargetedAt: $b[0]}' "$D/pr0.json" >"$D/pr.json"
 
 head_sha=$(jq -r .headSha "$D/pr.json")
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no head sha in the PR data"; exit 1; }
+# SO-L-3: the file list must belong to this head — read it before and after the file list.
+[ "$head_sha" = "$head_before" ] || {
+  echo "::error::the PR head moved while the file list was read ($head_before -> $head_sha)"
+  exit 1
+}
 
 node scripts/devops/check-owner-approval.mjs --codeowners .github/CODEOWNERS \
   --files "$D/files.json" --fetch-plan >"$D/plan.txt"

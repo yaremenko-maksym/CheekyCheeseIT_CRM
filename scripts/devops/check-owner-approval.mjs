@@ -605,7 +605,8 @@ export function fetchPlan(rules, files) {
 // approves until a newer, unedited verdict follows. Skipping it instead would revive an earlier
 // APPROVE once the latest BLOCK is edited away. A review without a boolean `edited` (the old REST
 // shape, which cannot tell) is treated as edited — fail closed.
-// A DISMISSED review drops out only when it is an APPROVE; a dismissed BLOCK still blocks (SR-M-1).
+// A DISMISSED review drops out only when it is an exact APPROVE; any other dismissed owner review
+// blocks (SR-M-1, SO-M-1b).
 export function latestVerdict(reviews, owner) {
   let latest = null
   for (const r of reviews) {
@@ -628,16 +629,31 @@ export function latestVerdict(reviews, owner) {
       (l) => /owner\s+verdict\s*:/i.test(l) && !/^Owner Verdict:\s*APPROVE$/.test(l),
     )
     const m = loose ? ['', 'BLOCK'] : first.match(/^Owner Verdict:\s*(APPROVE|BLOCK)$/)
+    // SO-M-1b: GitHub reports a dismissed CHANGES_REQUESTED review as DISMISSED (the original state
+    // is lost) and a write collaborator can dismiss it, so a dismissed owner review that is not an
+    // exact APPROVE (marker-less ones too) blocks; it never lets an older APPROVE resurface. A
+    // dismissed exact APPROVE does not count.
+    if (r.state === 'DISMISSED') {
+      if (m?.[1] !== 'APPROVE') latest = { verdict: 'BLOCK' }
+      continue
+    }
     if (!m) continue
-    if (r.state === 'DISMISSED' && m[1] === 'APPROVE') continue
     // Full 40-hex only: a short prefix could be satisfied by a later commit (Master addendum 3).
     const c = body.match(/^\s*Commit:\s*`?([0-9a-f]{40})`?\s*$/m)
-    latest = { verdict: m[1], commit: c ? c[1] : null, state: r.state, commitId: r.commit_id }
+    latest = {
+      verdict: m[1],
+      commit: c ? c[1] : null,
+      state: r.state,
+      commitId: r.commit_id,
+      submittedAt: r.submittedAt,
+    }
   }
   return latest
 }
 
-export function verdictStatus(reviews, owner, headSha) {
+// baseRetargetedAt: ISO time of the latest base retarget, null if none, undefined if the timeline
+// was not read (SO-M-2: fails closed).
+export function verdictStatus(reviews, owner, headSha, baseRetargetedAt) {
   const v = latestVerdict(reviews, owner)
   if (!v) return { status: 'missing', reason: `no \`Owner Verdict:\` review by @${owner}` }
   if (v.verdict === 'EDITED')
@@ -669,6 +685,20 @@ export function verdictStatus(reviews, owner, headSha) {
     return {
       status: 'stale',
       reason: `the APPROVE review was submitted on ${String(v.commitId).slice(0, 7)}, head is ${headSha.slice(0, 7)}`,
+    }
+  }
+  // SO-M-2: the verdict is bound to the head only, so a base retarget after it (a new base, a new
+  // diff) makes it stale. Equal or unparseable times are stale too.
+  if (baseRetargetedAt === undefined)
+    return { status: 'stale', reason: 'the base-retarget timeline was not read (fail closed)' }
+  if (baseRetargetedAt !== null) {
+    const at = Date.parse(baseRetargetedAt)
+    const sub = Date.parse(v.submittedAt ?? '')
+    if (!Number.isFinite(at) || !Number.isFinite(sub) || !(sub > at)) {
+      return {
+        status: 'stale',
+        reason: `the APPROVE review (${v.submittedAt ?? 'no submittedAt'}) does not postdate the base retarget at ${baseRetargetedAt}`,
+      }
     }
   }
   return {
@@ -715,7 +745,7 @@ export function evaluate({ pr, files, contents, rules, zones, aliases, owner }) 
       reason: `the PR is authored by the owner @${owner}`,
     }
   }
-  const v = verdictStatus(pr.reviews ?? [], owner, pr.headSha)
+  const v = verdictStatus(pr.reviews ?? [], owner, pr.headSha, pr.baseRetargetedAt)
   return { ok: v.status === 'approved', ...base, status: v.status, reason: v.reason }
 }
 
