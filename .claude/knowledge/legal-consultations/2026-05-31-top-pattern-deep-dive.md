@@ -1093,7 +1093,7 @@ User + partner 50/50. A realistic distribution policy: 30% dividend, 70% reinves
 | Allowed for a new TOV < 24 months | Yes                                                                      | Yes (if immediately 9 specialists) |
 | Threat of loss                    | After 24 months — 9 specialists + €1200 average are mandatory            | Continuous compliance              |
 
-**Recommendation:** **apply as a startup resident** right away. This buys **24 months of time** to scale the team to 9 specialists. **CRITICAL:** a TOV older than **24 months** CANNOT apply as a startup — only a full resident (per [memory lesson 2026-05-31](memory/legal/lessons.md)). So **submit at the first operations of the TOV**, not later.
+**Recommendation:** **apply as a startup resident** right away. This buys **24 months of time** to scale the team to 9 specialists. **CRITICAL:** a TOV older than **24 months** CANNOT apply as a startup — only a full resident (per [memory lesson 2026-05-31](../../agents/memory/legal/lessons.md)). So **submit at the first operations of the TOV**, not later.
 
 **Cost:** **₴0** state duty Diia City membership; **₴3-5k** a buffer for a lawyer review of the application (recommended).
 
@@ -1284,7 +1284,7 @@ User + partner 50/50. A realistic distribution policy: 30% dividend, 70% reinves
 #### Top-3 actions for this week (Monday morning checklist)
 
 1. **Make a KEP via the [Diia app](https://ca.diia.gov.ua/)** — this is the foundation for everything else. 30 minutes, free. **Call the Diia contact center if something does not work — 1545.**
-2. **Request a cost estimate from 3 IT-corporate lawyers** (Sayenko Kharenko / Avellum / Asters / Juscutum / EQUITY) for a package: an MSA template + a gig-contract template + Diia City application supervision + a Founders' Agreement. Formulate the request specifically: "**A new TOV, planning to become a Diia City resident as a startup, need a compliant gig-contract template without recharacterization risk + an MSA with US/EU clients**". This is the **critical** stage — an economy on the lawyer = a catastrophic risk per the [risk analysis](2026-05-31-cash-crypto-undeclared-risk-analysis.md) and [memory lesson 2026-05-31 P0](memory/legal/lessons.md).
+2. **Request a cost estimate from 3 IT-corporate lawyers** (Sayenko Kharenko / Avellum / Asters / Juscutum / EQUITY) for a package: an MSA template + a gig-contract template + Diia City application supervision + a Founders' Agreement. Formulate the request specifically: "**A new TOV, planning to become a Diia City resident as a startup, need a compliant gig-contract template without recharacterization risk + an MSA with US/EU clients**". This is the **critical** stage — an economy on the lawyer = a catastrophic risk per the [risk analysis](2026-05-31-cash-crypto-undeclared-risk-analysis.md) and [memory lesson 2026-05-31 P0](../../agents/memory/legal/lessons.md).
 3. **Reserve the TOV name on [usr.minjust.gov.ua](https://usr.minjust.gov.ua/)** + draft a Founders' Agreement with the partner. Approve 3 name candidates, prepare the legal address (can be a home address with the owner's consent, or a coworking).
 
 #### Top-5 actions for the first month

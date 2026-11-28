@@ -487,7 +487,7 @@ The User said: "I won't give up cash and crypto, because it gives flexibility to
 
 1. **A TOV Diia City resident** is not obliged to publish detailed financial reporting if not a JSC (Law 996-IV). Only the owner + the capital are disclosed — not the turnover.
 2. **A holding structure:** a holding TOV (a privacy front) owns the operating TOV, where the activity is conducted. Only the UBO disclosure is mandatory (Art. 6 of the Law on the registration of legal entities) — not details.
-3. **A foreign holding entity** (Estonia/UAE/Cyprus) — subject to [CFC compliance](https://.claude/knowledge/legal-consultations/2026-05-31-offshore-alternatives.md) — an additional privacy layer (with limitations).
+3. **A foreign holding entity** (Estonia/UAE/Cyprus) — subject to [CFC compliance](2026-05-31-offshore-alternatives.md) — an additional privacy layer (with limitations).
 
 **But:** privacy has limits. Your UBO **will always** be known to the DPS (CRS exchange, the UBO register Art. 6 of the Law on registration). Privacy from competitors = OK. Privacy from the DPS = impossible legally.
 

@@ -142,7 +142,7 @@ Options we know (the User is open to others):
 **Mode:** strategic
 **Date:** 2026-05-31
 
-**CRITICAL before reading:** This answer touches on hard-escalation zones per [`.claude/knowledge/legal/cross-cutting/escalation-zones.md`](../../legal/cross-cutting/escalation-zones.md):
+**CRITICAL before reading:** This answer touches on hard-escalation zones per [`.claude/knowledge/legal/cross-cutting/escalation-zones.md`](../legal/cross-cutting/escalation-zones.md):
 
 - **§ 1 (Criminal-law risks of Art. 212 of the Criminal Code of Ukraine)** — Q3 (issuer ≠ CheekyCheeseIT) requires extreme caution. A structure where cash/crypto is arranged on a separate entity "so as not to expose the TOV" may be qualified by the DPS/investigators as **intentional tax evasion through artificial splitting of income among related parties**. The User explicitly emphasized "we are not looking for an evasion scheme" — in the Analysis of Q3 it is shown **where the red line runs** and which structure does NOT cross it.
 - **§ 4 (Specific tax amounts > 100k UAH)** — Q2.3 (cash) at a volume > 100k UAH/period — the exact calculations of obligations are for a tax consultant.
@@ -640,7 +640,7 @@ These changes — separate technical tasks for PM → Coder after locking in the
 2. **A practicing corporate lawyer** — to prepare the TOV Statute, the contractual network (MSA, gig contract, FOP subcontracting), the Privacy Policy, the platform ToS.
 3. **A practicing criminal defense / compliance lawyer** — **mandatory** for the discussion of Q3 (the issuer ≠ the TOV assumption). If there is any idea to implement Scenario A — this REQUIRES a criminal lawyer BEFORE action.
 
-**This answer does NOT cover (hard escalation per [`.claude/knowledge/legal/cross-cutting/escalation-zones.md`](../../legal/cross-cutting/escalation-zones.md)):**
+**This answer does NOT cover (hard escalation per [`.claude/knowledge/legal/cross-cutting/escalation-zones.md`](../legal/cross-cutting/escalation-zones.md)):**
 
 - **§ 1 — Criminal-law risks of Art. 212 of the Criminal Code of Ukraine.** Q3 shows the red line, but the specific criminal defense / structuring procedure is for a criminal-law lawyer. AI refuses further consultation if the user is preparing to implement a multi-issuer structure.
 - **§ 1 — Criminal risks of Art. 209 of the Criminal Code of Ukraine (legalization).** If there is any flow of cash/crypto→the TOV's bank — an AML/compliance lawyer review of the documentation is mandatory.

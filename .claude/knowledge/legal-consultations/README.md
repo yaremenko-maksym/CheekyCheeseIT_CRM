@@ -26,7 +26,7 @@ After a consultation is closed the file stays as a permanent reference. Do not d
 
 ## How it differs from task-legal-\*.md
 
-|           | `docs/specs/tasks/task-legal-*.md`         | `.claude/knowledge/legal-consultations/*.md`                     |
+|           | `.claude/tasks/task-legal-*.md`            | `.claude/knowledge/legal-consultations/*.md`                     |
 | --------- | ------------------------------------------ | ---------------------------------------------------------------- |
 | Mode      | A (consult) — task-related                 | D (strategic) — outside the task flow                            |
 | Lifecycle | After closing → archive (like other tasks) | Permanent log                                                    |
