@@ -6,6 +6,7 @@ import {
   navRolesFor,
   resolveRoleHome,
   resolveRouteAccess,
+  ROUTE_ACCESS,
 } from './route-access'
 
 const ALL: Role[] = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP']
@@ -158,6 +159,10 @@ describe('route-access · full table (role set per prefix)', () => {
       expect(resolveRouteAccess(`${prefix}/x`)).toEqual(roles)
     })
   }
+
+  it('the whole ROUTE_ACCESS table equals the hand-written one (no extra prefix, no extra role)', () => {
+    expect(ROUTE_ACCESS).toEqual(EXPECTED_TABLE)
+  })
 
   it('no prefix outside the table exists (navRolesFor throws for an unknown prefix)', () => {
     expect(() => navRolesFor('/accountant')).toThrow()

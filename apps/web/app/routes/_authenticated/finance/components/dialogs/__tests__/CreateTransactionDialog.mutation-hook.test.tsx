@@ -160,13 +160,13 @@ describe('payload per transaction type (empty notes/date -> null)', () => {
     expect(createAdminIncome.mock.calls[0]![0]).toMatchObject({ currency: 'USDT' })
   })
 
-  it('ADMIN_INCOME (ACCOUNTANT, legacy funding) sends NO receiverId key at all', async () => {
+  it('ADMIN_INCOME (non-admin legacy branch, legacy funding) sends NO receiverId key at all', async () => {
     await submit({ type: 'ADMIN_INCOME', isAdmin: false, fundingSource: 'legacy' })
     const payload = createAdminIncome.mock.calls[0]![0] as Record<string, unknown>
     expect('receiverId' in payload).toBe(false)
   })
 
-  it('ADMIN_INCOME (ACCOUNTANT, company funding) sends the COMPANY_ACCOUNT sentinel', async () => {
+  it('ADMIN_INCOME (non-admin legacy branch, company funding) sends the COMPANY_ACCOUNT sentinel', async () => {
     await submit({ type: 'ADMIN_INCOME', isAdmin: false, fundingSource: 'COMPANY_ACCOUNT' })
     expect(createAdminIncome.mock.calls[0]![0]).toMatchObject({ receiverId: 'COMPANY_ACCOUNT' })
   })

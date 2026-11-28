@@ -430,7 +430,6 @@ describe('ArchiveUserConfirmDialog (users list) — delegates impact text to Use
 
   it.each([
     ['HR', 'archive-warning-hr'],
-    ['ACCOUNTANT', 'archive-warning-accountant'],
     ['JUNIOR', 'archive-warning-junior'],
     ['ADMIN', 'archive-warning-admin'],
   ] as const)(

@@ -246,7 +246,7 @@ export function ProjectEffectiveTeamCard({
             <Trans>
               Ефективний склад
               <span className="ml-2 text-[10px] font-normal normal-case text-muted-foreground/60">
-                (HR/бухгалтер — з поточної команди сеньйора)
+                (HR — з поточної команди сеньйора)
               </span>
             </Trans>
           </CardTitle>

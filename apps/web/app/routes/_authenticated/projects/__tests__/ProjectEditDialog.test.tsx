@@ -311,11 +311,11 @@ describe('ProjectEditDialog — open / reset-on-open', () => {
   })
 
   it('passes the page-supplied RBAC context through to the fields', () => {
-    setup({ viewerRole: 'ACCOUNTANT', canEditOverride: true })
+    setup({ viewerRole: 'HR', canEditOverride: true })
     const p = h.fieldProps as Record<string, unknown>
     expect(p.mode).toBe('info')
     expect(p.canEditOverride).toBe(true)
-    expect(p.viewerRole).toBe('ACCOUNTANT')
+    expect(p.viewerRole).toBe('HR')
     expect(p.projectId).toBe('proj-1')
     expect(p.defaultSharePercent).toBe(26)
     expect(p.defaultDropSharePercent).toBe(5)

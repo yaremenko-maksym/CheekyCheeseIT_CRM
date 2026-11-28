@@ -13,7 +13,7 @@
  *     admin) shows the admin AND the drop.
  *   - COMPANY_DEPOSIT and DIVIDEND_TO_ADMIN — the other two LIVE money types
  *     found missing a case during the same audit pass (both insert real rows
- *     via CompanyAccountService and are visible to ADMIN/ACCOUNTANT).
+ *     via CompanyAccountService and are visible to ADMIN).
  *   - A representative "intentionally empty" placeholder type (TOV_INCOME —
  *     never emitted by any flow) still renders the dash, so the audit's
  *     exclusion list stays honest.

@@ -85,21 +85,6 @@ describe('type switch', () => {
     )
   })
 
-  it('forgets a swapped transfer direction', async () => {
-    currentRole = 'ACCOUNTANT'
-    renderDialog()
-    await screen.findByTestId('create-transaction-type-admin_transfer')
-    fireEvent.click(screen.getByTestId('create-transaction-type-admin_transfer'))
-    const senderCard = async () =>
-      (await screen.findAllByTitle('Натисніть, щоб змінити напрямок'))[0]!
-    expect(within(await senderCard()).getByText('Admin One')).toBeInTheDocument()
-    fireEvent.click(await senderCard())
-    expect(within(await senderCard()).getByText('Admin Two')).toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
-    fireEvent.click(screen.getByTestId('create-transaction-type-admin_transfer'))
-    expect(within(await senderCard()).getByText('Admin One')).toBeInTheDocument()
-  })
-
   it('never offers ADMIN a reverse transfer that the API would turn into self-pay', async () => {
     renderDialog()
     await screen.findByTestId('create-transaction-type-admin_transfer')

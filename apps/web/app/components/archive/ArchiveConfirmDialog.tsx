@@ -50,7 +50,7 @@ function renderImpactText(
   }
 
   // task-archive-pending-modal (AC9): archiving a team means archiving the
-  // paired senior/drop — third parties (HR/бухгалтеры on the team) keep
+  // paired senior/drop — third parties (HR on the team) keep
   // their membership and keep earning; the copy below says so explicitly
   // instead of the old "будут отвязаны".
   if (entityType === 'team' && impact.type === 'team') {
@@ -78,14 +78,8 @@ function renderImpactText(
             {projectNamesSuffix}).
           </Trans>{' '}
           <Trans>
-            HR/бухгалтери в команді (
-            <Plural
-              value={impact.membersAffected}
-              one="# HR/бухгалтер"
-              few="# HR/бухгалтери"
-              many="# HR/бухгалтерів"
-              other="# HR/бухгалтерів"
-            />
+            HR у команді (
+            <Plural value={impact.membersAffected} one="# HR" few="# HR" many="# HR" other="# HR" />
             ) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не
             стосується.
           </Trans>{' '}
@@ -116,15 +110,9 @@ function renderImpactText(
           {projectNamesSuffix}).
         </Trans>{' '}
         <Trans>
-          HR/бухгалтери в команді (
-          <Plural
-            value={impact.membersAffected}
-            one="# HR/бухгалтер"
-            few="# HR/бухгалтери"
-            many="# HR/бухгалтерів"
-            other="# HR/бухгалтерів"
-          />
-          ) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не
+          HR у команді (
+          <Plural value={impact.membersAffected} one="# HR" few="# HR" many="# HR" other="# HR" />)
+          залишаються активними учасниками і продовжують отримувати оплату — архівація їх не
           стосується. Це еквівалентно архівації сеньйора <strong>{impact.seniorName || '—'}</strong>
           .
         </Trans>

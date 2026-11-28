@@ -4,34 +4,24 @@
  *
  * Tests the pure function in isolation — no React / router dependencies.
  * Covers:
- *   AC1 — ALL roles without deep-link → ALL (task-ui-header-scroll-overhaul AC3:
- *          default = «Все категории» for ALL roles including ACCOUNTANT)
- *   AC2 — ACCOUNTANT with explicit deep-link → deep-link wins (unchanged)
- *   AC3 — Other roles unchanged → ALL
+ *   - every role without a deep-link → ALL (task-ui-header-scroll-overhaul AC3:
+ *     default = «Все категории»)
+ *   - an explicit deep-link always wins
  */
 import { describe, expect, it } from 'vitest'
 import { initialCategoryForRole } from './documents/constants'
 
 describe('initialCategoryForRole', () => {
-  // ── AC1: ALL roles default to ALL (task-ui-header-scroll-overhaul AC3) ─────
-  it('returns ALL for ACCOUNTANT when no deep-link is provided', () => {
-    expect(initialCategoryForRole('ACCOUNTANT', undefined)).toBe('ALL')
+  // ── Deep-link always wins ──────────────────────────────────────────────────
+  it('returns the deep-link category for HR when ?category=INVOICE is set', () => {
+    expect(initialCategoryForRole('HR', 'INVOICE')).toBe('INVOICE')
   })
 
-  // ── AC2: deep-link always wins ─────────────────────────────────────────────
-  it('returns the deep-link category for ACCOUNTANT when ?category=INVOICE is set', () => {
-    expect(initialCategoryForRole('ACCOUNTANT', 'INVOICE')).toBe('INVOICE')
+  it('returns the deep-link category for JUNIOR when ?category=SCAN is set', () => {
+    expect(initialCategoryForRole('JUNIOR', 'SCAN')).toBe('SCAN')
   })
 
-  it('returns the deep-link category for ACCOUNTANT when ?category=SCAN is set', () => {
-    expect(initialCategoryForRole('ACCOUNTANT', 'SCAN')).toBe('SCAN')
-  })
-
-  it('returns the deep-link category for ACCOUNTANT when ?category=RECEIPT is set (explicit wins)', () => {
-    expect(initialCategoryForRole('ACCOUNTANT', 'RECEIPT')).toBe('RECEIPT')
-  })
-
-  // ── AC3: other roles unchanged ─────────────────────────────────────────────
+  // ── Every role defaults to ALL ─────────────────────────────────────────────
   it('returns ALL for ADMIN when no deep-link is provided', () => {
     expect(initialCategoryForRole('ADMIN', undefined)).toBe('ALL')
   })

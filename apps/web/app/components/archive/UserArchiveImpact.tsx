@@ -89,10 +89,10 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
           У команді{' '}
           <Plural
             value={impact.hrAccountantsOnTeam ?? 0}
-            one="# HR/бухгалтер"
-            few="# HR/бухгалтери"
-            many="# HR/бухгалтерів"
-            other="# HR/бухгалтера"
+            one="# HR"
+            few="# HR"
+            many="# HR"
+            other="# HR"
           />
           , на її проєктах —{' '}
           <Plural
@@ -103,7 +103,7 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
             other="# джуніора"
           />
           : їхні профілі залишаються активними, оплату вони отримують як і раніше. Після відновлення
-          HR/бухгалтерів доведеться додати в команду заново.
+          HR доведеться додати в команду заново.
         </Trans>{' '}
         <Trans>
           Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати

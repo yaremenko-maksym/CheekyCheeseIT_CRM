@@ -149,7 +149,6 @@ describe('buildUserDialogDefaults', () => {
     ['ADMIN', 'USDT_ERC20'],
     ['JUNIOR', 'BANK_UAH_FOP'],
     ['HR', 'BANK_UAH_FOP'],
-    ['ACCOUNTANT', 'BANK_UAH_FOP'],
     ['DROP', 'BANK_UAH_FOP'],
   ])('role %s with null paymentMethod -> %s', (role, expected) => {
     const u = { ...FULL_USER, role, paymentMethod: null } as unknown as UserProfileDto

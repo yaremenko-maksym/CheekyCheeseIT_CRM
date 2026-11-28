@@ -4,7 +4,7 @@
  * Pins the RBAC table from the task-file (§ RBAC):
  *   | Role                | Attach (no receipt) | Replace before PAID | Replace after PAID |
  *   |---------------------|----------------------|----------------------|---------------------|
- *   | ADMIN / ACCOUNTANT  | yes                  | yes                  | yes                 |
+ *   | ADMIN               | yes                  | yes                  | yes                 |
  *   | Author (createdBy)  | yes                  | yes                  | NO                  |
  *   | Others              | no                   | no                   | no                  |
  *
@@ -28,7 +28,7 @@ function tx(overrides: Partial<Parameters<typeof canAttachReceipt>[0]> = {}) {
   }
 }
 
-describe('canAttachReceipt — ADMIN / ACCOUNTANT (privileged)', () => {
+describe('canAttachReceipt — ADMIN (privileged)', () => {
   it('ADMIN may attach on a receiptless tx regardless of status', () => {
     expect(canAttachReceipt(tx({ status: 'PENDING' }), OTHER_ID, 'ADMIN')).toBe(true)
   })
@@ -39,16 +39,6 @@ describe('canAttachReceipt — ADMIN / ACCOUNTANT (privileged)', () => {
         tx({ receiptExternalUrl: 'https://etherscan.io/tx/0x1', status: 'PAID' }),
         OTHER_ID,
         'ADMIN',
-      ),
-    ).toBe(true)
-  })
-
-  it('ACCOUNTANT may replace an EXISTING receipt on a PAID tx too', () => {
-    expect(
-      canAttachReceipt(
-        tx({ receiptExternalUrl: 'https://etherscan.io/tx/0x1', status: 'PAID' }),
-        OTHER_ID,
-        'ACCOUNTANT',
       ),
     ).toBe(true)
   })

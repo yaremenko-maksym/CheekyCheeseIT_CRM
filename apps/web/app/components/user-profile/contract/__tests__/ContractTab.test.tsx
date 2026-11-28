@@ -51,10 +51,6 @@ describe('contract tab visibility logic', () => {
   it('hidden for HR viewer', () => {
     expect(shouldShowContractTab('HR', 'SENIOR')).toBe(false)
   })
-
-  it('hidden for ACCOUNTANT viewer', () => {
-    expect(shouldShowContractTab('ACCOUNTANT', 'SENIOR')).toBe(false)
-  })
 })
 
 describe('canEditContract — ADMIN-only edit gate', () => {
@@ -76,10 +72,6 @@ describe('canEditContract — ADMIN-only edit gate', () => {
 
   it('HR cannot edit', () => {
     expect(canEditContract('HR')).toBe(false)
-  })
-
-  it('ACCOUNTANT cannot edit', () => {
-    expect(canEditContract('ACCOUNTANT')).toBe(false)
   })
 })
 

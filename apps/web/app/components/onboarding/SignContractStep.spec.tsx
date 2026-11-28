@@ -179,7 +179,7 @@ describe('SignContractStep', () => {
   it('no raw role enum anywhere in the rendered step (COPY-M-16)', () => {
     render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
 
-    expect(screen.queryByText(/\b(ADMIN|SENIOR|JUNIOR|ACCOUNTANT|DROP)\b/)).toBeNull()
+    expect(screen.queryByText(/\b(ADMIN|SENIOR|JUNIOR|DROP)\b/)).toBeNull()
   })
 
   it('T4d. renders sign button and confirm checkbox', () => {

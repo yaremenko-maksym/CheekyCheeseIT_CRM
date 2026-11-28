@@ -85,7 +85,7 @@ describe('OverviewTab — senior availability setter', () => {
     expect(section()).toBeInTheDocument()
   })
 
-  it.each<Role>(['SENIOR', 'HR', 'JUNIOR', 'ACCOUNTANT'])('%s → another senior: absent', (role) => {
+  it.each<Role>(['SENIOR', 'HR', 'JUNIOR'])('%s → another senior: absent', (role) => {
     viewer.role = role
     renderTab(SENIOR, 'view')
     expect(section()).toBeNull()

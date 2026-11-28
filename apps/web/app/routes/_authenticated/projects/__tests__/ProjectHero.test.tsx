@@ -176,7 +176,7 @@ describe('ProjectHero — approval note gets the viewer id', () => {
 })
 
 describe('ProjectHero — drop badge (RBAC on viewerRole)', () => {
-  it.each<Role>(['ADMIN', 'HR', 'ACCOUNTANT'])('%s sees the badge on a drop-project', (role) => {
+  it.each<Role>(['ADMIN', 'HR'])('%s sees the badge on a drop-project', (role) => {
     setup({ viewerRole: role }, { dropId: 'drop-1' })
     expect(screen.getByTestId('project-drop-badge')).toHaveTextContent('Проєкт з дропом')
   })

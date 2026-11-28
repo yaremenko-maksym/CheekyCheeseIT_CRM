@@ -125,8 +125,8 @@ describe('UserProfileShell — DROP 403 redirect (Finding B2)', () => {
     expect(screen.getByText('Профіль не знайдено')).toBeInTheDocument()
   })
 
-  it('ACCOUNTANT + 403 → shows "Нет доступа", does NOT redirect', () => {
-    viewerRole = 'ACCOUNTANT'
+  it('HR + 403 → shows "Нет доступа", does NOT redirect', () => {
+    viewerRole = 'HR'
     isErrorFlag = true
     queryError = make403()
 

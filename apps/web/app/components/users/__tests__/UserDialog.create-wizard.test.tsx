@@ -989,8 +989,8 @@ describe('UserDialog — email/displayName field errors (fix-round 2, CI-5/CR-H-
 // raw enum, no leftover Russian, on either locale.
 describe('role picker reads ROLE_LABEL_MESSAGES', () => {
   it.each([
-    ['uk', ['Сеньйор', 'Джуніор', 'HR', 'Бухгалтер', 'Дроп']],
-    ['en', ['Senior', 'Junior', 'HR', 'Accountant', 'Drop']],
+    ['uk', ['Сеньйор', 'Джуніор', 'HR', 'Дроп']],
+    ['en', ['Senior', 'Junior', 'HR', 'Drop']],
   ] as const)(
     '%s: every CREATE_ALLOWED_ROLES option is the canon label, no legacy or enum',
     async (locale, labels) => {
@@ -1002,7 +1002,7 @@ describe('role picker reads ROLE_LABEL_MESSAGES', () => {
       for (const label of labels) {
         expect(within(listbox).getByRole('option', { name: label })).toBeInTheDocument()
       }
-      expect(listbox.textContent).not.toMatch(/Синьор|Джун\b|SENIOR|JUNIOR|ACCOUNTANT|DROP/)
+      expect(listbox.textContent).not.toMatch(/Синьор|Джун\b|SENIOR|JUNIOR|DROP/)
     },
   )
 })

@@ -20,7 +20,8 @@ describe('TAB_VISIBILITY', () => {
       SENIOR: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'],
       JUNIOR: ['RESUME', 'SCAN', 'CONTRACT', 'INVOICE'],
       HR: ['RESUME', 'SCAN', 'CONTRACT'],
-      ACCOUNTANT: ['SCAN', 'RECEIPT', 'INVOICE'],
+      // Forced `Record<Role>` mirror: `Role` lists the retired role until PR 1d.
+      ACCOUNTANT: [],
       DROP: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'],
     })
   })
@@ -33,6 +34,7 @@ describe('UPLOADABLE_PER_ROLE', () => {
       SENIOR: ['RESUME', 'SCAN', 'CONTRACT'],
       JUNIOR: ['RESUME', 'SCAN'],
       HR: ['RESUME', 'SCAN'],
+      // Forced `Record<Role>` mirror: `Role` lists the retired role until PR 1d.
       ACCOUNTANT: [],
       DROP: ['RESUME', 'SCAN', 'CONTRACT'],
     })
@@ -45,7 +47,6 @@ describe('canSeeOwnerFilter', () => {
     ['HR', true],
     ['SENIOR', false],
     ['JUNIOR', false],
-    ['ACCOUNTANT', false],
     ['DROP', false],
   ] as const)('%s -> %s', (role, expected) => {
     expect(canSeeOwnerFilter(role)).toBe(expected)

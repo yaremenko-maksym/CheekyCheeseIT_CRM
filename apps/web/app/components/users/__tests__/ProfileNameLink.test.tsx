@@ -63,7 +63,7 @@ describe('ProfileNameLink', () => {
     expect(screen.queryByRole('link')).toBeNull()
   })
 
-  it.each<Role>(['ADMIN', 'HR', 'ACCOUNTANT', 'JUNIOR'])(
+  it.each<Role>(['ADMIN', 'HR', 'JUNIOR'])(
     '%s viewer — renders a profile <Link> to /profile/$userId',
     async (role) => {
       renderForRole(role)

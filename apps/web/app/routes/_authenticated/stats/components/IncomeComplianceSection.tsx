@@ -473,7 +473,7 @@ function IncomeComplianceBody({ data }: { data: IncomeComplianceOverviewDto }) {
           color="red"
         />
         <ComplianceKpi
-          label={<Trans>На валідації у бухгалтера</Trans>}
+          label={<Trans>На валідації</Trans>}
           value={String(totals.pendingProjects)}
           sub={
             <Plural

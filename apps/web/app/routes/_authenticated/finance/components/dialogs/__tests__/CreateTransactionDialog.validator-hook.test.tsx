@@ -138,7 +138,7 @@ describe('receiver', () => {
     expect(validate({ type: 'ADMIN_INCOME', receiverId: '' }).receiver).toBe('Виберіть отримувача')
   })
 
-  it('ADMIN_INCOME by an ACCOUNTANT has no receiver picker, so nothing to validate', () => {
+  it('ADMIN_INCOME by a non-admin has no receiver picker, so nothing to validate', () => {
     expect(
       validate({ type: 'ADMIN_INCOME', receiverId: '', isAdmin: false }).receiver,
     ).toBeUndefined()

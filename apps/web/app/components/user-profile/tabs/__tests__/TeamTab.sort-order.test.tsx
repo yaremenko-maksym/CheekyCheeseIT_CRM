@@ -62,7 +62,7 @@ beforeEach(() => loadCatalog('uk'))
 afterEach(() => vi.clearAllMocks())
 
 describe('TeamTab — roster sort order (role first, name as tiebreak)', () => {
-  it('sorts JUNIOR/ADMIN/ACCOUNTANT/HR/SENIOR into SENIOR, HR, ACCOUNTANT, JUNIOR, ADMIN', async () => {
+  it('sorts JUNIOR/ADMIN/HR/SENIOR into SENIOR, HR, JUNIOR, ADMIN', async () => {
     getMock.mockResolvedValue({
       data: [
         {
@@ -79,13 +79,6 @@ describe('TeamTab — roster sort order (role first, name as tiebreak)', () => {
           avatarUrl: null,
           avatarDocumentId: null,
         },
-        {
-          id: 'ac1',
-          displayName: 'Accountant Person',
-          role: 'ACCOUNTANT',
-          avatarUrl: null,
-          avatarDocumentId: null,
-        },
         { id: 'h1', displayName: 'Hr Person', role: 'HR', avatarUrl: null, avatarDocumentId: null },
         {
           id: 's1',
@@ -99,13 +92,12 @@ describe('TeamTab — roster sort order (role first, name as tiebreak)', () => {
     renderTab('target-1')
     await waitFor(() => expect(screen.getByText('Senior Person')).toBeInTheDocument())
     const names = screen.getAllByRole('link').map((el) => el.textContent)
-    // Role order pinned: SENIOR(0) < HR(1) < ACCOUNTANT(2) < JUNIOR(3) < ADMIN(4).
+    // Role order pinned: SENIOR(0) < HR(1) < JUNIOR(3) < ADMIN(4).
     // A `-` → `+` mutant, an `||` → `&&` mutant, or either `true`/`false`
     // constant-fold on the comparator all reorder this list differently.
     expect(names).toEqual([
       expect.stringContaining('Senior Person'),
       expect.stringContaining('Hr Person'),
-      expect.stringContaining('Accountant Person'),
       expect.stringContaining('Junior Person'),
       expect.stringContaining('Admin Person'),
     ])

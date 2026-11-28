@@ -31,7 +31,6 @@ const cases: Array<[string, UserImpact]> = [
   ],
   ['archive-warning-senior', { ...base, role: 'DROP', teamName: null, projectsCount: 1 }],
   ['archive-warning-hr', { ...base, role: 'HR', teamsCount: 5 }],
-  ['archive-warning-accountant', { ...base, role: 'ACCOUNTANT', teamsCount: 1 }],
   ['archive-warning-junior', { ...base, role: 'JUNIOR', projectsCount: 2 }],
   ['archive-warning-admin', { ...base, role: 'ADMIN' }],
 ]
@@ -50,9 +49,7 @@ describe('UserArchiveImpact', () => {
         )
         const block = screen.getByTestId(testId)
         expect(screen.getByTestId('archive-confirm-user-name')).toHaveTextContent('Олена Коваль')
-        expect(block.textContent).not.toMatch(
-          /\b(SENIOR|JUNIOR|ACCOUNTANT|DROP|ADMIN)\b|senior\+team|cascade/,
-        )
+        expect(block.textContent).not.toMatch(/\b(SENIOR|JUNIOR|DROP|ADMIN)\b|senior\+team|cascade/)
         unmount()
       }
     },
@@ -128,24 +125,23 @@ describe('UserArchiveImpact', () => {
       'Олена та команда «Alpha» — пов’язана пара, архівувати окремо не можна. ' +
         'В архів підуть: профіль сеньйора, команда і всі її проєкти (2 проєкти: P1, P2). ' +
         'Вхід у CRM для цього акаунта буде закрито. ' +
-        'У команді 1 HR/бухгалтер, на її проєктах — 3 джуніори: їхні профілі залишаються активними, ' +
+        'У команді 1 HR, на її проєктах — 3 джуніори: їхні профілі залишаються активними, ' +
         'оплату вони отримують як і раніше. ' +
-        'Після відновлення HR/бухгалтерів доведеться додати в команду заново. ' +
+        'Після відновлення HR доведеться додати в команду заново. ' +
         'Відновлення можливе — пара «сеньйор+команда» повернеться, але проєкти відновлювати окремо.',
     )
   })
 
-  it('HR/ACCOUNTANT/JUNIOR/ADMIN: each branch is role-unique, not confusable with a neighbour (mutation-gate round)', async () => {
-    // mutation-gate survivors: the ACCOUNTANT guard's `'ACCOUNTANT'` literal
-    // forced to `''`/its condition forced `false`/its block emptied all fall
-    // through to the next `if` (JUNIOR) or the ADMIN fallback; the JUNIOR
-    // guard forced `true` renders JUNIOR text even for ADMIN. A per-role
+  it('HR/JUNIOR/ADMIN: each branch is role-unique, not confusable with a neighbour (mutation-gate round)', async () => {
+    // mutation-gate survivors: a guard's role literal forced to `''`/its
+    // condition forced `false`/its block emptied all fall through to the
+    // next `if` or the ADMIN fallback; the JUNIOR guard forced `true`
+    // renders JUNIOR text even for ADMIN. A per-role
     // UNIQUE substring, checked on every OTHER role's output too, catches
     // every one of these branch-confusion mutants at once.
     await loadCatalog('uk')
     const rows: Array<[UserImpact, string]> = [
       [{ ...base, role: 'HR', teamsCount: 3 }, '(роль HR)'],
-      [{ ...base, role: 'ACCOUNTANT', teamsCount: 3 }, '(роль бухгалтера)'],
       [{ ...base, role: 'JUNIOR', projectsCount: 2 }, 'Самі проєкти залишаться активними'],
       [{ ...base, role: 'ADMIN' }, 'Нічого пов’язаного архівувати не треба'],
     ]
@@ -186,30 +182,11 @@ describe('UserArchiveImpact', () => {
     )
   })
 
-  it('ACCOUNTANT: exact text, including the joining space and the teamsCount plural value', async () => {
-    await loadCatalog('uk')
-    render(
-      <UserArchiveImpact
-        entityName="Олена"
-        impact={{ ...base, role: 'ACCOUNTANT', teamsCount: 3 }}
-      />,
-      { wrapper: I18nTestProvider },
-    )
-    const text = (screen.getByTestId('archive-warning-accountant').textContent ?? '')
-      .replace(/\s+/g, ' ')
-      .trim()
-    expect(text).toBe(
-      'В архів піде профіль Олена; його буде прибрано з 3 команд (роль бухгалтера). Самі команди ' +
-        'залишаться активними. Вхід у CRM для цього акаунта буде закрито. ' +
-        'Профіль можна відновити з архіву.',
-    )
-  })
-
   it('JUNIOR: exact text, including the joining space before "Профіль можна відновити"', async () => {
     // CI Mutation Gate (@crm/web) survivor round B: the `{' '}` between this
     // branch's own Trans and the trailing restore-sentence Trans was added
     // by round B (COPY-M-3) but never covered by an exact-text assertion —
-    // only HR/ACCOUNTANT got one in round A, since those branches existed
+    // only HR got one in round A, since that branch existed
     // before round B's trailing sentence was added to JUNIOR/ADMIN too.
     await loadCatalog('uk')
     render(

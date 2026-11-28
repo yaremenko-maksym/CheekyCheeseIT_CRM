@@ -4,7 +4,7 @@
  * `user-dialog/__tests__/payloads.test.ts` pins `buildCreateUserPayload` /
  * `computeMonthlySalaryUsd` as pure functions. This file pins the one thing
  * those unit tests cannot: that `onSubmit` feeds them the right inputs — the
- * HR / accountant selections (resolved from refs by the caller) and the
+ * HR selection (resolved from refs by the caller) and the
  * salary — and sends the result to the API.
  */
 import {
@@ -85,20 +85,12 @@ vi.mock('@/components/user-profile/contract/ContractActionBar', () => ({
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
-// Exactly one HR and one accountant exist -> create mode pre-selects both
-// (see `useTeamSelection`), so the SENIOR flow needs no picker clicks.
-// `createUserSchema` requires UUIDs for `hrIds` / `accountantId`.
+// Exactly one HR exists -> create mode pre-selects it (see
+// `useTeamSelection`), so the SENIOR flow needs no picker clicks.
+// `createUserSchema` requires UUIDs for `hrIds`.
 const HR_ID = '11111111-1111-4111-8111-111111111111'
-const ACCOUNTANT_ID = '22222222-2222-4222-8222-222222222222'
 const USERS_ADMIN = [
   { id: HR_ID, role: 'HR', archivedAt: null, displayName: 'Hr One', email: 'hr@x.io' },
-  {
-    id: ACCOUNTANT_ID,
-    role: 'ACCOUNTANT',
-    archivedAt: null,
-    displayName: 'Acc One',
-    email: 'a@x.io',
-  },
 ]
 const RATES = { usdUah: '41', usdtUah: '41', eurUah: '44.5', date: '2026-10-06' }
 
@@ -172,7 +164,7 @@ const postBody = () =>
   mockPost.mock.calls.find((c) => String(c[0]) === '/users')?.[1] as Record<string, unknown>
 
 describe('UserDialog — create payload wiring', () => {
-  it('SENIOR create: POST /users carries the selected HR + accountant from the team pickers', async () => {
+  it('SENIOR create: POST /users carries the selected HR from the team pickers', async () => {
     const user = userEvent.setup()
     render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
 
@@ -197,10 +189,10 @@ describe('UserDialog — create payload wiring', () => {
       paymentMethod: 'USDT_ERC20',
       walletUsdtErc20: '0x1234567890abcdef1234567890abcdef12345678',
       hrIds: [HR_ID],
-      accountantId: ACCOUNTANT_ID,
       technicalRoles: ['BACKEND_ENGINEER'],
     })
     expect('techStack' in (body as object)).toBe(false)
+    expect('accountantId' in (body as object)).toBe(false)
   })
 
   it('switching the role JUNIOR -> SENIOR swaps the stack for the roles and sends no stale stack', async () => {
@@ -259,7 +251,7 @@ describe('UserDialog — create payload wiring', () => {
     })
   })
 
-  it('SENIOR create: the PATCH after going Back carries the selected HR + accountant and forced USDT', async () => {
+  it('SENIOR create: the PATCH after going Back carries the selected HR and forced USDT', async () => {
     const user = userEvent.setup()
     render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
 
@@ -288,7 +280,6 @@ describe('UserDialog — create payload wiring', () => {
       paymentMethod: 'USDT_ERC20',
       walletUsdtErc20: '0x1234567890abcdef1234567890abcdef12345678',
       hrIds: [HR_ID],
-      accountantId: ACCOUNTANT_ID,
     })
   })
 })

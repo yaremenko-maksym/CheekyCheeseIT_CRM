@@ -357,7 +357,7 @@ export function ProjectCreateDialog({
                           </Select>
                           {!canEditPaymentType && (
                             <p className="text-xs text-muted-foreground italic">
-                              {t`Змінювати може тільки адмін або бухгалтер.`}
+                              {t`Змінювати може тільки адмін.`}
                             </p>
                           )}
                         </div>

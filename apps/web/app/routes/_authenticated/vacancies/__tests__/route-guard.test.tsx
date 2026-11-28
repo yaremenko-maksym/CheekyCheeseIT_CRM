@@ -1,7 +1,7 @@
 /**
  * task-crm-vacancies-ui (AC2) — RBAC route guard on `/vacancies`.
  *
- * SENIOR/JUNIOR/ACCOUNTANT/DROP hitting the page directly (URL, not nav
+ * SENIOR/JUNIOR/DROP hitting the page directly (URL, not nav
  * link) must be redirected — the sidebar hides the nav item too, but that
  * alone is not a security boundary (a denied role can still type the URL).
  *
@@ -61,7 +61,7 @@ describe('/vacancies — RBAC guard (AC2)', () => {
     vi.clearAllMocks()
   })
 
-  for (const role of ['SENIOR', 'ACCOUNTANT', 'DROP']) {
+  for (const role of ['SENIOR', 'DROP']) {
     it(`${role} → redirected to / (role home), page content NOT rendered`, () => {
       viewerRole = role
       render(<VacanciesListPage />, { wrapper: I18nTestProvider })

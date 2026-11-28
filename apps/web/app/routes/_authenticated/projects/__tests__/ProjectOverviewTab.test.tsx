@@ -203,13 +203,10 @@ describe('ProjectOverviewTab — details card', () => {
     expect(within(row('Тип оплати')).getByText(label)).toBeInTheDocument()
   })
 
-  it.each(['ADMIN', 'HR', 'ACCOUNTANT', 'SENIOR'] as const)(
-    'shows the payment-type row to %s',
-    (role) => {
-      setup({ viewerRole: role })
-      expect(screen.getByText('Тип оплати:')).toBeInTheDocument()
-    },
-  )
+  it.each(['ADMIN', 'HR', 'SENIOR'] as const)('shows the payment-type row to %s', (role) => {
+    setup({ viewerRole: role })
+    expect(screen.getByText('Тип оплати:')).toBeInTheDocument()
+  })
 
   it('shows the payment-type row when the viewer role is unknown', () => {
     setup({ viewerRole: undefined })
@@ -310,7 +307,7 @@ describe('ProjectOverviewTab — team card: drop row', () => {
     avatarUrl: 'https://img.example/d.png',
   }
 
-  it.each(['ADMIN', 'HR', 'ACCOUNTANT'] as const)('shows the drop row to %s', (role) => {
+  it.each(['ADMIN', 'HR'] as const)('shows the drop row to %s', (role) => {
     setup({ viewerRole: role }, { effectiveTeam: { drop } })
     const dropRow = screen.getByTestId('team-card-drop-row')
     expect(within(dropRow).getByText('Dmytro Drop')).toBeInTheDocument()
@@ -340,10 +337,10 @@ describe('ProjectOverviewTab — team card: drop row', () => {
 })
 
 describe('ProjectOverviewTab — team card: members', () => {
-  it('shows placeholders when no HR / accountants / junior are assigned', () => {
+  it('shows placeholders when no HR / junior are assigned', () => {
     setup()
     expect(screen.getByText('Склад')).toBeInTheDocument()
-    expect(screen.getAllByText('Не призначено')).toHaveLength(2)
+    expect(screen.getAllByText('Не призначено')).toHaveLength(1)
     expect(screen.getByText('Джуніор не призначений')).toBeInTheDocument()
     expect(screen.queryByText('Залишили проєкт')).toBeNull()
     expect(screen.queryAllByTestId('member-row')).toHaveLength(0)
@@ -353,30 +350,20 @@ describe('ProjectOverviewTab — team card: members', () => {
     setup(
       {},
       {
-        members: [
-          makeMember('hr1', 'HR'),
-          makeMember('acc1', 'ACCOUNTANT'),
-          makeMember('jun1', 'JUNIOR'),
-        ],
+        members: [makeMember('hr1', 'HR'), makeMember('jun1', 'JUNIOR')],
       },
     )
     expect(screen.queryByText('Не призначено')).toBeNull()
     expect(screen.queryByText('Джуніор не призначений')).toBeNull()
-    expect(screen.getAllByTestId('member-row')).toHaveLength(3)
+    expect(screen.getAllByTestId('member-row')).toHaveLength(2)
     expect(screen.getByText('Name hr1')).toBeInTheDocument()
-    expect(screen.getByText('Name acc1')).toBeInTheDocument()
     expect(screen.getByText('Name jun1')).toBeInTheDocument()
   })
 
   it('placeholder disappears per role independently (only HR present)', () => {
     setup({}, { members: [makeMember('hr1', 'HR')] })
-    expect(screen.getAllByText('Не призначено')).toHaveLength(1)
+    expect(screen.queryByText('Не призначено')).toBeNull()
     expect(screen.getByText('Джуніор не призначений')).toBeInTheDocument()
-  })
-
-  it('placeholder disappears per role independently (only accountant present)', () => {
-    setup({}, { members: [makeMember('acc1', 'ACCOUNTANT')] })
-    expect(screen.getAllByText('Не призначено')).toHaveLength(1)
   })
 
   it('passes canRemoveMembers through to active rows and removes the clicked member', async () => {
@@ -398,13 +385,13 @@ describe('ProjectOverviewTab — team card: members', () => {
     expect(screen.getByTestId('member-row')).toHaveAttribute('data-can-manage', 'false')
   })
 
-  it('removes accountants and juniors via the same callback', async () => {
-    const acc = makeMember('acc1', 'ACCOUNTANT')
+  it('removes HR and juniors via the same callback', async () => {
+    const hr = makeMember('hr1', 'HR')
     const jun = makeMember('jun1', 'JUNIOR')
-    const { onRemoveMember } = setup({ canRemoveMembers: true }, { members: [acc, jun] })
-    await userEvent.click(screen.getByText('remove-acc1'))
+    const { onRemoveMember } = setup({ canRemoveMembers: true }, { members: [hr, jun] })
+    await userEvent.click(screen.getByText('remove-hr1'))
     await userEvent.click(screen.getByText('remove-jun1'))
-    expect(onRemoveMember).toHaveBeenNthCalledWith(1, acc)
+    expect(onRemoveMember).toHaveBeenNthCalledWith(1, hr)
     expect(onRemoveMember).toHaveBeenNthCalledWith(2, jun)
   })
 
@@ -413,7 +400,7 @@ describe('ProjectOverviewTab — team card: members', () => {
     const { onRemoveMember } = setup({ canRemoveMembers: true }, { members: [past] })
     expect(screen.getByText('Залишили проєкт')).toBeInTheDocument()
     // the only HR is past, so the HR slot still shows its placeholder
-    expect(screen.getAllByText('Не призначено')).toHaveLength(2)
+    expect(screen.getAllByText('Не призначено')).toHaveLength(1)
     expect(screen.getByTestId('member-row')).toHaveAttribute('data-can-manage', 'false')
     await userEvent.click(screen.getByText('remove-old1'))
     expect(onRemoveMember).not.toHaveBeenCalled()

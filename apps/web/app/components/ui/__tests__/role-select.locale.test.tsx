@@ -25,10 +25,10 @@ describe('useRoleLabel', () => {
     expect(en.current).toBe('Admin')
   })
 
-  // MUT-1 (fix-round 2): only ADMIN was ever exercised — JUNIOR and
-  // ACCOUNTANT's own `msg\`...\`` entries in `ROLE_LABEL_MESSAGES` could be
-  // mutated to empty with no test noticing.
-  it('translates JUNIOR and ACCOUNTANT per active locale', async () => {
+  // MUT-1 (fix-round 2): only ADMIN was ever exercised — JUNIOR's own
+  // `msg\`...\`` entry in `ROLE_LABEL_MESSAGES` could be mutated to empty
+  // with no test noticing. The retired role has no catalog label (raw value).
+  it('translates JUNIOR per active locale; the retired role has no label', async () => {
     await loadCatalog('uk')
     const { result: junior } = renderHook(() => useRoleLabel('JUNIOR'), {
       wrapper: I18nTestProvider,
@@ -37,7 +37,7 @@ describe('useRoleLabel', () => {
     const { result: accountant } = renderHook(() => useRoleLabel('ACCOUNTANT'), {
       wrapper: I18nTestProvider,
     })
-    expect(accountant.current).toBe('Бухгалтер')
+    expect(accountant.current).toBe('ACCOUNTANT')
   })
 })
 

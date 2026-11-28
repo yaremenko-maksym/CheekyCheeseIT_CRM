@@ -6,8 +6,8 @@
  * 2. When project.dropId !== null — dropCandidates should be empty
  *    (button hidden, not shown in picker — conditional render upstream).
  * 3. availableToAdd excludes role==='DROP' (prevents 400 from POST /members).
- * 4. availableToAdd still includes JUNIOR/HR/ACCOUNTANT as before (regression).
- * 5. DROP identity masking: SENIOR viewer sees null drop; ADMIN/HR/ACCOUNTANT see drop.
+ * 4. availableToAdd still includes JUNIOR/HR as before (regression).
+ * 5. DROP identity masking: SENIOR viewer sees null drop; ADMIN/HR see drop.
  */
 import { describe, it, expect } from 'vitest'
 
@@ -70,7 +70,6 @@ const SAMPLE_USERS: UserForAdd[] = [
   makeUser('drop2', 'DROP'),
   makeUser('junior1', 'JUNIOR'),
   makeUser('hr1', 'HR'),
-  makeUser('acc1', 'ACCOUNTANT'),
   makeUser('senior1', 'SENIOR'),
   makeUser('admin1', 'ADMIN'),
 ]
@@ -134,10 +133,6 @@ describe('getMaskedDrop — RBAC identity masking for drop row (H1 fix)', () => 
     expect(getMaskedDrop(SAMPLE_DROP, 'HR')).toEqual(SAMPLE_DROP)
   })
 
-  it('returns drop for ACCOUNTANT viewer — drop identity visible', () => {
-    expect(getMaskedDrop(SAMPLE_DROP, 'ACCOUNTANT')).toEqual(SAMPLE_DROP)
-  })
-
   it('returns null when rawDrop is already null (no drop on project)', () => {
     expect(getMaskedDrop(null, 'ADMIN')).toBeNull()
   })
@@ -162,11 +157,6 @@ describe('getAvailableToAdd — member picker filter (regression: DROP fix)', ()
   it('includes HR in availableToAdd (regression: not broken by DROP fix)', () => {
     const available = getAvailableToAdd(SAMPLE_USERS, activeMembers, false)
     expect(available.some((u) => u.role === 'HR')).toBe(true)
-  })
-
-  it('includes ACCOUNTANT in availableToAdd (regression: not broken by DROP fix)', () => {
-    const available = getAvailableToAdd(SAMPLE_USERS, activeMembers, false)
-    expect(available.some((u) => u.role === 'ACCOUNTANT')).toBe(true)
   })
 
   it('includes JUNIOR when hasActiveJunior=false and no active project', () => {

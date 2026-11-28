@@ -312,7 +312,7 @@ describe('CompanyAndPartnersCard — company account section', () => {
 describe('CompanyAndPartnersCard — partner balances section', () => {
   beforeEach(() => mockAccount({ balance: 1, walletAddress: null }))
 
-  it('is shown whenever balances exist (ADMIN and ACCOUNTANT both reach the card)', () => {
+  it('is shown whenever balances exist (ADMIN reaches the card)', () => {
     render(
       <CompanyAndPartnersCard
         summary={summaryBalances([

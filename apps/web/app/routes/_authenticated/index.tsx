@@ -99,6 +99,8 @@ function CrmDashboard() {
   // ADMIN role: «центр действий» — рабочий дашборд с реальными данными
   // (GET /api/admin/summary, RBAC ADMIN-only). 4 нейтральных KPI + таблица
   // «Активные транзакции» в стиле страницы Финансы (переиспользует TransactionRow).
+  // A stale session of the retired role gets no dashboard instead of the admin one.
+  if (user && user.role !== 'ADMIN') return null
   return <AdminDashboard />
 }
 

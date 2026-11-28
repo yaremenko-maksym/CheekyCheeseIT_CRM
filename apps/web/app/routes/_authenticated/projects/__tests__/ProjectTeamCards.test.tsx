@@ -158,13 +158,12 @@ function member(overrides: Partial<ProjectMemberDto> = {}): ProjectMemberDto {
 }
 
 describe('ROLE_VARIANT', () => {
-  it('maps the five badge roles to their variants (DROP is intentionally absent)', () => {
+  it('maps the four badge roles to their variants (DROP is intentionally absent)', () => {
     expect(ROLE_VARIANT).toEqual({
       ADMIN: 'admin',
       SENIOR: 'senior',
       JUNIOR: 'junior',
       HR: 'hr',
-      ACCOUNTANT: 'accountant',
     })
   })
 })
@@ -185,7 +184,6 @@ describe('MemberRow', () => {
   it.each([
     ['ADMIN', 'Адміністратор', 'text-yellow-400'],
     ['HR', 'HR', 'text-purple-400'],
-    ['ACCOUNTANT', 'Бухгалтер', 'text-orange-400'],
     ['JUNIOR', 'Джуніор', 'text-green-400'],
     ['DROP', 'Дроп', 'text-green-400'], // no ROLE_VARIANT entry -> junior
   ] as const)('role %s -> label and badge colour', (role, label, cls) => {
@@ -304,36 +302,26 @@ const HR = {
   avatarDocumentId: null,
   role: 'HR' as const,
 }
-const ACC = {
-  id: ID(13),
-  userId: ID(23),
-  displayName: 'Alla Corn',
-  email: 'a@example.com',
-  avatarUrl: null,
-  avatarDocumentId: null,
-  role: 'ACCOUNTANT' as const,
-}
 const JUN = member({ id: ID(14), userId: ID(24), displayName: 'Julia Nowak', role: 'JUNIOR' })
 
 function fullProject(overrides: Record<string, unknown> = {}) {
   return project({
-    effectiveTeam: { senior: SENIOR, drop: DROP, hrs: [HR], accountants: [ACC], juniors: [JUN] },
+    effectiveTeam: { senior: SENIOR, drop: DROP, hrs: [HR], accountants: [], juniors: [JUN] },
     ...overrides,
   })
 }
 
 describe('ProjectEffectiveTeamCard', () => {
-  it('ADMIN view: heading, flat list in senior/drop/hr/accountant/junior order with links + badges', () => {
+  it('ADMIN view: heading, flat list in senior/drop/hr/junior order with links + badges', () => {
     wrap(<ProjectEffectiveTeamCard project={fullProject({ dropId: ID(11) })} viewerRole="ADMIN" />)
     const card = screen.getByTestId('effective-team-card')
     expect(card).toHaveTextContent('Ефективний склад')
-    expect(card).toHaveTextContent('(HR/бухгалтер — з поточної команди сеньйора)')
+    expect(card).toHaveTextContent('(HR — з поточної команди сеньйора)')
 
     const rows = [
       screen.getByTestId('effective-team-senior'),
       screen.getByTestId('effective-team-drop'),
       screen.getByTestId('effective-team-hrs'),
-      screen.getByTestId('effective-team-accountants'),
       screen.getByTestId('effective-team-juniors'),
     ]
     const order = within(card)
@@ -343,7 +331,6 @@ describe('ProjectEffectiveTeamCard', () => {
       `/profile/${ID(10)}`,
       `/profile/${ID(11)}`,
       `/profile/${ID(22)}`,
-      `/profile/${ID(23)}`,
       `/profile/${ID(24)}`,
     ])
     expect(rows[0]).toHaveTextContent('Senior Sidorenko')
@@ -352,8 +339,7 @@ describe('ProjectEffectiveTeamCard', () => {
     expect(within(rows[1]!).getByText('Дроп')).toHaveClass('text-blue-400', 'bg-blue-500/10')
     // 'HR' is both the avatar initials and the badge label — the badge is the last match.
     expect(within(rows[2]!).getAllByText('HR').at(-1)).toHaveClass('text-purple-400')
-    expect(within(rows[3]!).getByText('Бухгалтер')).toHaveClass('text-orange-400')
-    expect(within(rows[4]!).getByText('Джуніор')).toHaveClass('text-green-400')
+    expect(within(rows[3]!).getByText('Джуніор')).toHaveClass('text-green-400')
     // Navigable rows show the hover underline on the name.
     expect(screen.getByText('Senior Sidorenko')).toHaveClass('hover:underline', 'text-primary')
     expect(screen.queryByTestId('effective-team-juniors-empty')).not.toBeInTheDocument()
@@ -366,7 +352,6 @@ describe('ProjectEffectiveTeamCard', () => {
     expect(screen.queryByText('Julia Nowak')).not.toBeInTheDocument()
     expect(screen.getByText('Senior Sidorenko')).toBeInTheDocument()
     expect(screen.getByText('Hanna Rudenko')).toBeInTheDocument()
-    expect(screen.getByText('Alla Corn')).toBeInTheDocument()
     // Senior present but no (visible) juniors -> amber hint.
     expect(screen.getByTestId('effective-team-juniors-empty')).toHaveTextContent(
       'Джуніор не призначений',
@@ -441,7 +426,7 @@ describe('ProjectEffectiveTeamCard', () => {
     expect(screen.getByText('Active Junior')).toBeInTheDocument()
     expect(screen.queryByText('Left Junior')).not.toBeInTheDocument()
     expect(screen.queryByText('A Senior')).not.toBeInTheDocument()
-    // no HR / accountant rows on the fallback path
+    // no HR rows on the fallback path
     expect(screen.queryByTestId('effective-team-hrs')).not.toBeInTheDocument()
     expect(screen.queryByTestId('effective-team-accountants')).not.toBeInTheDocument()
     // senior is null on the fallback path
@@ -493,7 +478,6 @@ describe('ProjectEffectiveTeamCard', () => {
     ['senior', 'effective-team-senior'],
     ['drop', 'effective-team-drop'],
     ['hr', 'effective-team-hrs'],
-    ['accountant', 'effective-team-accountants'],
     ['junior', 'effective-team-juniors'],
   ] as const)(
     'row key is tied to the %s identity (changing person remounts the row)',
@@ -502,7 +486,7 @@ describe('ProjectEffectiveTeamCard', () => {
         senior: { ...SENIOR, id: ID(1000 + (kind === 'senior' ? suffix : 0)) },
         drop: { ...DROP, id: ID(2000 + (kind === 'drop' ? suffix : 0)) },
         hrs: [{ ...HR, id: ID(3000 + (kind === 'hr' ? suffix : 0)) }],
-        accountants: [{ ...ACC, id: ID(4000 + (kind === 'accountant' ? suffix : 0)) }],
+        accountants: [],
         juniors: [{ ...JUN, id: ID(5000 + (kind === 'junior' ? suffix : 0)) }],
       })
       const ui = (suffix: number) => (

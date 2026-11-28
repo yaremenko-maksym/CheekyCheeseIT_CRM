@@ -4,7 +4,7 @@
  * is rendered ONLY for ADMIN. All other roles see only active documents
  * and the toggle is hidden entirely.
  *
- * UT finding 2026-06-14: previously non-admin roles (SENIOR/HR/ACCOUNTANT)
+ * UT finding 2026-06-14: previously non-admin roles (SENIOR/HR)
  * saw the toggle with the "Архив" pill disabled; now the whole toggle is
  * hidden for non-admins so the layout stays clean.
  *
@@ -21,7 +21,7 @@ import { describe, expect, it } from 'vitest'
 // Single source of truth is the route file; this test validates the contract.
 // ---------------------------------------------------------------------------
 
-type Role = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
+type Role = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'DROP'
 
 /** Returns true when the status toggle (Все/Активные/Архив) should render. */
 function shouldShowStatusToggle(role: Role): boolean {
@@ -49,16 +49,12 @@ describe('documents status-toggle RBAC visibility', () => {
     expect(shouldShowStatusToggle('HR')).toBe(false)
   })
 
-  it('hides the toggle for ACCOUNTANT', () => {
-    expect(shouldShowStatusToggle('ACCOUNTANT')).toBe(false)
-  })
-
   it('hides the toggle for DROP', () => {
     expect(shouldShowStatusToggle('DROP')).toBe(false)
   })
 
   it('all non-admin roles are hidden (exhaustive)', () => {
-    const nonAdminRoles: Role[] = ['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
+    const nonAdminRoles: Role[] = ['SENIOR', 'JUNIOR', 'HR', 'DROP']
     for (const role of nonAdminRoles) {
       expect(shouldShowStatusToggle(role)).toBe(false)
     }

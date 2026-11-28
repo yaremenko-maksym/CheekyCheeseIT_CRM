@@ -36,7 +36,7 @@ export const DASHBOARD_NAV_ROLES: readonly Role[] = ['ADMIN', 'SENIOR', 'HR', 'D
  * Источник истины ролей синхронизирован с боковой навигацией: NAV_ITEMS
  * импортирует `navRolesFor()` отсюда (см. nav-sidebar.tsx).
  */
-const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: readonly Role[] }> = [
+export const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: readonly Role[] }> = [
   // JUNIOR hub + легенда — только JUNIOR.
   { prefix: '/project', roles: ['JUNIOR'] },
   { prefix: '/legend', roles: ['JUNIOR'] },

@@ -16,8 +16,6 @@
  *    role (ADMIN included).
  * 2. AC11 — the ADMIN project pool is the UNION of the two former lists (own
  *    projects + ANY USDT-payment project system-wide, ADR D3) — not narrowed.
- *    ACCOUNTANT's pool EXCLUDES USDT projects (their endpoint is ADMIN-only;
- *    offering a project it will 403 on is a dead end, not a shorter list).
  * 3. AC9 — the receiver Select ("Счёт получателя") is a FLAT list of ACTIVE
  *    admins + «Счёт компании», no group headers, no drop, no default
  *    pre-selection.
@@ -36,10 +34,6 @@
  *    books obligations with; the backend counterpart of this claim (predicted
  *    amount == the row actually created on a real DB) lives in
  *    `admin-income-unified.integration.spec.ts`.
- * 7. AC10 — ACCOUNTANT never sees the flat receiver Select; they get a
- *    CONSTRAINED 2-option toggle (project owner / company account) and can
- *    never pick a specific OTHER admin — the interface never offers what the
- *    server (createAdminIncome) would reject.
  *
  * Strategy: keep the REAL `@tanstack/react-query` hooks (wrapped in a fresh
  * `QueryClientProvider` per render) so `mutation.mutate()` genuinely invokes
@@ -145,8 +139,8 @@ const ALL_USERS = [
 ]
 
 // Mutable per-test override (mirrors the `currentRole`/`currentUserId`
-// pattern below) — one test needs a DIFFERENT `/projects` response (an
-// accountant whose admin-owned pool is ALL USDT) without a second mocked
+// pattern below) — some tests need a DIFFERENT `/projects` response (a
+// portfolio that is ALL USDT) without a second mocked
 // module or a fragile `mockImplementationOnce` chain across 3 different
 // query keys hitting the same `api.get`.
 let currentProjects: typeof PROJECTS = PROJECTS
@@ -236,13 +230,6 @@ describe('CreateTransactionDialog — AC1: no separate USDT type-card', () => {
     expect(await screen.findByTestId('create-transaction-type-admin_income')).toBeInTheDocument()
     expect(screen.queryByTestId('create-transaction-type-usdt_income')).not.toBeInTheDocument()
   })
-
-  it('ACCOUNTANT never sees it either (never did)', async () => {
-    currentRole = 'ACCOUNTANT'
-    renderDialog()
-    expect(await screen.findByTestId('create-transaction-type-admin_income')).toBeInTheDocument()
-    expect(screen.queryByTestId('create-transaction-type-usdt_income')).not.toBeInTheDocument()
-  })
 })
 
 describe('CreateTransactionDialog — AC11: ADMIN_INCOME project pool is the union, not narrowed', () => {
@@ -256,22 +243,6 @@ describe('CreateTransactionDialog — AC11: ADMIN_INCOME project pool is the uni
     // Third-party USDT project — senior is NOT admin-1, still listed (ADR D3).
     expect(within(listbox).getByText('USDT Third Party Project')).toBeInTheDocument()
     // Projects belonging to OTHER seniors/drops (not USDT, not admin-1's own) stay excluded.
-    expect(within(listbox).queryByText('FOP Project')).not.toBeInTheDocument()
-  })
-
-  it('ACCOUNTANT sees admin-owned projects but NOT USDT ones (their endpoint 403s there)', async () => {
-    currentRole = 'ACCOUNTANT'
-    renderDialog()
-    await screen.findByTestId('create-transaction-type-admin_income')
-    fireEvent.click(screen.getByTestId('create-transaction-project-trigger'))
-    const listbox = screen.getByRole('listbox')
-    expect(await within(listbox).findByText('FOP Own Project')).toBeInTheDocument()
-    expect(within(listbox).queryByText('USDT Own Project')).not.toBeInTheDocument()
-    expect(within(listbox).queryByText('USDT Third Party Project')).not.toBeInTheDocument()
-    // ACCOUNTANT's pool is admin-OWNED projects, not every project — a project
-    // whose senior is a non-admin (`FOP Project`, seniorId=senior-1) must stay
-    // out even though it is not USDT (`adminUserIds.has(p.seniorId)`, not a
-    // blanket `projects` pass-through).
     expect(within(listbox).queryByText('FOP Project')).not.toBeInTheDocument()
   })
 })
@@ -828,148 +799,6 @@ describe('CreateTransactionDialog — AC5/AC7/AC8: obligation-preview banner', (
     await waitFor(() =>
       expect(screen.getByTestId('admin-income-obligation-preview-drop')).toBeInTheDocument(),
     )
-  })
-})
-
-describe('CreateTransactionDialog — AC10: ACCOUNTANT gets a constrained receiver choice, never a specific admin', () => {
-  beforeEach(() => {
-    currentRole = 'ACCOUNTANT'
-    currentUserId = 'accountant-1'
-  })
-
-  it('shows the constrained "Счёт получателя" toggle, NOT the flat admin Select', async () => {
-    renderDialog()
-    await screen.findByTestId('create-transaction-type-admin_income')
-    expect(screen.getByTestId('create-transaction-funding-source-section')).toBeInTheDocument()
-    expect(screen.queryByTestId('admin-income-receiver-trigger')).not.toBeInTheDocument()
-  })
-
-  it('"legacy" (project owner) sends NO receiverId — createAdminIncome payload omits it', async () => {
-    renderDialog()
-    await screen.findByTestId('create-transaction-type-admin_income')
-    await selectProject('FOP Own Project')
-    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
-    fireEvent.click(screen.getByTestId('receipt-input-mode-url'))
-    fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
-      target: { value: 'https://example.com/receipt.png' },
-    })
-    fireEvent.click(screen.getByTestId('create-transaction-submit'))
-    await waitFor(() => expect(createAdminIncomeMock).toHaveBeenCalledTimes(1))
-    const [payload] = createAdminIncomeMock.mock.calls[0] as [Record<string, unknown>]
-    expect(payload).not.toHaveProperty('receiverId')
-  })
-
-  it('"Счёт компании" sends the SAME sentinel the ADMIN route uses — still allowed for this role', async () => {
-    renderDialog()
-    await screen.findByTestId('create-transaction-type-admin_income')
-    await selectProject('FOP Own Project')
-    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
-    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
-    fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
-      target: { value: 'https://etherscan.io/tx/0xacct1' },
-    })
-    fireEvent.click(screen.getByTestId('create-transaction-submit'))
-    await waitFor(() => expect(createAdminIncomeMock).toHaveBeenCalledTimes(1))
-    const [payload] = createAdminIncomeMock.mock.calls[0] as [Record<string, unknown>]
-    expect(payload).toMatchObject({ receiverId: 'COMPANY_ACCOUNT' })
-  })
-
-  it('ACCOUNTANT + ADMIN_INCOME + «Счёт компании» locks currency AND invalidates the company-account query (isAdminIncomeCompanyFunded, accountant branch)', async () => {
-    const invalidateSpy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
-    renderDialog()
-    await screen.findByTestId('create-transaction-type-admin_income')
-    await selectProject('FOP Own Project')
-    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
-    const currencyTrigger = screen.getAllByRole('combobox').find((el) => el.textContent === 'USDT')
-    expect(currencyTrigger).toBeDisabled()
-    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
-    fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
-      target: { value: 'https://etherscan.io/tx/0xacct2' },
-    })
-    fireEvent.click(screen.getByTestId('create-transaction-submit'))
-    await waitFor(() => expect(createAdminIncomeMock).toHaveBeenCalledTimes(1))
-    await waitFor(() =>
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['company-account'] }),
-    )
-    invalidateSpy.mockRestore()
-  })
-
-  it('gate-hint explains why USDT projects are absent when the accountant has only USDT admin-owned projects', async () => {
-    currentRole = 'ACCOUNTANT'
-    renderDialog()
-    await screen.findByTestId('create-transaction-type-admin_income')
-    // This fixture's accountant pool has a non-USDT project too (proj-fop-own),
-    // so the hint should NOT show — mirrors the SENIOR/DROP "mixed portfolio,
-    // no hint" convention. Covered by the pool test above; this asserts the
-    // corollary: no hint when the pool is not empty.
-    // `findByText` (not a synchronous `queryByTestId`) — MUST wait for the
-    // `/projects` query to actually resolve before asserting absence, or a
-    // false-negative (still-loading = empty pool = same "no hint" outcome)
-    // hides a mutant that would make the hint show unconditionally once
-    // adminOwnProjects IS populated.
-    await screen.findByTestId('create-transaction-project-trigger')
-    fireEvent.click(screen.getByTestId('create-transaction-project-trigger'))
-    expect(await screen.findByText('FOP Own Project')).toBeInTheDocument()
-    expect(screen.queryByTestId('admin-income-accountant-usdt-gate-hint')).not.toBeInTheDocument()
-  })
-
-  it('the "project owner" toggle label interpolates the SELECTED project\'s senior name', async () => {
-    renderDialog()
-    await screen.findByTestId('create-transaction-type-admin_income')
-    await selectProject('FOP Own Project')
-    expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
-      'Дохід зарахується на рахунок адміністратора — Admin One',
-    )
-  })
-
-  it('gate-hint SHOWS (positive case) when the admin-owned pool is non-empty but every project in it is USDT', async () => {
-    currentProjects = PROJECTS.filter((p) => p.id === 'proj-usdt-own')
-    renderDialog()
-    await screen.findByTestId('create-transaction-type-admin_income')
-    expect(await screen.findByTestId('admin-income-accountant-usdt-gate-hint')).toBeInTheDocument()
-  })
-
-  it('gate-hint is ADMIN_INCOME-only — an all-USDT accountant pool must not leak the hint into another type (e.g. EXPENSE)', async () => {
-    currentProjects = PROJECTS.filter((p) => p.id === 'proj-usdt-own')
-    renderDialog()
-    await screen.findByTestId('create-transaction-type-admin_income')
-    expect(await screen.findByTestId('admin-income-accountant-usdt-gate-hint')).toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
-    expect(screen.queryByTestId('admin-income-accountant-usdt-gate-hint')).not.toBeInTheDocument()
-  })
-
-  it('gate-hint stays absent when the accountant has NO admin-owned projects at all (empty pool, not an all-USDT one)', async () => {
-    currentProjects = []
-    renderDialog()
-    await screen.findByTestId('create-transaction-type-admin_income')
-    await screen.findByTestId('create-transaction-project-trigger')
-    fireEvent.click(screen.getByTestId('create-transaction-project-trigger'))
-    // No options at all — the empty pool is genuinely empty, not merely
-    // filtered down. `adminOwnProjects.length > 0` must stay false here, or
-    // the hint would wrongly promise a USDT-only reason for an empty list.
-    expect(screen.queryByRole('option')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('admin-income-accountant-usdt-gate-hint')).not.toBeInTheDocument()
-  })
-
-  it('switching project resets the ACCOUNTANT toggle to legacy (project-switch handler applies to the accountant toggle too)', async () => {
-    // A second non-USDT admin-owned project, present from the START (state
-    // must be set BEFORE render — React Query does not refetch mid-test).
-    currentProjects = [
-      ...PROJECTS,
-      {
-        id: 'proj-fop-own-2',
-        name: 'FOP Own Project 2',
-        seniorId: 'admin-1',
-        paymentType: 'FOP',
-      },
-    ]
-    renderDialog()
-    await screen.findByTestId('create-transaction-type-admin_income')
-    await selectProject('FOP Own Project')
-    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
-    expect(screen.getByTestId('create-transaction-company-balance-hint')).toBeInTheDocument()
-    await selectProject('FOP Own Project 2')
-    expect(screen.queryByTestId('create-transaction-company-balance-hint')).not.toBeInTheDocument()
   })
 })
 
