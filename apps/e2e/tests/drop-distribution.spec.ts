@@ -2,7 +2,7 @@
  * drop-distribution.spec.ts — task-drop-phase2-e2e (AC2).
  *
  * REAL-API coverage of the Phase 2 distribution math (§8.1 of the spec):
- *   income $1000, senior 26%, drop 5% → senior=$260, drop=$50.
+ *   income $1000, senior 40%, drop 5% → senior=$400, drop=$50.
  *
  * fix/payout-credits-company-account (Variant A): the automatic 50/50
  * PAYOUT_ADMIN partner split has been REMOVED from the cascade. The company
@@ -16,7 +16,7 @@
  * NestJS instance (no Playwright route mocks). Steps:
  *   1. ADMIN provisions a fresh DROP user + drop-team (real API).
  *   2. ADMIN creates a drop-project routed through that DROP user
- *      (using a seed SENIOR with the canonical 26% share).
+ *      (using a seed SENIOR with the default 40% share).
  *   3. DROP logs in and posts a $1000 DROP_INCOME (PENDING).
  *   4. ACCOUNTANT validates the income → backend creates the
  *      payout_request + placeholder PAYOUT row (PENDING_PAYMENT).
@@ -59,7 +59,7 @@ function uniqueSuffix(): string {
 }
 
 test.describe('Drop distribution math — real API (AC2)', () => {
-  test('$1000 → senior $260 / drop $50 / 0 PAYOUT_ADMIN (company account credited via PAYOUT)', async ({
+  test('$1000 → senior $400 / drop $50 / 0 PAYOUT_ADMIN (company account credited via PAYOUT)', async ({
     page,
   }) => {
     const suffix = uniqueSuffix()
@@ -82,7 +82,7 @@ test.describe('Drop distribution math — real API (AC2)', () => {
       await ensureCompanyWalletViaAPI(page)
 
       // Step 2: create a drop-project routed through the DROP, with a
-      // seed SENIOR at the canonical 26% share (seed default).
+      // seed SENIOR at the default 40% share (seed default).
       const { projectId, seniorId } = await createDropProjectViaAPI(page, {
         dropId,
         seniorEmail: SEED_EMAILS.seniorA,
@@ -193,7 +193,7 @@ test.describe('Drop distribution math — real API (AC2)', () => {
       ).toHaveLength(0)
 
       // Conservation note: DROP_PENDING_PAYOUT ($50) = drop's 5% share,
-      // pending confirmation. The senior keeps $260 off-platform. The
+      // pending confirmation. The senior keeps $400 off-platform. The
       // remaining $950 credits the company account via
       // PAYOUT.fundingSource='COMPANY_ACCOUNT' — no separate PAYOUT_ADMIN
       // distribution row is needed or emitted.

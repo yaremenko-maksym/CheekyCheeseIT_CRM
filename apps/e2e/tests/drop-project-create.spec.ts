@@ -17,7 +17,7 @@
  *      - The detail page renders the «Drop-проект» badge.
  *      - The detail page renders the distribution breakdown (
  *        `data-testid="project-drop-distribution"`) with senior + drop +
- *        partner shares matching the canonical 26 / 5 / 50-50 split.
+ *        partner shares matching the default 40 / 5 / 50-50 split.
  *
  * Cleanup: cascade-archive the drop (removes the project too).
  */
@@ -117,11 +117,11 @@ test.describe('Drop-project create — UI flow (AC5)', () => {
       const breakdown = page.getByTestId('project-drop-distribution')
       await expect(breakdown).toBeVisible({ timeout: 10_000 })
 
-      // Spec §8.1 canonical: senior 26%, drop 5%, partners 50-50 of $345 each
-      // on a $1000 income. Senior share defaults to 26 from the seed.
-      await expect(breakdown.getByTestId('dist-senior-share')).toContainText('$260')
+      // Senior 40% (seed default), drop 5%, partners 50-50 of $275 each
+      // on a $1000 income.
+      await expect(breakdown.getByTestId('dist-senior-share')).toContainText('$400')
       await expect(breakdown.getByTestId('dist-drop-share')).toContainText('$50')
-      await expect(breakdown.getByTestId('dist-partner-share')).toContainText('$345')
+      await expect(breakdown.getByTestId('dist-partner-share')).toContainText('$275')
 
       // Backend sanity (REST) — drop id matches.
       const projectRes = await page.request.get(`${REAL_API}/projects/${created.id}`)

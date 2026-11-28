@@ -13,8 +13,8 @@
  *      payout_request → cascade emits PAYOUT (PAID) + invoice (PENDING with
  *      COMPANY auto-sig).
  *   2. The invoice's `transactionId` equals the PAYOUT row id.
- *   3. The PAYOUT amount equals the invoice's amount (= SENIOR_INCOME × 0.74
- *      for a 26% senior share).
+ *   3. The PAYOUT amount equals the invoice's amount (= SENIOR_INCOME × 0.60
+ *      for a 40% senior share).
  */
 
 import { test, expect, REAL_API_BASE } from './fixtures'
@@ -74,8 +74,8 @@ test.describe('Phase 2 PAYOUT cascade → aggregate invoice integration', () => 
       const payoutRow = payoutRows[0]!
       expect(payoutRow.status).toBe('PAID')
       const payoutAmount = parseFloat(payoutRow.amount)
-      // 1000 × (1 - 26/100) = 740.
-      expect(payoutAmount).toBeCloseTo(740, 2)
+      // 1000 × (1 - 40/100) = 600.
+      expect(payoutAmount).toBeCloseTo(600, 2)
 
       // Auto-invoice on the PAYOUT id. Retry briefly to allow async PDF gen.
       let invoice: Record<string, unknown> | null = null
@@ -90,7 +90,7 @@ test.describe('Phase 2 PAYOUT cascade → aggregate invoice integration', () => 
       expect(invoice, 'PAYOUT cascade must auto-create an invoice').toBeTruthy()
       expect(invoice!['status']).toBe('PENDING')
       expect(invoice!['transactionId']).toBe(payoutRow.id)
-      // Amount equals the PAYOUT amount (74% of SENIOR_INCOME).
+      // Amount equals the PAYOUT amount (60% of SENIOR_INCOME).
       expect(parseFloat(invoice!['amount'] as string)).toBeCloseTo(payoutAmount, 2)
 
       // 1 COMPANY auto-signature.

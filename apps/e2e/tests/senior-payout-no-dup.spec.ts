@@ -170,9 +170,9 @@ test.describe('Senior payout — no duplicate payout_request regression (#7)', (
       const payoutRows = txs.filter((t) => t.type === 'PAYOUT')
       expect(payoutRows, 'Batch: must be exactly 1 PAYOUT row for 2 incomes').toHaveLength(1)
 
-      // Payable = 1000×0.74 + 500×0.74 = 740 + 370 = 1110 (26% default share).
+      // Payable = 1000×0.60 + 500×0.60 = 600 + 300 = 900 (40% default share).
       const payoutAmount = parseFloat(payoutRows[0]!.amount)
-      expect(payoutAmount).toBeCloseTo(1110, 2)
+      expect(payoutAmount).toBeCloseTo(900, 2)
 
       // Both SENIOR_INCOME rows are PENDING_PAYMENT and link to same payout_request.
       const seniorIncomes = txs.filter((t) => t.type === 'SENIOR_INCOME')

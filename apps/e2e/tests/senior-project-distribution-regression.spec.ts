@@ -6,12 +6,12 @@
  * existing senior-project flow.
  *
  * Pre-conditions: a fresh senior-project (no `dropId`) routed through
- * a seed SENIOR at the canonical 26% share.
+ * a seed SENIOR at the default 40% share.
  *
  * Flow:
  *   1. SENIOR posts $1000 SENIOR_INCOME (PENDING).
  *   2. ACCOUNTANT validates → PENDING_PAYMENT placeholder PAYOUT row
- *      with amount = 1000 * (1 − 0.26) = $740.
+ *      with amount = 1000 * (1 − 0.40) = $600.
  *   3. SENIOR pays the payout_request (simulate=success) → backend
  *      settles the PAYOUT row (PAID, fundingSource='COMPANY_ACCOUNT').
  *      fix/payout-credits-company-account: the 50/50 PAYOUT_ADMIN split
@@ -20,7 +20,7 @@
  * Backend assertions:
  *   - 2 distribution-relevant transactions exist for the project:
  *       1× SENIOR_INCOME (PAID, $1000),
- *       1× PAYOUT       (PAID, $740 — the placeholder, credits company account).
+ *       1× PAYOUT       (PAID, $600 — the placeholder, credits company account).
  *   - **0 PAYOUT_ADMIN rows** — regression canary for the split removal.
  *   - **NO PAYOUT_DROP rows** — this is the canary the regression must
  *     catch if a future change ever wires drop math to senior flow.
@@ -53,7 +53,7 @@ function uniqueSuffix(): string {
 const REAL_API = `${REAL_API_BASE}/api`
 
 test.describe('Senior-project distribution regression — real API (AC7)', () => {
-  test('senior pays $1000 income → 0 PAYOUT_ADMIN (company account credited via PAYOUT $740), NO PAYOUT_DROP', async ({
+  test('senior pays $1000 income → 0 PAYOUT_ADMIN (company account credited via PAYOUT $600), NO PAYOUT_DROP', async ({
     page,
   }) => {
     const suffix = uniqueSuffix()
@@ -108,11 +108,11 @@ test.describe('Senior-project distribution regression — real API (AC7)', () =>
 
       expect(payouts).toHaveLength(1)
       expect(payouts[0]!.status).toBe('PAID')
-      expect(parseFloat(payouts[0]!.amount)).toBeCloseTo(740, 2)
+      expect(parseFloat(payouts[0]!.amount)).toBeCloseTo(600, 2)
 
       // PAYOUT_ADMIN — 0 rows (regression canary).
       // fix/payout-credits-company-account removed the automatic 50/50 split.
-      // The company account is credited the full $740 payable via the PAYOUT
+      // The company account is credited the full $600 payable via the PAYOUT
       // row's fundingSource='COMPANY_ACCOUNT' marker. No separate distribution
       // rows are emitted on settlement.
       expect(
