@@ -148,6 +148,7 @@ html,body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-
 .touch .btn.sm{height:44px}
 /* Key hints only under a fine pointer (F0-04): a touch device has no Esc, ⌘K or C to show. */
 .touch .kbdkey{display:none}
+.touch .kbdkey.keep{display:inline-grid}
 /* sheet */
 .scrim{position:absolute;inset:0;background:var(--scrim);z-index:70}
 .sheet{position:absolute;left:0;right:0;bottom:0;z-index:75;background:var(--popover);border-radius:var(--r-sheet) var(--r-sheet) 0 0;border-top:1px solid var(--border);display:flex;flex-direction:column;box-shadow:0 -12px 40px oklch(0 0 0 / 0.5)}

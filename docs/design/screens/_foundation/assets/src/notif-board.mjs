@@ -183,9 +183,12 @@ export function notificationsTabletUndo(w, h) {
 
 function notifPop(place, pad, rowAction = false, deleted = 0, toast = '') {
   const unread = UNREAD - (deleted ? 1 : 0)
-  return `<div role="dialog" aria-label="Сповіщення" style="position:absolute;${place};width:400px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:14px;box-shadow:0 24px 64px oklch(0 0 0 / 0.6);overflow:hidden;display:flex;flex-direction:column;max-height:640px">
+  // R5-13: the popover is bounded by the visual viewport minus its anchor offset (and a 16 px gap), capped at
+  // 640; only the list body scrolls, the header and the pinned link stay (`notifications-short-1024`).
+  const top = Number(/top:(\d+)px/.exec(place)[1])
+  return `<div role="dialog" aria-label="Сповіщення" style="position:absolute;${place};width:400px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:14px;box-shadow:0 24px 64px oklch(0 0 0 / 0.6);overflow:hidden;display:flex;flex-direction:column;max-height:min(640px, calc(100% - ${top + 16}px))">
   <div class="row" style="justify-content:space-between;gap:12px;height:48px;padding:0 16px;border-bottom:1px solid var(--border)"><span style="font-size:15px;font-weight:600">Сповіщення</span>${markAll(pad)}</div>
-  <div style="padding-top:4px;flex:1;min-height:0;overflow:hidden">${notifList(rowAction, deleted)
+  <div style="padding-top:4px;flex:1;min-height:0;overflow:hidden auto;overscroll-behavior:contain">${notifList(rowAction, deleted)
     .replace(
       /<div class="group">/g,
       '<div class="group" style="margin:0;border:0;border-radius:0;background:transparent">',

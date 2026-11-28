@@ -222,6 +222,16 @@ export function frames() {
         desktop({ ...touch, overlay: cmdk({ coarse: true }) }),
       ),
     )
+    // R5-12: Cmd+K with the on-screen keyboard open at 1180 (a short visual viewport): the results scroll, the
+    // footer button stays above the keyboard.
+    out.push(
+      D(
+        'desktop-cmdk-keyboard-1180',
+        1180,
+        820,
+        desktop({ ...touch, overlay: cmdk({ coarse: true, kbd: 398 }) }),
+      ),
+    )
     out.push(
       D(
         'desktop-shortcuts-touch-1180',
@@ -248,6 +258,7 @@ export function frames() {
     M('notifications-375', 375, 812, notificationsSheet(375, 812)),
     M('notifications-empty-375', 375, 812, notificationsSheet(375, 812, { empty: true })),
     D('notifications-1440', 1440, 900, notificationsDesktop(1440, 900)),
+    D('notifications-short-1024', 1024, 560, notificationsDesktop(1024, 560)),
     M('notifications-loading-375', 375, 812, notificationsSheet(375, 812, { state: 'loading' })),
     M('notifications-undo-375', 375, 812, notificationsSheet(375, 812, { undo: true })),
     M('notifications-undo-batch-375', 375, 812, notificationsSheet(375, 812, { undo: 2 })),

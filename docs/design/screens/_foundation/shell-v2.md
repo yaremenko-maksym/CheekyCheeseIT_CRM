@@ -108,7 +108,10 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   on the keyboard, positioned from `visualViewport.height + offsetTop`, never from `100vh`. The tab bar
   returns when the keyboard closes, not on blur, so moving between fields does not flash it. On the
   tablet the rail never hides (it is beside the content, not under it); the side panel footer rides on
-  the keyboard the same way.
+  the keyboard the same way. **Coarse desktop (R5-12):** at ≥ 1024 under a coarse pointer the same rule
+  holds for the panel footer, a dialog footer and Cmd+K: each is bounded by `visualViewport`, the focused
+  field is scrolled into the part above the keyboard, and only a list body scrolls
+  (`desktop-cmdk-keyboard-1180`).
 - Menu (`quick-add-admin-375`, drawn from Статистика, a tab with no create action of its own;
   `quick-add-hr-320` from Дашборд): a medium sheet listing the role's actions (icon, label, one-line
   hint). Each row 64 px.
@@ -303,14 +306,21 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   no match at all the list shows one line and the way out, never a blank box: «Нічого не знайдено за
   «{query}»» / «Палітра шукає дії, розділи й рядки, завантажені на цій сторінці.» (`desktop-cmdk-empty-1440`).
 - **No cross-entity server search** (spec §4.5b). Each row shows its shortcut keys. Footer shows ↑↓ / ↵ / Esc.
-- **Coarse pointer (R4-05).** On a touch device at ≥ 1024 (iPad landscape) the palette options are 44 px
+- **Sizing (R5-13).** The palette is bounded by the visual viewport minus its top offset (and 16 px): the
+  query row and the footer stay, only the results body scrolls (`desktop-cmdk-keyboard-1180`); the
+  notification popover follows the same rule under its bell (`notifications-short-1024`).
+- **Coarse pointer (R4-05, R5-11).** On a touch device at ≥ 1024 (iPad landscape) the palette options are 44 px
   with 16 px text, and the shortcut sheet's switch keeps its 44 × 26 track inside a 52 × 44 hit box; the
-  query is 16 px at every pointer (`desktop-cmdk-touch-1180`, `desktop-shortcuts-touch-1180`).
+  query is 16 px at every pointer. Option rows show no key caps; the footer is one focusable 44 px button
+  «Клавіатурні скорочення» (no key hints) that opens the shortcut sheet, and the sheet keeps every binding
+  with its key caps, for a hardware keyboard (`desktop-cmdk-touch-1180`, `desktop-shortcuts-touch-1180`).
 
 ### Shortcut sheet (`?`)
 
 - 880 px dialog «Клавіатурні скорочення», three columns: Загальні · Перехід · Списки. Top: a switch «Односимвольні скорочення»
-  (single-key shortcuts on/off), stored on the device (SC 2.1.4). With it off, only modifier shortcuts work.
+  (single-key shortcuts on/off), stored on the device (SC 2.1.4). With it off, only modifier shortcuts work,
+  **except `?` (R5-11)**: it stays bound outside text fields so the sheet that turns the others back on is always
+  one key away; under a coarse pointer the palette footer button reaches it too.
   «Списки» lists `M` «Змінити етап картки» (a focused board card, primitives-v2 §3).
 - **One registry (F0-26).** Every shortcut lives in one table that the sheet, the tooltips, the palette rows and the key handler all read; a key is bound once per scope. **Role-aware (R4-06):** the «Перехід» chords, the G-chord handler and the
   sidebar read ONE role-filtered destination list (`allowed(role)`), so a chord to a destination the role
@@ -430,11 +440,13 @@ What each shipped shell piece becomes in v2. «Keep» = the component stays, res
 | `notifications-loading-375.png`              |   375 | Notifications, loading: real header, count line, four skeleton rows (F0-34)                                                                             |
 | `notifications-undo-375.png`                 |   375 | Notification deleted: the row left at once, undo toast «Сповіщення видалено · Скасувати» inside the sheet above the pinned link, 5 s timer (D-3, R3-17) |
 | `notifications-undo-batch-375.png`           |   375 | R5-05: two deletes inside one window coalesce: one toast «Видалено 2 сповіщення · Скасувати», one timer; Undo restores both rows |
+| `notifications-short-1024.png`               |  1024 | Short viewport (1024 × 560, R5-13): the popover is bounded by the viewport under its bell; only the list scrolls |
 | `notifications-undo-768.png`                 |   768 | Notification deleted on the touch tablet: the undo toast sits inside the popover above the pinned link (R3-17), the bell count drops by one (D-3)       |
 | `more-sheet-admin-end-320.png`               |   320 | More sheet scrolled to the end at 320 × 568: every destination and «Вийти з акаунта» reachable (R4-01)                                                  |
 | `more-sheet-admin-end-375.png`               |   375 | More sheet scrolled to the end: sign-out above the home indicator (R4-01)                                                                               |
 | `tablet-rail-more-short-768.png`             |   768 | Rail «Ще» at 768 × 600: bounded to the safe viewport, rows scroll under a fixed header (R4-04)                                                          |
 | `desktop-cmdk-touch-1180.png`                |  1180 | Cmd+K under a coarse pointer: 44 px options, 16 px text (R4-05)                                                                                         |
+| `desktop-cmdk-keyboard-1180.png`             |  1180 | Cmd+K with the on-screen keyboard (R5-12): bounded by the visual viewport, footer button above the keyboard |
 | `desktop-shortcuts-touch-1180.png`           |  1180 | Shortcut sheet under a coarse pointer: 52 × 44 switch hit box (R4-05)                                                                                   |
 | `desktop-shortcuts-senior-teamless-1440.png` |  1440 | Shortcut sheet of a teamless SENIOR: «Перехід» lists only the role's destinations (R4-06)                                                               |
 | `notifications-undo-closed-375.png`          |   375 | Panel closed inside the 5 s window: the undo toast moved to the shell slot (R4-09)                                                                      |

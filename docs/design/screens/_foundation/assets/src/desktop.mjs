@@ -213,7 +213,19 @@ const SCRIM = '<div style="position:absolute;inset:0;background:var(--scrim);z-i
  * Opened by ⌘K on macOS and Ctrl+K elsewhere (one registry, shell-v2 §4).
  */
 // R4-05: under a coarse pointer (touch at >= 1024) options are 44 px and their text 16 px; the query is 16 px always.
-export function cmdk({ compact = false, empty = false, coarse = false } = {}) {
+// R5-12: the iPad on-screen keyboard (drawn OS chrome, `.kbd`: measure and strings skip it).
+const padKeyboard = (hgt) => {
+  const key = (k) =>
+    `<span style="flex:1;height:64px;border-radius:8px;background:oklch(0.36 0 0);display:grid;place-items:center;font-size:22px;color:#fff">${k}</span>`
+  const row = (keys, pad = 0) =>
+    `<div style="display:flex;gap:8px;padding:0 ${pad}px">${[...keys].map(key).join('')}</div>`
+  return `<div class="kbd" aria-hidden="true" style="height:${hgt}px;padding:14px 8px;gap:10px;align-content:start;background:oklch(0.22 0 0)">${row('йцукенгшщзхї')}${row('фівапролджє', 30)}${row('ячсмитьбю', 70)}<div style="display:flex;gap:8px;padding:0 180px"><span style="flex:1;height:64px;border-radius:8px;background:oklch(0.36 0 0)"></span></div></div>`
+}
+// R5-11: under a coarse pointer the footer is one focusable 44 px button «Клавіатурні скорочення» (no key hints:
+// the keys may not exist); it opens the help sheet, which keeps every binding for a hardware keyboard.
+// R5-12 / R5-13: the dialog is bounded by the visual viewport (an on-screen keyboard shrinks it): `kbd` draws the
+// keyboard open; only the results body scrolls, the query row and the footer stay.
+export function cmdk({ compact = false, empty = false, coarse = false, kbd = 0 } = {}) {
   const q = empty ? 'квартальний звіт' : 'нов'
   const hl = (s) => s.replace(/^(Нов)/, '<b style="color:var(--fg)">$1</b>')
   const item = (ic, label, keys = [], on = false, sub = '') =>
@@ -223,10 +235,14 @@ export function cmdk({ compact = false, empty = false, coarse = false } = {}) {
     ? `<div role="status" class="col" style="align-items:center;gap:4px;padding:28px 24px 24px;text-align:center"><div style="font-size:15px;font-weight:600">Нічого не знайдено за «${q}»</div><div class="t-foot muted">Палітра шукає дії, розділи й рядки, завантажені на цій сторінці.</div></div>`
     : `${grp('Дії')}${item('receipt', 'Нова транзакція', ['C'], true, 'ця сторінка')}${item('user-plus', 'Новий користувач')}${item('square-kanban', 'Нова співбесіда')}${item('briefcase', 'Нова вакансія')}`
   // All four ADMIN create actions start with «Нов…», so the «нов» filter keeps all four.
-  return `${SCRIM}<div role="dialog" aria-modal="true" aria-label="Палітра команд" style="position:absolute;left:50%;top:${compact ? 72 : 110}px;transform:translateX(-50%);width:${compact ? 560 : 640}px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);overflow:hidden">
-  <div class="row" style="gap:10px;height:54px;padding:0 18px;border-bottom:1px solid var(--border)"><span class="muted">${icon('search', { size: 18 })}</span><span role="combobox" aria-expanded="true" style="font-size:16px">${q}<span class="caret" style="height:18px"></span></span><span class="grow"></span><span class="pill" style="height:24px">Фінанси</span></div>
-  <div role="listbox" aria-label="Результати" style="padding:4px 0 8px">${list}</div>
-  <div class="row" style="gap:16px;height:40px;padding:0 18px;border-top:1px solid var(--border);font-size:12px;color:var(--muted-fg)"><span class="row" style="gap:5px"><span class="kbdkey">↑</span><span class="kbdkey">↓</span>вибір</span><span class="row" style="gap:5px"><span class="kbdkey">↵</span>виконати</span><span class="row" style="gap:5px"><span class="kbdkey">Esc</span>закрити</span><span class="grow"></span><span class="row" style="gap:5px"><span class="kbdkey">?</span>усі скорочення</span></div></div>`
+  const top = kbd ? 24 : compact ? 72 : 110
+  const foot = coarse
+    ? `<div class="row" style="flex:none;height:56px;padding:0 6px;border-top:1px solid var(--border)"><button type="button" class="btn ghost" aria-haspopup="dialog" style="height:44px;padding:0 12px;font-size:15px;color:var(--muted-fg)">${icon('keyboard', { size: 18 })}Клавіатурні скорочення</button></div>`
+    : `<div class="row" style="flex:none;gap:16px;height:40px;padding:0 18px;border-top:1px solid var(--border);font-size:12px;color:var(--muted-fg)"><span class="row" style="gap:5px"><span class="kbdkey">↑</span><span class="kbdkey">↓</span>вибір</span><span class="row" style="gap:5px"><span class="kbdkey">↵</span>виконати</span><span class="row" style="gap:5px"><span class="kbdkey">Esc</span>закрити</span><span class="grow"></span><span class="row" style="gap:5px"><span class="kbdkey">?</span>усі скорочення</span></div>`
+  return `${SCRIM}<div role="dialog" aria-modal="true" aria-label="Палітра команд" style="position:absolute;left:50%;top:${top}px;transform:translateX(-50%);width:${compact ? 560 : 640}px;max-height:calc(100% - ${top + kbd + 16}px);display:flex;flex-direction:column;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);overflow:hidden">
+  <div class="row" style="flex:none;gap:10px;height:54px;padding:0 18px;border-bottom:1px solid var(--border)"><span class="muted">${icon('search', { size: 18 })}</span><span role="combobox" aria-expanded="true" style="font-size:16px">${q}<span class="caret" style="height:18px"></span></span><span class="grow"></span><span class="pill" style="height:24px">Фінанси</span></div>
+  <div role="listbox" aria-label="Результати" style="flex:1;min-height:0;overflow:hidden auto;overscroll-behavior:contain;padding:4px 0 8px">${list}</div>
+  ${foot}</div>${kbd ? padKeyboard(kbd) : ''}`
 }
 
 // R4-06: the «Перехід» column, the G-chord handler and the sidebar read ONE role-aware destination list
@@ -241,7 +257,7 @@ const CHORDS = [
 // R4-05: under a coarse pointer the switch keeps its 44 × 26 track inside a 52 × 44 hit box.
 export function shortcuts({ role = 'ADMIN', coarse = false } = {}) {
   const row = (label, keys) =>
-    `<div class="row" style="height:36px;gap:10px;font-size:14px;border-bottom:1px solid var(--separator)"><span class="grow">${label}</span><span style="display:inline-flex;gap:4px;align-items:center">${keys.map((k) => (k === 'потім' ? '<span class="t-cap muted">потім</span>' : `<span class="kbdkey">${k}</span>`)).join('')}</span></div>`
+    `<div class="row" style="height:36px;gap:10px;font-size:14px;border-bottom:1px solid var(--separator)"><span class="grow">${label}</span><span style="display:inline-flex;gap:4px;align-items:center">${keys.map((k) => (k === 'потім' ? '<span class="t-cap muted">потім</span>' : `<span class="kbdkey keep">${k}</span>`)).join('')}</span></div>`
   const col = (t, rows) =>
     `<div class="grow"><div class="t-over" style="font-size:11px;margin-bottom:4px">${t}</div>${rows.join('')}</div>`
   return `${SCRIM}<div role="dialog" aria-modal="true" aria-labelledby="sc-t" style="position:absolute;left:50%;top:80px;transform:translateX(-50%);width:880px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7)">
