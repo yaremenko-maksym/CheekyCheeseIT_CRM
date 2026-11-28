@@ -88,26 +88,6 @@ export const USERS = {
     createdAt: '2024-01-04T00:00:00.000Z',
     updatedAt: '2024-01-04T00:00:00.000Z',
   },
-  accountant: {
-    id: 'a0000000-0000-4000-8000-000000000005',
-    email: 'accountant@cheekycheese.dev',
-    displayName: 'Accountant User',
-    legalFullName: 'Mykola Bondarenko Petrovych',
-    role: 'ACCOUNTANT' as const,
-    avatarUrl: null,
-    avatarDocumentId: null,
-    telegram: null,
-    phone: null,
-    techStack: null,
-    technicalRoles: [] as const,
-    paymentMethod: 'BANK_UAH_FOP' as const,
-    seniorSharePercent: 0,
-    monthlySalary: '1200',
-    salaryCurrency: 'USD' as const,
-    locale: 'uk' as const,
-    createdAt: '2024-01-05T00:00:00.000Z',
-    updatedAt: '2024-01-05T00:00:00.000Z',
-  },
   // Drop role - phase 1 (AC1, AC8 RBAC). The DROP persona owns a dedicated
   // drop-team. Acts as the financial conduit between the senior and the
   // platform. Sees only Profile / Team / Finance in the sidebar.
@@ -205,7 +185,7 @@ interface SessionUserShape {
   email: string
   displayName: string
   avatarUrl: string | null
-  role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
+  role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'DROP'
   seniorSharePercent: number
   locale: 'uk' | 'en'
 }
@@ -240,9 +220,8 @@ export type MockUser = DistributiveOmit<(typeof USERS)[keyof typeof USERS], 'loc
  * Build a team-member fixture row from any user-shaped fixture.
  *
  * Generic over the input rather than typed as `(typeof USERS)[keyof typeof USERS]`
- * (task-lint-teeth): that nominal union rejected `EXTRA_ACCOUNTANT` below, which
- * is a perfectly well-formed user fixture that simply does not live inside the
- * `USERS` object. The constraint states what this helper actually needs, and the
+ * (task-lint-teeth): that nominal union rejected well-formed user fixtures that
+ * do not live inside the `USERS` object. The constraint states what this helper actually needs, and the
  * generic keeps each call's literal field types in the returned row.
  */
 export function toMember<
@@ -273,26 +252,6 @@ export function toMember<
   }
 }
 
-// Extra accountant for "remove member" test — two accountants means neither is "last"
-const EXTRA_ACCOUNTANT = {
-  id: 'a0000000-0000-4000-8000-000000000006',
-  email: 'accountant2@cheekycheese.dev',
-  displayName: 'Accountant Two',
-  role: 'ACCOUNTANT' as const,
-  avatarUrl: null,
-  avatarDocumentId: null,
-  telegram: null,
-  phone: null,
-  techStack: null,
-  technicalRoles: [] as const,
-  paymentMethod: 'BANK_UAH_FOP' as const,
-  seniorSharePercent: 0,
-  monthlySalary: '1200',
-  salaryCurrency: 'USD' as const,
-  createdAt: '2024-01-06T00:00:00.000Z',
-  updatedAt: '2024-01-06T00:00:00.000Z',
-}
-
 export const TEAMS = [
   {
     id: 'team-1-id',
@@ -310,8 +269,6 @@ export const TEAMS = [
     members: [
       { ...toMember(USERS.hr), leftAt: null },
       { ...toMember(USERS.senior), leftAt: null },
-      { ...toMember(USERS.accountant), leftAt: null },
-      { ...toMember(EXTRA_ACCOUNTANT), leftAt: null },
     ],
   },
 ]
@@ -319,7 +276,7 @@ export const TEAMS = [
 /**
  * Drop role - phase 1 fixtures.
  *
- * A DROP-typed team — paired with the DROP user. Owns its HR + accountant
+ * A DROP-typed team — paired with the DROP user. Owns its HR
  * and (in this fixture) carries an active SENIOR via `USERS.senior` so the
  * rotation flow (AC4) has a meaningful starting state.
  *
@@ -340,7 +297,6 @@ export const DROP_TEAM = {
   members: [
     { ...toMember(USERS.drop), leftAt: null },
     { ...toMember(USERS.hr), leftAt: null },
-    { ...toMember(USERS.accountant), leftAt: null },
     { ...toMember(USERS.senior), leftAt: null },
   ],
 }
@@ -353,7 +309,6 @@ export const DROP_TEAM_VACANT = {
   members: [
     { ...toMember(USERS.drop), leftAt: null },
     { ...toMember(USERS.hr), leftAt: null },
-    { ...toMember(USERS.accountant), leftAt: null },
   ],
 }
 
