@@ -162,6 +162,18 @@ const CONFIG_JSON =
 const CSS_TOKEN =
   /("(?:\\[\s\S]|[^"\\\r\n\f])*"|'(?:\\[\s\S]|[^'\\\r\n\f])*')|\\[\s\S]|\/\*[\s\S]*?(?:\*\/|$)/g
 const stripCssComments = (css) => css.replace(CSS_TOKEN, (m) => (m.startsWith('/*') ? '' : m))
+// Every `/*...*/` removed whatever surrounds it (an unterminated `/*` runs to end of file).
+const stripAllCssComments = (css) => css.replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
+const CSS_LOADER = /@(plugin|config)\b/i
+// A comment inside an at-keyword (`@/**/plugin`, `@plu/**/gin`), matched on the raw text.
+const AT_KEYWORD_COMMENT = /@[\w\\-]*(?:\/\*[\s\S]*?\*\/[\w\\-]*)+/g
+const atKeywordCommentHit = (css) => {
+  for (const m of css.match(AT_KEYWORD_COMMENT) ?? []) {
+    const kw = decodeCssEscapes(m.replace(/\/\*[\s\S]*?\*\//g, ''))
+    if (/^@(plugin|config)$/i.test(kw)) return [kw]
+  }
+  return null
+}
 // SR-L (round 13): CSS escapes decoded before the at-rule match (`@\70 lugin`, `@plugi\n`).
 const decodeCssEscapes = (css) =>
   css.replace(/\\([0-9a-f]{1,6})(?:\r\n|[ \t\n\r\f])?|\\([^\n\r\f])/gi, (_, h, c) => {
@@ -636,12 +648,10 @@ export function scanCode(filename, content, aliases) {
       const mn = mockName(callee)
       if (mn) {
         const a = node.arguments[0]
-        const recv = unwrap(callee.expression)
+        // SO-H-4 (round 14): a non-literal argument triggers on any receiver. `mock` is safe to
+        // flag here: a spy's `.mock` is a property and is never called (`spy.mock.calls` is not a call).
         if (literal(a)) spec(node, a.text)
-        // SO-H-4 (round 14): only `mock` is receiver-gated (every spy has `.mock`); the other mock
-        // names are vi / jest only, so a non-literal argument triggers on any receiver (fail closed).
-        else if (mn !== 'mock' || (T.isIdentifier(recv) && ['vi', 'jest'].includes(recv.text)))
-          mockCall(node, callee.getText(sf))
+        else mockCall(node, callee.getText(sf))
       } else if (T.isIdentifier(callee) && mockBound.has(callee.text)) {
         mockCall(node, callee.text)
       }
@@ -748,10 +758,12 @@ export function findingsForFile(file, content, rules, aliases) {
   if (cls === 'css') {
     // Comments included: a commented-out `@plugin` is rare, and reading it costs only a verdict.
     // SR-L (round 13): escapes decoded before the match (`@\70 lugin`, `@plugi\n` are `@plugin`).
-    // SO-H-3 (round 14): also matched on the comment-stripped text (`@/**/plugin`); either hit refuses.
-    const hit = [content, stripCssComments(content)]
-      .map((t) => decodeCssEscapes(t).match(/@(plugin|config)\b/i))
-      .find(Boolean)
+    // SO-H-3 (round 14): Tailwind strips comments before it reads at-rules, and the string rules
+    // here are not Tailwind's exactly, so the views are fail-closed: any one hit refuses.
+    const hit =
+      [content, stripAllCssComments(content), stripCssComments(content)]
+        .map((t) => decodeCssEscapes(t).match(CSS_LOADER))
+        .find(Boolean) ?? atKeywordCommentHit(content)
     if (hit) out.push({ kind: 'css-loader', file: name, detail: `CSS \`${hit[0]}\` loads JS` })
     return out
   }

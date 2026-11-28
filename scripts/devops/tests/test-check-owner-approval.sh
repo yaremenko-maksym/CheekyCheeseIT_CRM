@@ -685,6 +685,8 @@ case_red md21 apps/web/app/lib/md21.spec.ts modified $'import { vi as v } from "
   "dynamic-specifier" "SO-H-4: aliased vi: v['importActual'](<non-literal>) -> refused"
 case_red md22 apps/web/app/lib/md22.spec.ts modified 'await x.requireActual(p)' \
   "dynamic-specifier" "SO-H-4: x.requireActual(<non-literal>) on any receiver -> refused"
+case_red md23 apps/web/app/lib/md23.spec.ts modified 'await x.mock(p)' \
+  "dynamic-specifier" "SO-H-4: x.mock(<non-literal>) on a non-vi receiver -> refused"
 src sm1 'const n = spy.mock.calls.length'
 mk sm1 apps/web/app/lib/sm1.spec.ts modified
 assert_green "SO-H-4: spy.mock.calls stays clean (mock is receiver-gated) -> passes" --contains "[not-required]" -- run sm1
@@ -726,6 +728,15 @@ case_red css14 apps/web/app/styles/c8.css modified '/* @plugin "./x.js"; */' \
   "css-loader" "SO-H-3: a commented-out @plugin still matches -> refused"
 case_red css15 apps/web/app/styles/c9.css modified 'a{content:"/*"} @plugin "./x.js";' \
   "css-loader" "SO-H-3: a /* inside a string with a plain @plugin -> refused"
+# Round 14 review: a lone CR / FF ends a string in Tailwind (probe: the at-rule after it loads).
+case_red css16 apps/web/app/styles/c11.css modified $'a{b:"x\rz"}\n@/**/plugin "./x.js";' \
+  "css-loader" "SO-H-3: a lone CR inside a string, then @/**/plugin -> refused"
+case_red css17 apps/web/app/styles/c12.css modified $'a{b:"x\fz"}\n@/**/plugin "./x.js";' \
+  "css-loader" "SO-H-3: a lone FF inside a string, then @/**/plugin -> refused"
+# Fail-closed view: a comment inside the at-keyword is caught on the raw text whatever the strings
+# around it (Tailwind errors on this form, so nothing loads; the gate still refuses it).
+case_red css18 apps/web/app/styles/c13.css modified $'a{b:"x\\\r\ny"} @/**/plugin "./x.js";' \
+  "css-loader" "SO-H-3: a quote-spanning comment in an at-keyword -> refused (fail closed)"
 src cssc $'/* tokens */\n.btn { color: red; }'
 mk cssc apps/web/app/styles/c10.css modified
 assert_green "SO-H-3: plain CSS with a comment and no at-rule -> passes" --contains "[not-required]" -- run cssc
