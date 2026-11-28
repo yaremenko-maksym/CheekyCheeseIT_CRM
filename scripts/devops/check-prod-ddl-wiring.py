@@ -1280,6 +1280,7 @@ PINNED_SINGLE_TX_FILES = {
     "2026-11-14_senior_availability.sql",
     "2026-11-21_tailored_resumes.sql",
     "2026-11-23_remove_muse_api.sql",
+    "2026-11-27_accountant_role_retire.sql",
 }
 
 

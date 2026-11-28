@@ -1,10 +1,10 @@
 import { z } from 'zod'
-import { roleSchema } from './users'
+import { assignableRoleSchema } from './users'
 import { paymentRequisitesSchema, currencyEnumSchema } from './payment-requisites'
 import { withSalaryFloor } from './money'
 
 export const changeRoleSchema = z.object({
-  role: roleSchema,
+  role: assignableRoleSchema,
 })
 
 export const changeSalarySchema = z

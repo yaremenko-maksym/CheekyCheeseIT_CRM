@@ -9,6 +9,13 @@ import { seniorRolesSchema, technicalRoleSchema } from './technical-roles'
 export const roleSchema = z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
 
 /**
+ * A role a write path may assign. ACCOUNTANT is being retired (manager-role plan PR 1a): reads keep
+ * accepting the stored value through `roleSchema` until PR 1d, but no input may set it.
+ */
+// Stryker disable next-line StringLiteral: `exclude([''])` throws "Key not found in enum" at module load, so vitest loads no spec and Stryker reports Survived with 0 tests; the mutant cannot ship (users.spec.ts pins the options).
+export const assignableRoleSchema = roleSchema.exclude(['ACCOUNTANT'])
+
+/**
  * Roles eligible to receive a SALARY transaction.
  * ADMIN is excluded — admin income flows through shares (ADMIN_INCOME / PAYOUT).
  * Single source of truth shared by backend (createSalary allow-list) and
@@ -252,7 +259,7 @@ export const createUserSchema = z
       .nullable()
       .optional(),
     displayName: z.string().min(2).max(255),
-    role: roleSchema,
+    role: assignableRoleSchema,
     telegram: telegramSchema.nullable().optional(),
     phone: phoneSchema.nullable().optional(),
     avatarUrl: z.string().url().nullable().optional(),
@@ -507,7 +514,7 @@ export const adminUpdateUserSchema = z
   .object({
     email: z.string().email('zod.EMAIL_INVALID').optional(),
     displayName: z.string().min(2).max(255).optional(),
-    role: roleSchema.optional(),
+    role: assignableRoleSchema.optional(),
     telegram: telegramSchema.nullable().optional(),
     phone: phoneSchema.nullable().optional(),
     avatarUrl: z.string().url().nullable().optional(),

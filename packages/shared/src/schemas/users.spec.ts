@@ -8,7 +8,10 @@ import {
   changePersonalEmailSchema,
   profileOverviewDataSchema,
   userProfileSchema,
+  assignableRoleSchema,
+  roleSchema,
 } from './users'
+import { changeRoleSchema } from './admin-actions'
 import { MIN_SALARY_AMOUNT } from './money'
 
 /**
@@ -123,11 +126,11 @@ describe('createUserSchema — legalFullName superRefine (A3-3 / A2c)', () => {
     expect(paths).toContain('legalFullName')
   })
 
-  it('fails when ACCOUNTANT has no legalFullName', () => {
+  it('fails when JUNIOR has no legalFullName', () => {
     const payload = {
       email: 'acc@example.com',
       displayName: 'Бухгалтер Один',
-      role: 'ACCOUNTANT' as const,
+      role: 'JUNIOR' as const,
       paymentMethod: 'BANK_UAH_FOP' as const,
       bankUahRecipient: 'Бухгалтер Один',
       bankUahIban: 'UA123456789012345678901234567',
@@ -1010,5 +1013,41 @@ describe('technicalRoles on the profile read schemas (senior roles PR 2)', () =>
   ])('%s defaults an absent value to [] and keeps a present one', (_name, field) => {
     expect(field.parse(undefined)).toEqual([])
     expect(field.parse(['BACKEND_ENGINEER'])).toEqual(['BACKEND_ENGINEER'])
+  })
+})
+
+describe('ACCOUNTANT retirement: write paths refuse the role, reads keep it (plan PR 1a)', () => {
+  it('assignableRoleSchema refuses ACCOUNTANT and accepts every other role', () => {
+    expect(assignableRoleSchema.safeParse('ACCOUNTANT').success).toBe(false)
+    expect(assignableRoleSchema.options).toEqual(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP'])
+  })
+
+  it('roleSchema (stored data) still accepts ACCOUNTANT', () => {
+    expect(roleSchema.safeParse('ACCOUNTANT').success).toBe(true)
+  })
+
+  it('createUserSchema refuses role ACCOUNTANT on the role path', () => {
+    const r = createUserSchema.safeParse({
+      email: 'a@example.com',
+      displayName: 'Person One',
+      role: 'ACCOUNTANT',
+      legalFullName: 'Person One',
+      paymentMethod: 'BANK_UAH_FOP',
+      bankUahRecipient: 'Person One',
+      bankUahIban: 'UA123456789012345678901234567',
+      bankUahRnokpp: '1234567890',
+    })
+    expect(r.success).toBe(false)
+    expect((r.error?.issues ?? []).map((i) => i.path.join('.'))).toContain('role')
+  })
+
+  it('adminUpdateUserSchema refuses role ACCOUNTANT and accepts JUNIOR', () => {
+    expect(adminUpdateUserSchema.safeParse({ role: 'ACCOUNTANT' }).success).toBe(false)
+    expect(adminUpdateUserSchema.safeParse({ role: 'JUNIOR' }).success).toBe(true)
+  })
+
+  it('changeRoleSchema refuses role ACCOUNTANT and accepts HR', () => {
+    expect(changeRoleSchema.safeParse({ role: 'ACCOUNTANT' }).success).toBe(false)
+    expect(changeRoleSchema.safeParse({ role: 'HR' }).success).toBe(true)
   })
 })

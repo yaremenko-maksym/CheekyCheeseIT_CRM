@@ -2847,6 +2847,32 @@ docker compose \
   < "$JOB_QUEUE_ENTRIES_PUBLISHED_AT_FILE"
 echo "==> job queue entries published_at applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-27_accountant_role_retire.sql
+# Manager-role plan PR 1a (owner A3 Q-C, 2026-11-28): deletes the ACCOUNTANT contract templates
+# created before 2026-11-29 00:00 UTC. Refuses first, deleting nothing, when an ACCOUNTANT template
+# is newer than that cutoff or when any row references one (every FK onto contract_templates is
+# read from pg_constraint; a multi-column FK refuses too), then fails the deploy while any
+# users.role or contract_templates.target_role holds ACCOUNTANT. MUST precede the container
+# swap and PR 1d's role type rebuild. Compares through ::text, so it stays valid after the label
+# is gone. Creates no relation, grants nothing. Idempotent: a replay deletes nothing.
+ACCOUNTANT_ROLE_RETIRE_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-27_accountant_role_retire.sql"
+
+if [ ! -f "$ACCOUNTANT_ROLE_RETIRE_FILE" ]; then
+  echo "ERROR: DDL file not found at $ACCOUNTANT_ROLE_RETIRE_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying accountant role retire (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$ACCOUNTANT_ROLE_RETIRE_FILE"
+echo "==> accountant role retire applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file

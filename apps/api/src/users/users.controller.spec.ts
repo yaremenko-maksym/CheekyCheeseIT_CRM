@@ -243,6 +243,70 @@ describe('UsersController.createUser — personalEmail (§4.4)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// ACCOUNTANT retirement (manager-role plan PR 1a): no write path assigns the role.
+// The ZodError the handler throws is a 400 through the global ZodError filter.
+// ---------------------------------------------------------------------------
+
+describe('UsersController — role ACCOUNTANT is refused on every write path (plan PR 1a)', () => {
+  function makeController() {
+    const usersService = {
+      createUser: vi.fn().mockResolvedValue({ id: 'new-user' }),
+      adminUpdateUser: vi.fn().mockResolvedValue({ id: 'u1' }),
+      changeRole: vi.fn().mockResolvedValue({ id: 'u1' }),
+    }
+    const controller = new UsersController(
+      usersService as never,
+      { list: vi.fn() } as never,
+      {} as never,
+      undefined,
+      undefined,
+    )
+    return { controller, usersService }
+  }
+  const admin = makeUser({ id: 'admin-1', role: 'ADMIN' })
+  const targetId = '00000000-0000-4000-8000-000000000001'
+
+  it('createUser refuses role ACCOUNTANT and never reaches the service', async () => {
+    const { controller, usersService } = makeController()
+    await expect(
+      controller.createUser(session(admin), {
+        email: 'acc@test.com',
+        displayName: 'Acc Person',
+        role: 'ACCOUNTANT',
+        legalFullName: 'Acc Person',
+        paymentMethod: 'BANK_UAH_FOP',
+        bankUahRecipient: 'Acc Person',
+        bankUahIban: 'UA123456789012345678901234567',
+        bankUahRnokpp: '1234567890',
+      }),
+    ).rejects.toMatchObject({
+      name: 'ZodError',
+      // The only issue is the role: the rest of the payload is valid, so the refusal is ACCOUNTANT.
+      issues: [expect.objectContaining({ path: ['role'] })],
+    })
+    expect(usersService.createUser).not.toHaveBeenCalled()
+  })
+
+  it('updateUser refuses role ACCOUNTANT and never reaches the service', async () => {
+    const { controller, usersService } = makeController()
+    await expect(
+      controller.updateUser(session(admin), targetId, { role: 'ACCOUNTANT' }),
+    ).rejects.toMatchObject({ name: 'ZodError' })
+    expect(usersService.adminUpdateUser).not.toHaveBeenCalled()
+  })
+
+  it('changeRole refuses ACCOUNTANT and still forwards another role', async () => {
+    const { controller, usersService } = makeController()
+    await expect(
+      controller.changeRole(session(admin), targetId, { role: 'ACCOUNTANT' }),
+    ).rejects.toMatchObject({ name: 'ZodError' })
+    expect(usersService.changeRole).not.toHaveBeenCalled()
+    await controller.changeRole(session(admin), targetId, { role: 'HR' })
+    expect(usersService.changeRole).toHaveBeenCalledWith(targetId, 'HR', 'admin-1')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // createUser — locale forwarding (task-i18n-stage2, Task 3, Step 6)
 //
 // Not gated by isHrActor (unlike personalEmail/wallet*/legalFullName above):

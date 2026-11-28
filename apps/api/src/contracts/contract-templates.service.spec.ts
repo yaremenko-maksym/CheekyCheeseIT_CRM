@@ -234,6 +234,25 @@ describe('ContractTemplatesService', () => {
       })
     })
 
+    it('refuses to publish for the retired ACCOUNTANT role and opens no transaction', async () => {
+      const mockDb = makeDb()
+      const service = new ContractTemplatesService(mockDb as unknown as DatabaseService)
+
+      await expect(
+        service.publish({
+          targetRole: 'ACCOUNTANT',
+          bodyMarkdown: '# body',
+          createdByUserId: 'admin-1',
+        }),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'CONTRACT_TEMPLATE_INVALID_ROLE',
+          statusCode: 400,
+        }),
+      })
+      expect(mockDb.db.transaction).not.toHaveBeenCalled()
+    })
+
     it('starts version at 1 when no previous template exists for role', async () => {
       const mockDb = makeDb()
       const inserted = makeTemplate({ id: 'first', targetRole: 'HR', version: 1, isActive: true })
