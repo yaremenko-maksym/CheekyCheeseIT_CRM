@@ -116,4 +116,4 @@ needs one of these first:
 - a separate account for agents, or
 - leaving the setting off and relying on Layer 2 alone.
 
-This is an owner decision: `docs/runbooks/human-only.md` item 12.
+This is an owner decision: `docs/runbooks/human-only.md` item 13.

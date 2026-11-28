@@ -269,7 +269,16 @@ source is enabled by then.
 `providers/owner-decisions.ts`); 2027-02-10 Recruitee token deadline decision.
 **Where to move:** a scheduled task that opens an issue on each date.
 
-### 12. Open CODEOWNERS zones and the Owner Verdict gate (added 2026-11-28)
+### 12. Restricted read-only SSH account for a manager (added 2026-11-28)
+
+**Why a human:** agents have no SSH to the VPS, and creating a host user, an sshd rule and a root timer is a
+privileged change to the prod host.
+**Automated:** nothing; every command and the full allowlist script are in `docs/runbooks/vps-manager-ssh.md`.
+**Human remainder:** run the runbook's sections 1-5 once per manager, the verification checklist (section 7), and
+the revoke procedure (section 8) when access ends. Decide first whether `api` / `nginx` logs may be shown.
+**Where to move:** nowhere soon; granting host access is an owner decision.
+
+### 13. Open CODEOWNERS zones and the Owner Verdict gate (added 2026-11-28)
 
 **Why a human:** branch protection and repository settings need admin rights no agent holds, and the gate exists
 precisely because agents share the owner's GitHub account: the `Owner Verdict:` review must be typed by the owner.
