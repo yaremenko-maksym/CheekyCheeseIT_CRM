@@ -699,6 +699,7 @@ jobs:
             apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql \
             apps/api/drizzle/manual/2026-11-25_job_queue_entries_published_at.sql \
             apps/api/drizzle/manual/2026-11-27_accountant_role_retire.sql \
+            apps/api/drizzle/manual/2026-11-28_senior_share_default_40.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -3241,6 +3242,22 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-11-27_accountant_role_retire.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-11-27_accountant_role_retire.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file before the container swap: the
+      # new image creates users without an explicit senior share and relies on the column default
+      # (26 -> 40). Guarded on the current default, so a replay changes nothing.
+      - name: Copy senior default share 40 data step via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-28_senior_share_default_40.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-28_senior_share_default_40.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-28_senior_share_default_40.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the

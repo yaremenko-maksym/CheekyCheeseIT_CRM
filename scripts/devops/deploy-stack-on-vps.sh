@@ -2873,6 +2873,29 @@ docker compose \
   < "$ACCOUNTANT_ROLE_RETIRE_FILE"
 echo "==> accountant role retire applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-28_senior_share_default_40.sql
+# Owner decision 2026-11-28: while users.senior_share_percent still defaults to 26, moves rows at
+# 26 to 40 and sets the default to 40, in one transaction. A replay changes nothing (the UPDATE is
+# guarded on the default); a default that is neither 26 nor 40 refuses. MUST precede the container
+# swap: the new image creates users without an explicit share. Creates no relation, grants nothing.
+SENIOR_SHARE_DEFAULT_40_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-28_senior_share_default_40.sql"
+
+if [ ! -f "$SENIOR_SHARE_DEFAULT_40_FILE" ]; then
+  echo "ERROR: DDL file not found at $SENIOR_SHARE_DEFAULT_40_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying senior default share 40 (one transaction, guarded) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$SENIOR_SHARE_DEFAULT_40_FILE"
+echo "==> senior default share 40 applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file
