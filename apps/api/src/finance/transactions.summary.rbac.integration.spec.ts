@@ -49,8 +49,7 @@ import { resolveTransactionDate } from './transaction-date.util'
 
 const JWT_SECRET = 'summary-rbac-integration-secret-32chars'
 
-// Relaxed schema asserting ONLY the economic P&L surface (the accountant's
-// view). It intentionally does NOT validate the global adminBalances /
+// Relaxed schema asserting ONLY the economic P&L surface. It intentionally does NOT validate the global adminBalances /
 // dropBalances arrays — those mix in other integration specs' fixtures when the
 // whole suite shares one seeded DB, so strict-parsing them here is flaky. The
 // strict financeSummarySchema is pinned elsewhere (web consumers + unit spec).
@@ -70,9 +69,8 @@ const economicSummarySchema = z.object({
   ),
 })
 
-// task-accountant-summary-balances-rbac: payload schema that ALSO surfaces the
-// balance arrays so this spec can assert they are empty for accountant and
-// present for ADMIN. The element shapes mirror financeSummarySchema; we only
+// Payload schema that ALSO surfaces the balance arrays so this spec can
+// assert they are present for ADMIN. The element shapes mirror financeSummarySchema; we only
 // need .length here, so element fields are loose-but-present.
 const balancesSummarySchema = economicSummarySchema.extend({
   adminBalances: z.array(
@@ -337,13 +335,8 @@ describe.skipIf(!hasDatabaseUrl())(
     // financeSummarySchema contract itself is already pinned by the web
     // FinanceSummaryDto consumers + the dedicated getSummary unit spec.
 
-    // ── task-accountant-sees-admin-balances (2026-08-17, owner decision):
-    //    adminBalances is a DELIBERATE REVERSAL of #214/#215's zeroing for
-    //    accountant (see the comment above `canSeeAdminBalances` in
-    //    transactions.service.ts for the full why — SEC-3 on #551).
-    //    dropBalances is the OTHER half of #214/#215 and is UNCHANGED: still `[]`
-    //    for accountant. The ADMIN assertion relies on this spec's own seeded
-    //    ADMIN + DROP rows, so both arrays carry at least those entries for ADMIN.
+    // ADMIN receives both balance arrays. The assertion relies on this spec's
+    // own seeded ADMIN + DROP rows, so both arrays carry at least those entries.
     async function summaryBody(user: SessionUser) {
       const res = await app.inject({
         method: 'GET',
@@ -362,17 +355,6 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(body.adminBalances.some((b) => b.userId === ADMIN.id)).toBe(true)
       expect(body.dropBalances.length).toBeGreaterThan(0)
       expect(body.dropBalances.some((b) => b.userId === DROP.id)).toBe(true)
-    })
-
-    it('ADMIN see the SAME adminBalances entry for the seeded admin (two screens no longer disagree)', async () => {
-      const [accountantBody, adminBody] = await Promise.all([
-        summaryBody(ADMIN),
-        summaryBody(ADMIN),
-      ])
-      const accountantEntry = accountantBody.adminBalances.find((b) => b.userId === ADMIN.id)
-      const adminEntry = adminBody.adminBalances.find((b) => b.userId === ADMIN.id)
-      expect(accountantEntry).toBeDefined()
-      expect(accountantEntry).toEqual(adminEntry)
     })
   },
 )

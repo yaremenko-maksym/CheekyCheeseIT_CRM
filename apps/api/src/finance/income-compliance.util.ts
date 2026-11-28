@@ -22,7 +22,7 @@ import { transactions, users, visibleProjects } from '../database/schema'
  * RBAC: ADMIN ONLY. Defense-in-depth — the controller's @Roles
  * gate runs first, and this service-side check throws 403 too (kept
  * intentionally, never replaced; same belt-and-suspenders as
- * getAccountantSummary / getSeniorSummary). Because this aggregates MANY
+ * getSeniorSummary). Because this aggregates MANY
  * receivers' figures, it must never reach a SENIOR / JUNIOR / HR / DROP. The
  * SET of receivers is derived SOLELY from active-project ownership
  * (`seniorId`/`dropId`) — task-compliance-overview-pending-types (AC3) keeps
@@ -74,7 +74,7 @@ export async function getIncomeComplianceOverview(
   }
 
   // ── Resolve the target month window [monthStart, nextMonthStart) in UTC ────
-  // Consistent with getAccountantSummary / getSeniorSummary (all UTC). When a
+  // Consistent with getSeniorSummary (all UTC). When a
   // `month` is given it is already validated as YYYY-MM by the controller's Zod
   // schema; default = current UTC month.
   const now = new Date()
