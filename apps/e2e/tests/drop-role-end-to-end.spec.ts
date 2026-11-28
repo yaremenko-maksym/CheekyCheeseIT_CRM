@@ -12,7 +12,7 @@
  *   3. ADMIN ensures company wallet is set (seed leaves walletAddress=NULL).
  *   4. ADMIN creates drop-project routed through the DROP.
  *   5. DROP posts DROP_INCOME via API.
- *   6. ACCOUNTANT validates → payout_request created.
+ *   6. ADMIN validates → payout_request created.
  *   7. DROP pays payout_request → cascade emits:
  *        SENIOR_PENDING_PAYOUT (PENDING_PAYMENT) — COMPANY debt
  *        DROP_PENDING_PAYOUT (PENDING_PAYMENT) — COMPANY debt (task-drop-share-pending-parity)
@@ -108,8 +108,8 @@ test.describe('DROP role — end-to-end journey', () => {
       })
       expect(txId).toBeTruthy()
 
-      // Step 6: ACCOUNTANT validates → payout_request created.
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      // Step 6: ADMIN validates → payout_request created.
+      await loginViaApi(page, SEED_EMAILS.admin)
       const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
 
       let prId = payoutRequestId
@@ -144,7 +144,7 @@ test.describe('DROP role — end-to-end journey', () => {
         pendingPayout,
         'pay cascade should emit SENIOR_PENDING_PAYOUT (PENDING_PAYMENT)',
       ).toBeTruthy()
-      // Not yet credited — the drop's balance only moves once ADMIN/ACCOUNTANT
+      // Not yet credited — the drop's balance only moves once ADMIN
       // confirms the payout with a receipt (settle step below).
       expect(
         projectTxs.some((t) => t.type === 'PAYOUT_DROP'),

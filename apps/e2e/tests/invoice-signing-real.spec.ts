@@ -55,7 +55,7 @@ async function plantSignedReadyPayout(
   const { txId } = await createSeniorIncomeViaAPI(page, { projectId, amount: 1000 })
 
   // feat/finance-payout-flow (#7): validate only flips to VALIDATED.
-  await loginViaApi(page, SEED_EMAILS.accountant)
+  await loginViaApi(page, SEED_EMAILS.admin)
   await validateTransactionViaAPI(page, txId)
 
   // SENIOR manually creates and pays the payout_request.

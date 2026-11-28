@@ -13,7 +13,7 @@ export async function loginViaApi(page: Page, email: string): Promise<void> {
 
 /**
  * Resolve a seed user by email through GET /api/users. Returns `null` if
- * the user isn't found. Useful when a test needs the seed HR / accountant
+ * the user isn't found. Useful when a test needs the seed HR
  * UUIDs to build a CreateDropDto payload.
  */
 export async function findUserByEmailViaApi(

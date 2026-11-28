@@ -90,7 +90,7 @@ test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
         currency: 'USDT',
       })
 
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, incomeTxIdA)
 
       // Validate only flips the income to VALIDATED (task-drop-payout-company-account);
@@ -120,7 +120,7 @@ test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
       expect(parseFloat(payoutA[0]!.amount)).toBeCloseTo(950, 2)
 
       // DROP_PENDING_PAYOUT (1 row, PENDING_PAYMENT, $50 = drop's 5% share) —
-      // NOT yet credited; an ADMIN/ACCOUNTANT must settle it with a receipt.
+      // NOT yet credited; an ADMIN must settle it with a receipt.
       expect(dropPendingA).toHaveLength(1)
       expect(dropPendingA[0]!.status).toBe('PENDING_PAYMENT')
       expect(parseFloat(dropPendingA[0]!.amount)).toBeCloseTo(50, 2)
@@ -162,7 +162,7 @@ test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
         currency: 'USDT',
       })
 
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, incomeTxIdB)
 
       // Validate only flips the income to VALIDATED — the DROP creates the

@@ -4,9 +4,9 @@
  * Cross-role HTTP probe matrix for the endpoints introduced/changed by
  * Phase 4 refactor + drop-pays-company (PR #262 + #265):
  *
- *   GET  /api/balances/admin/:id                         — ADMIN / ACCOUNTANT 200, others 403.
- *   GET  /api/pending-settlements/company                — ADMIN / ACCOUNTANT 200, others 403.
- *   POST /api/pending-settlements/by-source-transaction/:id/settle-company — ADMIN / ACCOUNTANT only.
+ *   GET  /api/balances/admin/:id                         — ADMIN 200, others 403.
+ *   GET  /api/pending-settlements/company                — ADMIN 200, others 403.
+ *   POST /api/pending-settlements/by-source-transaction/:id/settle-company — ADMIN only.
  *
  * Note (PR #262): POST /api/payments/confirm-cash and POST /api/payments/initiate-crypto
  * were deleted in PR #262. Their RBAC smoke tests have been removed accordingly.
@@ -24,7 +24,7 @@
  *
  * Real-API. Each test logs in as a role via dev-login and probes the endpoint
  * with a bare-bones body sufficient to reach the RBAC branch (which runs BEFORE
- * any payload validation). For ADMIN/ACCOUNTANT we accept either 200 (true
+ * any payload validation). For ADMIN we accept either 200 (true
  * happy path) or 400 (the RBAC check passes but the input fails) — both mean
  * the role itself wasn't blocked. The only thing we definitively reject is a
  * leaked 200 for forbidden roles.
@@ -110,8 +110,8 @@ async function plantObligationForRbac(
     amount: 1000,
   })
 
-  // ACCOUNTANT validates
-  await loginViaApi(page, SEED_EMAILS.accountant)
+  // ADMIN validates
+  await loginViaApi(page, SEED_ADMIN_EMAIL)
   const { payoutRequestId } = await validateTransactionViaAPI(page, incomeTxId)
 
   let prId = payoutRequestId
@@ -137,9 +137,9 @@ async function plantObligationForRbac(
 }
 
 test.describe('RBAC matrix smoke — Phase 4 endpoints', () => {
-  test('GET /api/balances/admin/:id — ADMIN / ACCOUNTANT 200, others 403', async ({ page }) => {
+  test('GET /api/balances/admin/:id — ADMIN 200, others 403', async ({ page }) => {
     // Allowed roles
-    for (const email of [SEED_ADMIN_EMAIL, SEED_EMAILS.accountant]) {
+    for (const email of [SEED_ADMIN_EMAIL]) {
       await loginViaApi(page, email)
       const res = await page.request.get(`${REAL_API}/balances/admin/${MAKSYM_ID}`)
       expect(
@@ -156,10 +156,8 @@ test.describe('RBAC matrix smoke — Phase 4 endpoints', () => {
     }
   })
 
-  test('GET /api/pending-settlements/company — ADMIN / ACCOUNTANT 200, others 403', async ({
-    page,
-  }) => {
-    for (const email of [SEED_ADMIN_EMAIL, SEED_EMAILS.accountant]) {
+  test('GET /api/pending-settlements/company — ADMIN 200, others 403', async ({ page }) => {
+    for (const email of [SEED_ADMIN_EMAIL]) {
       await loginViaApi(page, email)
       const res = await page.request.get(`${REAL_API}/pending-settlements/company`)
       expect(res.status(), `Expected 200 for ${email}`).toBe(200)
@@ -178,7 +176,7 @@ test.describe('RBAC matrix smoke — Phase 4 endpoints', () => {
   // used to live here was REMOVED along with the backend route (dead route,
   // MED-1 — see file header). The by-source-transaction test below is the
   // sole remaining coverage of this action.
-  test('POST /api/pending-settlements/by-source-transaction/:id/settle-company — ADMIN / ACCOUNTANT only; SENIOR / DROP 403', async ({
+  test('POST /api/pending-settlements/by-source-transaction/:id/settle-company — ADMIN only; SENIOR / DROP 403', async ({
     page,
   }) => {
     const suffix = uniqueSuffix()
@@ -213,7 +211,7 @@ test.describe('RBAC matrix smoke — Phase 4 endpoints', () => {
       const endpointUrl = `${REAL_API}/pending-settlements/by-source-transaction/${ghostId}/settle-company`
       // task-receipts-backend (#10): settleSeniorPayoutSchema now requires a
       // mandatory, currency-aware receipt — USDT ⇒ explorer link. Using a
-      // VALID receipt here means the ACCOUNTANT probe below proves a genuine
+      // VALID receipt here means the ADMIN probe below proves a genuine
       // 200 happy path, not just "didn't get blocked by the RBAC gate".
       const settleBody = {
         data: {
@@ -231,12 +229,12 @@ test.describe('RBAC matrix smoke — Phase 4 endpoints', () => {
         expect(r.status(), `Expected 403 for ${email} on by-source-transaction settle`).toBe(403)
       }
 
-      // ACCOUNTANT is allowed.
-      await loginViaApi(page, SEED_EMAILS.accountant)
-      const accountantRes = await page.request.post(endpointUrl, settleBody)
+      // ADMIN is allowed.
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+      const adminRes = await page.request.post(endpointUrl, settleBody)
       expect(
-        rbacPassed(accountantRes.status()),
-        `Expected RBAC pass for ACCOUNTANT (got ${accountantRes.status()})`,
+        rbacPassed(adminRes.status()),
+        `Expected RBAC pass for ADMIN (got ${adminRes.status()})`,
       ).toBe(true)
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)

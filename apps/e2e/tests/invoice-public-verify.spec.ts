@@ -117,7 +117,7 @@ test.describe('Invoice public verify endpoint — real API', () => {
     try {
       await loginViaApi(page, SEED_EMAILS.seniorA)
       const income = await createSeniorIncomeViaAPI(page, { projectId, amount: 1000 })
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, income.txId)
       await loginViaApi(page, SEED_EMAILS.seniorA)
       const { payoutRequestId } = await createPayoutRequestViaAPI(page, [income.txId])

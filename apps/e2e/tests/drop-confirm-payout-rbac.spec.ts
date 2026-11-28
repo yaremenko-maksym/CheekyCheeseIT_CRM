@@ -5,13 +5,13 @@
  * (POST /api/transactions/:id/confirm-payout) + UI:
  *
  *   DROP / SENIOR / JUNIOR / HR  → 403 backend + button NOT rendered in UI.
- *   ADMIN / ACCOUNTANT           → 200 backend + button rendered.
+ *   ADMIN                        → 200 backend + button rendered.
  *
  * Setup (shared across the matrix) — one drop user + one drop-project +
  * one DROP_INCOME validated + paid through to a PENDING_PAYMENT PAYOUT row.
  * Each role then runs the same probe against that row. We do NOT actually
  * confirm in the negative cases (the assert is "403 happens"); the
- * positive cases (ADMIN, ACCOUNTANT) ARE confirmed for real to assert the
+ * positive case (ADMIN) IS confirmed for real to assert the
  * 200 path — these are split into separate `test()` blocks so cleanup
  * works without one role's confirmation leaking into the next.
  *
@@ -83,7 +83,7 @@ async function setupPendingPayout(page: import('@playwright/test').Page): Promis
     currency: 'USDT',
   })
 
-  await loginViaApi(page, SEED_EMAILS.accountant)
+  await loginViaApi(page, SEED_ADMIN_EMAIL)
   // task-drop-payout-company-account (backlog item 139): validate now ONLY
   // flips PENDING → VALIDATED — it no longer auto-creates a payout_request.
   await validateTransactionViaAPI(page, txId)
@@ -115,14 +115,14 @@ test.describe('Drop confirm-payout — RBAC (AC4)', () => {
     const { dropId, payoutTxId, dropEmail } = await setupPendingPayout(page)
     try {
       // DROP can see their PAYOUT row (it's their own send), but the
-      // «Подтвердить оплату» button is ADMIN/ACCOUNTANT-only.
+      // «Подтвердить оплату» button is ADMIN-only.
       //
       // Backlog item 139: `/finance` renders a role-specific component —
       // DROP gets `DropFinancePage` (routes/_authenticated/finance/index.tsx
       // `if (isDrop) return <DropFinancePage />`), which lists outgoing
       // payments via GET /finance/drop/me/payments in a card with
       // `data-testid="drop-payment-row-<id>"` — NOT the shared
-      // `tx-row-<id>` grid the ADMIN/ACCOUNTANT table uses. This spec
+      // `tx-row-<id>` grid the ADMIN table uses. This spec
       // predates that split (or was never updated for it) and asserted the
       // wrong testid, which never turned red because the file isn't in any
       // CI shard. `DropFinancePage` also never renders a
@@ -203,17 +203,6 @@ test.describe('Drop confirm-payout — RBAC (AC4)', () => {
         'confirm-payout must return the PAYOUT_CONFIRMED row it created',
       ).not.toBeNull()
       expect(confirmed?.recipientId).toBe(MAKSYM_ID)
-    } finally {
-      await cleanupDropViaAPI(page, dropId)
-    }
-  })
-
-  test('ACCOUNTANT → 200 (backend) — confirms the PAYOUT', async ({ page }) => {
-    const { dropId, payoutTxId } = await setupPendingPayout(page)
-    try {
-      await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payout } = await confirmPayoutViaAPI(page, payoutTxId, MAKSYM_ID)
-      expect(payout.status).toBe('PAID')
     } finally {
       await cleanupDropViaAPI(page, dropId)
     }
