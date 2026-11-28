@@ -4,12 +4,14 @@
  * Base UI opens a `CloseWatcher` only on Android (user agent read when its platform module loads)
  * and only when `window.CloseWatcher` exists. happy-dom has neither, so this file fakes both before
  * any import: the user agent says Android, and `CloseWatcher` is an EventTarget the test fires
- * `cancel` on, cancelable (the first back press) or not (a later one).
+ * `cancel` on, cancelable (the first back press after a user activation) or not (a later one).
+ * Like the browser, a back whose `cancel` is not prevented closes the watcher and destroys it.
  */
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent, { PointerEventsCheckLevel } from '@testing-library/user-event'
-import { useState } from 'react'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { useLayoutEffect, useState } from 'react'
+import { beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { useAnyDialogOpen } from '@/hooks/use-any-dialog-open'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { BottomSheet } from '../bottom-sheet'
 import { DatePickerField } from '../date-picker'
@@ -28,7 +30,8 @@ const watchers = vi.hoisted(() => {
       list.push(this)
     }
     destroy() {
-      list.splice(list.indexOf(this), 1)
+      const i = list.indexOf(this)
+      if (i >= 0) list.splice(i, 1)
     }
   }
   Object.defineProperty(window, 'CloseWatcher', { configurable: true, value: FakeCloseWatcher })
@@ -39,25 +42,49 @@ beforeAll(() => loadCatalog('uk'), 60_000)
 
 function back(cancelable: boolean): Event {
   const event = new Event('cancel', { cancelable })
+  const watcher = watchers.at(-1) as (EventTarget & { destroy(): void }) | undefined
   act(() => {
-    watchers.at(-1)?.dispatchEvent(event)
+    watcher?.dispatchEvent(event)
+    // Not prevented: the browser closes the watcher, which destroys it.
+    if (!event.defaultPrevented) watcher?.destroy()
   })
   return event
+}
+
+// Every value `useAnyDialogOpen()` took while the sheet was mounted, to catch a closed flicker.
+const dialogOpenSeen: boolean[] = []
+function DialogOpenProbe() {
+  const open = useAnyDialogOpen()
+  useLayoutEffect(() => {
+    dialogOpenSeen.push(open)
+  }, [open])
+  return null
 }
 
 function Harness({
   dismissible = true,
   tooltip = false,
+  tooltipOpen,
   onOpenChange,
 }: {
   dismissible?: boolean
   tooltip?: boolean
+  /** Unset: the tooltip opens on mount; set: it follows this prop. */
+  tooltipOpen?: boolean
   onOpenChange: (open: boolean) => void
 }) {
   const [open, setOpen] = useState(true)
+  // The prop opens the tooltip later; an Escape still closes it through this state.
+  const [tipOpen, setTipOpen] = useState(tooltipOpen)
+  const [tipProp, setTipProp] = useState(tooltipOpen)
+  if (tooltipOpen !== tipProp) {
+    setTipProp(tooltipOpen)
+    setTipOpen(tooltipOpen)
+  }
   const [date, setDate] = useState('')
   return (
     <I18nTestProvider>
+      <DialogOpenProbe />
       <BottomSheet
         open={open}
         onOpenChange={(next) => {
@@ -67,6 +94,7 @@ function Harness({
         title="T"
         dismissible={dismissible}
       >
+        <input aria-label="Amount" />
         <DatePickerField value={date} onChange={setDate} data-testid="date" />
         <Select>
           <SelectTrigger aria-label="Kind">
@@ -87,7 +115,11 @@ function Harness({
         </Select>
         {tooltip && (
           <TooltipProvider>
-            <Tooltip defaultOpen>
+            <Tooltip
+              {...(tipOpen === undefined
+                ? { defaultOpen: true }
+                : { open: tipOpen, onOpenChange: setTipOpen })}
+            >
               <TooltipTrigger>Info</TooltipTrigger>
               <TooltipContent>Hint</TooltipContent>
             </Tooltip>
@@ -99,6 +131,7 @@ function Harness({
 }
 
 async function renderSheet(dismissible = true, tooltip = false) {
+  dialogOpenSeen.length = 0
   const onOpenChange = vi.fn()
   render(<Harness dismissible={dismissible} tooltip={tooltip} onOpenChange={onOpenChange} />)
   await screen.findByRole('dialog')
@@ -190,27 +223,95 @@ describe('BottomSheet Android back (fake CloseWatcher; happy-dom has none)', () 
     expect(onOpenChange).not.toHaveBeenCalled()
   })
 
-  // The browser lets one close request per user activation be prevented, and Base UI closes on a
-  // later one regardless. A not-dismissible sheet refuses it anyway: the caller is not told, the
-  // sheet stays open and a fresh watcher refuses the next back too.
-  it('a non-cancelable back keeps a not-dismissible sheet open, and the next back is refused too', async () => {
+  // The browser lets one close request per user activation be prevented; without a new activation
+  // every later back is not cancelable, and Base UI closes on it regardless and loses its watcher.
+  // A not-dismissible sheet refuses them all with its own watcher, and its content stays mounted.
+  it('back, back, back with no tap keeps a not-dismissible sheet open with its content intact', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never })
     const onOpenChange = await renderSheet(false)
-    const first = watchers.at(-1)
-
-    back(false)
-
-    await waitFor(() => expect(watchers.at(-1)).not.toBe(first))
-    expect(onOpenChange).not.toHaveBeenCalled()
     const dialog = screen.getByRole('dialog')
+    const amount = screen.getByRole('textbox', { name: 'Amount' })
+    await user.type(amount, '42')
+    expect(back(true).defaultPrevented).toBe(true)
+
+    for (let i = 0; i < 3; i++) {
+      const before = watchers.at(-1)
+      back(false)
+      expect(watchers).toHaveLength(1)
+      expect(watchers.at(-1)).not.toBe(before)
+    }
+
+    expect(onOpenChange).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBe(dialog)
     expect(dialog).toHaveAttribute('data-state', 'open')
     expect(dialog).not.toHaveAttribute('data-ending-style')
+    expect(screen.getByRole('textbox', { name: 'Amount' })).toBe(amount)
+    expect(amount).toHaveValue('42')
+    expect(amount).toHaveFocus()
+    expect(dialogOpenSeen.at(-1)).toBe(true)
+    expect(dialogOpenSeen.slice(dialogOpenSeen.indexOf(true))).not.toContain(false)
+  })
+
+  it('after a refused non-cancelable back, a cancelable one is refused and keeps the watcher', async () => {
+    const onOpenChange = await renderSheet(false)
+    back(false)
+    const own = watchers.at(-1)
 
     expect(back(true).defaultPrevented).toBe(true)
+
+    expect(watchers.at(-1)).toBe(own)
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  // The write finished while the sheet's own watcher was armed: the next back closes it.
+  it('once dismissible again, the next back closes the sheet through its own watcher', async () => {
+    const onOpenChange = vi.fn()
+    const { rerender } = render(<Harness dismissible={false} onOpenChange={onOpenChange} />)
+    await screen.findByRole('dialog')
+    back(false)
+    rerender(<Harness dismissible onOpenChange={onOpenChange} />)
+
     back(false)
 
-    await waitFor(() => expect(watchers).toHaveLength(1))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('with a select open in a not-dismissible sheet, a non-cancelable back closes only the select', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never })
+    const onOpenChange = await renderSheet(false)
+    screen.getByRole('combobox', { name: 'Kind' }).focus()
+    await user.keyboard('{Enter}')
+    await screen.findByRole('listbox')
+
+    back(false)
+
+    await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
     expect(onOpenChange).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog')).toHaveAttribute('data-state', 'open')
+    expect(watchers).toHaveLength(1)
+  })
+
+  // A tooltip portaled above an open popover is the top Radix layer, so the forwarded Escape closes
+  // only the tooltip; the next back closes the popover.
+  it('with a tooltip above the open date popover, back closes the tooltip, then the popover', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never })
+    const onOpenChange = vi.fn()
+    const { rerender } = render(<Harness tooltip tooltipOpen={false} onOpenChange={onOpenChange} />)
+    await user.click(await screen.findByTestId('date'))
+    await screen.findByRole('grid')
+    rerender(<Harness tooltip tooltipOpen onOpenChange={onOpenChange} />)
+    await waitFor(() => expect(screen.getByRole('tooltip', { hidden: true })).toBeInTheDocument())
+
+    expect(back(true).defaultPrevented).toBe(true)
+    await waitFor(() =>
+      expect(screen.queryByRole('tooltip', { hidden: true })).not.toBeInTheDocument(),
+    )
+    expect(screen.getByRole('grid')).toBeInTheDocument()
+
+    expect(back(true).defaultPrevented).toBe(true)
+    await waitFor(() => expect(screen.queryByRole('grid')).not.toBeInTheDocument())
+    expect(onOpenChange).not.toHaveBeenCalled()
   })
 
   it('a non-cancelable back closes a dismissible sheet and tells the caller', async () => {
@@ -232,6 +333,28 @@ describe('BottomSheet Android back (fake CloseWatcher; happy-dom has none)', () 
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(event.defaultPrevented).toBe(false)
+  })
+
+  // Only a tooltip's own popper is skipped: a layer whose content merely holds a tooltip counts.
+  it('a popper whose content holds a tooltip deeper down still counts as a layer', async () => {
+    const onOpenChange = await renderSheet()
+    const wrapper = document.createElement('div')
+    wrapper.setAttribute('data-radix-popper-content-wrapper', '')
+    wrapper.innerHTML = '<div><p><span role="tooltip">Hint</span></p></div>'
+    document.body.append(wrapper)
+    // Stands in for the Radix layer, which marks the forwarded Escape handled.
+    const layerEscape = vi.fn((e: KeyboardEvent) => e.preventDefault())
+    document.addEventListener('keydown', layerEscape, true)
+    onTestFinished(() => {
+      wrapper.remove()
+      document.removeEventListener('keydown', layerEscape, true)
+    })
+
+    const event = back(true)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(layerEscape).toHaveBeenCalledTimes(1)
+    expect(onOpenChange).not.toHaveBeenCalled()
   })
 
   it('with a tooltip open, an outside press closes a dismissible sheet', async () => {
