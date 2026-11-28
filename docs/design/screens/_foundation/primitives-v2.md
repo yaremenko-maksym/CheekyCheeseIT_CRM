@@ -92,7 +92,7 @@ separate bold group. `role="alertdialog"`, focus starts on «Скасувати�
 rule for every width):** 400 at 640–1023 (tablet, touch heights 48 / 44, modal over the scrim); 420 at
 1024–1439 under either pointer (modal over the scrim; `datepicker-popover-touch-1180`); 480 at ≥ 1440
 (non-modal, in the flex row). Header with title + close; sticky footer with the primary
-action. **One panel body at every width (F0-07, R3-03):** the canonical money form of §4; `sheet-panel-768`
+action. **An edit prefills every field of the record, its project included (R4-03: «Оренда офісу» opens with «Альфа», never «Без проєкту»).** **One panel body at every width (F0-07, R3-03):** the canonical money form of §4; `sheet-panel-768`
 draws it at 400 px with touch sizes (48 px inputs, 44 px ✕, «Замінити» and footer buttons).
 The scrim covers the rail too. On touch the panel also closes by a drag from its left edge to the right
 (past 30 % of its width, or a fling); ✕, Esc, a scrim tap and system back close it as well. A **new**
@@ -251,7 +251,7 @@ both at once is refused too). The empty tile has two modes, **«Файл» / «�
 «Посилання на чек» (`form-receipt-link-375`; any `http(s)` link). Once a file is added, a card with the
 thumbnail, the title, the status line, **«Замінити»** and **«✕»** (`aria-label` «Видалити чек»), both
 44 × 44 real `<button>`s, replaces the switch (remove the file to switch to a link). **While uploading**
-the title is the file name (one line; a long name truncates in the middle and keeps its extension, «receipt-2026-…-11.jpg», never breaking across lines, R3-34) and the status line reads «Завантаження · 62%»; **«Чек додано»** appears
+the title is the file name (one line, truncated in the middle: foundation §4 «File names truncate in the middle») and the status line reads «Завантаження · 62%»; **«Чек додано»** appears
 only at 100% (status «220 КБ», which wraps before it can run under «Замінити» and never truncates).
 **Upload failed** (`form-receipt-failed-375`): the card stays, red, with «Не завантажено · 220 КБ», the
 error «Чек не завантажився: з’єднання перервалося» and two 44 px exits «Повторити» / «Замінити»; on an
@@ -455,7 +455,9 @@ slot holds the plain upload pill. **Toast + pill** (`toast-pill-stack-375`): the
 right inset 80, left of the FAB; full width above the dock on Фінанси, D-8); a toast stacks 8 px above it; at most one toast at a time. A toast
 timer pauses while the page is hidden.
 
-**Skeletons** (`skeleton-mobile-375`, `skeleton-768`, `skeleton-1440`, `skeleton-table-desktop`): blocks
+**Skeletons** (`skeleton-mobile-375`, `skeleton-768`, `skeleton-1440`, `skeleton-table-desktop`): the
+slots are generated from the loaded row anatomy (§12.0; R4-17): title + meta on the left, ONE trailing
+value (the amount alone, no second line), the «…» slot as §12 «Row actions» says per pointer; blocks
 match the final layout (row heights, avatar circles, right-aligned values; on the tablet the single pane below 900 and both panes from 900; on
 the desktop the shell is real and only the table is skeletal); shimmer 1.2 s, off under reduced motion.
 
@@ -467,7 +469,12 @@ the desktop the shell is real and only the table is skeletal); shimmer 1.2 s, of
 `--chart-1`; **negative months hatched with a `−` label below zero**; zero line `--chart-grid`; tap a bar
 for a tooltip with the exact value; **the tapped or focused bar is selected (R3-20):** full ink and a 2 px `--foreground` ring while the other bars dim to 45 %, and the tooltip never covers a bar, a value or a month label: above the plot when there is room, else centred under the axis (`chart-768`) (the hit area is the full-height column band; under 44 px, as in the
 12-bar «Рік», drag-scrub with a persistent value line above the chart, foundation §7.4); the period is a 44 px segmented control (swipe is an extra, not the
-only way). The second, smaller chart (partners) sits **below the fold** (`chart-mobile-scrolled-375`),
+only way). **R4-19:** on the touch tablet the same holds: a horizontal swipe on the plot area changes the
+period by one step, the segmented control is the primary way, and a swipe that starts on a bar scrubs
+instead (`chart-768`); a tapped bar keeps full ink and its ring, the others dim, and the card's value
+line reads that month as a polite status (`chart-mobile-tapped-375`); a second tap or a tap outside
+the plot clears it. Статистика creates nothing of its own: its FAB is the quick-add FAB (shell-v2 §4 «The start
+control»), which opens the quick-add sheet (`chart-mobile-375`). The second, smaller chart (partners) sits **below the fold** (`chart-mobile-scrolled-375`),
 with the partners' **initials** («ВК», «ОШ») directly under their bars, no legend, and the full
 names in the accessible summary. Bars and ticks carry bare numbers («4,2», «8»); the caption row states
 the unit once («тис. USD»), and the accessible summary says «тис. USD». `chart-desktop`: hover tooltip (values `white-space: nowrap`, min-width 176 px; it sits beside the bar, on the right when there is room and otherwise on the left, never over a bar), keyboard focus on bars (arrow keys), series swatches carry
@@ -486,7 +493,7 @@ open**. iOS Safari's own page pull-to-refresh is not reliably disabled by `overs
 proves on the iOS Simulator that a sheet drag at `scrollTop` 0 and a pull on a list never reload the
 page (acceptance criterion).
 
-**Transitions** (`transition-storyboard`): push / back 280 ms slide + fade (View Transitions), tab switch
+**Transitions** (`transition-storyboard`; R4-26 adds the desktop side panel row: 1024–1439 modal over the `--scrim` as on the tablet, ≥ 1440 non-modal with no scrim while the main column narrows in the same 280 ms): push / back 280 ms slide + fade (View Transitions), tab switch
 instant, sheet 280 ms up / 150 ms down, side panel 280 ms in / 150 ms out, dialog 200 ms (fade + scale 0.96→1) / 150 ms fade out, popover and menu 200 ms (fade + 4 px from the anchor) / 150 ms fade out, desktop route 150 ms crossfade; every scrim fades 0 → `--scrim` (0.6) in 200 ms (R3-11, one value); reduced motion = 120 ms crossfade for every one of them, scrims included.
 
 ---
@@ -701,7 +708,7 @@ The single rule text of this file. A rule stated anywhere else is a pointer to t
 The only text that states how a row wraps, truncates, selects or reserves space.
 
 - **Title (R2-36):** wraps to **two lines at most** in a list row (a clamp with `overflow-wrap: anywhere`), so the part of a name that tells two records apart («Зарплата · Розробник 4» from «… Розробник 2») is never cut; only a third line ends in an ellipsis, and the full text is the accessible name (`listrow-768`, `listrow-sticky-320`). The amount stays on the first line at the trailing edge, so a two-line title costs the row one line (72 px with a one-line meta). **A desktop table cell is the exception, an assumption (A1, reversible): one line, an ellipsis and the full text in a tooltip at a fine pointer**, because the table row is a fixed 40 px (52 coarse) and «Опис» is the widest column (`listrow-table-desktop`).
-- **Meta:** wraps, two lines at most (a clamp with `overflow-wrap: anywhere`); the row grows with title and meta, so 56 / 64 px are minimums. Order: status when there is one («Очікує», «нова», «збіг», «схожа», «Не збережено»), then time, the receipt clip, type, project: «Очікує · 14:20 · Витрата · Проєкт «Альфа»»; the status always comes before the type.
+- **Meta:** wraps, two lines at most (a clamp with `overflow-wrap: anywhere`); the row grows with title and meta, so 56 / 64 px are minimums. Order: status when there is one («Очікує», «нова», «збіг», «схожа», «Не збережено»), then time, the receipt clip, type, project: «Очікує · 14:20 · Витрата · Проєкт «Альфа»»; the status always comes before the type. A tag that names a difference leads the meta whole, like «збіг» («схожа · інший опис · 14:33 · …»), never a line of its own (R4-23). **Table «Опис» (R4-28):** when the project rides in the description cell («Опис · Проєкт», widths without a Проєкт column), the project is atomic: drawn whole after the description or not at all, so the description truncates alone and the cell never ends «· А…»; the project stays in the accessible name (`sheet-panel-1440`). **The disclosure chevron** uses `--chevron` (≥ 3:1 on every list surface, `contrast.mjs`; R4-18).
 - **Separators (R3-14):** a meta line joins its parts with «·» that has a no-break space (U+00A0) before it and a normal space after it, so a line may break only after a separator: the «·» stays with the part before it, a part is never split from its own words, and no line starts with «·». Every frame and every string row uses this form (`board-768`, `board-1440`, `listrow-draft-375`, `tablet-two-pane-1000`).
 - **Never truncated:** an amount, a percentage and a time (R1-22). Each is `white-space: nowrap` with `tabular-nums`, and a currency code stays with its number. The amount sits alone on the title line at the trailing edge and does not shrink.
 - **Trailing zone (R1-04):** fixed, no per-row inset. A money list (Фінанси) on a phone docks its create action (D-8): a 64 px strip above the tab bar (a 48 px «Нова транзакція» primary button, 8 px padding, solid `--bg`, hairline top border); the other tab-root lists keep the FAB. Bottom padding: the one formula of shell-v2 §2 (R3-12), so no amount is ever covered. On Фінанси the pill and the toast span the width and sit 16 px above the dock; elsewhere they keep their 80 px right inset beside the FAB.
@@ -791,6 +798,9 @@ In every class the real header, search and chips stay through loading, empty and
 - **Phone (< 640):** a row with a pushed detail has no «…» (the swipe, the detail page and the long-press shortcut carry its actions); a row without one (a file, a receipt) shows a visible 44 px «…» (`aria-label` «Дії: {title}», `aria-haspopup="menu"`).
 - **Tablet and desktop (≥ 640): every list row and every table row has the «…» trigger**, the selected row and the rows of a two-pane list included. It sits in one trailing slot of fixed width: 44 px in a tablet list row, a 48 px table column holding a 36 px button (44 under a coarse pointer). The slot is reserved even while its button is hidden, so nothing shifts when it shows. At a fine pointer the button shows on hover, on focus and on the selected row; at a coarse pointer it is always visible.
 - Every frame of a list or table draws the slot: loaded, skeleton (a grey circle in the slot at a coarse pointer; the empty reserved slot at a fine pointer, R3-08), empty, error, footer, banner and the rows under an open menu or panel (`tablet-two-pane-1000`, `skeleton-768`, `list-footer-768`, `row-menu-768`). The title and the amount never run under it.
+- **Read-only result lists (R4-24) are exempt:** the rows of the check dialog / sheet
+  (`check-dialog-768`, `check-dialog-1024`) are evidence to compare, not records to act on, so they
+  carry no «…» slot; their one action is the dialog's own buttons.
 - **Read-only rows (R3-09):** a role that may not edit a record (JUNIOR on its own payments, `detail-readonly-1000`) keeps the «…» trigger, and its menu holds only the read actions: «Відкрити чек» (when the row has a receipt) and «Копіювати суму». A row with neither has no trigger, and its slot stays reserved.
 
 ### Page kill dialog (R2-00, R2-01, F0-40, the one rule)
@@ -821,9 +831,10 @@ One container on every class: a `role="alertdialog"` with `aria-modal="true"`, n
 | Phone sheet                    | closes                    | closes                    | scrim tap closes          | drag down closes                | closes     |
 | Action sheet / confirm         | = cancel                  | = cancel                  | = cancel                  | none                            | none       |
 | Page-kill dialog               | = «Закрити», markers stay | = «Закрити», markers stay | = «Закрити», markers stay | none                            | none       |
+| Session alert (every class)    | = «Не зараз»              | = «Не зараз»              | = «Не зараз» (scrim)      | none                 | none |
 | Side panel, modal (< 1440)     | closes                    | closes                    | scrim closes              | drag from the left edge (touch) | closes     |
 | Side panel, non-modal (≥ 1440) | closes if focus inside    | closes                    | nothing (table works)     | none                            | closes     |
-| Popover, menu, picker ≥ 640    | closes                    | closes on touch           | closes                    | none                            | none       |
+| Popover, menu, picker ≥ 640 (non-modal, no scrim; R4-13) | closes                    | closes on touch           | closes                    | none                            | none       |
 | Receipt viewer                 | closes                    | closes                    | none (full screen)        | drag down past 25 % or a fling  | closes     |
 | Cmd+K, shortcut sheet          | closes                    | not applicable (desktop)  | scrim closes              | none                            | sheet only |
 
@@ -841,7 +852,10 @@ One container on every class: a `role="alertdialog"` with `aria-modal="true"`, n
   `confirm-recreate-1440`). The session alert is the one exception: it may sit over two layers, and its
   scrim covers the whole viewport, a non-modal panel included.
 - **Every alert dialog (R3-02, R3-10):** ≥ 640 one width, 440 px; its `--scrim` covers the whole
-  viewport, the sidebar, rail and a non-modal panel included; everything under it is `inert`, so a field
+  viewport, the sidebar, rail and a non-modal panel included, and **stacks above every panel, modal or
+  not** (R4-02: the alert's scrim is the layer right under the dialog, above a modal panel's own scrim
+  and the panel; `measure.mjs` `scrim` asserts on every frame and class that nothing but the dialog
+  paints above it); everything under it is `inert`, so a field
   under it shows no focus ring and no caret: the dialog's initial-focus button carries the only ring
   (`alert-session-expired-768`, `alert-session-expired-1440`, `sheet-confirm-dialog-1024`,
   `signout-confirm-1440`).
@@ -897,8 +911,9 @@ Columns follow the **container**, not the viewport (R1-07): one column below 560
 ### Board (F0-38)
 
 - Card meta takes two lines (role · project, then the date); it wraps, never truncates.
-- On the touch tablet the columns are 200 px: three fit whole at 768 and the fourth peeks under the end
-  fade, so a count badge is never cut (`board-768`).
+- On the touch tablet (640–899) the columns are 290 px (R4-14): two fit whole at 768 and the third peeks
+  under the end fade, so a name stays on one line, the meta never breaks after «·» and a count badge is
+  never cut (`board-768`).
 
 ### Tab-bar strip (F0-39)
 
@@ -906,6 +921,13 @@ Content under the translucent tab bar reads as motion only; nothing a user must 
 every phone scroller ends with the bottom padding of shell-v2 §2 (R3-12, the one formula).
 
 ### Strings (F0-27)
+
+**Columns (R4-11).** `ID` is the row's stable key (kept when a row is edited or moved; a new row takes a
+new ID, an ID is never reused). `Kind` is empty for copy a frame draws, or `interaction` for copy no
+frame shows as text (an announcement, an accessible name, a state with no frame). `strings.mjs all`
+checks both directions: every drawn string is covered by a row with an `en` cell, and every token of a
+row without `Kind` is drawn in some frame; and per row, uk and en have the same number of « · » parts
+and the same placeholders.
 
 `uk` is the source; `en` is written anew, not translated. Confirm titles never inflect a name: the name
 stands in quotes or before a colon («Видалити транзакцію «Оренда офісу»?», «Олена Коваль: перевести в
@@ -987,6 +1009,7 @@ stands in quotes or before a colon («Видалити транзакцію «О
 | `time-and-periods.1` | Time and periods | Вчора · вчора · Цей місяць · Цього тижня · {n} міс · Рік · {n} год · {n} хв · завтра, {time} · до {size} · Нещодавні · Оновлено щойно · Дані на {date}, {time} · Можна через {time} · Використано сьогодні · Використано вчора | Yesterday · yesterday · This month · This week · {n} mo · Year · {n} h · {n} min · tomorrow, {time} · by {size} · Recent · Updated just now · Data as of {date}, {time} · Available in {time} · Used today · Used yesterday |  |
 | `lists-and-search.1` | Lists and search | Пошук або команда · Пошук на сторінці · Пошук проєкту · Пошук співбесід · Пошук транзакцій · Фільтр · Фільтри · Період · Скинути · Скинути фільтри · Результати · Знайдено · Знайдено ще {n} · Нічого нового · Пошук триває · Шукати далі · Шукали серед завантажених, з {date} · Нових збігів немає · шукали з {date} · Показано {n} з {total} · Показати {n} · Наступна сторінка · Не вдалося завантажити ще · {n} транзакцій · {n} транзакції · {n} активних · утримуйте картку, щоб перетягнути · Немає транзакцій за цим фільтром · Змініть період або проєкт. · Чеків ще немає · Розділ не завантажився · Не вдалося завантажити документи · Решта сторінки працює. · Проєкт «{name}» · Проєкт «{name}» ✕ · Проєкт: {name} · Наступна зустріч · Поточний етап · Етап · Ім’я | Search or command · Search this page · Search projects · Search interviews · Search transactions · Filter · Filters · Period · Reset · Reset filters · Results · Found · {n} more found · Nothing new · Searching · Search further · Searched the loaded items, since {date} · No new matches · searched since {date} · Showing {n} of {total} · Show {n} · Next page · Couldn't load more · {n} transactions · {n} transactions · {n} active · press and hold a card to drag it · No transactions match this filter · Change the period or the project. · No receipts yet · This section didn't load · Couldn't load documents · The rest of the page works. · Project «{name}» · Project «{name}» ✕ · Project: {name} · Next meeting · Current stage · Stage · Name |  |
 | `notifications-r4.1` | Notifications (r4) | Співбесіду призначено · Договір підписано · Транзакцію змінено · Запит на виплату чекає рішення · Нові у черзі зовнішніх вакансій · Транзакцію «{title}» оновлено | Interview scheduled · Contract signed · Transaction changed · A payout request awaits a decision · New in the external vacancy queue · Transaction «{title}» updated |  |
+| `notification-delete-failed.1` | Notification delete failed (R4-09) | Не вдалося видалити сповіщення | Couldn't delete the notification | interaction |
 | `cmd-k-and-shortcuts.1` | Cmd+K and shortcuts | Палітра команд · Дії · Перехід · Загальні · Списки · Відкрити рядок · Наступний рядок · Попередній рядок · Закрити панель або діалог · Згорнути бічну панель · Змінити етап картки · вибір · виконати · закрити · потім · усі скорочення · ця сторінка · налаштування · Esc закрити · ↑ ↓ чернетки · Клавіші без ⌘/Ctrl. Ніколи не спрацьовують у текстовому полі. Налаштування зберігається на цьому пристрої. | Command palette · Actions · Go to · General · Lists · Open row · Next row · Previous row · Close the panel or dialog · Collapse the sidebar · Change the card's stage · select · run · close · then · all shortcuts · this page · settings · Esc close · ↑ ↓ drafts · Keys without ⌘/Ctrl. They never fire in a text field. The setting is kept on this device. |  |
 | `forms-and-profile.1` | Forms and profile | Ім’я та прізвище · Email · Email для входу · Робочий email · Телефон · Роль · Мова · Українська · Прив’язаний до Google-акаунта · Роль змінює адміністратор · На цю адресу прийде запрошення · Наприклад, Ірина Мельник · Для зв’язку з командою · Редагувати профіль · Редагувати транзакцію · Введіть час від 00:00 до 23:59 · Жовтень уже закрито. Оберіть дату від 1 листопада. · Додати · Зберегти · Відкрити · Переглянути · Перевести · Завершити · Залишити · Видалити… · ОК | Full name · Email · Sign-in email · Work email · Phone · Role · Language · Ukrainian · Linked to the Google account · An administrator changes the role · The invitation goes to this address · For example, Iryna Melnyk · For the team to reach you · Edit profile · Edit transaction · Enter a time from 00:00 to 23:59 · October is already closed. Pick a date from 1 November. · Add · Save · Open · View · Move · Finish · Keep · Delete… · OK |  |
 | `quick-add-r4.1` | Quick add (r4) | Ім’я та етап · Ім’я, email і роль · Сума, тип і фото чека · Відкриті вакансії · Буде створено проєкт. · {name}: перевести в «Найнято»? | Name and stage · Name, email and role · Amount, type and receipt photo · Open vacancies · A project will be created. · {name}: move to «Hired»? |  |
@@ -1208,3 +1231,44 @@ Every R3 id of the r3 consolidation (`mcfnd-r3-consolidated.md`); D-1..D-8 stay 
 | R3-33 | fixed     | one stage-chip fixture «Усі · HR-скринінг · Технічна · З клієнтом · Офер» (`toast-undo-768`, `banner-stack-768`)                                                                               |
 | R3-34 | rule-only | §4: a file name keeps one line with a middle ellipsis; the panel now draws the canonical receipt card (R3-03), so no frame breaks a name                                                       |
 | R3-35 | fixed     | the stage is said once (the pill); the list end clears the toast (`board-undo-375`)                                                                                                            |
+
+## Council r5 ledger
+
+Every R4 id of the r4 consolidation (`mcfnd-r4-consolidated.md`); D-1..D-8 stay as decided. New
+generator asserts: `measure.mjs` `reach` (R4-01, R4-04) and `scrim` (R4-02); `strings.mjs all` checks
+both directions and the uk <-> en pairing by the Strings `ID` column (R4-11).
+
+| ID    | Status    | Where |
+| ----- | --------- | ----- |
+| R4-01 | fixed     | the More sheet body scrolls with the bottom safe area as padding; `more-sheet-admin-end-320`, `more-sheet-admin-end-375`; `measure.mjs` `reach` (drawn rows = `moreItems(role)` + sign-out, each scrolls above the home indicator) (shell-v2 §3 More sheet) |
+| R4-02 | fixed     | the alert scrim stacks above every panel (`alert-session-expired-768`); `measure.mjs` `scrim` on every frame of every class (§12 «Every alert dialog») |
+| R4-03 | fixed     | an edit prefills the record's project (`sheet-panel-768`, `-1024`, `-1440`, `-1920`; §2 Side panel) |
+| R4-04 | fixed     | the rail «Ще» dialog is bounded to the safe viewport and scrolls; it closes by its own controls (`tablet-rail-more-short-768`; shell-v2 §3) |
+| R4-05 | fixed     | 44 px / 16 px palette options and a 52 × 44 switch under a coarse pointer (`desktop-cmdk-touch-1180`, `desktop-shortcuts-touch-1180`; shell-v2 §4) |
+| R4-06 | fixed     | the sheet, the chord handler and the sidebar read one role-aware list (`desktop-shortcuts-senior-teamless-1440`; shell-v2 §4 One registry) |
+| R4-07 | fixed     | foundation §2 / §8 / §10 and shell-v2 §4 point at the canonical widths (§2 Side panel, §12 «Every alert dialog»); foundation §11 points at §12.0 «Title» |
+| R4-08 | fixed     | the desktop pinned row keeps the column grid, tonal «Відкрити» + «…» (`drafts-desktop-1440`); the chooser's «Відкрити» is a tonal label (`drafts-chooser-768`, `drafts-chooser-1440`; foundation §11) |
+| R4-09 | fixed     | the notification Undo hands off to the shell toast slot; failure restores row and count (`notifications-undo-closed-375`; shell-v2 §3) |
+| R4-10 | fixed     | a success under a failed / unknown pill stacks as a second pill until acknowledged (`upload-pill-saved-over-failed-375`; foundation §11 Success) |
+| R4-11 | fixed     | Strings `ID` + `Kind` columns; `strings.mjs all`: frame -> table, table -> frame, uk <-> en (counts in the r5 report) |
+| R4-12 | fixed     | the fine-pointer desktop frames under the alert and the date picker use the 40 px table template (`datepicker-popover-1440`, `alert-session-expired-1440`) |
+| R4-13 | fixed     | menus and popovers at ≥ 640 are non-modal, no scrim (`account-menu-768`; §12 Dismissal) |
+| R4-14 | fixed     | 290 px touch board columns: two whole + a peek (`board-768`; §12 Board) |
+| R4-15 | fixed     | the pill is one button; its «Відкрити…» label in accent ink (`upload-pill-*-375`; foundation §11) |
+| R4-16 | fixed     | `fileName()` middle ellipsis, full name as the accessible name (`quick-add-txn-armed-320`, `quick-add-txn-armed-375`, `upload-states-375`; foundation §4) |
+| R4-17 | fixed     | one trailing value slot; an empty fine-pointer «…» slot (`skeleton-768`, `skeleton-table-desktop`; §5 Skeletons) |
+| R4-18 | fixed     | `--chevron` token, 4.17–4.47:1; four pairs in `contrast.mjs` (§12.0) |
+| R4-19 | fixed     | the tablet swipe rule and the FAB sentence (§6 Charts); `chart-mobile-tapped-375` |
+| R4-20 | rule-only | shell-v2 §7 «Migration map»: the bell badge and the no-target notification |
+| R4-21 | fixed     | «Зараз зберегти зміни не вдасться. Введені дані залишаться у формі.» (`state-offline-375`; Strings `offline-banner.1`) |
+| R4-22 | rule-only | §12 Dismissal: a «Session alert» row (Esc / back / scrim = «Не зараз», no swipe, no ✕) |
+| R4-23 | fixed     | a difference tag leads the meta (`save-failure-unknown-similar-375`, `check-sheet-boot-375`, `confirm-recreate-375`; §12.0 Meta) |
+| R4-24 | rule-only | §12 Row actions: the read-only result list of the check dialog has no «…» slot |
+| R4-25 | fixed     | one panel width rule (§2 Side panel): 1024–1439 is 420 under either pointer (`datepicker-popover-touch-1180` redrawn at 420) |
+| R4-26 | fixed     | the desktop side panel motion row (`transition-storyboard`; §7 Transitions) |
+| R4-27 | fixed     | no card inset under 360 (`list-footer-320`; foundation §4) |
+| R4-28 | fixed     | the project in «Опис» is atomic (`sheet-panel-1440`; §12.0) |
+| R4-29 | rule-only | §12 Row menu: a key shows only when the registry binds one; none of the row actions has a key |
+| R4-30 | fixed     | the impersonation banner loses its bottom padding (`banner-stack-375`, `-768`, `-1440`) |
+| R4-31 | fixed     | definite / offline save errors at ≥ 640 stay in the panel (`save-error-offline-768`, `save-error-definite-1024`; foundation §11) |
+| R4-32 | fixed     | the `_contact-sheet*` PNGs rebuilt with ImageMagick; §8 KB column refreshed |

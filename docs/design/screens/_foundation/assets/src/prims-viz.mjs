@@ -36,7 +36,7 @@ import {
 
 // ---------- ResponsiveSheet ≥ 640: right side panel; confirm = centred dialog ----------
 
-function sidePanel(width, { touch = false, modal = true } = {}) {
+function sidePanel(width, { touch = false, modal = true, extra = {} } = {}) {
   // < 1440 modal over a scrim (focus trapped); ≥ 1440 non-modal: a landmark in the flex row, no scrim, the table stays usable.
   const shell = modal
     ? `<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>
@@ -53,6 +53,7 @@ function sidePanel(width, { touch = false, modal = true } = {}) {
       note: 'Оренда офісу',
       project: 'Альфа',
       pad: '16px 24px 24px',
+      ...extra,
     })
   }</div>
   <div class="row" style="gap:8px;justify-content:flex-end;padding:14px 24px;border-top:1px solid var(--border)"><span class="btn sm secondary" style="height:${touch ? 44 : 36}px;font-size:14px">Скасувати</span><span class="btn sm primary" style="height:${touch ? 44 : 36}px;font-size:14px">Зберегти${touch ? '' : `<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">⌘↵</span>`}</span></div></aside>`
@@ -62,6 +63,29 @@ export const panelDesktop = (w, h) =>
   w >= 1440
     ? desktop({ w, h, panel: sidePanel(480, { modal: false }), panelW: 480 })
     : desktop({ w, h, overlay: sidePanel(420) })
+/** R4-31: a definite or offline save error at >= 640 stays in the open panel, as on the phone (foundation §11):
+ * the alert tops the panel body and takes focus, a field error sits inline, the primary stays enabled; no toast,
+ * no pill, the panel never closes on its own. Tablet: offline; desktop: a definite 422 on the date. */
+export const saveErrorOfflineTablet = (w, h) =>
+  tablet({
+    w,
+    h,
+    overlay: sidePanel(400, {
+      touch: true,
+      extra: {
+        alert: errAlert(
+          'Транзакцію не надіслано',
+          'Немає з’єднання. Нічого не збережено; сума й чек залишились у формі.',
+        ),
+      },
+    }),
+  })
+export const saveErrorDefiniteDesktop = (w, h) =>
+  desktop({
+    w,
+    h,
+    overlay: sidePanel(420, { extra: { dateError: true, focus: 'date' } }),
+  })
 /** 640–1023 touch (F0-07): the same panel body as desktop, 400 px, 44 px ✕ and controls, the scrim dims the rail too.
  * Dismiss: ✕, Esc, outside tap on the scrim, system back, or a drag from the panel's left edge to the right. */
 export const panelTablet = (w, h) => tablet({ w, h, overlay: sidePanel(400, { touch: true }) })
@@ -451,15 +475,17 @@ function partnerBars(W, H, { labelSize = 11, pad = 8 } = {}) {
 export const legend = (items, unit = 'тис. USD') =>
   `<div class="row" style="gap:14px;font-size:13px"><span class="muted">${unit}</span>${items.map(([c, t, shape]) => `<span class="row" style="gap:6px"><i style="width:10px;height:10px;border-radius:${shape === 'hatch' ? '2px' : '2px'};background:${c};${shape === 'hatch' ? 'background:repeating-linear-gradient(45deg,var(--chart-1) 0 1.5px,transparent 1.5px 4px);outline:1px solid var(--chart-1)' : ''}"></i>${t}</span>`).join('')}</div>`
 
-export function chartMobile(w, h, { scrolled = 0 } = {}) {
+// R4-19: `tapped` — a tapped bar (жовт) keeps full ink with its ring, the others dim; the card's value line
+// reads that month (a polite status), a second tap on it or a tap outside the plot clears it.
+export function chartMobile(w, h, { scrolled = 0, tapped = false } = {}) {
   const card = (title, value, sub, chart, leg) =>
     `<div style="margin:0 16px 12px;padding:14px 14px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted">${title}</div><div class="row" style="gap:2px 8px;flex-wrap:wrap;align-items:baseline;margin-top:2px"><span class="num" style="font-size:24px;font-weight:700;letter-spacing:-0.02em;white-space:nowrap">${value}</span><span class="t-foot num" style="color:var(--positive);white-space:nowrap">${sub}</span></div><div style="margin-top:8px">${chart}</div>${leg}</div>`
   const body = `<div style="padding:0 16px 10px">${segmented(['3 міс', '6 міс', 'Рік'], 1, { fit: true })}</div>
   ${card(
     'Чистий прибуток · 6 міс',
-    `+${kFmt(NET_K)} тис. USD`,
-    '▲ 12% до попер.',
-    netBars(w - 60, w <= 320 ? 200 : 380),
+    tapped ? `<span role="status">+${kFmt(NET[4])} тис. USD</span>` : `+${kFmt(NET_K)} тис. USD`,
+    tapped ? '<span class="muted">жовт 2026</span>' : '▲ 12% до попер.',
+    netBars(w - 60, w <= 320 ? 200 : 380, tapped ? { selected: 4 } : {}),
     legend([
       ['var(--chart-1)', 'Прибуток'],
       ['', 'Збиток', 'hatch'],
@@ -633,7 +659,8 @@ export function listFooter(w = 375, { menu = false } = {}) {
   const cap = (t) => `<div class="t-over" style="padding:14px 16px 6px">${t}</div>`
   const loading = `<div class="group">${rows}<div role="status" aria-label="Завантаження ще транзакцій" style="display:contents"><div aria-hidden="true" style="display:contents">${skRow(menu).repeat(3)}</div></div></div>`
   const failed = `<div class="group">${rows}<div class="lrow" role="alert" style="--inset:16px;gap:10px"><span style="color:var(--destructive);display:grid">${icon('circle-alert', { size: 18 })}</span><span class="grow col" style="gap:1px;min-width:0"><span class="t-foot">Не вдалося завантажити ще</span><span class="t-cap muted num">Показано 50 з 312</span></span><span class="btn sm secondary" role="button" style="height:44px;flex:none">Повторити</span></div></div>`
-  return `<div style="width:${w}px;padding:4px 0 16px;background:var(--bg)">${cap('Наступна сторінка · завантаження')}${loading}${cap('Наступна сторінка · помилка')}${failed}</div>`
+  // R4-27: one 320 rule: under 360 no card inset (full-bleed groups, `.narrow`), as every phone frame at 320.
+  return `<div class="${w < 360 ? 'narrow' : ''}" style="width:${w}px;padding:4px 0 16px;background:var(--bg)">${cap('Наступна сторінка · завантаження')}${loading}${cap('Наступна сторінка · помилка')}${failed}</div>`
 }
 
 /** Search on a paged list: a client-side filter says what it covered while more pages exist. */

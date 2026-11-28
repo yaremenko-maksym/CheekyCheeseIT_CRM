@@ -147,6 +147,12 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 
 - Large bottom sheet, `--radius-sheet` top corners, drag handle, close button (44 px), drag-to-dismiss.
 - Grouped rows (56 px) in `bg-card` group containers; section overlines; trailing chevrons; badges.
+- **Reachability (R4-01):** the sheet body is its own vertical scroller (`overscroll-behavior: contain`)
+  whose last group carries the bottom safe area plus 16 px as padding (`scroll-padding-bottom` the same),
+  so every permitted destination and «Вийти з акаунта» scroll fully above the home indicator on every
+  phone, 320 × 568 included (`more-sheet-admin-end-320`, `more-sheet-admin-end-375`: scrolled to the
+  end). `measure.mjs` asserts it per frame (`reach`: the drawn rows equal `moreItems(role)` + sign-out,
+  and each one scrolls inside the scroller and above the home indicator).
 
 ### Notifications panel (all sizes)
 
@@ -161,6 +167,12 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   завантажити сповіщення» with «Повторити», which re-reads only; a list loaded before stays visible under
   it (`notifications-error-375`). The tablet popover is the desktop one at touch sizes (`notifications-768`).
 - **Mark read:** opening a row marks it read (optimistic; the dot goes at once). «Прочитати все» (the shipped label, kept) is a text button in the list header (a 44 px hit area that adds no height); it shows only while N > 0 and marks every unread row read **on the server** (`PATCH /api/notifications/read-all`), loaded or not, so N drops to 0 and the bell dot goes. It asks nothing, because nothing is lost. The existing per-row delete stays. Phone: a trailing swipe, plus a visible 44 px «…» («Дії зі сповіщенням») and a long-press that open the same menu; this is the pattern for a row without a pushed detail (primitives-v2 §3), because the target page carries no delete. At ≥ 640: a trailing delete icon that hover or focus reveals at a fine pointer and that is always visible at 44 px under a coarse pointer (foundation §13; `notifications-768` draws it).
+  **Undo outlives the panel (R4-09):** the delete's undo toast (D-3, 5 s) lives in the panel while it is
+  open; when the panel closes inside the window (Esc, back, an outside press, a navigation), the same
+  toast hands off to the shell toast slot with the time that is left, so «Скасувати» stays reachable
+  (`notifications-undo-closed-375`). The row and the unread count leave at once (optimistic); if the
+  delete fails, the row comes back in place, the unread count is restored and one `role="alert"`
+  announces «Не вдалося видалити сповіщення».
 - **Open the target:** a row is a link to its target (deep link). The panel closes, the target page is
   pushed, and back returns to the page the bell was opened on, never to the panel. A target the viewer
   can no longer see opens that page's own not-found state. **A row with no target (R3-24)** (a system notice) is not a link: opening it only marks it read, it navigates nowhere and has no chevron; the panel stays open. Drafts and markers are untouched (foundation §11, row «Open a notification»). With a dirty form open, the row's navigation first runs the dirty-close confirm (foundation §11, row «Navigate away with a dirty form»).
@@ -226,8 +238,11 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   in their place (`primitives-v2/detail-readonly-1000`, JUNIOR).
 - **Row actions:** every list row at ≥ 640 has the «…» trigger in its reserved trailing slot, 44 px under touch; the rule, the slot and the menu position are primitives-v2 §12 «Row actions and the «…» trigger» (`primitives-v2/row-menu-768`). A swipe is a phone-only shortcut.
 - **Key hints** (Esc, ⌘↵, letters) never show on the touch tablet (F0-04); the rail «Ще» overflow (R3-21) is a modal `role="dialog"` «Ще» with a 44 px ✕ over a `--scrim` that
-  dims the page and the rail but not «Ще» itself (`tablet-rail-more-768`); focus moves to its first row
-  and is trapped; ✕, a scrim tap, «Ще» again, Esc and system back close it, and focus returns to «Ще».
+  dims the page and the rail, «Ще» included (`tablet-rail-more-768`); focus moves to its first row
+  and is trapped. **R4-04:** it is bounded to the safe viewport (24 px above and below) and its rows
+  scroll inside it under a fixed header (`tablet-rail-more-short-768`, 768 × 600; `measure.mjs` `reach`).
+  It closes by its own controls only: ✕, a scrim tap (a tap on the dimmed «Ще» lands on the scrim, so it
+  closes like any scrim tap), Esc and system back; focus returns to «Ще».
 
 ---
 
@@ -269,13 +284,19 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   no match at all the list shows one line and the way out, never a blank box: «Нічого не знайдено за
   «{query}»» / «Палітра шукає дії, розділи й рядки, завантажені на цій сторінці.» (`desktop-cmdk-empty-1440`).
 - **No cross-entity server search** (spec §4.5b). Each row shows its shortcut keys. Footer shows ↑↓ / ↵ / Esc.
+- **Coarse pointer (R4-05).** On a touch device at ≥ 1024 (iPad landscape) the palette options are 44 px
+  with 16 px text, and the shortcut sheet's switch keeps its 44 × 26 track inside a 52 × 44 hit box; the
+  query is 16 px at every pointer (`desktop-cmdk-touch-1180`, `desktop-shortcuts-touch-1180`).
 
 ### Shortcut sheet (`?`)
 
 - 880 px dialog «Клавіатурні скорочення», three columns: Загальні · Перехід · Списки. Top: a switch «Односимвольні скорочення»
   (single-key shortcuts on/off), stored on the device (SC 2.1.4). With it off, only modifier shortcuts work.
   «Списки» lists `M` «Змінити етап картки» (a focused board card, primitives-v2 §3).
-- **One registry (F0-26).** Every shortcut lives in one table that the sheet, the tooltips, the palette rows and the key handler all read; a key is bound once per scope. ⌘↵ saves the open form and ⌘Z undoes the last action only while its undo toast («… · Скасувати») is alive (R1-24; both rows list under «Загальні» in the sheet, `desktop-shortcuts-1440`).
+- **One registry (F0-26).** Every shortcut lives in one table that the sheet, the tooltips, the palette rows and the key handler all read; a key is bound once per scope. **Role-aware (R4-06):** the «Перехід» chords, the G-chord handler and the
+sidebar read ONE role-filtered destination list (`allowed(role)`), so a chord to a destination the role
+lacks is neither drawn nor bound (`desktop-shortcuts-senior-teamless-1440`: no Користувачі, Статистика or
+Вакансії). ⌘↵ saves the open form and ⌘Z undoes the last action only while its undo toast («… · Скасувати») is alive (R1-24; both rows list under «Загальні» in the sheet, `desktop-shortcuts-1440`).
 
   | Scope  | Key                                  | Action                                                  | Single-key (off with the switch) |
   | ------ | ------------------------------------ | ------------------------------------------------------- | -------------------------------- |
@@ -390,6 +411,13 @@ What each shipped shell piece becomes in v2. «Keep» = the component stays, res
 | `notifications-loading-375.png`      |   375 | Notifications, loading: real header, count line, four skeleton rows (F0-34)                                                                             |
 | `notifications-undo-375.png`         |   375 | Notification deleted: the row left at once, undo toast «Сповіщення видалено · Скасувати» inside the sheet above the pinned link, 5 s timer (D-3, R3-17) |
 | `notifications-undo-768.png`         |   768 | Notification deleted on the touch tablet: the undo toast sits inside the popover above the pinned link (R3-17), the bell count drops by one (D-3)       |
+| `more-sheet-admin-end-320.png` | 320 | More sheet scrolled to the end at 320 × 568: every destination and «Вийти з акаунта» reachable (R4-01) |
+| `more-sheet-admin-end-375.png` | 375 | More sheet scrolled to the end: sign-out above the home indicator (R4-01) |
+| `tablet-rail-more-short-768.png` | 768 | Rail «Ще» at 768 × 600: bounded to the safe viewport, rows scroll under a fixed header (R4-04) |
+| `desktop-cmdk-touch-1180.png` | 1180 | Cmd+K under a coarse pointer: 44 px options, 16 px text (R4-05) |
+| `desktop-shortcuts-touch-1180.png` | 1180 | Shortcut sheet under a coarse pointer: 52 × 44 switch hit box (R4-05) |
+| `desktop-shortcuts-senior-teamless-1440.png` | 1440 | Shortcut sheet of a teamless SENIOR: «Перехід» lists only the role's destinations (R4-06) |
+| `notifications-undo-closed-375.png` | 375 | Panel closed inside the 5 s window: the undo toast moved to the shell slot (R4-09) |
 | `notifications-error-375.png`        |   375 | Notifications, load error with «Повторити» (F0-34)                                                                                                      |
 | `notifications-768.png`              |   768 | Notifications popover on the touch tablet (F0-34)                                                                                                       |
 | `tablet-rail-hr-768.png`             |   768 | HR rail: own destinations, «+» «Створити» for two actions (F0-24)                                                                                       |
@@ -416,7 +444,7 @@ Re-render: `node assets/src/render.mjs shell [filter]`, then `assets/src/contact
 - Role with ≤ 4 destinations besides profile: still 4 tabs + «Ще» (profile lives there); no empty slot.
 - Long uk labels at 320: labels truncate with ellipsis; the accessible name keeps the full label.
 - Impersonation of a role with no quick-add: the FAB disappears with the role.
-- Badge > 99: «99+» on a count badge (the «Чекають рішення» destination). **Migration note (R3-24):** the bell itself has no count today; the shipped numeric bell badge (up to «99+») becomes the unread dot of §3, and the count moves to the bell's accessible name «Сповіщення, N нових».
+- Badge > 99: «99+» on a count badge (the «Чекають рішення» destination). **Migration map (R3-24, R4-20): two behaviour changes from what ships today.** (1) The bell: today it carries a numeric badge (up to «99+»); v2 draws the unread dot of §3 instead and moves the count into the bell's accessible name «Сповіщення, N нових». (2) A notification with no target: today a press marks it read and closes the panel; v2 marks it read and keeps the panel open (no navigation, no chevron, §3 «A row with no target»).
 
 ## 8. Assumptions (A1, Task 0.8)
 
