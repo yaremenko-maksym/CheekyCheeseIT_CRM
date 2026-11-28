@@ -196,8 +196,11 @@ export function page(body, { width, extraCss = '' } = {}) {
 <meta name="viewport" content="width=${width}, initial-scale=1, viewport-fit=cover">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&display=swap" rel="stylesheet">
-<style>${CSS}${extraCss}</style></head><body>${body}</body></html>`
+<style>${CSS}${extraCss}</style></head><body>${sepNbsp(body)}</body></html>`
 }
+// R3-14 (primitives-v2 §12.0): a NBSP before «·» and a normal space after it, so a meta line breaks after the
+// separator, never before it (no orphan «·» starting a line) and never inside a word pair glued on both sides.
+const sepNbsp = (html) => html.replace(/[  ]·[  ]/g, ' · ')
 
 /** iPhone chrome: notch phone (375+) or iPhone SE 1st gen (320, no notch, no home indicator). */
 export function phone({ w = 375, h = 812, inner, overlay = '' }) {

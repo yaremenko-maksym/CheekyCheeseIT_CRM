@@ -99,8 +99,9 @@ export function quickAddSheet(role, w, h) {
   })
 }
 
-function skRow(menu = false) {
-  return `<div class="lrow two" style="--inset:64px"><div class="sk" style="width:36px;height:36px;border-radius:10px"></div><div class="grow col" style="gap:8px"><div class="sk" style="height:14px;width:62%"></div><div class="sk" style="height:11px;width:40%"></div></div><div class="col" style="gap:8px;align-items:flex-end"><div class="sk" style="height:14px;width:72px"></div><div class="sk" style="height:10px;width:36px"></div></div>${menu ? '<div class="sk" aria-hidden="true" style="width:24px;height:24px;border-radius:12px;flex:none;margin-right:10px"></div>' : ''}</div>`
+// R3-25: `value` draws the trailing amount blocks; a row without a value (a notification) draws none.
+function skRow(menu = false, value = true) {
+  return `<div class="lrow two" style="--inset:64px"><div class="sk" style="width:36px;height:36px;border-radius:10px"></div><div class="grow col" style="gap:8px"><div class="sk" style="height:14px;width:62%"></div><div class="sk" style="height:11px;width:40%"></div></div>${value ? '<div class="col" style="gap:8px;align-items:flex-end"><div class="sk" style="height:14px;width:72px"></div><div class="sk" style="height:10px;width:36px"></div></div>' : ''}${menu ? '<div class="sk" aria-hidden="true" style="width:24px;height:24px;border-radius:12px;flex:none;margin-right:10px"></div>' : ''}</div>`
 }
 export function skeletonList(n = 4) {
   return `<div class="sechead"><div class="sk" style="height:11px;width:70px"></div></div><div class="group" aria-hidden="true">${skRow().repeat(n)}</div>`

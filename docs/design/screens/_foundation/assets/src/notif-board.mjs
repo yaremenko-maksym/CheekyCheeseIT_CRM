@@ -52,7 +52,7 @@ const BELL = `Сповіщення, ${UNREAD} нових`
 function notifList(more = false, deleted = 0) {
   const rows = NOTIFS.slice(deleted)
   const unread = UNREAD - NOTIFS.slice(0, deleted).filter((n) => n.unread).length
-  return `${sec(`Непрочитаних: ${unread}`, markAll(), '4px 16px 8px')}<div class="group">${rows.map((n) => notifRow(n, more)).join('')}<div role="status" aria-label="Завантаження ще сповіщень" style="display:contents"><div aria-hidden="true" style="display:contents">${skRow()}</div></div></div>`
+  return `${sec(`Непрочитаних: ${unread}`, markAll(), '4px 16px 8px')}<div class="group">${rows.map((n) => notifRow(n, more)).join('')}<div role="status" aria-label="Завантаження ще сповіщень" style="display:contents"><div aria-hidden="true" style="display:contents">${skRow(more, false)}</div></div></div>`
 }
 
 // Pinned under the scrolling list, so paging never pushes it out of reach.
@@ -83,8 +83,10 @@ const FAILED = () =>
   }).replace('padding:56px 32px 0', 'padding:32px 32px 0')
 
 // D-3: the same undo toast as every other delayed action (primitives-v2 §5), above the sheet; 5 s, paused by focus, hover and a touch.
-const deleteToast = (w) =>
-  `<div class="toast" role="status" style="left:12px;right:12px;bottom:${safeBottom(w) + 12}px;z-index:90;min-height:56px;overflow:hidden"><span style="color:var(--positive)">${icon('trash-2', { size: 18 })}</span><span class="grow">Сповіщення видалено</span><span class="btn ghost" role="button" style="color:var(--primary);height:44px;padding:0 10px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
+// R3-17: the notification undo toast belongs to the panel layer: in flow above the pinned link, inside the
+// sheet's / popover's focus scope, so it never covers that link and pressing it is never an outside press.
+const deleteToast = () =>
+  `<div class="toast" role="status" style="position:relative;left:auto;right:auto;bottom:auto;margin:8px 12px;flex:none;z-index:1;min-height:56px;overflow:hidden"><span style="color:var(--positive)">${icon('trash-2', { size: 18 })}</span><span class="grow">Сповіщення видалено</span><span class="btn ghost" role="button" style="color:var(--primary);height:44px;padding:0 10px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
 
 export function notificationsSheet(w, h, { empty = false, state = '', undo = false } = {}) {
   const body = empty
@@ -95,7 +97,7 @@ export function notificationsSheet(w, h, { empty = false, state = '', undo = fal
         ? FAILED()
         : notifList(true, undo ? 1 : 0)
   const top = Math.round(h * (empty || state === 'error' ? 0.5 : 0.28))
-  const footer = empty || state ? '' : allLink(safeBottom(w))
+  const footer = empty || state ? '' : `${undo ? deleteToast() : ''}${allLink(safeBottom(w))}`
   const overlay = sheet({ w, h, top, title: 'Сповіщення', trail: closeBtn, body, footer }).replace(
     '<div style="flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain">',
     `<div style="flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain${empty ? `;padding-bottom:${safeBottom(w)}px` : ''}">`,
@@ -113,9 +115,7 @@ export function notificationsSheet(w, h, { empty = false, state = '', undo = fal
   // Nothing unread: the bell has no dot.
   if (undo) {
     // D-3 fixture assert: one unread row left the list, so the bell label and the count line both read UNREAD - 1.
-    const out = screen
-      .replace(/<\/div>\s*$/, `${deleteToast(w)}</div>`)
-      .replace('Сповіщення, 2 нові', `Сповіщення, ${UNREAD - 1} нових`)
+    const out = screen.replace('Сповіщення, 2 нові', `Сповіщення, ${UNREAD - 1} нових`)
     if (
       !out.includes(`Сповіщення, ${UNREAD - 1} нових`) ||
       !out.includes(`Непрочитаних: ${UNREAD - 1}`)
@@ -146,11 +146,10 @@ export function notificationsTablet(w, h) {
 
 // D-3 on the tablet: the same undo toast in the one floating corner (bottom-right, 24 px from both edges, 420 wide).
 export function notificationsTabletUndo(w, h) {
-  const toast = `<div class="toast" role="status" style="left:auto;right:24px;bottom:24px;width:420px;z-index:90;min-height:56px;overflow:hidden"><span style="color:var(--positive)">${icon('trash-2', { size: 18 })}</span><span class="grow">Сповіщення видалено</span><span class="btn ghost" role="button" style="color:var(--primary);height:44px;padding:0 10px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
   const out = tablet({
     w,
     h,
-    overlay: notifPop('top:60px;right:12px', 14, 'del', 1) + toast,
+    overlay: notifPop('top:60px;right:12px', 14, 'del', 1, deleteToast()),
   }).replace('Сповіщення, 2 нові', `Сповіщення, ${UNREAD - 1} нових`)
   if (
     !out.includes(`Сповіщення, ${UNREAD - 1} нових`) ||
@@ -160,7 +159,7 @@ export function notificationsTabletUndo(w, h) {
   return out
 }
 
-function notifPop(place, pad, rowAction = false, deleted = 0) {
+function notifPop(place, pad, rowAction = false, deleted = 0, toast = '') {
   const unread = UNREAD - (deleted ? 1 : 0)
   return `<div role="dialog" aria-label="Сповіщення" style="position:absolute;${place};width:400px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:14px;box-shadow:0 24px 64px oklch(0 0 0 / 0.6);overflow:hidden;display:flex;flex-direction:column;max-height:640px">
   <div class="row" style="justify-content:space-between;gap:12px;height:48px;padding:0 16px;border-bottom:1px solid var(--border)"><span style="font-size:15px;font-weight:600">Сповіщення</span>${markAll(pad)}</div>
@@ -172,7 +171,7 @@ function notifPop(place, pad, rowAction = false, deleted = 0) {
     .replace(
       sec(`Непрочитаних: ${unread}`, markAll(), '4px 16px 8px'),
       sec(`Непрочитаних: ${unread}`, '', '8px 16px 4px'),
-    )}</div>${allLink()}</div>`
+    )}</div>${toast}${allLink()}</div>`
 }
 
 // ---------- Board (desktop drag board; the phone has no drag) ----------
