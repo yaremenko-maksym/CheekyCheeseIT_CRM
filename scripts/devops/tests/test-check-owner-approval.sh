@@ -637,11 +637,12 @@ fgr_fixture() { # <totalCount> <node-json>...
 }
 fgr_run() { env REPO=acme/crm PR_NUMBER=7 GH_BIN="$T/stub-fgr-gh" FX="$FX" bash "$FGR"; }
 fgr_marks() { # reviews.json on stdin -> "<review> <security> <spec> <copy>" per review
-  node --input-type=module -e '
+  # The module path goes in env: as argv[1] it would trip flow-gate.mjs's own main guard.
+  FG_MJS="$FG_MJS" node --input-type=module -e '
     import { readFileSync } from "node:fs"
-    const { parseMarker } = await import(process.argv[1])
+    const { parseMarker } = await import(process.env.FG_MJS)
     for (const r of JSON.parse(readFileSync(0, "utf8")))
-      console.log(["review", "security", "spec", "copy"].map((k) => parseMarker(r.body, k) ?? "none").join(" "))' "$FG_MJS"
+      console.log(["review", "security", "spec", "copy"].map((k) => parseMarker(r.body, k) ?? "none").join(" "))'
 }
 fgr_pipe() { fgr_run | fgr_marks; }
 fgr_fixture 3 "$(fgr_node rev1 $'Verdict: APPROVE\nSecurity Review: APPROVE\nSpec Review: PASS\nCopy Review: PASS' true)" \
