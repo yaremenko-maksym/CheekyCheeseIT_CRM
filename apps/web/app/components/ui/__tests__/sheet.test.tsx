@@ -29,6 +29,21 @@ describe('SheetContent', () => {
     expect(screen.getByRole('button', { name: 'Закрити' })).toBeInTheDocument()
   })
 
+  // The 44 px control sits 2 px from the screen edge, so an outer ring would be cut off there.
+  it.each([undefined, 'right', 'left', 'top', 'bottom'] as const)(
+    'keeps the close control focus ring inside the button (side %s)',
+    (side) => {
+      renderSheet(side)
+      expect(screen.getByRole('button', { name: 'Закрити' })).toHaveClass(
+        'right-0.5',
+        'top-0.5',
+        'h-11',
+        'w-11',
+        'focus:ring-inset',
+      )
+    },
+  )
+
   it.each([
     { side: undefined, edge: 'right-0' },
     { side: 'right', edge: 'right-0' },

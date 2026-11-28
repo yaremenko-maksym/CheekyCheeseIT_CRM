@@ -128,7 +128,7 @@ export function BottomSheet({
   }
   const armOwnWatcher = (): void => {
     // Only reached after a close-watcher back, which Base UI reports only when it exists.
-    const Ctor = (window as Window & { CloseWatcher: new () => Watcher }).CloseWatcher
+    const Ctor = (window as unknown as { CloseWatcher: new () => Watcher }).CloseWatcher
     // Stryker disable next-line all: defensive; every caller arms after the previous watcher is gone (destroyed by Base UI's branch, or by the browser right after a non-cancelable cancel)
     destroyOwnWatcher()
     const watcher = new Ctor()

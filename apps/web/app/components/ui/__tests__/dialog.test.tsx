@@ -28,6 +28,19 @@ describe('DialogContent', () => {
     expect(screen.getByRole('button', { name: 'Закрити' })).toBeInTheDocument()
   })
 
+  // The 44 px control sits 2 px from the panel edge, so an outer ring could be cut off there.
+  it('keeps the close control focus ring inside the button', async () => {
+    await loadCatalog('uk')
+    renderDialog()
+    expect(screen.getByRole('button', { name: 'Закрити' })).toHaveClass(
+      'right-0.5',
+      'top-0.5',
+      'h-11',
+      'w-11',
+      'focus:ring-inset',
+    )
+  })
+
   it('is positioned as a fixed, centered, rounded panel', async () => {
     await loadCatalog('uk')
     renderDialog()

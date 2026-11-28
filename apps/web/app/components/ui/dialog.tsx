@@ -52,7 +52,7 @@ const DialogContent = React.forwardRef<
           // 44 px hit area, icon centred where the 24 px control used to sit.
           <DialogPrimitive.Close
             aria-label={t`Закрити`}
-            className="absolute right-0.5 top-0.5 flex h-11 w-11 items-center justify-center rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
+            className="absolute right-0.5 top-0.5 flex h-11 w-11 items-center justify-center rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
           >
             <X className="h-4 w-4 shrink-0" aria-hidden />
           </DialogPrimitive.Close>
