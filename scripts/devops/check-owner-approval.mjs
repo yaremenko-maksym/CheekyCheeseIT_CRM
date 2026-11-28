@@ -21,8 +21,12 @@
 // token in DENIED_NAMES (constructor, Reflect, Function, eval, globalThis, process, prototype
 // reflection), a computed member of a global object, any non-literal non-numeric computed key
 // (`x[k]`, also in a destructuring pattern), a node:* specifier, import.meta.glob*, an
-// unresolved alias, a non-code non-inert file type — is itself a trigger. A trigger is not a
-// verdict of malice; it means "the owner looks".
+// unresolved alias, a non-code non-inert file type, a mock method (vi / jest) whose argument
+// cannot be resolved (dotted, `vi['importActual']`, destructured, or taken as a value) — is itself
+// a trigger. CSS escapes are decoded before the at-rule match (`@\70 lugin`). Any changed path whose
+// head-tree mode (pr.json `modes`) is 120000 (`symlink`), 160000 (`gitlink`) or unknown
+// (`uninspectable`) is a trigger whatever its name; pr.json without `modes` is an error. A trigger
+// is not a verdict of malice; it means "the owner looks".
 //
 // VERDICT: the owner's (login OWNER) latest review whose first non-empty line is
 // `Owner Verdict: APPROVE|BLOCK` decides; an edited owner review resets it (never approves); a
@@ -39,7 +43,8 @@
 //   --codeowners <path> --owner-of <path>                          # owners or "(unowned)"
 //   --codeowners <path> --check-paths <repo>                       # every pattern names a path
 // pr.json:       {headSha, author, counts: {changedFiles}, baseRetargetedAt: <iso>|null,
-//                 reviews: [{author, state, body, submittedAt, commit_id, edited}]}
+//                 reviews: [{author, state, body, submittedAt, commit_id, edited}],
+//                 modes: {<changed path>: <head-tree mode> | null}}
 // files.json:    [{filename, previous_filename, status}]   (REST pulls/{n}/files)
 // contents.json: [{filename, content} | {filename, unavailable: true}]
 // TypeScript: `typescript` resolved from this file, or the path in OWNER_GATE_TS.
@@ -529,7 +534,11 @@ export function scanCode(filename, content, aliases) {
         : null
     return k !== null && MOCK_FNS.has(k) ? k : null
   }
-  const keyText = (k) => (k && (T.isIdentifier(k) || literal(k)) ? k.text : null)
+  // `importActual`, `'importActual'`, `['importActual']` (a literal computed key).
+  const keyText = (k) => {
+    if (k && T.isComputedPropertyName(k)) k = unwrap(k.expression)
+    return k && (T.isIdentifier(k) || literal(k)) ? k.text : null
+  }
   const mockBound = new Set()
   const mockDecl = new Set()
   const bindMock = (key, target, node) => {
@@ -578,8 +587,10 @@ export function scanCode(filename, content, aliases) {
     ) {
       push('loader-alias', node, `mock method \`${node.text}\` used as a value`)
     } else if (mockName(node) && !isCallee(node)) {
+      // Any receiver (`import { vi as v }`; `v.importActual.call(v, 'pg')`), except for `mock`,
+      // which is also the property of every spy (`spy.mock.calls`): that one only on `vi` / `jest`.
       const recv = unwrap(node.expression)
-      if (T.isIdentifier(recv) && ['vi', 'jest'].includes(recv.text))
+      if (mockName(node) !== 'mock' || (T.isIdentifier(recv) && ['vi', 'jest'].includes(recv.text)))
         push('loader-alias', node, `mock method \`${node.getText(sf)}\` used as a value`)
     }
     if ((T.isImportDeclaration(node) || T.isExportDeclaration(node)) && node.moduleSpecifier) {
@@ -720,11 +731,14 @@ export function findingsForFile(file, content, rules, aliases) {
   if (cls === 'css') {
     // Comments included: a commented-out `@plugin` is rare, and reading it costs only a verdict.
     // SR-L (round 13): CSS escapes decoded first (`@\70 lugin`, `@plugi\n` are `@plugin`).
-    const decoded = content.replace(/\\([0-9a-f]{1,6})[ \t\n\r\f]?|\\([^\n\r\f])/gi, (_, h, c) => {
-      if (c !== undefined) return c
-      const cp = parseInt(h, 16)
-      return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : '�'
-    })
+    const decoded = content.replace(
+      /\\([0-9a-f]{1,6})(?:\r\n|[ \t\n\r\f])?|\\([^\n\r\f])/gi,
+      (_, h, c) => {
+        if (c !== undefined) return c
+        const cp = parseInt(h, 16)
+        return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : '�'
+      },
+    )
     const m = decoded.match(/@(plugin|config)\b/i)
     if (m) out.push({ kind: 'css-loader', file: name, detail: `CSS \`${m[0]}\` loads JS` })
     return out

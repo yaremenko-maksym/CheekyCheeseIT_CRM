@@ -678,7 +678,15 @@ case_red md8 apps/web/app/lib/md8.spec.ts modified $'let ia\n;({ importActual: i
   "db-client" "CR-M-1: an assignment destructuring ({ importActual: ia } = vi) -> refused"
 case_red md9 apps/web/app/lib/md9.spec.ts modified $'const { importActual } = vi\nawait importActual(name)' \
   "dynamic-specifier" "CR-M-1: a destructured mock method with a non-literal argument -> refused"
-src mdok $'const { mock } = vi\nmock(\'./clock\')\nvi[\'mock\'](\'./x\')'
+case_red md10 apps/web/app/lib/md10.spec.ts modified $'const { [\'importActual\']: ia } = vi\nawait ia(\'pg\')' \
+  "db-client" "CR-M-1: a literal computed key ({ ['importActual']: ia } = vi) -> refused"
+case_red md11 apps/web/app/lib/md11.spec.ts modified $'let r\n;({ [\'requireActual\']: r } = jest)\nr(\'pg\')' \
+  "db-client" "CR-M-1: a literal computed key in an assignment pattern -> refused"
+case_red md12 apps/web/app/lib/md12.spec.ts modified $'import { vi as v } from \'vitest\'\nv.importActual.call(v, \'pg\')' \
+  "mock method" "CR-M-1: v.importActual.call(...) on a renamed import -> refused"
+case_red md13 apps/web/app/lib/md13.spec.ts modified $'import { vi as v } from \'vitest\'\nconst ia = v.importActual\nawait ia(\'pg\')' \
+  "mock method" "CR-M-1: a mock method taken as a value from any receiver -> refused"
+src mdok $'const { mock } = vi\nmock(\'./clock\')\nvi[\'mock\'](\'./x\')\nconst spy = vi.fn()\nexpect(spy.mock.calls).toEqual([])'
 mk mdok apps/web/app/lib/mdok.spec.ts modified
 assert_green "CR-M-1: destructured / element-access mock of a local module -> passes" --contains "[not-required]" -- run mdok
 # Round 13 SR-L: CSS escapes in an at-rule keyword are decoded before the match.
@@ -686,6 +694,8 @@ case_red css4 apps/web/app/styles/e1.css modified $'@\\70 lugin "../../../api/sr
   "css-loader" "SR-L: @\\70 lugin (hex escape) -> refused"
 case_red css5 apps/web/app/styles/e2.css modified $'@plugi\\n "./x.js";' \
   "css-loader" "SR-L: @plugi\\n (char escape) -> refused"
+case_red css6 apps/web/app/styles/e3.css modified $'@\\70\r\nlugin "./x.js";' \
+  "css-loader" "SR-L: @\\70 + CRLF + lugin (CRLF after a hex escape) -> refused"
 # Round 13 SR-H-1: the head-tree mode of every changed path; a symlink / gitlink is a trigger.
 set_mode() { # <name> <path> <mode | absent>
   jq --arg p "$2" --arg m "$3" 'if $m == "absent" then del(.modes[$p]) else .modes[$p] = $m end' \
