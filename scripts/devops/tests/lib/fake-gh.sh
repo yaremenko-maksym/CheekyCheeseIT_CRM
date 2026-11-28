@@ -84,6 +84,8 @@
 #                             gh-merge-pr-with-retry.sh's own
 #                             run_with_timeout wrapper (PR #558 review round
 #                             2) instead of check-required-checks-complete.sh's.
+#   FAKE_GH_MERGE_ARGS_LOG   optional — each `pr merge` call appends its argv
+#                             (one line) here, so a test can assert flags.
 #   FAKE_GH_MERGE_SLEEP_SECONDS   optional — sleeps this long before
 #                             answering EVERY `pr merge` call (not just the
 #                             first). Lets a test simulate a call that hangs
@@ -206,6 +208,7 @@ case "${1:-}" in
         # SECOND call, not a repeat of the first.
         n=$((n + 1))
         printf '%s' "$n" >"$FAKE_GH_MERGE_CALL_COUNTER"
+        [ -n "${FAKE_GH_MERGE_ARGS_LOG:-}" ] && printf '%s\n' "$*" >>"$FAKE_GH_MERGE_ARGS_LOG"
 
         if [ -n "${FAKE_GH_MERGE_SLEEP_SECONDS:-}" ]; then
           sleep "$FAKE_GH_MERGE_SLEEP_SECONDS"

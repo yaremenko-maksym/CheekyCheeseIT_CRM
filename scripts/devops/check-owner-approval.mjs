@@ -254,6 +254,14 @@ const LOADER_IDS = new Set([
   'Function',
 ])
 const GLOBAL_OBJECTS = new Set(['globalThis', 'global', 'window', 'self'])
+// Master addendum 5: a PROPERTY with one of these names reaches the global object from any
+// receiver (`a.globalThis`, `window.self`, `document.defaultView`, `x.top`), so such an access is a
+// global-object expression. Bare identifiers stay GLOBAL_OBJECTS only — a local `parent` / `top`
+// is ordinary code. Trade-off: `node.parent` / `rect.top` passed as a value is flagged too.
+const GLOBAL_PROPS = new Set([...GLOBAL_OBJECTS, 'parent', 'top', 'frames', 'defaultView'])
+// A property with one of these names is a trigger whatever the receiver (`a.globalThis.process`,
+// `x.getBuiltinModule`), dotted or a literal element access.
+const LOADER_PROPS = new Set([...LOADER_IDS, 'getBuiltinModule'])
 // What apps/e2e already imports (git grep 2026-11-28: crypto, path, fs; net / http / module are
 // NOT allowed and trigger when a file using them is edited) plus url / os. Subpaths
 // (fs/promises) follow their root.
@@ -347,6 +355,24 @@ export function scanCode(filename, content, aliases) {
       T.isExportAssignment(p)
     )
   }
+  // `window`, `a.self`, `x['top']`, through parentheses / casts.
+  const isGlobalExpr = (n) => {
+    while (
+      T.isParenthesizedExpression(n) ||
+      T.isAsExpression(n) ||
+      T.isNonNullExpression(n) ||
+      T.isTypeAssertionExpression(n) ||
+      T.isSatisfiesExpression(n)
+    )
+      n = n.expression
+    if (T.isIdentifier(n)) return GLOBAL_OBJECTS.has(n.text)
+    if (T.isPropertyAccessExpression(n)) return GLOBAL_PROPS.has(n.name.text)
+    return (
+      T.isElementAccessExpression(n) &&
+      literal(n.argumentExpression) &&
+      GLOBAL_PROPS.has(n.argumentExpression.text)
+    )
+  }
   if (sf.parseDiagnostics?.length)
     out.push({
       kind: 'unparseable',
@@ -395,12 +421,10 @@ export function scanCode(filename, content, aliases) {
       if (T.isMetaProperty(obj) && obj.keywordToken === SK.ImportKeyword) {
         if (!META_OK.has(node.name.text))
           push('loader-alias', node, `import.meta.${node.name.text}`)
-      } else if (
-        T.isIdentifier(obj) &&
-        GLOBAL_OBJECTS.has(obj.text) &&
-        LOADER_IDS.has(node.name.text)
-      ) {
-        push('loader-alias', node, `${obj.text}.${node.name.text}`)
+      } else if (LOADER_PROPS.has(node.name.text)) {
+        push('loader-alias', node, `${obj.getText(sf)}.${node.name.text}`)
+      } else if (GLOBAL_PROPS.has(node.name.text) && passedAsValue(node)) {
+        push('loader-alias', node, `\`${node.getText(sf)}\` (global object) passed as a value`)
       } else if (
         T.isIdentifier(obj) &&
         obj.text === 'Reflect' &&
@@ -410,9 +434,14 @@ export function scanCode(filename, content, aliases) {
       }
     } else if (T.isElementAccessExpression(node)) {
       const obj = node.expression
+      const key = literal(node.argumentExpression) ? node.argumentExpression.text : null
       if (T.isMetaProperty(obj)) push('loader-alias', node, 'import.meta[...]')
-      else if (T.isIdentifier(obj) && (GLOBAL_OBJECTS.has(obj.text) || obj.text === 'Reflect')) {
-        push('loader-alias', node, `${obj.text}[...] (computed global member)`)
+      else if (isGlobalExpr(obj) || (T.isIdentifier(obj) && obj.text === 'Reflect')) {
+        push('loader-alias', node, `${obj.getText(sf)}[...] (computed global member)`)
+      } else if (key !== null && LOADER_PROPS.has(key)) {
+        push('loader-alias', node, `${obj.getText(sf)}['${key}']`)
+      } else if (key !== null && GLOBAL_PROPS.has(key) && passedAsValue(node)) {
+        push('loader-alias', node, `\`${node.getText(sf)}\` (global object) passed as a value`)
       }
     }
     T.forEachChild(node, visit)

@@ -205,4 +205,29 @@ else
   printf 'FAIL  [RED  ] exhausted-hang took %ss — expected well under 6s (2 attempts x CALL_TIMEOUT_SECONDS=1, RETRY_SLEEP_SECONDS=0)\n' "$DURATION7"
 fi
 
+# ── MATCH_HEAD (PR 11, Master addendum 5 item 1): the merge is pinned to the verified head ──
+PIN_SHA=abcdef0123456789abcdef0123456789abcdef01
+ARGS_PIN="$WS/args-pin"
+assert_green "MATCH_HEAD set: merges with --match-head-commit <sha>" \
+  --contains "Merged PR #551 on attempt 1/4" \
+  -- run_merge "0" "" "$WS/counter-pin" MATCH_HEAD="$PIN_SHA" FAKE_GH_MERGE_ARGS_LOG="$ARGS_PIN"
+assert_green "MATCH_HEAD set: the argv carries --match-head-commit $PIN_SHA" \
+  --contains "--match-head-commit $PIN_SHA" -- cat "$ARGS_PIN"
+ARGS_NOPIN="$WS/args-nopin"
+assert_green "MATCH_HEAD unset: merges as before" \
+  --contains "Merged PR #551 on attempt 1/4" \
+  -- run_merge "0" "" "$WS/counter-nopin" FAKE_GH_MERGE_ARGS_LOG="$ARGS_NOPIN"
+assert_green "MATCH_HEAD unset: argv is unchanged (no --match-head-commit)" \
+  --contains "pr merge 551 --repo acme/crm --squash --delete-branch" \
+  --not-contains "match-head-commit" -- cat "$ARGS_NOPIN"
+assert_red "MATCH_HEAD not a 40-hex sha: refuses before calling gh" \
+  --contains "MATCH_HEAD is not a 40-hex sha" \
+  -- run_merge "0" "" "$WS/counter-badpin" MATCH_HEAD="main"
+assert_green "MATCH_HEAD not a 40-hex sha: gh pr merge never called" \
+  -- test ! -e "$WS/counter-badpin"
+assert_red "MATCH_HEAD set, head moved (GitHub refuses): fails fast, one call" \
+  --contains "unrecognized error" \
+  -- run_merge "1:0" "GraphQL: Head branch was modified. Review and try the merge again. (mergePullRequest)|ok" "$WS/counter-moved" MATCH_HEAD="$PIN_SHA"
+assert_green "head-moved refusal: exactly one merge call" -- test "$(cat "$WS/counter-moved")" = 1
+
 guard_test_summary "test-gh-merge-pr-with-retry.sh"

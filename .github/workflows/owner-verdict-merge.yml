@@ -11,8 +11,9 @@ name: Owner Verdict Merge
 # nothing else would.
 #
 # Merge path, reused from auto-merge-on-label.yml: ADMIN_PAT reads the required contexts (one READ
-# call), check-required-checks-complete.sh waits, gh-merge-pr-with-retry.sh merges, then deploy +
-# post-merge CI are dispatched. PRs touching .github/workflows/** keep the manual-merge rule
+# call), owner-verdict-wait-checks.sh waits on the check runs of the verified head,
+# gh-merge-pr-with-retry.sh merges pinned to it (MATCH_HEAD), then deploy + post-merge CI are
+# dispatched. PRs touching .github/workflows/** keep the manual-merge rule
 # (GITHUB_TOKEN cannot write workflow files). Labels `do-not-merge` / `awaiting-pm-review` stop it.
 #
 # NEVER checks out or runs PR code: main is checked out sparse, the PR is read through the REST API
@@ -111,21 +112,9 @@ jobs:
             --zones scripts/devops/owner-verdict-zones.json --tsconfig-root . \
             --pr "$D/pr.json" --files "$D/files.json" --contents "$D/contents.json" \
             --owner "$OWNER" --json)
-          status=$(printf '%s' "$res" | jq -r '.status // "error"')
+          status=$(printf '%s' "$res" | jq -r '.status // "error"' || echo error)
           echo "verdict status: $status"
-          go=false
-          if [ "$status" != "approved" ]; then
-            echo "not merging: status is $status"
-          elif [ "$(jq -r .headSha "$D/pr.json")" != "$HEAD_SHA" ]; then
-            echo "not merging: the PR head moved past $HEAD_SHA"
-          elif jq -e 'any(.[]; .filename | startswith(".github/workflows/"))' "$D/files.json" >/dev/null; then
-            echo "::notice::PR #$PR_NUMBER touches .github/workflows/ — manual merge by the owner (GITHUB_TOKEN cannot write workflow files)."
-          elif gh api "repos/$REPO/issues/$PR_NUMBER/labels" --jq '.[].name' | grep -qxE 'do-not-merge|awaiting-pm-review'; then
-            echo "not merging: a do-not-merge / awaiting-pm-review label is set"
-          else
-            go=true
-          fi
-          echo "go=$go" >>"$GITHUB_OUTPUT"
+          STATUS="$status" bash scripts/devops/owner-verdict-decide.sh
 
       # Right after the owner's review the `Owner Verdict` check still shows its previous red run
       # until flow-gate-recheck.yml has re-run it (seconds), and check-required-checks-complete.sh
@@ -169,21 +158,24 @@ jobs:
           } >>"$GITHUB_OUTPUT"
 
       # Bounded: a check still running past the timeout gets a comment, and the completion of its
-      # own workflow (CI / E2E Tests) starts this workflow again and merges then.
+      # own workflow (CI / E2E Tests) starts this workflow again and merges then. Waits on the
+      # check runs of HEAD_SHA — the commit the verdict names — not on the PR's current head.
       - name: Wait for required checks
         id: wait_checks
         if: steps.required_contexts.outcome == 'success'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
           REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           REQUIRED_CONTEXTS: ${{ steps.required_contexts.outputs.list }}
           REPORT_FILE: ${{ runner.temp }}/required-checks-report.txt
           INTERVAL_SECONDS: '15'
           TIMEOUT_SECONDS: '600'
-        run: bash scripts/devops/check-required-checks-complete.sh
+        run: bash scripts/devops/owner-verdict-wait-checks.sh
 
+      # Pinned twice: the PR head is re-read right before the merge, and the merge itself carries
+      # --match-head-commit HEAD_SHA (MATCH_HEAD), so a push in between makes GitHub refuse it.
       - name: Squash and merge
         id: squash
         if: steps.wait_checks.outcome == 'success'
@@ -191,7 +183,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           REPO: ${{ github.repository }}
-        run: bash scripts/devops/gh-merge-pr-with-retry.sh
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          current=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')
+          if [ "$current" != "$HEAD_SHA" ]; then
+            echo "::error::PR head is now '$current', not the verified $HEAD_SHA — not merging."
+            exit 1
+          fi
+          MATCH_HEAD="$HEAD_SHA" bash scripts/devops/gh-merge-pr-with-retry.sh
 
       # One comment per head, saying what is pending or failed — later runs for the same head
       # find the marker and stay silent.

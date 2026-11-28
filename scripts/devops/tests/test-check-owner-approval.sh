@@ -233,6 +233,30 @@ const dark = globalThis.matchMedia?.('(prefers-color-scheme: dark)')
 const w = window.innerWidth"
 mk gok apps/web/app/components/g.tsx modified
 assert_green "plain window / globalThis member reads are NOT triggers (trade-off)" --contains "[not-required]" -- run gok
+# Master addendum 5 item 3: a property NAMED like the global object is the global object; a
+# property named like a loader is a trigger whatever the receiver.
+case_red galias1 apps/web/app/lib/ga1.ts modified "const p = a.globalThis.process" "a.globalThis.process" \
+  "a.globalThis.process (any receiver) -> refused"
+case_red galias2 apps/web/app/lib/ga2.ts modified "const g = window.self" "\`window.self\` (global object) passed as a value" \
+  "const g = window.self -> refused"
+case_red galias3 apps/web/app/lib/ga3.ts modified "const g = document.defaultView" \
+  "\`document.defaultView\` (global object) passed as a value" "const g = document.defaultView -> refused"
+case_red galias4 apps/web/app/lib/ga4.ts modified "const r = x.top['require']" "x.top[...] (computed global member)" \
+  "x.top['require'] (computed member of a global alias) -> refused"
+case_red galias5 apps/web/app/lib/ga5.ts modified "const m = x.getBuiltinModule('fs')" "x.getBuiltinModule" \
+  "x.getBuiltinModule (any receiver) -> refused"
+case_red galias6 apps/web/app/lib/ga6.ts modified "const r = cfg['require']" "cfg['require']" \
+  "a literal element access named require -> refused"
+case_red galias7 apps/web/app/lib/ga7.ts modified "use(a.parent)" "\`a.parent\` (global object) passed as a value" \
+  "f(a.parent) -> refused (trade-off: tree nodes named parent are flagged too)"
+src galiasok "const top = 10
+const parent = getParent()
+const h = window.location.href
+const y = rect.top + window.scrollY
+if (node.parent) walk(node.parent.children)"
+mk galiasok apps/web/app/components/ga.tsx modified
+assert_green "local top / parent, member reads of .top / .parent, window.location.href are NOT triggers" \
+  --contains "[not-required]" -- run galiasok
 case_red ieq apps/web/app/lib/ie.ts modified "import x = require('./x')" "import = require" \
   "import x = require(...) -> refused"
 case_red ctor2 apps/web/app/lib/c2.ts modified "const f = ''['constructor']['constructor']('return 1')" "eval" \
@@ -335,7 +359,7 @@ const Page = lazy(() => import('./page'))
 // a comment mentioning require(name) and import.meta.glob is prose, not code
 const u = import.meta.env.VITE_X
 const cfg = { module: 'x', require: false }
-const v = cfg.process"
+const v = cfg.processing"
 mk ui apps/web/app/components/x.tsx modified
 assert_green "UI file with ordinary / literal imports -> passes" --contains "[not-required]" -- run ui
 src reprot "import pg from 'pg'"
@@ -353,5 +377,68 @@ assert_green "removing a controller -> passes" --contains "[not-required]" -- ru
 src json '{ "dependencies": { "pg": "8" } }'
 mk json apps/e2e/fixtures/ok.json modified
 assert_green "plain data JSON is inert -> passes" --contains "[not-required]" -- run json
+
+# ── owner-verdict-decide.sh (Master addendum 5 item 2): fails closed ─────────────────────
+DECIDE="$GUARD_DIR/owner-verdict-decide.sh"
+STUB="$T/stub-gh"
+# The stub answers any `gh api ...` with the file $STUB_OUT, exits $STUB_RC, logs argv to $STUB_LOG.
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "$*" >>"${STUB_LOG:-/dev/null}"' \
+  'if [ -n "${STUB_OUT:-}" ]; then cat "$STUB_OUT"; fi' 'exit "${STUB_RC:-0}"' >"$STUB"
+chmod +x "$STUB"
+DD="$T/decide"
+mkdir -p "$DD"
+printf '{"headSha":"%s"}\n' "$HEAD" >"$DD/pr.json"
+printf '[{"filename":"apps/web/app/x.ts"}]\n' >"$DD/files.json"
+printf 'ready\n' >"$T/labels-clean"
+printf 'ready\ndo-not-merge\n' >"$T/labels-block"
+decide() { # <status> <stub-rc> <labels-file>
+  env STATUS="$1" HEAD_SHA="$HEAD" D="$DD" REPO=acme/crm PR_NUMBER=7 GH_BIN="$STUB" \
+    STUB_RC="$2" STUB_OUT="$3" GITHUB_OUTPUT= bash "$DECIDE"
+}
+assert_green "Decide: approved, clean labels -> go=true" --contains "go=true" -- decide approved 0 "$T/labels-clean"
+assert_green "Decide: labels API fails -> go=false (fails closed)" --contains "go=false" \
+  --contains "could not read the PR labels" -- decide approved 1 ""
+assert_green "Decide: do-not-merge label -> go=false" --contains "go=false" -- decide approved 0 "$T/labels-block"
+assert_green "Decide: status missing -> go=false" --contains "go=false" -- decide missing 0 "$T/labels-clean"
+printf '{"headSha":"%s"}\n' "$OLD" >"$DD/pr.json"
+assert_green "Decide: head moved -> go=false" --contains "go=false" --contains "head moved" \
+  -- decide approved 0 "$T/labels-clean"
+printf '{"headSha":"%s"}\n' "$HEAD" >"$DD/pr.json"
+printf 'not json\n' >"$DD/files.json"
+assert_green "Decide: files.json unreadable -> go=false" --contains "go=false" -- decide approved 0 "$T/labels-clean"
+printf '[{"filename":".github/workflows/ci.yml"}]\n' >"$DD/files.json"
+assert_green "Decide: a workflow file -> go=false (manual merge)" --contains "go=false" \
+  -- decide approved 0 "$T/labels-clean"
+
+# ── owner-verdict-wait-checks.sh (item 1): waits on the check runs of HEAD_SHA ─────────────
+WAIT="$GUARD_DIR/owner-verdict-wait-checks.sh"
+run_json() { # <name> <status> <conclusion-json> [app_id]
+  printf '{"name":"%s","status":"%s","conclusion":%s,"started_at":"2026-11-28T00:00:00Z","app_id":%s}\n' \
+    "$1" "$2" "$3" "${4:-15368}"
+}
+{ run_json "CI" completed '"success"'; run_json "Owner Verdict" completed '"success"'; } >"$T/runs-green"
+{ run_json "CI" completed '"failure"'; run_json "Owner Verdict" completed '"success"'; } >"$T/runs-red"
+{ run_json "CI" completed '"success"'; run_json "Owner Verdict" completed '"success"' 99; } >"$T/runs-otherapp"
+{ run_json "CI" completed '"success"'; run_json "Owner Verdict" in_progress null; } >"$T/runs-pending"
+run_json "CI" completed '"success"' >"$T/runs-missing"
+wait_checks() { # <runs-file> <stub-rc>
+  env REPO=acme/crm HEAD_SHA="$HEAD" REQUIRED_CONTEXTS="CI
+Owner Verdict" GH_BIN="$STUB" STUB_OUT="$1" STUB_RC="$2" STUB_LOG="$T/wait.log" \
+    INTERVAL_SECONDS=0 TIMEOUT_SECONDS=0 bash "$WAIT"
+}
+rm -f "$T/wait.log"
+assert_green "Wait: all required contexts green on HEAD_SHA -> merge" --contains "all required checks are green" \
+  -- wait_checks "$T/runs-green" 0
+assert_green "Wait: it reads commits/<HEAD_SHA>/check-runs, not the PR's checks" \
+  --contains "commits/$HEAD/check-runs" --not-contains "pr checks" -- cat "$T/wait.log"
+assert_red "Wait: a failed required check -> refused" --contains "fail:failure CI" -- wait_checks "$T/runs-red" 0
+assert_red "Wait: a required context with no run on HEAD_SHA -> not green at the timeout" \
+  --contains "pending Owner Verdict (no run on this commit)" -- wait_checks "$T/runs-missing" 0
+assert_red "Wait: a run still in progress -> not green at the timeout" \
+  --contains "pending Owner Verdict (in_progress)" -- wait_checks "$T/runs-pending" 0
+assert_red "Wait: a look-alike from another app does not count" \
+  --contains "pending Owner Verdict (no run on this commit)" -- wait_checks "$T/runs-otherapp" 0
+assert_red "Wait: the API read fails -> not green (transient, then timeout)" \
+  --contains "check-runs read failed" -- wait_checks "$T/runs-green" 1
 
 guard_test_summary "test-check-owner-approval.sh"

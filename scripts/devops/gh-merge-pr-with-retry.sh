@@ -94,6 +94,11 @@
 #   CALL_TIMEOUT_SECONDS  cap on a SINGLE `gh pr merge` invocation
 #                  (default: 60) — see "THE CALL ITSELF IS TIMEOUT-WRAPPED"
 #                  above.
+#   MATCH_HEAD     optional 40-hex sha. When set, the merge is pinned to it
+#                  (`--match-head-commit`): GitHub refuses the merge if the PR
+#                  head moved after the caller verified it, and that refusal is
+#                  an unrecognized error, so it fails fast. Unset = the call is
+#                  exactly as before (auto-merge-on-label.yml).
 #
 # Exit codes:
 #   0  merged (first try or after a retry).
@@ -120,11 +125,20 @@ GH_BIN="${GH_BIN:-gh}"
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-4}"
 RETRY_SLEEP_SECONDS="${RETRY_SLEEP_SECONDS:-5}"
 CALL_TIMEOUT_SECONDS="${CALL_TIMEOUT_SECONDS:-60}"
+MATCH_HEAD="${MATCH_HEAD:-}"
+pin=()
+if [ -n "$MATCH_HEAD" ]; then
+  case "$MATCH_HEAD" in
+    *[!0-9a-f]*) echo "::error::MATCH_HEAD is not a 40-hex sha — refusing to merge."; exit 1 ;;
+  esac
+  [ "${#MATCH_HEAD}" -eq 40 ] || { echo "::error::MATCH_HEAD is not a 40-hex sha — refusing to merge."; exit 1; }
+  pin=(--match-head-commit "$MATCH_HEAD")
+fi
 
 attempt=1
 last_out=""
 while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
-  run_with_timeout "$CALL_TIMEOUT_SECONDS" "$GH_BIN" pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
+  run_with_timeout "$CALL_TIMEOUT_SECONDS" "$GH_BIN" pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch ${pin[@]+"${pin[@]}"}
   last_out="$_TIMEOUT_OUT"
   rc="$_TIMEOUT_RC"
 
