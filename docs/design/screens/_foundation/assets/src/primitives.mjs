@@ -15,6 +15,7 @@ import {
   savedOverPill,
   savedQueuePill,
   resultsChooser,
+  searchInPlace,
 } from './money-form.mjs'
 import {
   sheetMedium,
@@ -121,6 +122,7 @@ function allFrames() {
     M('sheet-medium-375', 375, 812, sheetMedium(375, 812)),
     M('sheet-medium-320', 320, 568, sheetMedium(320, 568)),
     M('sheet-large-375', 375, 812, sheetLarge(375, 812)),
+    M('sheet-large-320', 320, 568, sheetLarge(320, 568)),
     M('sheet-confirm-375', 375, 812, sheetConfirm(375, 812)),
     M('listrow-variants-375', 375, 812, listVariants(375, 812)),
     M('listrow-swipe-375', 375, 812, listSwipe(375, 812)),
@@ -260,6 +262,7 @@ function allFrames() {
     C('list-footer-375', 375, 600, listFooter()),
     C('list-footer-320', 320, 600, listFooter(320)),
     M('search-paged-375', 375, 812, searchPaged(375, 812)),
+    M('search-inplace-375', 375, 812, searchInPlace(375, 812)),
     M('chart-mobile-375', 375, 812, chartMobile(375, 812)),
     M('chart-mobile-scrolled-375', 375, 812, chartMobile(375, 812, { scrolled: 470 })),
     M('chart-mobile-tapped-375', 375, 812, chartMobile(375, 812, { tapped: true })),

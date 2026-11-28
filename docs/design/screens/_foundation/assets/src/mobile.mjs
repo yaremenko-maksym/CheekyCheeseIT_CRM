@@ -192,6 +192,7 @@ export function dayTotal(rows) {
 const CLAMP2 =
   'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere'
 
+// R7-05 (§12.0): the amount floats right on line 1 only; the title's line 2 runs under it at the full row width.
 export function txnRow(x, { compact = false, menu = false } = {}) {
   // match: every sent field equal and created after the send by server time (full highlight + «збіг»);
   // tag: a muted label that never highlights («схожа», «раніше»); isNew: created after the send («нова» only)
@@ -219,7 +220,7 @@ export function txnRow(x, { compact = false, menu = false } = {}) {
     ? ';background:oklch(0.84 0.183 85.3 / 0.1);box-shadow:inset 3px 0 0 var(--primary)'
     : ''
   return `<div class="lrow two" style="--inset:64px${hl}"><div class="lead">${icon(x.ic, { size: 18 })}</div>
-  <div class="grow col" style="gap:2px"><div class="row" style="align-items:flex-start;gap:12px"><div class="t-body grow clamp2" style="font-weight:500;min-width:0">${x.t}</div><span class="amount ${x.neg ? '' : 'pos'}" style="flex:none">${x.a}</span></div>${meta}${tagRow}</div>${menu ? `<button type="button" class="iconbtn" aria-haspopup="menu" aria-label="Дії: ${x.t}" style="margin-right:-8px;flex:none">${icon('ellipsis', { size: 22 })}</button>` : ''}</div>`
+  <div class="grow col" style="gap:2px"><div class="t-body clamp2" style="font-weight:500;min-width:0"><div><span class="amount ${x.neg ? '' : 'pos'}" style="float:right;margin-left:12px">${x.a}</span>${x.t}</div></div>${meta}${tagRow}</div>${menu ? `<button type="button" class="iconbtn" aria-haspopup="menu" aria-label="Дії: ${x.t}" style="margin-right:-8px;flex:none">${icon('ellipsis', { size: 22 })}</button>` : ''}</div>`
 }
 
 export function txnList(rows = TXNS, { stickyFirst = true } = {}) {

@@ -7,6 +7,7 @@
 //                   and the same {placeholders}.
 // r6 (R5-18, R5-28): `two ways` — one string drawn with two texts that differ only by a trailing «…», «.» or «:»;
 //   `dangling` — a rendered line that ends on «·» (per frame, from the text's Range rects).
+// r8 (R7-24): `two ways` also reads every accessible name (`aria-label`), not only the drawn text.
 // r7 (R6-13): `dangling` also flags a user title whose «·» starts a line, and «з» / «о» split from their value.
 // Usage: node strings.mjs <shell|primitives|all> [frame-name-filter]   (same env as measure.mjs)
 // Reads the uk and en columns of the §12 Strings table, renders each frame, collects every visible text block
@@ -256,6 +257,18 @@ for (const f of frames) {
   await page.setContent(f.html, { waitUntil: 'networkidle' })
   const dl = await page.evaluate(dangling, USER_TITLES)
   if (dl.length) dangles.set(f.name, dl)
+  // r8 (R7-24): accessible names join `two ways` (never coverage: per-ID markup stays deferred, R6-30), so an
+  // `aria-label` «Видалити…» beside a drawn «Видалити» is caught as one string written two ways.
+  const labels = await page.evaluate(() =>
+    [...document.querySelectorAll('[aria-label]')]
+      .filter((e) => !e.closest('.status,.kbd,.kbar,.homebar,[data-note],[aria-hidden="true"]'))
+      .map((e) => e.getAttribute('aria-label').replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g, ' ').trim())
+      .filter(Boolean),
+  )
+  for (const t of labels) {
+    if (!variants.has(vkey(t))) variants.set(vkey(t), new Set())
+    variants.get(vkey(t)).add(t)
+  }
   for (const b of await page.evaluate(blocks)) {
     nBlocks++
     for (const line of b.split('\n'))

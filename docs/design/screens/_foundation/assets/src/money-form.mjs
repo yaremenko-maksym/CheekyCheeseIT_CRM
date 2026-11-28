@@ -219,7 +219,7 @@ export const DECIMAL_H = 44 + 4 * 46 + 4 * 8 + 30 + 8
 
 // R6-15: the drawn return key comes from the focused field's `enterkeyhint`: «Далі» (next), «Готово» on the last field
 // (done), and the return glyph in a textarea (enter), never «Далі» there.
-const RETURN = { next: 'Далі', done: 'Готово', enter: icon('corner-down-left', { size: 20 }) }
+const RETURN = { next: 'Далі', done: 'Готово', search: 'Пошук', enter: icon('corner-down-left', { size: 20 }) }
 export function textKeyboard(hint = 'next') {
   const key = (k) =>
     `<span style="flex:1;height:42px;border-radius:6px;background:oklch(0.36 0 0);display:grid;place-items:center;font-size:20px;color:#fff">${k}</span>`
@@ -283,7 +283,9 @@ export function moneyForm({
     const inner = `${topBar({ back: true, title, bell: false, search: false })}<div class="content">${body}</div>${bar}${kbd}`
     return phone({ w, h, inner, overlay: over })
   }
-  const overlay = `${sheet({ w, h, top: safeTop(w) + 10, title, lead: `<span style="font-size:17px">${lead}</span>`, body, footer: bar })}${kbd}${over}`
+  // R7-12: equal side slots (each as wide as «Скасувати» / «Згорнути»), so the title stays centred and ellipsizes
+  // between them instead of crowding the leading control.
+  const overlay = `${sheet({ w, h, top: safeTop(w) + 10, title, lead: `<span style="font-size:17px">${lead}</span>`, body, footer: bar }).replace('<div class="sheethead">', '<div class="sheethead" style="--side:104px">')}${kbd}${over}`
   return tabScreen({
     w,
     h,
@@ -951,7 +953,9 @@ const pinDrafts = (drafts) => {
 }
 
 /** The kept draft, pinned at the top of the Фінанси list when reached another way. */
-export const listrowDraft = (w, h) => draftFab(financeTab(w, h, '', pinDrafts([DRAFT.failed])))
+// R7-17: the same state as upload-pill-failed-375, so the same pill: a failed draft always has its pill and its row.
+export const listrowDraft = (w, h) =>
+  draftFab(financeTab(w, h, moneyPill(w, 'failed'), pinDrafts([DRAFT.failed])))
 
 /** One failed + one armed draft: the failed one wins the pill (unknown > failed > in flight > armed > saved); both are pinned. */
 export const draftsTwo = (w, h) => {
@@ -1038,4 +1042,23 @@ export function quickAddDrafts(
     scroll: `data-scroll-body${end ? ' data-scroll-end' : ''}`,
   })
   return draftFab(overHome(base, overlay + (end ? SCROLL_END : '')), 2, 'Створити')
+}
+
+/** R7-08 (shell-v2 Top bar «focus the search in place», the one rule): Фінанси scrolled to «Вчора»; the bar's
+ * magnifier dropped the field in under the bar over the list, focused, keyboard up. The list did not move: its rows
+ * are where they were before the tap. Results replace the list only once a query is typed; «Скасувати» or Esc puts
+ * the field back and leaves the position as it was. */
+export function searchInPlace(w, h) {
+  const top = safeTop(w) + 44
+  const field = `<div role="search" class="row" style="position:absolute;left:0;right:0;top:${top}px;z-index:30;gap:8px;padding:8px 8px 10px 16px;background:var(--bg);border-bottom:1px solid var(--separator)"><div class="row grow" role="searchbox" aria-label="Пошук транзакцій" style="gap:8px;height:44px;border-radius:12px;background:var(--surface);padding:0 12px;color:var(--placeholder);font-size:16px;box-shadow:0 0 0 2px var(--primary)">${icon('search', { size: 18 })}<span style="width:2px;height:22px;background:var(--primary);margin-left:-2px"></span><span>Пошук транзакцій</span></div><button type="button" class="btn ghost" style="flex:none;height:44px;padding:0 8px;font-size:17px;color:var(--primary)">Скасувати</button></div>`
+  return tabScreen({
+    w,
+    h,
+    role: 'ADMIN',
+    active: '/finance',
+    title: 'Фінанси',
+    body: financeBody(),
+    overlay: field + textKeyboard('search'),
+    scrolled: 380,
+  })
 }

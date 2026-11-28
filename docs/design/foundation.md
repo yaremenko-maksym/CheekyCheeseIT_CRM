@@ -66,8 +66,12 @@ Rules that hold in every class:
   gesture). **The one exception (R3-28):** the installed standalone PWA on iOS, which has no system back
   gesture: there a pushed page gets the app's own edge-swipe back (the storyboard «Назад» row), from the
   left 20 px only and never on a tab root; in a browser tab and on Android it is off. **The standalone PWA has
-  no browser reload either (R6-28):** on every class, when `display-mode: standalone`, the list's overflow menu
-  «…» carries «Оновити» (the same refetch as pull-to-refresh), so a refetch never depends on a gesture. Swipe actions on
+  no browser reload either (R6-28, R7-09; the one rule for a manual refresh):** in a browser tab the manual refresh
+  at ≥ 640 is the browser's reload, and a phone has pull-to-refresh; when `display-mode: standalone`, on every
+  class, the list-level trigger — a 44 px «…» `aria-label="Дії зі списком"` at the trailing end of the list toolbar
+  (the phone: in the top bar, left of the magnifier) — opens a menu whose first item is «Оновити» (the same refetch
+  as pull-to-refresh: the list's query only, never a page reload), so a refetch never depends on a gesture or on
+  browser chrome. primitives-v2 §7 points here. Swipe actions on
   list rows come from the trailing edge only.
 
 ---

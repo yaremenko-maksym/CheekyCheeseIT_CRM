@@ -68,11 +68,12 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 - Tab root: large title 28/34 that collapses into a 44 px inline bar on scroll; bell (and search where the
   screen has it) on the right. **Magnifier (R3-22):** on a screen with an inline search field the bar
   carries the magnifier at rest and collapsed, always left of the bell (the bell never leaves the bar); a
-  tap scrolls the list to the top and focuses the inline field, so it is a shortcut to that one field, never
-  a second search (`listrow-sticky-320`, `ptr-pulling-375`). **Where search lives when scrolled (R5-26, the
+  tap focuses that one search, never a second search, and **never scrolls the list** (R7-08: the binding
+  behaviour is the next rule, «focus the search in place»; `listrow-sticky-320`, `ptr-pulling-375`,
+  `search-inplace-375`). **Where search lives when scrolled (R5-26, the
   one rule):** the inline field scrolls with the list on every class (phone and tablet list pane); scrolled,
   the way back is the bar's magnifier on a phone, and on a tablet a 44 px magnifier that appears in the
-  pane header left of the bell once the field has scrolled out; both **focus the search in place (R6-26)**: the field drops in under the bar over the list, the list keeps its scroll position, and the list is replaced by results only once a query is typed; Esc or «Скасувати» puts the field back and leaves the position as it was. A screen without an inline search (Статистика, Дашборд) draws no magnifier
+  pane header left of the bell once the field has scrolled out; both **focus the search in place (R6-26)**: the field drops in under the bar over the list, the list keeps its scroll position, and the list is replaced by results only once a query is typed; Esc or «Скасувати» puts the field back and leaves the position as it was (`search-inplace-375`: the field open over a list scrolled to «Вчора»). At scroll 0 the inline field itself takes focus, which is the same thing: it is already in place. A screen without an inline search (Статистика, Дашборд) draws no magnifier
   (`chart-mobile-375`).
 - Pushed screen: 44 px bar, back chevron (44 × 44 `<button>`, `aria-label="Назад"`) + a 17/22 title
   **centred on the bar, not on the space left over** (iOS): the title is absolutely positioned and
@@ -180,7 +181,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   (`notifications-1440`). The bell reads «Сповіщення, 14 нових» and carries the unread dot while anything is unread. The popover is **non-modal**: Tab past its last control closes it and moves on to the next control after the bell; Esc closes it and returns focus to the bell.
 - **Content:** one newest-first list from the existing feed (`GET /api/notifications?limit=10`). The count line «Непрочитаних: N» (muted body text, `tabular-nums`; not a section overline) takes N from the response's server-computed `unreadCount`, never from the loaded rows, so it reads «Непрочитаних: 14» while the first page holds two unread rows; it and «Прочитати все» show only while N > 0. The panel pages inside itself with the List footer auto-load (primitives-v2 §3): reaching the end loads the next 10 (skeleton row, then the inline «Не вдалося завантажити ще · Повторити» on failure). The feed has no cursor yet: a keyset `before` cursor `(created_at, id)` of the last row on the same endpoint is a Wave 1 API AC (a time alone skips rows that share it). **Poll:** the 30 s poll refetches only the first page (limit 10) and `unreadCount`, and merges rows by id; older pages are never refetched, and pages load only while the panel is open. **New while open:** a row that arrives while the panel is open never shifts the list; it waits behind a top chip «1 нове · Показати» (a 44 px button; it inserts the new rows and keeps focus where it was). A row: icon tile (a yellow dot on its corner while unread), title (600 while unread; wraps, never truncates) and one muted line that starts with the relative time (`tabular-nums`) and wraps, so an amount is never cut. The link «Усе, що чекає рішення» is pinned under the list (it never scrolls away while pages load) and opens Чекають рішення.
 - **States:** the unread list; **empty**: «Сповіщень немає» and «Тут з’являться події за вашими проєктами,
-  грошима та документами», with no «Прочитати все», no pinned link and no bell dot (`notifications-empty-375`);
+  грошима та документами», with no «Прочитати все» and no bell dot; the pinned link «Усе, що чекає рішення» **stays in every state** (empty, loading, error: it is the shipped always-available way to the decisions page, R7-07) (`notifications-empty-375`, `notifications-loading-375`, `notifications-error-375`);
   **loading**: the real header, the count line and four skeleton rows (`notifications-loading-375`); **error**: `role="alert"` «Не вдалося
   завантажити сповіщення» with «Повторити», which re-reads only; a list loaded before stays visible under
   it (`notifications-error-375`). The tablet popover is the desktop one at touch sizes (`notifications-768`).
@@ -209,7 +210,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   pushed, and back returns to the page the bell was opened on, never to the panel. A target the viewer
   can no longer see opens that page's own not-found state. **A row with no target (R3-24, R5-10)** (a system notice) is not a link: while unread it is a `<button>` («Позначити як прочитане: …») that marks it read in place, navigates nowhere and has no chevron; once read it is plain text (not focusable), and **focus moves to the nearest actionable row (R6-09)**: the next
   focusable row, else the previous one, else the panel heading (`tabindex="-1"`); never to plain text or nowhere. The panel stays open. Drafts and markers are untouched (foundation §11, row «Open a notification»). With a dirty form open, the row's navigation first runs the dirty-close confirm (foundation §11, row «Navigate away with a dirty form»).
-- **A11y:** sheet and popover are `role="dialog"` «Сповіщення». Keyboard focus moves to the first row (no ring on touch). The phone sheet is modal (focus trap; Esc or the close button returns focus to the bell). The ≥ 640 popover is non-modal: no trap; Tab past its last control closes it and focus moves on in page order; Esc closes it and returns focus to the bell. A notification that arrives
+- **A11y:** sheet and popover are `role="dialog"` «Сповіщення». Keyboard focus moves to the first row (no ring on touch); **with no row (R7-10)** it moves to the panel heading (`tabindex="-1"`) while loading and when empty, and to «Повторити» on an error without a loaded list. The phone sheet is modal (focus trap; Esc or the close button returns focus to the bell). The ≥ 640 popover is non-modal: no trap; Tab past its last control closes it and focus moves on in page order; Esc closes it and returns focus to the bell. A notification that arrives
   while the panel is open is announced once, politely («1 нове сповіщення»), and never moves focus or the rows (the «1 нове · Показати» chip above).
 
 ### Shell states
@@ -389,26 +390,27 @@ changes.
 What each shipped shell piece becomes in v2. «Keep» = the component stays, restyled to the v2 tokens;
 «Retire» = removed once the last screen moves off it (the screen specs own the order).
 
-| Shipped piece                       | v2                                                                                                  |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `ui/dialog.tsx`                     | Keep: the base of the centred dialogs ≥ 640 («Нові записи», the shortcut sheet, Cmd+K)              |
-| `ui/alert-dialog.tsx`               | Keep: every confirm ≥ 640 and the session alert; the phone confirm is the action sheet over it      |
-| `ui/crm-dialog.tsx`                 | Retire: forms move to the side panel ≥ 640 and the sheet or pushed page < 640                       |
-| `ui/sheet.tsx`                      | Keep as the side panel ≥ 640; the phone sheet is the new Base UI Drawer variant                     |
-| `ui/tabs.tsx` (AnimatedTabs)        | Keep for in-page sections; 2–3 filter values use the segmented control                              |
-| `ui/dropdown-menu.tsx`              | Keep: the row menu and the header compact menu ≥ 640; < 640 the action sheet                        |
-| `ui/popover.tsx` + `ui/command.tsx` | Keep: Picker ≥ 640, the DateField calendar, the notifications popover, Cmd+K                        |
-| `ui/calendar.tsx`                   | Keep inside the new `DateField`                                                                     |
-| `ui/date-picker.tsx`                | Retire: replaced by `DateField` (the typed field, the popover calendar ≥ 640, the sheet < 640)      |
-| `layout/notifications-bell.tsx`     | Keep as the bell trigger and its badge; its panel becomes the sheet < 640 and the popover ≥ 640     |
-| `ui/month-picker.tsx`               | Keep for month periods (Статистика); a single day uses `DateField`                                  |
-| `ui/phone-input.tsx`                | Keep, restyled to 48 px / 16 px on touch                                                            |
-| `ui/sonner.tsx`                     | Keep: the undo toast and the result toasts                                                          |
-| `ui/alert.tsx`                      | Keep: the inline save errors and the banner bodies                                                  |
-| `onboarding/TosUpdateBanner.tsx`    | Keep its content; it joins the banner stack (primitives-v2 §12 order) instead of its own slot       |
-| Onboarding (no shell)               | Keep: no tab bar, rail or sidebar; the banner stack still shows impersonation                       |
-| `layout/ImpersonationBanner.tsx`    | Keep its content; it is the pinned first entry of the banner stack                                  |
-| `crm/nav-sidebar.tsx`               | Keep as the sidebar ≥ 1024 (groups, 36 / 44 px rows, collapse); below 1024 the rail and the tab bar |
+| Shipped piece                                 | v2                                                                                                  |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `ui/dialog.tsx`                               | Keep: the base of the centred dialogs ≥ 640 («Нові записи», the shortcut sheet, Cmd+K)              |
+| `ui/alert-dialog.tsx`                         | Keep: every confirm ≥ 640 and the session alert; the phone confirm is the action sheet over it      |
+| `ui/crm-dialog.tsx`                           | Retire: forms move to the side panel ≥ 640 and the sheet or pushed page < 640                       |
+| `ui/sheet.tsx`                                | Keep as the side panel ≥ 640; the phone sheet is the new Base UI Drawer variant                     |
+| `ui/tabs.tsx` (AnimatedTabs)                  | Keep for in-page sections; 2–3 filter values use the segmented control                              |
+| `ui/dropdown-menu.tsx`                        | Keep: the row menu and the header compact menu ≥ 640; < 640 the action sheet                        |
+| `ui/popover.tsx` + `ui/command.tsx`           | Keep: Picker ≥ 640, the DateField calendar, the notifications popover, Cmd+K                        |
+| `ui/calendar.tsx`                             | Keep inside the new `DateField`                                                                     |
+| `ui/date-picker.tsx`                          | Retire: replaced by `DateField` (the typed field, the popover calendar ≥ 640, the sheet < 640)      |
+| `layout/notifications-bell.tsx`               | Keep as the bell trigger and its badge; its panel becomes the sheet < 640 and the popover ≥ 640     |
+| The bell panel's «Усе, що чекає рішення» link | Keep: pinned under the list in every state, empty and error included (R7-07)                        |
+| `ui/month-picker.tsx`                         | Keep for month periods (Статистика); a single day uses `DateField`                                  |
+| `ui/phone-input.tsx`                          | Keep, restyled to 48 px / 16 px on touch                                                            |
+| `ui/sonner.tsx`                               | Keep: the undo toast and the result toasts                                                          |
+| `ui/alert.tsx`                                | Keep: the inline save errors and the banner bodies                                                  |
+| `onboarding/TosUpdateBanner.tsx`              | Keep its content; it joins the banner stack (primitives-v2 §12 order) instead of its own slot       |
+| Onboarding (no shell)                         | Keep: no tab bar, rail or sidebar; the banner stack still shows impersonation                       |
+| `layout/ImpersonationBanner.tsx`              | Keep its content; it is the pinned first entry of the banner stack                                  |
+| `crm/nav-sidebar.tsx`                         | Keep as the sidebar ≥ 1024 (groups, 36 / 44 px rows, collapse); below 1024 the rail and the tab bar |
 
 ---
 

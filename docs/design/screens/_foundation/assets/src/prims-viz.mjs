@@ -665,7 +665,7 @@ export function transitions() {
   return `<div class="board" style="width:900px;gap:28px">
   <h2>Переходи між сторінками · мобільні</h2>
   ${rowOf('Push: список → деталі', 'View Transitions · 280 мс · cubic-bezier(0.2, 0, 0, 1) · попередній екран зсувається на −30%', [push(100, '0 мс'), push(45, '140 мс'), push(0, '280 мс · фокус на заголовок')])}
-  ${rowOf('Назад: кнопка або свайп від краю', 'та сама крива у зворотний бік · 240 мс · свайп керує прогресом, відпускання — пружина', [push(0, 'палець біля лівого краю'), push(55, 'жест 55% · напівпрозорий список'), push(100, 'відпущено → повернення')])}
+  ${rowOf('Назад: кнопка; свайп від краю — лише iOS standalone', 'та сама крива у зворотний бік · 240 мс · свайп керує прогресом, відпускання — пружина', [push(0, 'палець біля лівого краю'), push(55, 'жест 55% · напівпрозорий список'), push(100, 'відпущено → повернення')])}
   ${rowOf('Вкладки', 'без анімації: миттєве перемикання, позиція прокрутки кожної вкладки зберігається', [tabCell('/finance', 'Фінанси'), tabCell('/stats', 'Статистика · 0 мс')])}
   ${rowOf('Аркуш', 'scrim 0→60% 200 мс + translateY 100%→0 280 мс · закриття 150 мс · drag-to-dismiss — m.* spring', [sh(100, 0, '0 мс'), sh(35, 0.6, '160 мс'), sh(0, 1, '280 мс · фокус у аркуші')])}
   <h2>Планшет (640–1023)</h2>
@@ -693,13 +693,14 @@ export function listFooter(w = 375, { menu = false } = {}) {
 
 /** Search on a paged list: a client-side filter says what it covered while more pages exist. */
 export function searchPaged(w, h) {
+  // R7-20: results are not grouped by day, so every row leads its meta with its date («сьогодні» included).
   const rows = [
-    TXNS.find((r) => r.t === 'Хмарний хостинг'),
+    { ...TXNS.find((r) => r.t === 'Хмарний хостинг'), time: 'сьогодні · 09:12' },
     {
       t: 'Хостинг серверів',
-      s: 'Витрата · 10.11.2026',
+      s: 'Витрата',
       a: '−45,00 USD',
-      time: '09:10',
+      time: '10.11 · 09:10',
       ic: 'receipt',
       neg: true,
     },

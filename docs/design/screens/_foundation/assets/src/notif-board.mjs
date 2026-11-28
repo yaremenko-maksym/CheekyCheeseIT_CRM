@@ -124,7 +124,8 @@ export function notificationsSheet(w, h, { empty = false, state = '', undo = fal
         : notifList(true, Number(undo))
   const top = Math.round(h * (empty || state === 'error' ? 0.5 : 0.28))
   const footer =
-    empty || state ? '' : `${undo ? deleteToast(Number(undo)) : ''}${allLink(safeBottom(w))}`
+    // R7-07: the shipped always-available link stays pinned in every state (empty, loading, error too).
+    `${!empty && !state && undo ? deleteToast(Number(undo)) : ''}${allLink(safeBottom(w))}`
   const overlay = sheet({ w, h, top, title: 'Сповіщення', trail: closeBtn, body, footer }).replace(
     '<div style="flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain">',
     `<div style="flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain${empty ? `;padding-bottom:${safeBottom(w)}px` : ''}">`,

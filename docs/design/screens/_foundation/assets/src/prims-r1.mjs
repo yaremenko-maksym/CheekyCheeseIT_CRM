@@ -364,16 +364,10 @@ export function chartTablet(w, h, { tapped = false } = {}) {
   return tablet({ w, h, list, active: '/stats' })
 }
 
+// R7-19: paging without a query: the list reached its loaded end and auto-loads the next page (skeleton rows), as
+// §3 List footer says; with a query auto-load is off and the covered line answers instead (`search-paged-375`).
 export function listFooterTablet(w, h) {
-  const covered = `<div class="row" style="gap:12px;padding:12px 16px;justify-content:space-between"><span class="t-foot muted num" style="min-width:0">Шукали серед завантажених, з\u00a09.11</span><span class="btn sm secondary" role="button" style="height:44px;flex:none">Шукати далі</span></div>`
-  const list = txnPane(
-    `${listFooter(w - 80, { menu: true }).replace(/width:\d+px;/, '')}${covered}`,
-  )
-  // R3-30: the covered line answers a query, so the field carries one (typed text, the clear button).
-  return tablet({ w, h, list }).replace(
-    /color:var\(--placeholder\);font-size:16px">(<svg[\s\S]*?<\/svg>)<span>Пошук транзакцій<\/span>/,
-    `color:var(--fg);font-size:16px">$1<span class="grow">оренда</span><span class="iconbtn" role="button" aria-label="Очистити пошук" style="margin-right:-10px;color:var(--muted-fg)">${icon('x', { size: 18 })}</span>`,
-  )
+  return tablet({ w, h, list: txnPane(listFooter(w - 80, { menu: true }).replace(/width:\d+px;/, '')) })
 }
 
 /** Desktop table end: the next page auto-loads at the end; failure keeps the rows and adds an inline retry row. */

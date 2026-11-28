@@ -84,7 +84,10 @@ export const amt = (a) => {
 function table(contentW, { skeleton = false, headOnly = false, rows = ROWS, touch = false } = {}) {
   // ≥ 1032 px of main (a 1280 viewport with the 248 sidebar) fits «Проєкт»; below, it rides in «Опис» as muted text.
   const wide = contentW >= 1032
-  const head = ['Дата', 'Опис', 'Тип', ...(wide ? ['Проєкт'] : []), 'Чек', 'Сума']
+  // R7-05: under 800 px of main (a side panel open beside the table) «Тип» leaves the grid and rides in «Опис» as
+  // the first part of the muted tail, so «Опис» keeps room for its distinguishing word.
+  const slim = contentW < 800
+  const head = ['Дата', 'Опис', ...(slim ? [] : ['Тип']), ...(wide ? ['Проєкт'] : []), 'Чек', 'Сума']
   const th =
     head
       .map(
@@ -110,10 +113,13 @@ function table(contentW, { skeleton = false, headOnly = false, rows = ROWS, touc
           // R4-28: the project is atomic: drawn whole after the description or not at all. Both sit in one
           // wrapping line of fixed height, so a project that does not fit whole wraps out of sight and the
           // description truncates alone (never «Опис · А…»). The project stays in the row's accessible name.
-          !wide && p !== '—'
-            ? `<span title="${t} · ${p}" aria-label="${t} · ${p}" style="display:flex;flex-wrap:wrap;min-width:0;height:20px;overflow:hidden"><span class="trunc" style="flex:0 1 auto;min-width:0">${t}</span><span class="muted" aria-hidden="true" style="flex:none;white-space:pre"> · ${p}</span></span>`
-            : `<span class="trunc" title="${t}">${t}</span>`
-        }${st ? `<span class="pill warn" style="height:20px;font-size:11px">${st}</span>` : ''}</span></td><td class="muted">${ty}</td>${wide ? `<td class="muted trunc">${p}</td>` : ''}<td style="text-align:center" class="muted">${att ? icon('paperclip', { size: 14 }) : ''}</td><td class="num" style="text-align:right;font-weight:600;${pos ? 'color:var(--positive)' : ''}">${amt(a)}</td><td class="kcell">${kebab(t)}</td></tr>`,
+          (() => {
+            const tail = [...(slim ? [ty] : []), ...(!wide && p !== '—' ? [p] : [])].join(' · ')
+            return tail
+              ? `<span title="${t} · ${tail}" aria-label="${t} · ${tail}" style="display:flex;flex-wrap:wrap;min-width:0;height:20px;overflow:hidden"><span class="trunc" style="flex:0 1 auto;min-width:0">${t}</span><span class="muted" aria-hidden="true" style="flex:none;white-space:pre"> · ${tail}</span></span>`
+              : `<span class="trunc" title="${t}">${t}</span>`
+          })()
+        }${st ? `<span class="pill warn" style="height:20px;font-size:11px">${st}</span>` : ''}</span></td>${slim ? '' : `<td class="muted">${ty}</td>`}${wide ? `<td class="muted trunc">${p}</td>` : ''}<td style="text-align:center" class="muted">${att ? icon('paperclip', { size: 14 }) : ''}</td><td class="num" style="text-align:right;font-weight:600;${pos ? 'color:var(--positive)' : ''}">${amt(a)}</td><td class="kcell">${kebab(t)}</td></tr>`,
     )
     .join('')
   return `<table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:14px">${colgroup(head)}<thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`

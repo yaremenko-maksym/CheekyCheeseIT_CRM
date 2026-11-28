@@ -147,7 +147,7 @@ export function detailTxnScrolled(w, h) {
 export function receiptViewer(w, h) {
   const img = `<div style="position:absolute;left:24px;right:24px;top:${safeTop(w) + 70}px;bottom:${safeBottom(w) + 90}px;border-radius:6px;background:linear-gradient(170deg,oklch(0.95 0 0),oklch(0.86 0 0));padding:28px 24px;display:grid;align-content:start;gap:12px">${'<i style="height:8px;background:oklch(0.55 0 0);border-radius:3px"></i>'.repeat(3)}<i style="height:8px;width:60%;background:oklch(0.55 0 0);border-radius:3px"></i><i style="height:22px"></i>${'<i style="height:6px;background:oklch(0.7 0 0);border-radius:3px"></i>'.repeat(8)}<i style="height:14px;width:40%;margin-top:18px;justify-self:end;background:oklch(0.4 0 0);border-radius:3px"></i></div>`
   const top = `<div class="row" style="position:absolute;left:8px;right:8px;top:${safeTop(w) + 6}px;gap:8px"><button type="button" class="iconbtn" aria-label="Закрити" style="color:#fff">${icon('x', { size: 24 })}</button><span class="grow t-sub" style="text-align:center;color:#fff">receipt-office-nov.jpg</span><span style="width:44px"></span></div>`
-  const hint = `<div class="t-foot" style="position:absolute;left:0;right:0;bottom:${safeBottom(w) + 40}px;text-align:center;color:oklch(0.75 0 0)">Зведіть або розведіть пальці, щоб змінити масштаб</div>`
+  const hint = `<div class="t-foot" style="position:absolute;left:0;right:0;bottom:${safeBottom(w) + 40}px;text-align:center;color:oklch(0.75 0 0)">Двічі торкніться або зведіть пальці, щоб змінити масштаб</div>`
   return phone({
     w,
     h,
