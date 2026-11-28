@@ -32,6 +32,22 @@ export function fab(role, w = 375, active = '') {
 }
 // Floating layer: toast and upload pill sit left of the FAB (16 + 56 + 8 = 80 px right inset) above the tab bar.
 export const FLOAT_RIGHT = 80
+// R1-04 / D-8: no per-row inset and no band. A MONEY list (Фінанси) has no floating «+»: its one create entry is a
+// docked 48 px primary button in a 64 px strip above the tab bar, so nothing floats over an amount and a row is never
+// covered (the list ends with the strip + 16). Lists without an amount column (people, interviews, vacancies) keep the FAB.
+export const MONEY_LISTS = new Set(['/finance'])
+// R5-26: the bar's magnifier only where the page has an inline search (Статистика and Дашборд have none).
+export const NO_SEARCH = new Set(['/stats', '/'])
+export const DOCK_H = 64
+// R5-27: under a 600 px viewport (320 × 568) the dock is compact: a 44 px button in a 52 px strip.
+export const dockH = (h = 812) => (h < 600 ? 52 : DOCK_H)
+export function createDock(role, active, w, h = 812) {
+  const key = CONTEXT_ADD[active]
+  if (!MONEY_LISTS.has(active) || !QUICK_ADD[role].includes(key)) return ''
+  const label = ACTIONS[key].label
+  const c = h < 600
+  return `<div class="dock" style="position:absolute;left:0;right:0;bottom:${TABBAR_H + safeBottom(w)}px;z-index:44;height:${dockH(h)}px;padding:${c ? 4 : 8}px 16px;background:var(--bg);border-top:1px solid var(--separator)"><div class="btn primary" role="button" aria-label="${label}" style="position:relative;width:100%;height:${c ? 44 : 48}px;font-size:17px">${icon('plus', { size: 22, stroke: 2.4 })}${label}</div></div>`
+}
 
 export function topBar({
   back = false,
@@ -46,7 +62,7 @@ export function topBar({
   if (back)
     return `<div class="topbar" style="position:relative"><button type="button" class="iconbtn" style="margin-left:-12px" aria-label="Назад">${icon('chevron-left', { size: 28, stroke: 2 })}</button>
   <div class="title trunc" style="position:absolute;left:${side}px;right:${side}px;top:0;line-height:44px">${title}</div><div class="grow"></div>${trailing}${search ? `<div class="iconbtn" aria-label="Пошук">${icon('search', { size: 22 })}</div>` : ''}${bell ? `<div class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></div>` : ''}</div>`
-  return `<div class="topbar"><div style="width:44px"></div>
+  return `<div class="topbar"><div style="width:${Math.max(44, (trailing ? 44 : 0) + (search ? 44 : 0) + (bell ? 44 : 0))}px"></div>
   <div class="title">${title}</div>${trailing}${search ? `<div class="iconbtn" aria-label="Пошук">${icon('search', { size: 22 })}</div>` : ''}${bell ? `<div class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></div>` : ''}</div>`
 }
 
@@ -59,10 +75,11 @@ export function searchField(ph = 'Пошук') {
 }
 
 export function chips(list, active = 0) {
-  return `<div class="row" style="gap:8px;padding:0 16px 6px;overflow:hidden">${list
+  // A row that does not fit scrolls sideways and fades out at the end (F0-24), so a cut chip reads as "more".
+  return `<div class="row" style="gap:8px;padding:0 16px 6px;overflow:hidden;-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 32px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 32px),transparent)">${list
     .map(
       (c, i) =>
-        `<span class="row" role="button" style="gap:4px;height:44px;padding:0 16px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;${i === active ? 'background:var(--fg);color:var(--bg)' : 'background:var(--surface);color:var(--fg);border:1px solid var(--border)'}">${c}${c.endsWith('▾') ? '' : ''}</span>`,
+        `<span class="row" role="button" style="gap:4px;height:44px;padding:0 16px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;${i === active ? 'background:var(--fg);color:var(--bg)' : c.endsWith('▾') ? 'background:none;color:var(--muted-fg);border:1px dashed var(--input-border)' : 'background:var(--surface);color:var(--fg);border:1px solid var(--border)'}">${c.endsWith('▾') ? `${icon('plus', { size: 14 })}${c.slice(0, -2)}` : c}</span>`,
     )
     .join('')}</div>`
 }
@@ -111,8 +128,8 @@ export const TXNS = [
   {
     day: 'Вчора',
     t: 'Переказ на рахунок компанії',
-    s: 'Переказ · USDT',
-    a: '−3 000,00 USD',
+    s: 'Переказ · Рахунок компанії',
+    a: '−3 000,00 USDT',
     time: '16:02',
     ic: 'arrow-left-right',
     neg: true,
@@ -146,16 +163,42 @@ export const TXNS = [
   },
 ]
 
-// A phone list-row title wraps to two lines, then ellipsis; only the meta line truncates (primitives-v2 §3).
+/**
+ * R1-03: a day total is derived from the rows drawn, per currency, and never sums two currencies
+ * (USD and USDT stay apart). Each total is a nowrap span, so an amount and its code never break.
+ */
+export function dayTotal(rows) {
+  const sums = new Map()
+  for (const r of rows) {
+    const m = r.a.match(/^([+−])([\d ]+,\d\d) ([A-Z]+)$/)
+    if (!m) throw new Error(`dayTotal: unparsable amount ${r.a}`)
+    const cents = Math.round(parseFloat(m[2].replace(/ /g, '').replace(',', '.')) * 100)
+    sums.set(m[3], (sums.get(m[3]) ?? 0) + (m[1] === '−' ? -cents : cents))
+  }
+  return [...sums]
+    .map(([cur, c]) => {
+      const n = (Math.abs(c) / 100)
+        .toFixed(2)
+        .replace('.', ',')
+        .replace(/\B(?=(\d{3})+,)/g, ' ')
+      return `<span style="white-space:nowrap">${c < 0 ? '−' : '+'}${n} ${cur}</span>`
+    })
+    .join(' · ')
+}
+
+// R1-00 / R2-36, the one list-row rule (primitives-v2 §12.0): the title wraps to at most 2 lines (the full text stays in
+// the accessible name), the meta wraps to at most 2 lines, status first, then time, clip, type, project.
+// Amount, percentage and time never truncate.
 const CLAMP2 =
   'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere'
 
-export function txnRow(x, { compact = false, wrap = false } = {}) {
+// R7-05 (§12.0): the amount floats right on line 1 only; the title's line 2 runs under it at the full row width.
+export function txnRow(x, { compact = false, menu = false } = {}) {
   // match: every sent field equal and created after the send by server time (full highlight + «збіг»);
   // tag: a muted label that never highlights («схожа», «раніше»); isNew: created after the send («нова» only)
-  // a tag that names a difference («схожа · інший опис») takes its own line, so the title never truncates
-  // The meta line spans the row under the title and the amount, time first: «14:20 · Витрата · Проєкт «Альфа»».
-  const tagLine = x.tag && x.tag.includes(' · ')
+  // R4-23: every tag leads the meta line, as «збіг» does: «схожа · інший опис · 14:33 · …» (the meta wraps to
+  // two lines at most), never a third line of its own. Otherwise the meta is time first: «14:20 · Витрата · …».
+  const tagLine = false
   const warn = x.warn ? ';color:var(--warning);font-weight:600' : ''
   const mark = x.pending
     ? '<span class="pill warn" style="display:inline-flex;vertical-align:middle;height:18px;font-size:11px;margin-right:6px">Очікує</span>'
@@ -169,7 +212,7 @@ export function txnRow(x, { compact = false, wrap = false } = {}) {
   const clip = x.att
     ? `<span style="display:inline-flex;vertical-align:-2px">${icon('paperclip', { size: 13 })}</span> `
     : ''
-  const meta = `<div class="t-foot muted trunc">${mark}<span class="num">${x.time}</span> · ${clip}${x.s}</div>`
+  const meta = `<div class="t-foot muted" style="${CLAMP2}">${mark}<span class="num">${x.time}</span> · ${clip}${x.s}</div>`
   const tagRow = tagLine
     ? `<span class="t-cap${x.warn ? '' : ' muted'}" style="white-space:nowrap${warn}">${x.tag}</span>`
     : ''
@@ -177,7 +220,7 @@ export function txnRow(x, { compact = false, wrap = false } = {}) {
     ? ';background:oklch(0.84 0.183 85.3 / 0.1);box-shadow:inset 3px 0 0 var(--primary)'
     : ''
   return `<div class="lrow two" style="--inset:64px${hl}"><div class="lead">${icon(x.ic, { size: 18 })}</div>
-  <div class="grow col" style="gap:2px"><div class="row" style="align-items:flex-start;gap:12px"><div class="t-body grow" style="font-weight:500;${wrap ? 'overflow-wrap:anywhere' : CLAMP2}">${x.t}</div><span class="amount ${x.neg ? '' : 'pos'}" style="flex:none">${x.a}</span></div>${meta}${tagRow}</div>${compact ? '' : ''}</div>`
+  <div class="grow col" style="gap:2px"><div class="t-body clamp2" style="font-weight:500;min-width:0"><div><span class="amount ${x.neg ? '' : 'pos'}" style="float:right;margin-left:12px">${x.a}</span>${x.t}</div></div>${meta}${tagRow}</div>${menu ? `<button type="button" class="iconbtn" aria-haspopup="menu" aria-label="Дії: ${x.t}" style="margin-right:-8px;flex:none">${icon('ellipsis', { size: 22 })}</button>` : ''}</div>`
 }
 
 export function txnList(rows = TXNS, { stickyFirst = true } = {}) {
@@ -193,20 +236,26 @@ export function txnList(rows = TXNS, { stickyFirst = true } = {}) {
     .join('')
 }
 
+// One stage vocabulary everywhere (F0-27): the board's column names; the pill is the next slot (as on the card).
 export const PEOPLE = [
-  ['ОК', 'Олена Коваль', 'Співбесіда з клієнтом', 'Етап 2', 'y'],
-  ['ІМ', 'Ігор Мельник', 'Технічна співбесіда', 'Етап 3', 'y'],
-  ['ТС', 'Тарас Савчук', 'Скринінг', 'Етап 1', ''],
-  ['МП', 'Марія Петренко', 'Офер', 'Найнято', 'ok'],
-  ['ДЛ', 'Дмитро Лисенко', 'Скринінг', 'Етап 1', ''],
-  ['АБ', 'Анна Бондар', 'Технічна співбесіда', 'Етап 3', 'y'],
+  ['ОК', 'Олена Коваль', 'Англійська', '12.11 · 11:00', 'y'],
+  ['ІМ', 'Ігор Мельник', 'Технічна', '12.11 · 16:00', 'y'],
+  ['ТС', 'Тарас Савчук', 'HR-скринінг', '12.11 · 10:00', ''],
+  ['МП', 'Марія Петренко', 'Офер', 'до 18.11', 'ok'],
+  ['ДЛ', 'Дмитро Лисенко', 'HR-скринінг', '12.11 · 15:30', ''],
+  ['АБ', 'Анна Бондар', 'Технічна', '13.11 · 10:30', 'y'],
 ]
 
-export function peopleList() {
-  return `<div class="sechead"><span class="t-over">Цього тижня</span></div><div class="group">${PEOPLE.map(
-    ([i, n, s, p, k]) =>
-      `<div class="lrow two" style="--inset:64px"><div class="lead av">${i}</div><div class="grow col" style="gap:2px"><div class="t-body" style="font-weight:500;${CLAMP2}">${n}</div><div class="t-foot muted trunc">${s}<span class="nw-only"> · ${p}</span></div></div><span class="pill wide-only ${k}">${p}</span>${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`,
-  ).join('')}</div>`
+// R3-08: `fine` (pointer: fine) reserves the «…» slot but draws the button only on the `hover` row (hover / focus / selected).
+export function peopleList({ menu = false, omit = '', fine = false, hover = -1 } = {}) {
+  return `<div class="sechead"><span class="t-over">Цього тижня</span></div><div class="group">${PEOPLE.filter(
+    ([, n]) => n !== omit,
+  )
+    .map(
+      ([i, n, s, p, k], idx) =>
+        `<div class="lrow two" style="--inset:64px"><div class="lead av">${i}</div><div class="grow col" style="gap:2px"><div class="t-body clamp2" style="font-weight:500">${n}</div><div class="t-foot muted" style="overflow-wrap:anywhere">${s}<span class="nw-only"> · ${p}</span></div></div><span class="pill wide-only ${k}">${p}</span>${menu ? `<button type="button" class="iconbtn" aria-haspopup="menu" aria-label="Дії: ${n}" style="margin-right:-8px;flex:none${fine && idx !== hover ? ';visibility:hidden' : ''}">${icon('ellipsis', { size: 22 })}</button>` : icon('chevron-right', { size: 18, cls: 'chev' })}</div>`,
+    )
+    .join('')}</div>`
 }
 
 /** A tab-root screen: status bar, top bar, large title, scroll content, tab bar, «+». */
@@ -223,16 +272,30 @@ export function tabScreen({
   moreBadge = 3,
   showFab = true,
   scrolled = false,
+  search = !NO_SEARCH.has(active),
 }) {
   // Scrolled past the large title: it collapses into the inline 44 px bar (title centred, hairline below).
+  const dockOn = createDock(role, active, w, h)
+  // A modal layer (scrim, alert dialog, dialog) takes the dock out, as it does the FAB (shell-v2 §2): no yellow band peeks between the sheet groups. The list keeps its padding, so nothing shifts.
+  const dock = /class="scrim"|role="(alert)?dialog"/.test(overlay) ? '' : dockOn
   const bar = scrolled
-    ? topBar({ title }).replace(
+    ? topBar({ title, search }).replace(
         '<div class="topbar">',
         '<div class="topbar" style="border-bottom:1px solid var(--separator)">',
       )
-    : topBar()
-  // Tab-root lists end with tab bar + FAB clearance (56 + 16 + 8 above the bar) so «+» never covers a trailing value.
-  const inner = `${banner}${bar}<div class="content">${largeTitle(title, sub)}${body}<div style="height:${TABBAR_H + safeBottom(w) + 80}px"></div></div>${tabBar(role, active, { w, moreBadge })}${showFab ? fab(role, w, active) : ''}`
+    : topBar({ search })
+  // Tab-root lists end with tab bar + FAB clearance (FAB 56 + 16), so «+» never covers a value; money lists have no FAB (R1-04).
+  // Banners sit in the slot under the top bar (F0-15), above the large title.
+  // R6-04: a scroll offset moves the title and everything under it as ONE scrollport, clipped by .content, so the outgoing
+  // large title never paints over the chips. `scrolled` may be a number: the offset in px.
+  const off = typeof scrolled === 'number' ? scrolled : 0
+  const inner = `${bar}${banner}<div class="content">${off ? `<div style="transform:translateY(-${off}px)">` : ''}${largeTitle(title, sub)}${body}${off ? '</div>' : ''}<div style="height:${TABBAR_H + safeBottom(w) + (dockOn ? dockH(h) + 16 : 72)}px"></div></div>${tabBar(role, active, { w, moreBadge })}${dock}${showFab && !MONEY_LISTS.has(active) ? fab(role, w, active) : ''}`
+  // The pill and the toast stack above the dock and span the width: no FAB slot beside them.
+  if (dockOn)
+    overlay = overlay.replace(
+      /right:80px;bottom:(\d+)px/g,
+      (_, b) => `right:12px;bottom:${Number(b) + dockH(h)}px`,
+    )
   return phone({ w, h, inner, overlay })
 }
 
@@ -333,25 +396,11 @@ const DROP_TXNS = [
     true,
   ),
 ]
-const JUNIOR_TXNS = [
-  r('Сьогодні', 'Зарплата за жовтень', 'Зарплата · виплачено', '+1 200,00 USD', '12:00', 'wallet'),
-  r(
-    '10 жовтня',
-    'Зарплата за вересень',
-    'Зарплата · виплачено',
-    '+1 200,00 USD',
-    '12:00',
-    'wallet',
-  ),
-  r(
-    '10 вересня',
-    'Зарплата за серпень',
-    'Зарплата · виплачено',
-    '+1 150,00 USD',
-    '12:00',
-    'wallet',
-  ),
-]
+export const JUNIOR_TXNS = [
+  r('Сьогодні', 'Зарплата за жовтень', 'Зарплата', '+1 200,00 USD', '12:00', 'wallet'),
+  r('10 жовтня', 'Зарплата за вересень', 'Зарплата', '+1 200,00 USD', '12:00', 'wallet'),
+  r('10 вересня', 'Зарплата за серпень', 'Зарплата', '+1 150,00 USD', '12:00', 'wallet'),
+].map((x) => ({ ...x, tag: 'виплачено' })) // R3-23: the status leads the meta («виплачено · 12:00 · Зарплата»)
 const ROLE_FINANCE = {
   SENIOR: [SENIOR_TXNS, ['Усі', 'Витрати', 'Доходи', 'Період ▾']],
   SENIOR_TEAMLESS: [SENIOR_TXNS, ['Усі', 'Витрати', 'Доходи', 'Період ▾']],
@@ -369,5 +418,5 @@ export function financeBody(role = 'ADMIN') {
 
 /** Interviews list body (HR): search, stage chips, people rows. */
 export function interviewsBody() {
-  return `${searchField('Пошук кандидатів')}${chips(['Усі', 'Скринінг', 'Технічна', 'Клієнт', 'Офер'])}${peopleList()}`
+  return `${searchField('Пошук співбесід')}${chips(['Усі', 'HR-скринінг', 'Технічна', 'З клієнтом', 'Офер'])}${peopleList()}`
 }

@@ -57,11 +57,11 @@ export const CSS = `
 :root{
   --bg:oklch(0.08 0 0); --card:oklch(0.12 0 0); --popover:oklch(0.13 0 0);
   --surface:oklch(0.16 0.006 85); --raised:oklch(0.19 0.012 85); --secondary:oklch(0.2 0 0);
-  --fg:oklch(0.97 0 0); --muted-fg:oklch(0.64 0 0);
+  --fg:oklch(0.97 0 0); --muted-fg:oklch(0.64 0 0);--chevron:oklch(0.56 0 0);
   --border:oklch(0.22 0.004 85); --separator:oklch(0.2 0.004 85); --input-border:oklch(0.52 0.006 85);
   --primary:oklch(0.84 0.183 85.3); --primary-fg:oklch(0.08 0 0);
   --yellow-muted:oklch(0.72 0.13 85.3); --yellow-subtle:oklch(0.22 0.04 85.3);
-  --destructive:oklch(0.65 0.21 22.2); --positive:oklch(0.76 0.14 160);
+  --destructive:oklch(0.65 0.21 22.2); --destructive-solid:oklch(0.52 0.2 24); --positive:oklch(0.76 0.14 160);
   --warning:oklch(0.78 0.15 55); --info:oklch(0.74 0.11 245);
   --chart-1:oklch(0.84 0.183 85.3); --chart-2:oklch(0.7 0.14 250); --chart-3:oklch(0.75 0.12 175);
   --chart-4:oklch(0.68 0.17 40); --chart-5:oklch(0.62 0 0); --chart-grid:oklch(0.22 0 0);
@@ -78,6 +78,8 @@ html,body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-
 .col{display:flex;flex-direction:column}
 .grow{flex:1;min-width:0}
 .trunc{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clamp2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .t-large{font-size:28px;line-height:34px;font-weight:700;letter-spacing:-0.02em}
 .t-title{font-size:20px;line-height:26px;font-weight:600;letter-spacing:-0.01em}
 .t-head{font-size:17px;line-height:22px;font-weight:600}
@@ -129,7 +131,7 @@ html,body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-
 .lrow .lead{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:var(--surface);color:var(--fg);flex:none}
 .lrow .lead.av{border-radius:18px;background:var(--yellow-subtle);color:var(--primary);font-size:13px;font-weight:600}
 .lrow .trail{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:none}
-.lrow .chev{color:oklch(0.45 0 0);flex:none}
+.lrow .chev{color:var(--chevron);flex:none}
 .amount{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-0.01em}
 .pill{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:11px;font-size:12px;font-weight:500;background:var(--surface);color:var(--fg);border:1px solid var(--border);white-space:nowrap}
 .pill.y{background:var(--yellow-subtle);color:var(--primary);border-color:oklch(0.32 0.06 85)}
@@ -144,11 +146,14 @@ html,body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-
 .btn.dis{opacity:0.45}
 /* coarse pointer (phone, tablet, touch laptop): every control is a real 44 px target */
 .touch .btn.sm{height:44px}
+/* Key hints only under a fine pointer (F0-04): a touch device has no Esc, ⌘K or C to show. */
+.touch .kbdkey{display:none}
+.touch .kbdkey.keep{display:inline-grid}
 /* sheet */
 .scrim{position:absolute;inset:0;background:var(--scrim);z-index:70}
 .sheet{position:absolute;left:0;right:0;bottom:0;z-index:75;background:var(--popover);border-radius:var(--r-sheet) var(--r-sheet) 0 0;border-top:1px solid var(--border);display:flex;flex-direction:column;box-shadow:0 -12px 40px oklch(0 0 0 / 0.5)}
 .grabber{width:36px;height:5px;border-radius:3px;background:oklch(0.4 0 0);margin:6px auto 0;flex:none}
-.sheethead{display:grid;grid-template-columns:minmax(96px,1fr) minmax(0,max-content) minmax(96px,1fr);align-items:center;height:52px;padding:0 8px;flex:none}
+.sheethead{display:grid;grid-template-columns:minmax(var(--side,max-content),1fr) minmax(0,max-content) minmax(var(--side,max-content),1fr);align-items:center;height:52px;padding:0 8px;flex:none}
 .sheethead .t{text-align:center;font-size:17px;font-weight:600;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .sheethead .a{min-width:0;white-space:nowrap;height:44px;display:flex;align-items:center;padding:0 8px;font-size:17px;color:var(--fg)}
 .sheethead .a.r{justify-content:flex-end;color:var(--primary);font-weight:600}
@@ -192,8 +197,22 @@ export function page(body, { width, extraCss = '' } = {}) {
 <meta name="viewport" content="width=${width}, initial-scale=1, viewport-fit=cover">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&display=swap" rel="stylesheet">
-<style>${CSS}${extraCss}</style></head><body>${body}</body></html>`
+<style>${CSS}${extraCss}</style></head><body>${sepNbsp(body)}</body></html>`
 }
+// R5-28 (primitives-v2 §12.0, supersedes R3-14): «·» binds to the item AFTER it — a normal space before, a NBSP
+// after — so a wrapped meta line never ends on a dangling «·»; strings.mjs `dangling` asserts it per frame.
+// r7 (R6-13): that forward binding is for COMPOSED meta lines only. A user title keeps its «·» at the line end
+// (NBSP before, normal space after), so a title never starts a line with «·». And «з» / «о» bind to the value
+// after them («з 9.11», «о 14:33»). shortcut: the titles that carry «·» are the fixture list below; product code
+// marks the title element instead.
+export const USER_TITLES = ['Зарплата · Розробник 4', 'Обладнання · ноутбук']
+const sepNbsp = (html) =>
+  USER_TITLES.reduce(
+    (h, t) => h.replaceAll(t.replace(' · ', ' ·\u00a0'), t.replace(' · ', '\u00a0· ')),
+    html
+      .replace(/[ \u00a0]·[ \u00a0]/g, ' ·\u00a0')
+      .replace(/(^|[\s>(«])([зоЗО]) (?=\d)/g, '$1$2\u00a0'),
+  )
 
 /** iPhone chrome: notch phone (375+) or iPhone SE 1st gen (320, no notch, no home indicator). */
 export function phone({ w = 375, h = 812, inner, overlay = '' }) {
@@ -246,3 +265,11 @@ export const segmented = (opts, on = 0, { fit = false, size = 14 } = {}) =>
 
 export const currencyPill = (c = 'USD') =>
   `<span class="pill" role="button" aria-label="Валюта: ${c}" style="height:44px;padding:0 14px;border-radius:22px;font-size:15px;font-weight:600">${c} ${icon('chevron-down', { size: 15 })}</span>`
+
+// R4-16: a file name truncates in the MIDDLE: the head ellipsizes, the last 4 characters of the base name and
+// the extension never do («receipt-offi…-nov.jpg»); the full name is the accessible name and the tooltip.
+export function fileName(name, cls = 't-sub', style = 'font-weight:600') {
+  const dot = name.lastIndexOf('.')
+  const cut = Math.max(0, (dot > 0 ? dot : name.length) - 4)
+  return `<div class="${cls}" data-file title="${name}" aria-label="${name}" style="display:flex;min-width:0;white-space:nowrap;${style}"><span aria-hidden="true" style="overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto">${name.slice(0, cut)}</span><span aria-hidden="true" style="flex:none">${name.slice(cut)}</span></div>`
+}

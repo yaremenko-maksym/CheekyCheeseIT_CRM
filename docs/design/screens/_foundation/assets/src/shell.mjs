@@ -1,6 +1,7 @@
 // Shell v2 frames: role tab bars, More sheet, quick-add, states, tablet rail, desktop sidebar, Cmd+K, `?`.
 import { page } from './base.mjs'
-import { tabScreen, financeBody, peopleList } from './mobile.mjs'
+import { assertFrames } from './asserts.mjs'
+import { tabScreen, financeBody, interviewsBody } from './mobile.mjs'
 import {
   moreSheet,
   quickAddSheet,
@@ -14,7 +15,15 @@ import {
 import { tablet } from './tablet.mjs'
 import { moneyForm, primaryBtn, armedBtn } from './money-form.mjs'
 import { desktop, cmdk, shortcuts } from './desktop.mjs'
-import { notificationsSheet, notificationsDesktop } from './notif-board.mjs'
+import {
+  notificationsSheet,
+  notificationsDesktop,
+  notificationsTablet,
+  notificationsTabletUndo,
+  notificationsUndoClosed,
+  notificationsUndoSecond,
+} from './notif-board.mjs'
+import { railHrTablet, cmdkEmpty } from './prims-r1.mjs'
 
 const M = (name, w, h, body) => ({ name, w, h, dpr: 2, html: page(body, { width: w }) })
 const D = (name, w, h, body) => ({ name, w, h, dpr: 1, html: page(body, { width: w }) })
@@ -32,7 +41,7 @@ const ROLE_FRAMES = [
 export function frames() {
   const out = []
   for (const [slug, role, active, title] of ROLE_FRAMES) {
-    const body = active === '/interviews' ? peopleList() : financeBody(role)
+    const body = active === '/interviews' ? interviewsBody() : financeBody(role)
     out.push(M(`tabbar-${slug}-375`, 375, 812, tabScreen({ role, active, title, body })))
   }
   out.push(
@@ -61,7 +70,7 @@ export function frames() {
         role: 'HR',
         active: '/interviews',
         title: 'Співбесіди',
-        body: peopleList(),
+        body: interviewsBody(),
       }),
     ),
   )
@@ -69,6 +78,8 @@ export function frames() {
     out.push(M('more-sheet-admin-375', 375, 812, moreSheet('ADMIN', 375, 812)))
     out.push(M('more-sheet-junior-375', 375, 812, moreSheet('JUNIOR', 375, 812)))
     out.push(M('more-sheet-admin-320', 320, 568, moreSheet('ADMIN', 320, 568)))
+    out.push(M('more-sheet-admin-end-320', 320, 568, moreSheet('ADMIN', 320, 568, { end: true })))
+    out.push(M('more-sheet-admin-end-375', 375, 812, moreSheet('ADMIN', 375, 812, { end: true })))
     out.push(M('quick-add-admin-375', 375, 812, quickAddSheet('ADMIN', 375, 812)))
     out.push(M('quick-add-hr-320', 320, 568, quickAddSheet('HR', 320, 568)))
     // Save during upload: an active button that says what a tap does; the armed state freezes the payload.
@@ -85,6 +96,7 @@ export function frames() {
       ),
     )
     out.push(
+      M('quick-add-txn-project-375', 375, 812, moneyForm({ project: 'Альфа', receipt: 'done' })),
       M('quick-add-txn-armed-375', 375, 812, moneyForm({ lead: 'Згорнути', footer: armedBtn() })),
     )
     // 320, the longest plausible amount: the amount never truncates, the armed label wraps, the title truncates.
@@ -160,7 +172,7 @@ export function frames() {
           role: 'HR',
           active: '/interviews',
           title: 'Співбесіди',
-          body: peopleList(),
+          body: interviewsBody(),
           banner: impersonationBanner(),
         }),
       ),
@@ -170,6 +182,7 @@ export function frames() {
     out.push(D('tablet-rail-768', 768, 1024, tablet({ w: 768, h: 1024 })))
     // A 768 × 700 window (Stage Manager / Split View): the destinations no longer fit, so «Ще» appears.
     out.push(D('tablet-rail-more-768', 768, 700, tablet({ w: 768, h: 700, more: true })))
+    out.push(D('tablet-rail-more-short-768', 768, 600, tablet({ w: 768, h: 600, more: 'end' })))
     // >= 900: rail 80 + list 360 + detail (560 at 1000); the selected row is marked only here.
     out.push(D('tablet-two-pane-1000', 1000, 768, tablet({ w: 1000, h: 768 })))
   }
@@ -181,6 +194,14 @@ export function frames() {
     out.push(D('desktop-sidebar-1440', 1440, 900, desktop({ w: 1440, h: 900 })))
     // iPad landscape: desktop layout by width, touch density by pointer (44 rows, 48 inputs, 16 px text).
     out.push(D('shell-touch-1180', 1180, 820, desktop({ w: 1180, h: 820, touch: true })))
+    out.push(
+      D(
+        'shell-touch-collapsed-1180',
+        1180,
+        820,
+        desktop({ w: 1180, h: 820, touch: true, collapsed: true }),
+      ),
+    )
     out.push(D('desktop-cmdk-1440', 1440, 900, desktop({ w: 1440, h: 900, overlay: cmdk() })))
     out.push(
       D('desktop-shortcuts-1440', 1440, 900, desktop({ w: 1440, h: 900, overlay: shortcuts() })),
@@ -193,11 +214,63 @@ export function frames() {
         desktop({ w: 1024, h: 768, overlay: cmdk({ compact: true }) }),
       ),
     )
+    // R4-05: both overlays under a coarse pointer (iPad landscape); R4-06: the sheet of a teamless SENIOR.
+    const touch = { w: 1180, h: 820, touch: true }
+    out.push(
+      D(
+        'desktop-cmdk-touch-1180',
+        1180,
+        820,
+        desktop({ ...touch, overlay: cmdk({ coarse: true }) }),
+      ),
+    )
+    // R5-12: Cmd+K with the on-screen keyboard open at 1180 (a short visual viewport): the results scroll, the
+    // footer button stays above the keyboard.
+    out.push(
+      D(
+        'desktop-cmdk-keyboard-1180',
+        1180,
+        820,
+        desktop({ ...touch, overlay: cmdk({ coarse: true, kbd: 398 }) }),
+      ),
+    )
+    out.push(
+      D(
+        'desktop-shortcuts-touch-1180',
+        1180,
+        820,
+        desktop({ ...touch, overlay: shortcuts({ coarse: true }) }),
+      ),
+    )
+    out.push(
+      D(
+        'desktop-shortcuts-senior-teamless-1440',
+        1440,
+        900,
+        desktop({
+          w: 1440,
+          h: 900,
+          role: 'SENIOR_TEAMLESS',
+          overlay: shortcuts({ role: 'SENIOR_TEAMLESS' }),
+        }),
+      ),
+    )
   }
   out.push(
     M('notifications-375', 375, 812, notificationsSheet(375, 812)),
     M('notifications-empty-375', 375, 812, notificationsSheet(375, 812, { empty: true })),
     D('notifications-1440', 1440, 900, notificationsDesktop(1440, 900)),
+    D('notifications-short-1024', 1024, 560, notificationsDesktop(1024, 560)),
+    M('notifications-loading-375', 375, 812, notificationsSheet(375, 812, { state: 'loading' })),
+    M('notifications-undo-375', 375, 812, notificationsSheet(375, 812, { undo: true })),
+    M('notifications-undo-batch-375', 375, 812, notificationsSheet(375, 812, { undo: 2 })),
+    M('notifications-undo-closed-375', 375, 812, notificationsUndoClosed(375, 812)),
+    M('notifications-undo-second-375', 375, 812, notificationsUndoSecond(375, 812)),
+    M('notifications-error-375', 375, 812, notificationsSheet(375, 812, { state: 'error' })),
+    D('notifications-768', 768, 1024, notificationsTablet(768, 1024)),
+    D('notifications-undo-768', 768, 1024, notificationsTabletUndo(768, 1024)),
+    D('tablet-rail-hr-768', 768, 1024, railHrTablet(768, 1024)),
+    D('desktop-cmdk-empty-1440', 1440, 900, cmdkEmpty(1440, 900)),
   )
-  return out
+  return assertFrames(out)
 }

@@ -110,8 +110,8 @@ export const QUICK_ADD = {
 export const ACTIONS = {
   txn: { label: 'Нова транзакція', sub: 'Сума, тип і фото чека', icon: 'receipt' },
   user: { label: 'Новий користувач', sub: 'Ім’я, email і роль', icon: 'user-plus' },
-  interview: { label: 'Нова співбесіда', sub: 'Кандидат і етап', icon: 'square-kanban' },
-  vacancy: { label: 'Створити вакансію', sub: 'Чернетка вакансії', icon: 'briefcase' },
+  interview: { label: 'Нова співбесіда', sub: 'Ім’я та етап', icon: 'square-kanban' },
+  vacancy: { label: 'Нова вакансія', sub: 'Чернетка вакансії', icon: 'briefcase' },
 }
 
 export const ROLE_LABEL = {
@@ -129,3 +129,11 @@ export function moreItems(role) {
   return ALLOWED[role].filter((d) => !tabs.has(d) && d !== '/profile')
 }
 export const allowed = (role) => ALLOWED[role]
+
+/** The signed-in identity per role, as the shell draws it (invented). Under impersonation it is the impersonated user. */
+export const WHO = {
+  ADMIN: { ini: 'ВК', name: 'Віктор Кравець' },
+  HR: { ini: 'ОБ', name: 'Оксана Бойко' },
+  JUNIOR: { ini: 'ІС', name: 'Ігор Сидоренко' },
+}
+export const whoOf = (role) => WHO[role] || WHO.ADMIN

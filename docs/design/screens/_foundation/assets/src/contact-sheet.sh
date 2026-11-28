@@ -4,7 +4,7 @@ size() { wc -c < "$1" | tr -d ' '; }
 # Builds the contact sheets of a frame set in ../<set>-v2/ (labelled tiles, each quantised ≤ ~400 KB):
 #   _contact-sheet.png         phones (-320 / -375), 6 per row
 #   _contact-sheet-wide.png    tablet, desktop and board frames, 3 per row at 620 px
-#   _contact-sheet-detail.png  chart-desktop and transition-storyboard at native size (dense frames)
+#   _contact-sheet-detail.png  chart-desktop (-selected) and transition-storyboard at native size (dense frames)
 # Usage: ./contact-sheet.sh shell|primitives
 set -euo pipefail
 set_name="$1"
@@ -17,7 +17,7 @@ detail=()
 while IFS= read -r f; do
   case "$(basename "$f" .png)" in
     *-320 | *-375) phones+=("$f") ;;
-    chart-desktop | transition-storyboard) detail+=("$f") ;;
+    chart-desktop | chart-desktop-selected | transition-storyboard) detail+=("$f") ;;
     *) wide+=("$f") ;;
   esac
 done < <(find "$dir" -maxdepth 1 -name '*.png' ! -name '_contact-sheet*.png' | sort)
@@ -37,6 +37,8 @@ sheet() {
   # Last step for the largest set: 80% of the original size and 64 colours, labels still legible.
   [ "$(size "$out")" -le 409600 ] || magick "$out" -resize 89% -dither None -colors 64 -define png:compression-level=9 "PNG8:$out"
   # The phone sheet past ~55 frames: one more 90% step at 48 colours (about 72% of the original).
+  [ "$(size "$out")" -le 409600 ] || magick "$out" -resize 90% -dither None -colors 48 -define png:compression-level=9 "PNG8:$out"
+  # r5: the wide primitives sheet past ~55 frames needs one more 90% / 48-colour step.
   [ "$(size "$out")" -le 409600 ] || magick "$out" -resize 90% -dither None -colors 48 -define png:compression-level=9 "PNG8:$out"
   echo "$out $(($(size "$out") / 1024)) KB from $(($# - 4)) frames"
 }

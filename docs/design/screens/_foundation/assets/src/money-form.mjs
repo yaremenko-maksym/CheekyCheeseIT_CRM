@@ -3,11 +3,22 @@
 // primary in a bottom bar above the keyboard / home indicator. Never a top-right «Готово».
 // The primary is always enabled (except while its own request is in flight): a tap validates,
 // focuses the first invalid field and shows inline errors. Sample data is invented.
-import { icon, phone, safeBottom, systemBar, segmented, currencyPill, field } from './base.mjs'
+import {
+  fileName,
+  icon,
+  phone,
+  safeBottom,
+  systemBar,
+  segmented,
+  currencyPill,
+  field,
+} from './base.mjs'
 import { tabScreen, financeBody, topBar, txnRow, TABBAR_H, FLOAT_RIGHT } from './mobile.mjs'
-import { sheet, safeTop, closeBtn, quickAddRows } from './mobile-overlays.mjs'
+import { sheet, safeTop, closeBtn, quickAddRows, SCROLL_END } from './mobile-overlays.mjs'
 
 export const AMOUNT = '1 250,50'
+// A signed amount in running text never breaks across lines.
+export const NB = (s) => s.replace(' ', '\u00a0')
 
 export const thumb = (s = 44) =>
   `<div style="position:relative;width:${s}px;height:${s}px;flex:none;border-radius:10px;background:linear-gradient(160deg,oklch(0.86 0 0),oklch(0.7 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px;overflow:hidden"><div style="position:absolute;inset:7px 9px;display:grid;gap:4px">${'<i style="height:3px;background:oklch(0.45 0 0);border-radius:2px"></i>'.repeat(4)}</div></div>`
@@ -48,13 +59,13 @@ export function receiptCard(state = 'uploading', { narrow = false, cur = 'USD' }
   if (usdt && state === 'empty') return linkField({ usdt: true })
   if (usdt && (state === 'uploading' || state === 'done'))
     return `<div role="group" aria-label="Чек" aria-describedby="rf-e" class="col" style="gap:10px;padding:6px 10px 12px;border-radius:14px;background:var(--card);border:1.5px solid var(--destructive)">
-    <div class="row" style="gap:10px">${thumb()}<div class="grow col" style="gap:2px;min-width:0"><div class="t-sub trunc" style="font-weight:600">receipt-office-nov.jpg</div><div class="t-foot muted num">Файл · 220 КБ</div></div></div>
+    <div class="row" style="gap:10px">${thumb()}<div class="grow col" style="gap:2px;min-width:0">${fileName('receipt-office-nov.jpg')}<div class="t-foot muted num">Файл · 220 КБ</div></div></div>
     <div class="hint err" id="rf-e">${icon('circle-alert', { size: 15 })}<span>${USDT_ERR}</span></div>
     <div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn secondary" style="flex:1 1 auto">${icon('link', { size: 18 })}Замінити посиланням</button><button type="button" class="btn ghost" style="color:var(--destructive)">${icon('trash-2', { size: 18 })}Видалити чек</button></div></div>`
   // The upload failed: the card stays with its error and two exits. An armed draft becomes `failed`.
   if (state === 'failed')
     return `<div role="group" aria-label="Чек" aria-describedby="rf-f" class="col" style="gap:10px;padding:6px 10px 12px;border-radius:14px;background:var(--card);border:1.5px solid var(--destructive)">
-    <div class="row" style="gap:10px">${thumb()}<div class="grow col" style="gap:2px;min-width:0"><div class="t-sub trunc" style="font-weight:600">receipt-office-nov.jpg</div><div class="t-foot muted num">Не завантажено · 220 КБ</div></div></div>
+    <div class="row" style="gap:10px">${thumb()}<div class="grow col" style="gap:2px;min-width:0">${fileName('receipt-office-nov.jpg')}<div class="t-foot muted num">Не завантажено · 220 КБ</div></div></div>
     <div class="hint err" id="rf-f">${icon('circle-alert', { size: 15 })}<span>Чек не завантажився: з’єднання перервалося</span></div>
     <div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn secondary" style="flex:1 1 auto">${icon('rotate-cw', { size: 18 })}Повторити</button><button type="button" class="btn secondary" style="flex:1 1 auto">${icon('refresh-cw', { size: 18 })}Замінити</button></div></div>`
   if (state === 'empty')
@@ -70,7 +81,7 @@ export function receiptCard(state = 'uploading', { narrow = false, cur = 'USD' }
     })
   const up = state === 'uploading'
   const over = up
-    ? `<div role="progressbar" aria-label="Завантаження чека" aria-valuemin="0" aria-valuemax="100" aria-valuenow="62" style="position:absolute;inset:0;background:oklch(0 0 0 / 0.45);display:grid;place-items:center">${ring(62)}</div>`
+    ? `<div role="progressbar" aria-label="Завантаження чека" aria-valuemin="0" aria-valuemax="100" aria-valuenow="62" style="position:absolute;inset:0;background:var(--scrim);display:grid;place-items:center">${ring(62)}</div>`
     : ''
   // «Чек додано» only at 100%; while uploading the title is the file name and the status line the phase.
   // The percent is aria-hidden: the ring is the progressbar.
@@ -81,7 +92,7 @@ export function receiptCard(state = 'uploading', { narrow = false, cur = 'USD' }
     : '<button type="button" class="btn sm secondary">Замінити</button>'
   return `<div class="row" style="gap:6px;padding:6px 4px 6px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)">
     <div style="position:relative;width:44px;height:44px;flex:none">${thumb()}${over}</div>
-    <div class="grow col" style="gap:2px;min-width:0;margin-left:4px"><div class="t-sub trunc" style="font-weight:600">${title}</div><div class="t-foot muted num trunc" aria-hidden="${up}">${status}</div></div>
+    <div class="grow col" style="gap:2px;min-width:0;margin-left:4px">${up ? fileName(title) : `<div class="t-sub trunc" style="font-weight:600">${title}</div>`}<div class="t-foot muted num" aria-hidden="${up}">${status}</div></div>
     ${replace}<button type="button" class="iconbtn" aria-label="Видалити чек" style="color:var(--muted-fg)">${icon('x', { size: 18 })}</button></div>`
 }
 
@@ -90,33 +101,34 @@ export function amountBlock({ focus = false, amount = AMOUNT, cur = 'USD' } = {}
   const fs = amount.length > 9 ? 34 : 44
   return `<div style="padding:18px 0 4px;text-align:center"><label class="t-foot muted" for="amt">Сума</label>
     <div id="amt" class="num" style="font-size:${fs}px;line-height:52px;font-weight:700;letter-spacing:-0.03em;margin-top:2px;white-space:nowrap">${focus ? '1 250,5<span class="caret" style="height:40px"></span>' : amount}</div>
-    <div class="row" style="justify-content:center;flex-wrap:wrap;gap:8px;margin-top:10px">${currencyPill(cur)}${segmented(['Витрата', 'Дохід', 'Переказ'], 0, { fit: true })}</div></div>`
+    <div class="col" style="align-items:center;gap:8px;margin-top:10px">${currencyPill(cur)}${segmented(['Витрата', 'Дохід', 'Переказ'], 0, { fit: true })}</div></div>`
 }
 
 /** Collapsed optional fields: the row shows what will be saved, not what is missing. */
-export const defaultsRow = () =>
-  `<div role="button" aria-expanded="false" class="row" style="justify-content:center;gap:6px;height:44px;font-size:15px;margin-top:6px"><span class="muted">${icon('calendar', { size: 16 })}</span><span>Сьогодні · без проєкту ·</span><span style="color:var(--primary);font-weight:600">змінити</span></div>`
+export const defaultsRow = (project = '') =>
+  `<div role="button" aria-expanded="false" class="row" style="justify-content:center;gap:6px;height:44px;font-size:15px;margin-top:6px"><span class="muted">${icon('calendar', { size: 16 })}</span><span>Сьогодні · ${project ? `Проєкт «${project}»` : 'без проєкту'} ·</span><span style="color:var(--primary);font-weight:600">змінити</span></div>`
 
-export function optionalFields({ focus = '', dateError = false } = {}) {
+export function optionalFields({ focus = '', dateError = false, note = '', project = '' } = {}) {
   return [
     field({
       id: 'dt',
       label: 'Дата',
-      value: dateError ? '28 жовтня 2026' : 'Сьогодні, 11 листопада',
+      value: dateError ? '28.10.2026' : '11.11.2026',
       state: dateError ? 'error focus' : '',
       err: dateError ? 'Жовтень уже закрито. Оберіть дату від 1 листопада.' : '',
-      lead: `<span class="muted">${icon('calendar', { size: 18 })}</span>`,
+      suffix: `<button type="button" class="iconbtn muted" aria-label="Відкрити календар">${icon('calendar', { size: 18 })}</button>`,
     }),
     field({
       id: 'p',
       label: 'Проєкт',
-      value: 'Без проєкту',
+      // R4-03: an edit prefills the record's own project; «Без проєкту» only when it has none.
+      value: project || 'Без проєкту',
       suffix: `<span class="muted">${icon('chevron-down', { size: 18 })}</span>`,
     }),
     field({
       id: 'n',
       label: 'Опис',
-      value: focus === 'note' ? 'Оренда офісу за лис' : '',
+      value: focus === 'note' ? 'Оренда офісу за лис' : note,
       ph: 'Необов’язково',
       state: focus === 'note' ? 'focus' : '',
     }),
@@ -136,14 +148,17 @@ export const moneyBody = ({
   pad = '4px 16px 120px',
   narrow = false,
   locked = false,
+  project = '',
+  note = '',
 } = {}) => {
   const rest = locked
     ? sentFields()
     : expanded
-      ? `<div class="col" style="gap:16px">${optionalFields({ focus, dateError })}</div>`
-      : defaultsRow()
+      ? `<div class="col" style="gap:16px">${optionalFields({ focus, dateError, note, project })}</div>`
+      : defaultsRow(project)
   const fields = `${receiptCard(receipt, { narrow, cur })}${amountBlock({ focus: focus === 'amount', amount, cur })}${rest}`
-  return `<div class="col" style="gap:14px;padding:${pad};transform:translateY(-${scroll}px)">${alert}${locked ? lockedFields(fields) : fields}</div>`
+  // data-scrolled: a drawn scroll offset (a transform stands in for scrollTop); measure.mjs reads it.
+  return `<div class="col"${scroll ? ` data-scrolled="${scroll}"` : ''} style="gap:14px;padding:${pad};transform:translateY(-${scroll}px)">${alert}${locked ? lockedFields(fields) : fields}</div>`
 }
 
 /**
@@ -152,14 +167,14 @@ export const moneyBody = ({
  * would hide the values from a screen reader). To change a value the user discards the draft.
  */
 const lockedFields = (html) =>
-  `<style>.locked .btn,.locked .iconbtn,.locked [role=radiogroup],.locked .pill,.locked [aria-expanded]{opacity:.4}</style><div class="t-foot muted row num" style="gap:6px;justify-content:center">${icon('lock', { size: 14 })}Надіслано о 14:32 · змінити не можна</div><div class="locked col" style="gap:14px">${html
+  `<style>.locked .btn,.locked .iconbtn,.locked [role=radiogroup],.locked .pill,.locked [aria-expanded]{opacity:.4}</style><div class="t-foot muted row num" style="gap:6px;justify-content:center">${icon('lock', { size: 14 })}Надіслано о\u00a014:32 · змінити не можна</div><div class="locked col" style="gap:14px">${html
     .replace(/<button type="button"/g, '<button type="button" aria-disabled="true"')
     .replace(/role="(button|radio)"/g, 'role="$1" aria-disabled="true"')}</div>`
 
 /** A locked draft shows everything it sent: the optional fields as read-only text, no «змінити». */
 const sentFields = () =>
   `<dl class="group" style="margin:0">${[
-    ['Дата', 'Сьогодні, 11 листопада'],
+    ['Дата', '11.11.2026'],
     ['Проєкт', 'Без проєкту'],
     ['Опис', 'Без опису'],
   ]
@@ -191,7 +206,7 @@ const progress = (inner, label = 'Завантаження чека') =>
  * or replacing / removing the receipt.
  */
 export const armedBtn = ({ amount = AMOUNT, cur = 'USD' } = {}) =>
-  `<span class="btn" role="button" aria-disabled="true" aria-describedby="arm-st" style="width:100%;min-height:56px;height:auto;padding:8px 14px;flex-direction:column;gap:0;position:relative;overflow:hidden;background:oklch(0.84 0.183 85.3 / 0.12);color:var(--fg);box-shadow:inset 0 0 0 1px oklch(0.84 0.183 85.3 / 0.5)"><i aria-hidden="true" style="position:absolute;left:0;top:0;bottom:0;width:62%;background:oklch(0.84 0.183 85.3 / 0.24)"></i><span class="num" style="position:relative;font-size:15px;line-height:20px;white-space:normal;text-align:center">Збережеться ${amount} ${cur} після чека</span>${progress(`<span class="num t-cap" style="position:relative;font-weight:500;color:oklch(0.86 0 0)">чек 62%</span>`)}</span><span id="arm-st" role="status" style="${SR}">Збереження заплановано</span>
+  `<span class="btn" role="button" aria-disabled="true" aria-describedby="arm-st" style="width:100%;min-height:56px;height:auto;padding:8px 14px;flex-direction:column;gap:0;position:relative;overflow:hidden;background:oklch(0.84 0.183 85.3 / 0.12);color:var(--fg);box-shadow:inset 0 0 0 1px oklch(0.84 0.183 85.3 / 0.5)"><i aria-hidden="true" style="position:absolute;left:0;top:0;bottom:0;width:62%;background:oklch(0.84 0.183 85.3 / 0.24)"></i><span class="num" style="position:relative;font-size:15px;line-height:20px;white-space:normal;text-align:center">Збережеться <span style="white-space:nowrap">−${amount} ${cur}</span> після завантаження чека</span>${progress(`<span class="num t-cap" style="position:relative;font-weight:500;color:oklch(0.86 0 0)">чек 62%</span>`)}</span><span id="arm-st" role="status" style="${SR}">Збереження заплановано</span>
   <span class="btn ghost" role="button" style="width:100%;height:44px;margin-top:4px;font-size:15px;font-weight:500;color:var(--muted-fg)">Не зберігати автоматично</span>`
 
 export function decimalPad() {
@@ -202,7 +217,15 @@ export function decimalPad() {
 }
 export const DECIMAL_H = 44 + 4 * 46 + 4 * 8 + 30 + 8
 
-export function textKeyboard() {
+// R6-15: the drawn return key comes from the focused field's `enterkeyhint`: «Далі» (next), «Готово» on the last field
+// (done), and the return glyph in a textarea (enter), never «Далі» there.
+const RETURN = {
+  next: 'Далі',
+  done: 'Готово',
+  search: 'Пошук',
+  enter: icon('corner-down-left', { size: 20 }),
+}
+export function textKeyboard(hint = 'next') {
   const key = (k) =>
     `<span style="flex:1;height:42px;border-radius:6px;background:oklch(0.36 0 0);display:grid;place-items:center;font-size:20px;color:#fff">${k}</span>`
   const row = (keys) =>
@@ -211,9 +234,10 @@ export function textKeyboard() {
     `<span style="width:${wd}px;height:42px;border-radius:6px;background:oklch(0.28 0 0);display:grid;place-items:center;color:#fff;font-size:15px">${t}</span>`
   return `<div class="kbd" aria-hidden="true" style="padding:0 3px;gap:11px">${systemBar('margin:0 -3px')}
   ${row('йцукенгшщзх')}${row('фівапролджє')}<div style="display:flex;gap:5px">${mod(icon('arrow-big-up', { size: 20 }))}<div class="grow">${row('ячсмитьбю')}</div>${mod(icon('delete', { size: 20 }))}</div>
-  <div style="display:flex;gap:5px">${mod('123', 88)}<span class="grow" style="height:42px;border-radius:6px;background:oklch(0.36 0 0);display:grid;place-items:center;color:#fff;font-size:15px">пробіл</span>${mod('Далі', 88)}</div><div style="height:34px"></div></div>`
+  <div style="display:flex;gap:5px">${mod('123', 88)}<span class="grow" style="height:42px;border-radius:6px;background:oklch(0.36 0 0);display:grid;place-items:center;color:#fff;font-size:15px">пробіл</span>${mod(RETURN[hint], 88)}</div><div style="height:34px"></div></div>`
 }
-export const TEXT_H = 44 + 4 * 42 + 4 * 11 + 34
+// R5-16: six children, five 11 px gaps — the bar sits exactly on the keyboard's top edge, never under it.
+export const TEXT_H = 44 + 4 * 42 + 5 * 11 + 34
 
 /**
  * One money form. variant 'sheet' (quick-add / edit, over the Finance tab) or 'page' (pushed screen).
@@ -237,6 +261,7 @@ export function moneyForm({
   scroll = 0,
   over = '',
   locked = false,
+  project = '',
 }) {
   const kbdH = keyboard === 'decimal' ? DECIMAL_H : keyboard === 'text' ? TEXT_H : 0
   const body = moneyBody({
@@ -250,14 +275,22 @@ export function moneyForm({
     scroll,
     narrow: w < 360,
     locked,
+    project,
   })
   const bar = submitBar({ w, kbdH, inner: footer })
-  const kbd = keyboard === 'decimal' ? decimalPad() : keyboard === 'text' ? textKeyboard() : ''
+  const kbd =
+    keyboard === 'decimal'
+      ? decimalPad()
+      : keyboard === 'text'
+        ? textKeyboard(focus === 'note' ? 'done' : 'next')
+        : ''
   if (variant === 'page') {
     const inner = `${topBar({ back: true, title, bell: false, search: false })}<div class="content">${body}</div>${bar}${kbd}`
     return phone({ w, h, inner, overlay: over })
   }
-  const overlay = `${sheet({ w, h, top: safeTop(w) + 10, title, lead: `<span style="font-size:17px">${lead}</span>`, body, footer: bar })}${kbd}${over}`
+  // R7-12: equal side slots (each as wide as «Скасувати» / «Згорнути»), so the title stays centred and ellipsizes
+  // between them instead of crowding the leading control.
+  const overlay = `${sheet({ w, h, top: safeTop(w) + 10, title, lead: `<span style="font-size:17px">${lead}</span>`, body, footer: bar }).replace('<div class="sheethead">', '<div class="sheethead" style="--side:104px">')}${kbd}${over}`
   return tabScreen({
     w,
     h,
@@ -356,7 +389,10 @@ export const NEW_ROWS = [
     isNew: true,
   },
 ]
-/** Same type, currency and amount, another description, an earlier row: «схожа · інший опис», muted, never a «збіг». */
+/**
+ * R3-07: same type, currency and amount, but created before the send (14:29 < 14:32 − 5 s): the time test comes
+ * first, so it reads «раніше», never «схожа» and never «збіг» (primitives-v2 §5, the one definition).
+ */
 export const SIMILAR_ROW = {
   t: 'Обладнання · ноутбук',
   s: 'Витрата · 11.11.2026',
@@ -364,7 +400,7 @@ export const SIMILAR_ROW = {
   time: '14:29',
   ic: 'receipt',
   neg: true,
-  tag: 'схожа · інший опис',
+  tag: 'раніше',
 }
 
 /** Equal amount, created after the send, but the payload differs (the server trimmed the description): a warning «схожа». */
@@ -406,25 +442,25 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
   const hint = failed
     ? 'Список не оновився. Створити транзакцію ще раз можна лише після того, як він оновиться.'
     : rows === 'match'
-      ? 'Схоже, це ваша транзакція: −1 250,50 USD, створена о 14:33. Перевірте її, перш ніж створювати ще раз.'
+      ? 'Схоже, це ваша транзакція: −1 250,50 USD, створена о\u00a014:33. Перевірте її, перш ніж створювати ще раз.'
       : rows === 'similar'
-        ? 'У списку є схожа о 14:33: та сама сума, інший опис. Перевірте її, перш ніж створювати ще раз.'
+        ? 'У списку є схожа о\u00a014:33: та сама сума, інший опис. Перевірте її, перш ніж створювати ще раз.'
         : ready
           ? 'Список оновлено через хвилину після помилки. Якщо транзакції в ньому немає, її можна створити ще раз.'
           : 'Сервер міг зберегти транзакцію із запізненням. Через хвилину після помилки список оновиться сам, і тоді її можна буде створити ще раз.'
   // With a «збіг» the status never announces the unlock.
   const status = ready
     ? rows === 'match'
-      ? 'Оновлено о 14:34:01. Знайдено збіг'
+      ? 'Оновлено о\u00a014:34:01. Знайдено збіг'
       : rows === 'similar'
-        ? 'Оновлено о 14:34:01. Знайдено схожу'
-        : 'Оновлено о 14:34:01. Тепер можна створити ще раз'
-    : 'Оновлено о 14:33:18'
+        ? 'Оновлено о\u00a014:34:01. Знайдено схожу'
+        : 'Оновлено о\u00a014:34:01. Тепер можна створити ще раз'
+    : 'Оновлено о\u00a014:33:18'
   const list = failed
     ? ''
     : rows === 'empty'
       ? `<div class="col" style="align-items:center;gap:6px;padding:28px 24px;text-align:center"><span class="muted">${icon('search', { size: 24 })}</span><div class="t-body num" style="font-weight:600">Нових записів з ${FROM} немає</div></div>`
-      : `<div class="group" style="margin-top:4px">${(rows === 'match' ? [MATCH_ROW, ...NEW_ROWS, SIMILAR_ROW] : rows === 'similar' ? [SIMILAR_AFTER, ...NEW_ROWS] : NEW_ROWS).map((r) => txnRow(r, { wrap: true })).join('')}</div>`
+      : `<div class="group" style="margin-top:4px">${(rows === 'match' ? [MATCH_ROW, ...NEW_ROWS, SIMILAR_ROW] : rows === 'similar' ? [SIMILAR_AFTER, ...NEW_ROWS] : NEW_ROWS).map((r) => txnRow(r)).join('')}</div>`
   const body = `<div class="col" style="gap:8px;padding:0 16px 8px">
   <div class="t-sub num" style="font-weight:600">Шукаємо: −${AMOUNT} USD · Витрата · без опису · надіслано ${SENT_AT}</div>
   <div class="t-foot muted num">Лише ваші записи з ${FROM}</div>
@@ -442,7 +478,7 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
     rows === 'none'
       ? `<div class="t-foot muted num" style="text-align:center">Збігів немає</div>`
       : ''
-  const footer = `<div style="display:grid;gap:8px;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)">${noMatch}<span class="btn ${rows === 'match' || rows === 'similar' ? 'primary' : 'secondary'}" role="button"${rows === 'match' ? '' : ' aria-haspopup="dialog"'} style="width:100%">${icon('check', { size: 18 })}Є в списку — закрити чернетку</span>${recreate}</div>`
+  const footer = `<div style="display:grid;gap:8px;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)">${noMatch}<span class="btn ${rows === 'match' ? 'primary' : 'secondary'}" role="button"${rows === 'match' ? '' : ' aria-haspopup="dialog"'} style="width:100%">${icon('check', { size: 18 })}Є в списку — закрити чернетку</span>${recreate}</div>`
   const sh = sheet({
     w,
     h,
@@ -452,12 +488,18 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
     body,
     footer,
   })
-  return failureUnknown(w, h).replace('<div class="homebar">', `${sh}<div class="homebar">`)
+  // R1-05: «Перевірити список» CLOSES the form sheet and opens this one in its place (one sheet at a time, so with
+  // a confirm the stack is two overlays, never three). The draft stays pinned on the Фінанси list underneath.
+  const base = financeTab(w, h, '', pinDrafts([DRAFT.unknown]))
+  return base.includes('<div class="homebar">')
+    ? base.replace('<div class="homebar">', `${sh}<div class="homebar">`)
+    : base.replace(/<\/div>\s*$/, `${sh}</div>`)
 }
 
 /**
  * Boot, phase `sent`: «Оновити список» on the alert opens the check sheet over the Фінанси list. No draft form
- * is behind it and the marker holds no amount, so the sheet names only the time and offers no resubmit.
+ * is behind it; the marker holds the signed amount (D-5), so the sheet names it with the time, flags a later row of
+ * the same signed amount and currency as «схожа» (never «збіг»: the other fields are not stored) and offers no resubmit.
  * A failed refetch here reuses the «Не вдалося оновити список» alert with «Повторити». Drawn while the
  * device time is before `latest t + 160 s`: the hint names the app-owned background refetch (it runs at
  * `max(boot, latest sent t + 160 s)` whether this sheet is open or not; foundation §11), and «…створіть її
@@ -475,10 +517,10 @@ const BEFORE_ROW = {
 }
 export function checkSheetBoot(w, h) {
   const body = `<div class="col" style="gap:8px;padding:0 16px 8px">
-  <div class="t-sub num" style="font-weight:600">Транзакція о ${SENT_AT} · результат невідомий</div>
+  <div class="t-sub num" style="font-weight:600">Транзакція −${AMOUNT} USD о\u00a0${SENT_AT} · результат невідомий</div>
   <div class="t-foot muted num">Лише ваші записи з ${FROM}</div>
-  <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о 14:33:40</div><span class="btn sm secondary" role="button" style="height:44px">${icon('refresh-cw', { size: 16 })}Оновити</span></div>
-  <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Сервер міг зберегти транзакцію із запізненням. Список оновиться о 14:35:12</div></div><div class="group" style="margin-top:4px">${[...NEW_ROWS, BEFORE_ROW].map((r) => txnRow(r, { wrap: true })).join('')}</div>`
+  <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о\u00a014:33:40</div><span class="btn sm secondary" role="button" style="height:44px">${icon('refresh-cw', { size: 16 })}Оновити</span></div>
+  <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Сервер міг зберегти транзакцію із запізненням. Список оновиться о\u00a014:35:12</div></div><div class="group" style="margin-top:4px">${[{ ...SIMILAR_AFTER, tag: 'схожа · та сама сума' }, ...NEW_ROWS, BEFORE_ROW].map((r) => txnRow(r)).join('')}</div>`
   const footer = `<div style="padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)"><span class="btn secondary" role="button" style="width:100%">Закрити</span></div>`
   const sh = sheet({
     w,
@@ -489,18 +531,24 @@ export function checkSheetBoot(w, h) {
     body,
     footer,
   })
-  return overHome(pageKillAlert(w, h, 'sent'), sh)
+  return overHome(financeTab(w, h, '', financeBody()), sh)
 }
 
 export const PILL_H = 56
 const PILL_POS = (w) =>
   `position:absolute;left:12px;right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16}px;z-index:44;height:${PILL_H}px;border-radius:16px;background:oklch(0.2 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)`
-const pillBox = (w, inner, label, tone = '0.34 0.05 85', close = false) =>
+const pillBox = (w, inner, label, tone = '0.34 0.05 85', close = false, extra = '') =>
   close
-    ? `<div class="row" style="${PILL_POS(w)};border:1px solid oklch(${tone});padding:0 4px 0 0"><div role="button" aria-label="${label}" class="row grow" style="gap:10px;height:100%;padding:0 4px 0 10px;min-width:0">${inner}</div><span class="iconbtn" role="button" aria-label="Закрити" style="color:var(--muted-fg)">${icon('x', { size: 18 })}</span></div>`
+    ? `<div class="row" style="${PILL_POS(w)};border:1px solid oklch(${tone});padding:0 4px 0 0"><div role="button" aria-label="${label}" class="row grow" style="gap:10px;height:100%;padding:0 4px 0 10px;min-width:0">${inner}</div>${extra}<span class="iconbtn" role="button" aria-label="Закрити" style="color:var(--muted-fg)">${icon('x', { size: 18 })}</span></div>`
     : `<div role="button" aria-label="${label}" class="row" style="${PILL_POS(w)};gap:10px;padding:0 12px 0 10px;border:1px solid oklch(${tone})">${inner}</div>`
-const pillText = (a, b) =>
-  `<span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:13px;font-weight:600;white-space:nowrap">${a}</span><span class="t-cap muted">${b}</span></span>`
+// R4-15: the whole pill is ONE button; its trailing «Відкрити…» is the button's label, drawn in accent ink
+// (never muted meta), so the meta before it («62% ·», the time) stays muted and reads as status.
+const pillText = (a, b) => {
+  const parts = b.split(' · ')
+  const open = /^Відкрити/.test(parts.at(-1))
+  const meta = (open ? parts.slice(0, -1) : parts).join(' · ')
+  return `<span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:13px;font-weight:600;white-space:nowrap">${a}</span><span class="t-cap">${meta ? `<span class="muted">${meta}${open ? ' · ' : ''}</span>` : ''}${open ? `<span style="color:var(--primary);font-weight:600">${parts.at(-1)}</span>` : ''}</span></span>`
+}
 
 /**
  * One pill slot for every draft; it shows the highest state: unknown > failed > in flight > armed >
@@ -510,12 +558,16 @@ const pillText = (a, b) =>
  * inflight: the create has left. drafts: two or more failed / unknown drafts; a tap opens Фінанси at the
  * pinned rows.
  */
-export function moneyPill(w, kind = 'armed') {
+// R6-02 (foundation §11 «Money results queue»): earlier unacknowledged results queue by write ID behind one
+// persistent 44 px count button on the newest saved pill; it opens the chooser «Результати збереження».
+const queueBtn = (n) =>
+  `<span role="button" aria-haspopup="dialog" aria-label="Ще ${n}: усі результати збереження" class="row" style="height:44px;padding:0 10px;margin-right:2px;border-radius:12px;background:oklch(0.27 0.01 85);font-size:13px;font-weight:600;white-space:nowrap">Ще ${n}</span>`
+export function moneyPill(w, kind = 'armed', { amount = AMOUNT, more = 0 } = {}) {
   if (kind === 'unknown')
     return pillBox(
       w,
-      `<span style="color:var(--primary)">${icon('circle-help', { size: 24 })}</span>${pillText('Результат невідомий', `${AMOUNT} USD · Відкрити`)}<span role="status" style="${SR}">Невідомо, чи транзакцію збережено</span>`,
-      `Результат невідомий, ${AMOUNT} USD. Відкрити`,
+      `<span style="color:var(--primary)">${icon('circle-help', { size: 24 })}</span>${pillText('Результат невідомий', `−${AMOUNT} USD · ${SENT_AT} · Відкрити`)}<span role="status" style="${SR}">Невідомо, чи транзакцію збережено</span>`,
+      `Результат невідомий: −${AMOUNT} USD, надіслано о\u00a0${SENT_AT}. Відкрити`,
       '0.42 0.09 85',
     )
   if (kind === 'drafts')
@@ -528,42 +580,62 @@ export function moneyPill(w, kind = 'armed') {
   if (kind === 'saved')
     return pillBox(
       w,
-      `<span style="color:var(--positive)">${icon('circle-check', { size: 24 })}</span>${pillText(`Збережено ${AMOUNT} USD`, 'Відкрити')}<span role="status" style="${SR}">Транзакцію збережено</span>`,
-      `Збережено ${AMOUNT} USD. Відкрити`,
+      `<span style="color:var(--positive)">${icon('circle-check', { size: 24 })}</span>${pillText(`Збережено −${amount} USD`, 'Відкрити')}<span role="status" style="${SR}">Транзакцію збережено</span>`,
+      `Збережено −${amount} USD. Відкрити`,
       '0.4 0.08 150',
       true,
+      more ? queueBtn(more) : '',
     )
   if (kind === 'multi')
     return pillBox(
       w,
-      `<span style="color:var(--primary)">${icon('clock', { size: 24 })}</span>${pillText('Збережеться 2 транзакції', 'Відкрити')}`,
-      'Збережеться 2 транзакції після чеків. Відкрити',
+      `<span style="color:var(--primary)">${icon('clock', { size: 24 })}</span>${pillText('Збережуться 2 транзакції', 'Після завантаження чеків · Відкрити')}`,
+      'Збережуться 2 транзакції після завантаження чеків. Відкрити',
     )
   if (kind === 'inflight')
     return pillBox(
       w,
-      `<span style="color:var(--primary);display:grid">${icon('loader-circle', { size: 24 })}</span>${pillText(`Зберігаємо ${AMOUNT} USD…`, 'Відкрити')}`,
-      `Зберігаємо ${AMOUNT} USD. Відкрити`,
+      `<span style="color:var(--primary);display:grid">${icon('loader-circle', { size: 24 })}</span>${pillText(`Зберігаємо −${AMOUNT} USD…`, 'Відкрити')}`,
+      `Зберігаємо −${AMOUNT} USD. Відкрити`,
     )
   if (kind === 'failed')
     return pillBox(
       w,
-      `<span style="color:var(--destructive)">${icon('circle-alert', { size: 24 })}</span>${pillText(`Не збережено ${AMOUNT} USD`, 'Відкрити')}<span role="status" style="${SR}">Транзакцію не збережено</span>`,
-      `Не збережено ${AMOUNT} USD. Відкрити`,
+      `<span style="color:var(--destructive)">${icon('circle-alert', { size: 24 })}</span>${pillText(`Не збережено −${AMOUNT} USD`, `${SENT_AT} · Відкрити`)}<span role="status" style="${SR}">Транзакцію не збережено</span>`,
+      `Не збережено −${AMOUNT} USD о\u00a0${SENT_AT}. Відкрити`,
       '0.42 0.12 22',
     )
   return pillBox(
     w,
-    `${progress(ring(62, 28))}${pillText(`Збережеться ${AMOUNT} USD · 62%`, 'Відкрити чернетку')}`,
-    `Збережеться ${AMOUNT} USD після чека. Відкрити чернетку`,
+    // The percentage rides the second line, so it is never truncated (F0-32).
+    `${progress(ring(62, 28))}${pillText(`Збережеться −${AMOUNT} USD`, '62% · Відкрити чернетку')}`,
+    `Збережеться −${AMOUNT} USD після завантаження чека, 62%. Відкрити чернетку`,
   )
 }
 
 const financeTab = (w, h, overlay, body = financeBody()) =>
   tabScreen({ w, h, role: 'ADMIN', active: '/finance', title: 'Фінанси', body, overlay })
 
+/**
+ * R5-06: scrolling never hides an unacknowledged money result. Фінанси scrolled down: the pinned failed row has
+ * left the viewport, the bar collapsed, and the failed pill stays in its slot (the FAB, where a tab has one,
+ * still slides out; the dock never does).
+ */
+export const pillScrolled = (w, h) =>
+  tabScreen({
+    w,
+    h,
+    role: 'ADMIN',
+    active: '/finance',
+    title: 'Фінанси',
+    body: pinDrafts([DRAFT.failed]),
+    overlay: moneyPill(w, 'failed'),
+    scrolled: 190,
+  })
+
 /** Sheet dismissed while armed: the global upload pill carries the save; a tap reopens the draft. */
-export const uploadPillArmed = (w, h) => financeTab(w, h, moneyPill(w, 'armed'))
+export const uploadPillArmed = (w, h) =>
+  financeTab(w, h, moneyPill(w, 'armed'), pinDrafts([DRAFT.armed2]))
 export const uploadPillSaved = (w, h) => financeTab(w, h, moneyPill(w, 'saved'))
 export const uploadPillMulti = (w, h) =>
   financeTab(w, h, moneyPill(w, 'multi'), pinDrafts([DRAFT.armed2, DRAFT.armed]))
@@ -575,14 +647,27 @@ export const uploadPillInflight = (w, h) =>
  * other tabs it opens the quick-add sheet with the draft rows on top. A red dot (carrying the count when
  * more than one) and the accessible name say how many drafts need attention.
  */
-export const draftFab = (html, count = 1, label = 'Нова транзакція') =>
+// On Фінанси the create entry is the docked button (D-8): it carries the same dot or count and the same name.
+const draftAddButton = (html, count, label) =>
   html.replace(
+    new RegExp(
+      `<div class="btn primary" role="button" aria-label="${label}" style="([^"]*)">([\\s\\S]*?)</div>`,
+    ),
+    (_, st, inner) =>
+      `<div class="btn primary" role="button" aria-label="${label}, ${count > 1 ? `${count} чернетки потребують уваги` : '1 чернетка потребує уваги'}" style="${st}">${inner}${
+        count > 1
+          ? `<i aria-hidden="true" class="num" style="position:absolute;top:15px;right:16px;min-width:18px;height:18px;border-radius:9px;background:var(--destructive-solid);color:#fff;font:700 12px/18px var(--font);font-style:normal;text-align:center;box-shadow:0 0 0 2px var(--primary)">${count}</i>`
+          : '<i aria-hidden="true" style="position:absolute;top:19px;right:20px;width:10px;height:10px;border-radius:50%;background:var(--destructive-solid);box-shadow:0 0 0 2px var(--primary)"></i>'
+      }</div>`,
+  )
+export const draftFab = (html, count = 1, label = 'Нова транзакція') =>
+  draftAddButton(html, count, label).replace(
     /<div class="fab" role="button" aria-label="[^"]*"\s*(aria-haspopup="dialog")?\s*style="([^"]*)">[\s\S]*?<\/div>/,
     (_, hp, st) => {
       const dot =
         count > 1
-          ? `<i aria-hidden="true" class="num" style="position:absolute;top:5px;right:5px;min-width:18px;height:18px;border-radius:9px;background:var(--destructive);color:#fff;font:700 12px/18px var(--font);font-style:normal;text-align:center;box-shadow:0 0 0 2px var(--primary)">${count}</i>`
-          : '<i aria-hidden="true" style="position:absolute;top:9px;right:9px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--primary)"></i>'
+          ? `<i aria-hidden="true" class="num" style="position:absolute;top:5px;right:5px;min-width:18px;height:18px;border-radius:9px;background:var(--destructive-solid);color:#fff;font:700 12px/18px var(--font);font-style:normal;text-align:center;box-shadow:0 0 0 2px var(--primary)">${count}</i>`
+          : '<i aria-hidden="true" style="position:absolute;top:9px;right:9px;width:10px;height:10px;border-radius:50%;background:var(--destructive-solid);box-shadow:0 0 0 2px var(--primary)"></i>'
       const name =
         count > 1
           ? `${label}, ${count} чернетки потребують уваги`
@@ -590,51 +675,132 @@ export const draftFab = (html, count = 1, label = 'Нова транзакція
       return `<div class="fab" role="button" aria-label="${name}"${hp ? ' aria-haspopup="dialog"' : ''} style="${st}">${icon('plus', { size: 26, stroke: 2.4 })}${dot}</div>`
     },
   )
-export const uploadPillFailed = (w, h) => draftFab(financeTab(w, h, moneyPill(w, 'failed')))
+export const uploadPillFailed = (w, h) =>
+  draftFab(financeTab(w, h, moneyPill(w, 'failed'), pinDrafts([DRAFT.failed])))
 export const uploadPillUnknown = (w, h) =>
   draftFab(financeTab(w, h, moneyPill(w, 'unknown'), pinDrafts([DRAFT.unknown])))
 
-/** Toast + pill: the pill keeps the base slot, at most one toast stacks 8 px above it. */
-export function toastPillStack(w, h) {
-  const toast = `<div class="toast" role="status" style="left:12px;right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16 + PILL_H + 8}px;min-height:52px"><span style="color:var(--positive)">${icon('circle-check', { size: 18 })}</span><span class="grow">Транзакцію «Оренда офісу» оновлено</span></div>`
-  return financeTab(w, h, `${moneyPill(w, 'armed')}${toast}`)
+/** R4-10, R5-07: a create success while ANY draft pill owns the slot (failed, unknown, armed, in flight) never
+ * becomes a timed toast: it stacks as a second pill 8 px above, with the saved pill's own rule (stays until tapped
+ * or dismissed by its ✕ / a swipe). Stack order: the slot keeps the draft (precedence), the newest result sits
+ * above it. R5-08: the saved result is another transaction, so its amount differs from the draft's. */
+export const SAVED_OTHER = '320,00'
+export function savedOverPill(w, h, under = 'failed') {
+  const base = TABBAR_H + safeBottom(w) + 16
+  const saved = moneyPill(w, 'saved', { amount: SAVED_OTHER }).replace(
+    `bottom:${base}px`,
+    `bottom:${base + PILL_H + 8}px`,
+  )
+  const draft = under === 'armed' ? DRAFT.armed2 : DRAFT.failed
+  const shell = financeTab(w, h, moneyPill(w, under) + saved, pinDrafts([draft]))
+  return under === 'armed' ? shell : draftFab(shell)
+}
+export const savedOverFailedPill = (w, h) => savedOverPill(w, h, 'failed')
+/** R6-02: two creates succeeded while a failed draft holds the slot. The newest result (−320,00 USD) sits above the
+ * draft pill and carries «Ще 1»: the earlier unacknowledged success (−75,00 USD) is queued, never replaced. */
+export const SAVED_EARLIER = '75,00'
+export function savedQueuePill(w, h, extra = '') {
+  const base = TABBAR_H + safeBottom(w) + 16
+  const saved = moneyPill(w, 'saved', { amount: SAVED_OTHER, more: 1 }).replace(
+    `bottom:${base}px`,
+    `bottom:${base + PILL_H + 8}px`,
+  )
+  return draftFab(
+    financeTab(w, h, moneyPill(w, 'failed') + saved + extra, pinDrafts([DRAFT.failed])),
+  )
+}
+/** R7-01 (foundation §11 «Results chooser», the one rule): «Ще {n}» opens «Результати збереження», one row per
+ * unacknowledged write ID, newest first: the two successes (−320,00 USD the shown pill, −75,00 USD queued) and the
+ * failed draft. A saved row: «Відкрити» + a 44 px ✕ that dismisses that result only. A draft row: «Відкрити» only
+ * (a draft is discarded inside the draft). Phone: a content-sized modal sheet; >= 640: a non-modal popover anchored
+ * above the pill stack (chooserPopover in prims-r3.mjs). */
+export const SAVED_AT = '14:41'
+export const EARLIER_AT = '14:38'
+const RESULTS = [
+  { amount: SAVED_OTHER, at: SAVED_AT, state: 'Збережено', ok: true },
+  { amount: SAVED_EARLIER, at: EARLIER_AT, state: 'Збережено', ok: true },
+  { amount: AMOUNT, at: SENT_AT, state: 'Не збережено', ok: false },
+]
+export function chooserRows({ touch = true } = {}) {
+  const b = touch ? 44 : 32
+  return RESULTS.map((r) => {
+    const ic = r.ok
+      ? `<span style="color:var(--positive);display:grid">${icon('circle-check', { size: 22 })}</span>`
+      : `<span style="color:var(--destructive);display:grid">${icon('circle-alert', { size: 22 })}</span>`
+    const meta = `${r.state} · ${r.at}`
+    // the failed draft's «Відкрити» takes the pinned row's destructive tint (foundation §11 Pinned rows)
+    const tint = r.ok
+      ? ''
+      : 'background:color-mix(in oklch, var(--destructive) 18%, transparent);border-color:color-mix(in oklch, var(--destructive) 45%, transparent);'
+    const x = r.ok
+      ? `<button type="button" class="iconbtn" aria-label="Прибрати результат −${r.amount} USD" style="flex:none;width:${b}px;height:${b}px;color:var(--muted-fg)">${icon('x', { size: 16 })}</button>`
+      : `<span aria-hidden="true" style="flex:none;width:${b}px"></span>`
+    return `<li class="row" style="gap:10px;min-height:${touch ? 60 : 52}px;padding:0 8px 0 16px;border-top:1px solid var(--border)">${ic}<span class="grow col" style="gap:2px;min-width:0"><span class="num" style="font-size:15px;font-weight:600;white-space:nowrap">−${NB(r.amount)} USD</span><span class="t-cap muted num">${meta}</span></span><button type="button" class="btn sm secondary" aria-label="Відкрити: −${r.amount} USD, ${r.at}" style="flex:none;height:${b}px;padding:0 12px;${tint}">Відкрити</button>${x}</li>`
+  }).join('')
+}
+export function resultsChooser(w, h) {
+  const body = `<ul role="list" aria-label="Результати збереження" style="list-style:none;margin:0;padding:0 0 ${8 + safeBottom(w)}px">${chooserRows()}</ul>`
+  const ch = sheet({
+    w,
+    h,
+    title: 'Результати збереження',
+    trail: closeBtn,
+    body,
+  })
+  return savedQueuePill(w, h, ch).replace(
+    'aria-haspopup="dialog" aria-label="Ще 1',
+    'aria-haspopup="dialog" aria-expanded="true" aria-label="Ще 1',
+  )
 }
 
-// Boot after a page kill. The marker is { t, phase: 'armed' | 'sent' | 'failed' }: no amount, payload or
-// receipt, so no alert names an amount.
+/** Toast + pill: the pill keeps the base slot, at most one toast stacks 8 px above it. */
+export function toastPillStack(w, h) {
+  const toast = `<div class="toast" role="status" style="left:12px;right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16 + PILL_H + 8}px;min-height:52px"><span style="color:var(--positive)">${icon('circle-check', { size: 18 })}</span><span class="grow">Транзакцію «Оренда офісу» оновлено</span><span class="btn ghost" role="button" style="color:var(--primary);height:44px;padding:0 10px;font-size:15px">Відкрити</span></div>`
+  // R2-15: the armed pill always has its pinned row (foundation §11).
+  return financeTab(w, h, `${moneyPill(w, 'armed')}${toast}`, pinDrafts([DRAFT.armed2]))
+}
+
+// Boot after a page kill. The marker is { t, phase: 'armed' | 'sent' | 'failed', amount, currency } (D-5, local only): the
+// signed amount and the currency, never a payload or a receipt, so every dialog names the amount and the time.
 //   armed: the create never left, so the alert says it was not saved.
 //   failed: a definite failure (or a failed receipt upload) the user never saw; nothing was saved.
 //   sent: the create left and may have committed. «Оновити список» opens the «Нові записи» check sheet
 //   (the user's rows created after the earliest t); the dated list is never scrolled. No resubmit.
-const KILL = {
+// R2-01: one container on every class, a role="alertdialog" (primitives-v2 §12 «Page kill dialog»); never an inline alert.
+export const KILL = {
+  // F0-40 / D-5: the time and the signed amount come from the marker; «Створити ще раз» opens a form with only that amount and currency filled.
   armed: {
-    text: 'Транзакцію не збережено: застосунок закрився під час завантаження чека. Створіть її ще раз.',
-    actions: '<span class="btn sm secondary" role="button">Зрозуміло</span>',
-    tone: 22,
-    ink: 'var(--destructive)',
-    glyph: 'circle-alert',
+    text: `Транзакцію −${NB(AMOUNT)}\u00a0USD не збережено: о\u00a0${SENT_AT} застосунок закрився під час завантаження чека.`,
+    action: 'Створити ще раз',
+    answer: 'Зрозуміло',
   },
   failed: {
-    text: 'Транзакцію не збережено: о 14:32 збереження не вдалося. Створіть її ще раз.',
-    actions: '<span class="btn sm secondary" role="button">Зрозуміло</span>',
-    tone: 22,
-    ink: 'var(--destructive)',
-    glyph: 'circle-alert',
+    text: `Транзакцію −${NB(AMOUNT)}\u00a0USD не збережено: о\u00a0${SENT_AT} збереження не вдалося.`,
+    action: 'Створити ще раз',
+    answer: 'Зрозуміло',
   },
   sent: {
-    text: 'Результат збереження транзакції о 14:32 невідомий. Вона могла зберегтися: перевірте нові записи, перш ніж створювати її знову.',
-    actions:
-      // Drawn inside the late-commit window: «Закрити» keeps the markers until the guard's refetch succeeds.
-      '<span class="btn sm ghost" role="button">Закрити</span><span class="btn sm secondary" role="button">Оновити список</span>',
-    tone: 85,
-    ink: 'var(--primary)',
-    glyph: 'circle-help',
+    text: `Результат збереження транзакції −${NB(AMOUNT)}\u00a0USD о\u00a0${SENT_AT} невідомий. Вона могла зберегтися: перевірте нові записи, перш ніж створювати її знову.`,
+    // Drawn inside the late-commit window: «Закрити» keeps the markers until the guard's refetch succeeds.
+    action: 'Оновити список',
+    answer: 'Закрити',
   },
 }
+// Phone: the action sheet of §2 (two 56 px rows, the action first, the answer apart, focus on the answer).
 export function pageKillAlert(w, h, phase = 'armed') {
   const k = KILL[phase]
-  const alert = `<div style="padding:0 16px 12px"><div role="alert" style="padding:12px 14px;border-radius:14px;background:oklch(0.2 0.04 ${k.tone});border:1px solid oklch(0.38 0.09 ${k.tone})"><div class="row" style="gap:10px;align-items:flex-start"><span style="color:${k.ink};margin-top:1px">${icon(k.glyph, { size: 18 })}</span><div class="grow t-foot" style="font-size:15px;line-height:20px;color:oklch(0.92 0.02 ${k.tone})">${k.text}</div></div><div class="row" style="justify-content:flex-end;gap:8px;margin-top:6px">${k.actions}</div></div></div>`
-  return financeTab(w, h, '', `${alert}${financeBody()}`)
+  return overHome(
+    financeTab(w, h, '', financeBody()),
+    actionConfirm(w, {
+      id: 'pk',
+      title: k.text,
+      desc: '',
+      action: k.action,
+      cancel: k.answer,
+      ink: 'var(--primary)',
+      focusCancel: true,
+    }),
+  )
 }
 
 /**
@@ -657,17 +823,22 @@ export function actionConfirm(
   const z = overSheet ? [76, 77] : [70, 75]
   const row = (label, style, focus = false) =>
     `<button type="button"${focus ? ' data-initial-focus' : ''} style="appearance:none;margin:0;border:0;background:none;font:inherit;color:inherit;width:100%;cursor:pointer;height:56px;display:grid;place-items:center;font-size:17px;font-weight:600;${style}">${label}</button>`
-  return `<div class="scrim" style="z-index:${z[0]}"></div><div role="alertdialog" aria-modal="true" aria-labelledby="${id}-t" aria-describedby="${id}-d" style="position:absolute;left:8px;right:8px;bottom:${safeBottom(w) + 8}px;z-index:${z[1]};display:grid;gap:8px">
+  return `<div class="scrim" style="z-index:${z[0]}"></div><div role="alertdialog" aria-modal="true" aria-labelledby="${id}-t"${desc ? ` aria-describedby="${id}-d"` : ''} style="position:absolute;left:8px;right:8px;bottom:${safeBottom(w) + 8}px;z-index:${z[1]};display:grid;gap:8px">
   <div style="background:var(--popover);border-radius:14px;border:1px solid var(--border);overflow:hidden;text-align:center">
-    <div style="padding:16px 20px 14px"><div id="${id}-t" class="t-sub num" style="font-weight:600">${title}</div><div id="${id}-d" class="t-foot muted" style="margin-top:4px">${desc}</div></div>
+    <div style="padding:16px 20px 14px"><div id="${id}-t" class="t-sub num" style="font-weight:600">${title}</div>${desc ? `<div id="${id}-d" class="t-foot muted" style="margin-top:4px">${desc}</div>` : ''}</div>
     ${row(action, `border-top:1px solid var(--separator);color:${ink}`)}</div>
   ${row(cancel, 'background:var(--popover);border-radius:14px;border:1px solid var(--border)', focusCancel)}</div>`
 }
 // A 320 (SE) device has no home bar: the overlay then goes last inside the device.
-const overHome = (screen, overlay) =>
-  screen.includes('<div class="homebar">')
-    ? screen.replace('<div class="homebar">', `${overlay}<div class="homebar">`)
-    : screen.replace(/<\/div>\s*$/, `${overlay}</div>`)
+// A modal layer takes the docked create button out, as it does the FAB (shell-v2 §2), so no band peeks between sheet groups.
+export const overHome = (screen, overlay) => {
+  const base = /class="scrim"|role="(alert)?dialog"/.test(overlay)
+    ? screen.replace(/<div class="dock"[^>]*>[\s\S]*?<\/div><\/div>/, '')
+    : screen
+  return base.includes('<div class="homebar">')
+    ? base.replace('<div class="homebar">', `${overlay}<div class="homebar">`)
+    : base.replace(/<\/div>\s*$/, `${overlay}</div>`)
+}
 
 /**
  * A 401 with a dirty money form and an unknown draft: its own state, never a save failure. The body names each
@@ -679,7 +850,7 @@ export const sessionExpired = (w, h) =>
     actionConfirm(w, {
       id: 'se',
       title: 'Сесія завершилася. Увійдіть знову, щоб продовжити.',
-      desc: '<span style="display:block">Незбережені дані форми та вибраний чек буде втрачено.</span><span style="display:block;margin-top:4px">Чернетка 86,40 USD, надіслана о 14:32: введене не збережеться, позначка лишиться. Після входу перевірте список.</span>',
+      desc: `<span style="display:block">Дані форми та вибраний чек збережуться на цьому пристрої й повернуться після входу.</span><span style="display:block;margin-top:4px">Інша чернетка −${NB(AMOUNT)} USD, надіслана о\u00a0${SENT_AT}: після входу перевірте список, перш ніж створювати її знову.</span>`,
       action: 'Увійти знову',
       cancel: 'Не зараз',
       ink: 'var(--primary)',
@@ -694,15 +865,17 @@ export const confirmRecreate = (w, h) =>
     failureUnknownList(w, h, { ready: true, rows: 'similar' }),
     actionConfirm(w, {
       id: 'cr',
-      title: `Створити ${AMOUNT} USD ще раз?`,
-      desc: 'У списку є схожа о 14:33. Буде створено одну нову транзакцію: витрата, сьогодні, без проєкту.',
+      title: `Створити −${AMOUNT} USD ще раз?`,
+      desc: 'У списку є схожа о\u00a014:33. Буде створено одну нову транзакцію: витрата, сьогодні, без проєкту.',
       action: 'Створити ще раз',
-      ink: 'var(--primary)',
+      // R6-01: a «схожа» row is in the list, so the money-moving step is neutral and «Скасувати» takes focus.
+      ink: 'var(--foreground)',
       overSheet: true,
+      focusCancel: true,
     }),
   )
 
-/** A warning «схожа» and no «збіг»: «Є в списку — закрити чернетку» is the one filled primary (its named confirm stays). */
+/** R5-01: a warning «схожа» and no «збіг»: both exits stay neutral (secondary); «Є в списку — закрити чернетку» keeps its named confirm. */
 export const failureUnknownSimilar = (w, h) =>
   failureUnknownList(w, h, { ready: true, rows: 'similar' })
 
@@ -712,7 +885,7 @@ export const failureUnknownEmpty = (w, h) =>
     failureUnknownList(w, h, { ready: true, rows: 'empty' }),
     actionConfirm(w, {
       id: 'cc',
-      title: `Закрити чернетку ${AMOUNT} USD?`,
+      title: `Закрити чернетку −${AMOUNT} USD?`,
       desc: 'У списку її не знайдено',
       action: 'Закрити чернетку',
       cancel: 'Залишити',
@@ -726,7 +899,7 @@ export const confirmDiscardDraft = (w, h) =>
     failureOffline(w, h),
     actionConfirm(w, {
       id: 'dd',
-      title: `Видалити чернетку ${AMOUNT} USD?`,
+      title: `Видалити чернетку −${AMOUNT} USD?`,
       desc: 'Сума, поля й чек зникнуть. Цю дію не можна скасувати.',
       action: 'Видалити',
       cancel: 'Залишити',
@@ -735,18 +908,23 @@ export const confirmDiscardDraft = (w, h) =>
   )
 
 // Pinned draft rows: one per unsaved draft (armed, in flight, failed, unknown), newest first.
+// Meta reads status · {time} · type (the one row rule, primitives-v2 §12.0): the status first, the send time next, the type last; it wraps (2 lines), time never truncates.
 export const DRAFT = {
-  failed: { kind: 'failed', amount: AMOUNT, state: 'Не збережено · Витрата' },
-  unknown: { kind: 'unknown', amount: AMOUNT, state: 'Результат невідомий · Витрата' },
-  armed: { kind: 'armed', amount: '320,00', state: 'Збережеться після чека · Витрата' },
-  armed2: { kind: 'armed', amount: AMOUNT, state: 'Збережеться після чека · Витрата' },
+  failed: { kind: 'failed', amount: AMOUNT, state: `Не збережено · ${SENT_AT} · Витрата` },
+  unknown: { kind: 'unknown', amount: AMOUNT, state: `Результат невідомий · ${SENT_AT} · Витрата` },
+  armed: {
+    kind: 'armed',
+    amount: '320,00',
+    state: 'Збережеться після завантаження чека · Витрата',
+  },
+  armed2: { kind: 'armed', amount: AMOUNT, state: 'Збережеться після завантаження чека · Витрата' },
   inflight: {
     kind: 'inflight',
     amount: AMOUNT,
     state: 'Зберігаємо… · Витрата',
     ic: 'loader-circle',
   },
-  failed2: { kind: 'failed', amount: '86,40', state: 'Не збережено · Витрата' },
+  failed2: { kind: 'failed', amount: '86,40', state: 'Не збережено · 14:05 · Витрата' },
 }
 // A pinned row is never a primary (foundation §7.5): a tonal «Відкрити»; the tone marks failed / unknown.
 const TONE = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
@@ -754,7 +932,7 @@ const TONE = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
 const draftRow = ({ kind, amount, state }) => {
   const t = TONE[kind]
   const mix = (p) => (t ? `color-mix(in oklch, ${t} ${p}%, transparent)` : '')
-  return `<div style="padding:0 16px 8px"><div class="row" style="gap:10px;min-height:64px;padding:8px 8px 8px 14px;border-radius:14px;background:var(--card);border:1px solid ${t ? mix(40) : 'var(--border)'};box-shadow:inset 2px 0 0 ${t || 'var(--muted-fg)'}"><span class="grow col" style="gap:2px;min-width:0"><span class="t-body num" style="font-weight:600;white-space:nowrap">${amount} USD</span><span class="t-foot muted trunc">${state}</span></span><a class="btn sm secondary" href="#" aria-label="Відкрити чернетку ${amount} USD" style="height:44px;padding:0 12px;${t ? `background:${mix(18)};border-color:${mix(45)}` : ''}">Відкрити</a></div></div>`
+  return `<div style="padding:0 16px 8px"><div class="row" style="gap:10px;min-height:64px;padding:8px 8px 8px 14px;border-radius:14px;background:var(--card);border:1px solid ${t ? mix(40) : 'var(--border)'};box-shadow:inset 2px 0 0 ${t || 'var(--muted-fg)'}"><span class="grow col" style="gap:2px;min-width:0"><span class="t-body num" style="font-weight:600;white-space:nowrap">−${amount} USD</span><span class="t-foot muted num" style="overflow-wrap:anywhere">${state}</span></span><a class="btn sm secondary" href="#" aria-label="Відкрити чернетку: −${amount} USD, ${state.replaceAll(' · ', ', ')}" style="height:44px;padding:0 12px;${t ? `background:${mix(18)};border-color:${mix(45)}` : ''}">Відкрити</a></div></div>`
 }
 // The slot precedence (unknown > failed > in flight > armed) orders the rows; at most two show.
 const RANK = { unknown: 0, failed: 1, inflight: 2, armed: 3 }
@@ -779,41 +957,45 @@ const pinDrafts = (drafts) => {
 }
 
 /** The kept draft, pinned at the top of the Фінанси list when reached another way. */
-export const listrowDraft = (w, h) => draftFab(financeTab(w, h, '', pinDrafts([DRAFT.failed])))
+// R7-17: the same state as upload-pill-failed-375, so the same pill: a failed draft always has its pill and its row.
+export const listrowDraft = (w, h) =>
+  draftFab(financeTab(w, h, moneyPill(w, 'failed'), pinDrafts([DRAFT.failed])))
 
 /** One failed + one armed draft: the failed one wins the pill (unknown > failed > in flight > armed > saved); both are pinned. */
-export const draftsTwo = (w, h) =>
-  draftFab(financeTab(w, h, moneyPill(w, 'failed'), pinDrafts([DRAFT.armed, DRAFT.failed])))
+export const draftsTwo = (w, h) => {
+  const drafts = [DRAFT.armed, DRAFT.failed]
+  return draftFab(
+    financeTab(w, h, moneyPill(w, 'failed'), pinDrafts(drafts)),
+    needsAttention(drafts),
+  )
+}
 
 /**
  * Two unresolved drafts and an armed one: the pill names the count and opens Фінанси at the pinned rows;
  * the FAB dot carries it. Up to three rows show, so all three are here (unresolved first).
  */
-export const draftsTwoUnresolved = (w, h) =>
-  draftFab(
-    financeTab(
-      w,
-      h,
-      moneyPill(w, 'drafts'),
-      pinDrafts([DRAFT.failed2, DRAFT.unknown, DRAFT.armed]),
-    ),
-    2,
+export const draftsTwoUnresolved = (w, h) => {
+  const drafts = [DRAFT.failed2, DRAFT.unknown, DRAFT.armed]
+  return draftFab(
+    financeTab(w, h, moneyPill(w, 'drafts'), pinDrafts(drafts)),
+    needsAttention(drafts),
   )
+}
 
 /** Four drafts: two rows (unresolved first) and «Ще 2 чернетки · Показати», collapsed. */
-export const draftsFourCollapsed = (w, h) =>
-  draftFab(
-    financeTab(
-      w,
-      h,
-      moneyPill(w, 'drafts'),
-      pinDrafts([DRAFT.armed, DRAFT.failed2, DRAFT.inflight, DRAFT.unknown]),
-    ),
-    2,
+export const draftsFourCollapsed = (w, h) => {
+  const drafts = [DRAFT.armed, DRAFT.failed2, DRAFT.inflight, DRAFT.unknown]
+  return draftFab(
+    financeTab(w, h, moneyPill(w, 'drafts'), pinDrafts(drafts)),
+    needsAttention(drafts),
   )
+}
+
+const needsAttention = (drafts) =>
+  drafts.filter((d) => d.kind === 'failed' || d.kind === 'unknown').length
 
 /** Any «+» menu shows at most 2 draft rows (unresolved first). */
-const menuDraftRows = (drafts) => byRank(drafts).slice(0, 2).map(draftRow).join('')
+const menuDraftRows = (drafts, max = 2) => byRank(drafts).slice(0, max).map(draftRow).join('')
 /**
  * The «Чернетки» header; from 3 drafts it gains a trailing text button «Усі чернетки (N)» (opens Фінанси at the
  * pinned rows). Its 44 px hit area comes from padding cancelled by a negative margin, so it adds no height.
@@ -822,10 +1004,11 @@ const menuDraftHead = (drafts) => {
   const open = drafts.filter((d) => d.kind === 'failed' || d.kind === 'unknown').length
   const all =
     drafts.length > 2
-      ? `<a href="#" class="num" style="padding:13px 8px;margin:-13px -8px;font-size:13px;font-weight:600;color:var(--primary);text-decoration:none;white-space:nowrap">Усі чернетки (${drafts.length})</a>`
+      ? `<a href="#" class="num" style="padding:14px 8px;margin:-14px -8px;font-size:13px;font-weight:600;color:var(--primary);text-decoration:none;white-space:nowrap">Усі чернетки (${drafts.length})</a>`
       : ''
-  const label = all ? 'Чернетки' : `Чернетки · ${open} потребують перевірки`
-  return `<div class="row" style="justify-content:space-between;gap:12px;padding:0 16px 8px"><span class="t-over">${label}</span>${all}</div>`
+  // R7-03: the state count stays beside «Усі чернетки (N)»; at 320 the label wraps, the button never does.
+  const label = `Чернетки · ${open} потребують перевірки`
+  return `<div class="row" style="justify-content:space-between;align-items:flex-start;gap:12px;padding:${all ? '14px' : '0'} 16px 8px"><span class="t-over" style="min-width:0">${label}</span>${all}</div>`
 }
 
 /**
@@ -833,11 +1016,53 @@ const menuDraftHead = (drafts) => {
  * «Чернетки» section sits on top. A draft never hides other actions.
  * On Фінанси the FAB opens a new form directly. `base`: the tab screen behind the sheet.
  */
-export function quickAddDrafts(w, h, base, drafts = [DRAFT.failed2, DRAFT.unknown]) {
-  const rows = menuDraftRows(drafts)
-  const acts = `<div class="group" role="group" aria-label="Дії" style="margin-top:8px">${quickAddRows('ADMIN')}</div>`
+export function quickAddDrafts(
+  w,
+  h,
+  base,
+  drafts = [DRAFT.failed2, DRAFT.unknown],
+  { end = false } = {},
+) {
+  // R6-10: from 3 drafts the phone sheet shows ONE draft row (the highest rank) + «Усі чернетки (N)», so the
+  // new-action entries stay above the fold even at 320.
+  const n = drafts.length > 2 ? 1 : 2
+  const rows = menuDraftRows(drafts, n)
+  // R7-03: every create row is above the fold at the initial detent (measure.mjs `reach`, `[data-detent-row]`).
+  const acts = `<div class="group" role="group" aria-label="Дії" style="margin:8px 0 16px">${quickAddRows('ADMIN').replaceAll('<div class="lrow two"', '<div data-detent-row class="lrow two"')}</div>`
   const body = `${menuDraftHead(drafts)}${rows}${acts}`
-  const listH = 52 + 26 + 2 * 72 + 8 + 4 * 64 + safeBottom(w) + 24
-  const overlay = sheet({ w, h, top: h - listH, title: 'Створити', trail: closeBtn, body })
-  return draftFab(overHome(base, overlay), 2, 'Створити')
+  // R7-03: the initial detent holds the header (two lines at 320), the draft rows and all four create rows.
+  const headH = drafts.length > 2 ? (w <= 320 ? 70 : 50) : 26
+  const rowH = w <= 320 ? 92 : 80
+  const listH = 52 + headH + n * rowH + 8 + 4 * 64 + safeBottom(w) + 24
+  // R5-02: the body scrolls when the content is taller than the space under the status bar (320 × 568), and its
+  // scrollport ends above the bottom safe area; measure.mjs `reach` checks every row of every sheet.
+  const overlay = sheet({
+    w,
+    h,
+    top: Math.max(h - listH, safeTop(w) + 10),
+    title: 'Створити',
+    trail: closeBtn,
+    body,
+    scroll: `data-scroll-body${end ? ' data-scroll-end' : ''}`,
+  })
+  return draftFab(overHome(base, overlay + (end ? SCROLL_END : '')), 2, 'Створити')
+}
+
+/** R7-08 (shell-v2 Top bar «focus the search in place», the one rule): Фінанси scrolled to «Вчора»; the bar's
+ * magnifier dropped the field in under the bar over the list, focused, keyboard up. The list did not move: its rows
+ * are where they were before the tap. Results replace the list only once a query is typed; «Скасувати» or Esc puts
+ * the field back and leaves the position as it was. */
+export function searchInPlace(w, h) {
+  const top = safeTop(w) + 44
+  const field = `<div role="search" class="row" style="position:absolute;left:0;right:0;top:${top}px;z-index:30;gap:8px;padding:8px 8px 10px 16px;background:var(--bg);border-bottom:1px solid var(--separator)"><div class="row grow" role="searchbox" aria-label="Пошук транзакцій" style="gap:8px;height:44px;border-radius:12px;background:var(--surface);padding:0 12px;color:var(--placeholder);font-size:16px;box-shadow:0 0 0 2px var(--primary)">${icon('search', { size: 18 })}<span style="width:2px;height:22px;background:var(--primary);margin-left:-2px"></span><span>Пошук транзакцій</span></div><button type="button" class="btn ghost" style="flex:none;height:44px;padding:0 8px;font-size:17px;color:var(--primary)">Скасувати</button></div>`
+  return tabScreen({
+    w,
+    h,
+    role: 'ADMIN',
+    active: '/finance',
+    title: 'Фінанси',
+    body: financeBody(),
+    overlay: field + textKeyboard('search'),
+    scrolled: 380,
+  })
 }

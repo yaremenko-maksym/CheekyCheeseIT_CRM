@@ -10,13 +10,14 @@ import {
   thumb,
 } from './money-form.mjs'
 export { field, segmented }
-import { tabScreen, financeBody, txnRow, TXNS, topBar, PEOPLE } from './mobile.mjs'
+import { tabScreen, financeBody, txnRow, TXNS, topBar, PEOPLE, dayTotal } from './mobile.mjs'
 import { sheet, closeBtn, safeTop } from './mobile-overlays.mjs'
 
 const chevDown = `<span class="muted">${icon('chevron-down', { size: 18 })}</span>`
 
+// The 51×31 track sits inside a 51×44 button, so the hit area meets 44 px without the row growing (margin −6.5 px).
 export const toggle = (on = true, label = '') =>
-  `<button type="button" role="switch" aria-checked="${on}" aria-label="${label}" style="appearance:none;margin:0;padding:0;border:0;cursor:pointer;width:51px;height:31px;border-radius:16px;flex:none;position:relative;background:${on ? 'var(--primary)' : 'oklch(0.32 0 0)'}"><i style="position:absolute;top:2px;${on ? 'right' : 'left'}:2px;width:27px;height:27px;border-radius:14px;background:${on ? 'var(--primary-fg)' : 'oklch(0.92 0 0)'}"></i></button>`
+  `<button type="button" role="switch" aria-checked="${on}" aria-label="${label}" style="appearance:none;margin:-6.5px 0;padding:0;border:0;background:transparent;cursor:pointer;width:51px;height:44px;flex:none;display:grid;place-items:center"><span aria-hidden="true" style="width:51px;height:31px;border-radius:16px;position:relative;background:${on ? 'var(--primary)' : 'oklch(0.32 0 0)'}"><i style="position:absolute;top:2px;${on ? 'right' : 'left'}:2px;width:27px;height:27px;border-radius:14px;background:${on ? 'var(--primary-fg)' : 'oklch(0.92 0 0)'}"></i></span></button>`
 
 // Pushed-page form: back + title, the primary in the same bottom bar as the money form.
 const stickyFooter = (w, label = 'Зберегти') =>
@@ -42,13 +43,13 @@ const pickerField = (id, label, value) =>
 /** Field states on a profile edit: filled, focus, error, a PickerSheet field, disabled with a reason. */
 export function formStates(w, h) {
   const f = [
-    field({ id: 'a', label: 'Імʼя', value: 'Ірина Мельник', attrs: KB.name }),
+    field({ id: 'a', label: 'Ім’я та прізвище', value: 'Ірина Мельник', attrs: KB.name }),
     field({
       id: 'c',
       label: 'Телефон',
       value: '+380 67 000 00 0',
       state: 'focus',
-      hint: 'Для звʼязку з командою',
+      hint: 'Для зв’язку з командою',
       attrs: KB.tel,
     }),
     field({
@@ -56,7 +57,7 @@ export function formStates(w, h) {
       label: 'Робочий email',
       value: 'iryna@',
       state: 'error',
-      err: 'Вкажіть email у форматі name@domain.com',
+      err: 'Введіть повну адресу, наприклад name@company.com',
       attrs: KB.email,
     }),
     pickerField('e', 'Роль', 'Junior'),
@@ -65,18 +66,18 @@ export function formStates(w, h) {
       label: 'Email для входу',
       value: 'iryna.melnyk@example.com',
       state: 'disabled',
-      hint: 'Привʼязаний до Google-акаунта',
+      hint: 'Прив’язаний до Google-акаунта',
     }),
   ].join('')
   return formPage(w, h, 'Редагувати профіль', f, {
-    footer: stickyFooter(w, 'Зберегти зміни'),
+    footer: stickyFooter(w, 'Зберегти'),
   })
 }
 
 /** New user: name, email, role and team through the PickerSheet, primary «Додати». */
 export function formAddUser(w, h) {
   const f = [
-    field({ id: 'un', label: 'Імʼя', value: 'Ірина Мельник', attrs: KB.name }),
+    field({ id: 'un', label: 'Ім’я та прізвище', value: 'Ірина Мельник', attrs: KB.name }),
     field({
       id: 'ue',
       label: 'Email',
@@ -110,7 +111,12 @@ const kv = (k, v, { link = false } = {}) =>
  * The one transaction-detail body: the pushed page on a phone and the detail pane from 900 px both use
  * it. Title, amount, one status-pill slot under the amount, one field set, the receipt.
  */
-export function detailTxnBody() {
+export function detailTxnBody({ junior = false } = {}) {
+  // JUNIOR sees only a payment it received (nav.mjs / RBAC): its own salary, no payer-side fields, no project link.
+  if (junior) {
+    const jh = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><h1 class="t-sub muted" style="margin:0;font-weight:400">Зарплата за вересень</h1><div class="num" style="font-size:40px;line-height:46px;font-weight:700;letter-spacing:-0.03em;white-space:nowrap;color:var(--positive)">+1 200,00 USD</div><span class="pill ok" style="height:28px;padding:0 12px;font-size:13px">${icon('check', { size: 14, stroke: 2.4 })}Виплачено</span></div>`
+    return `${jh}<div class="group">${kv('Тип', 'Зарплата')}${kv('Від кого', 'Компанія')}${kv('Отримувач', 'Ви')}${kv('Дата', '10 жовтня 2026, 12:00')}</div>`
+  }
   const head = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><h1 class="t-sub muted" style="margin:0;font-weight:400">Оренда офісу</h1><div class="num" style="font-size:40px;line-height:46px;font-weight:700;letter-spacing:-0.03em;white-space:nowrap">−1 200,00 USD</div><span class="pill ok" style="height:28px;padding:0 12px;font-size:13px">${icon('check', { size: 14, stroke: 2.4 })}Оплачено</span></div>`
   const parts = `<div class="group">${kv('Тип', 'Витрата')}${kv('Платник', 'Компанія')}${kv('Отримувач', 'ТОВ «Бізнес-центр Поділ»')}${kv('Дата', '11 листопада 2026, 14:20')}${kv('Проєкт', 'Проєкт «Альфа»', { link: true })}${kv('Створив', 'Віктор Кравець')}</div>`
   const receipt = `<div class="sechead"><span class="t-over">Чек</span></div><div class="group"><button type="button" class="lrow" aria-label="Переглянути чек на весь екран" style="min-height:76px">${thumb(56)}<div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc">receipt-office-nov.jpg</div><div class="t-foot muted">220 КБ · торкніться, щоб збільшити</div></div><span class="muted">${icon('maximize-2', { size: 18 })}</span></button></div>`
@@ -123,11 +129,25 @@ export function detailTxn(w, h) {
   return phone({ w, h, inner })
 }
 
+/**
+ * R5-04: the pushed header scrolled, at 320 with «Редагувати» + «Інші дії». The inline title needs at least
+ * 120 px between the two 168 px insets; a phone leaves less (320: −16 px, 375: 39 px), so the bar stays
+ * title-less on scroll and keeps both actions (iOS Contacts). Actions never move between the bar and a menu.
+ */
+export function detailTxnScrolled(w, h) {
+  const body = detailTxnBody()
+  // R6-24: once the amount and summary scroll out, a compact identity line under the bar keeps the record named
+  // (title ellipsised, the signed amount never), so both actions stay in the bar.
+  const id = `<div class="row t-foot" style="flex:none;height:32px;padding:0 16px;gap:8px;border-bottom:1px solid var(--separator)"><span class="grow trunc muted">Оренда офісу</span><span class="num" style="white-space:nowrap;font-weight:600">−1 200,00 USD</span></div>`
+  const inner = `${detailTop()}${id}<div class="content" style="padding:0 16px 24px">${body.slice(body.indexOf('<div class="group">'))}</div>`
+  return phone({ w, h, inner })
+}
+
 /** Full-screen receipt viewer: pinch to zoom, 44 px close, the file name. */
 export function receiptViewer(w, h) {
   const img = `<div style="position:absolute;left:24px;right:24px;top:${safeTop(w) + 70}px;bottom:${safeBottom(w) + 90}px;border-radius:6px;background:linear-gradient(170deg,oklch(0.95 0 0),oklch(0.86 0 0));padding:28px 24px;display:grid;align-content:start;gap:12px">${'<i style="height:8px;background:oklch(0.55 0 0);border-radius:3px"></i>'.repeat(3)}<i style="height:8px;width:60%;background:oklch(0.55 0 0);border-radius:3px"></i><i style="height:22px"></i>${'<i style="height:6px;background:oklch(0.7 0 0);border-radius:3px"></i>'.repeat(8)}<i style="height:14px;width:40%;margin-top:18px;justify-self:end;background:oklch(0.4 0 0);border-radius:3px"></i></div>`
   const top = `<div class="row" style="position:absolute;left:8px;right:8px;top:${safeTop(w) + 6}px;gap:8px"><button type="button" class="iconbtn" aria-label="Закрити" style="color:#fff">${icon('x', { size: 24 })}</button><span class="grow t-sub" style="text-align:center;color:#fff">receipt-office-nov.jpg</span><span style="width:44px"></span></div>`
-  const hint = `<div class="t-foot" style="position:absolute;left:0;right:0;bottom:${safeBottom(w) + 40}px;text-align:center;color:oklch(0.75 0 0)">Зведіть або розведіть пальці, щоб змінити масштаб</div>`
+  const hint = `<div class="t-foot" style="position:absolute;left:0;right:0;bottom:${safeBottom(w) + 40}px;text-align:center;color:oklch(0.75 0 0)">Двічі торкніться або зведіть пальці, щоб змінити масштаб</div>`
   return phone({
     w,
     h,
@@ -156,15 +176,24 @@ export const formKeyboard = (w, h) =>
 // ---------- PickerSheet: one medium sheet for project, user, currency and role ----------
 export function pickerSheet(w, h) {
   const opt = (ic, label, { cur = false, sub = '' } = {}) =>
-    `<div class="lrow" role="option" aria-selected="${cur}" style="--inset:60px;min-height:56px"><div class="lead" style="width:32px;height:32px;border-radius:9px">${icon(ic, { size: 18 })}</div><div class="grow col" style="gap:1px;min-width:0"><div class="t-body trunc" style="${cur ? 'font-weight:600' : ''}">${label}</div>${sub ? `<div class="t-foot muted trunc">${sub}</div>` : ''}</div>${cur ? `<span style="color:var(--primary)">${icon('check', { size: 20, stroke: 2.6 })}</span>` : ''}</div>`
+    `<div class="lrow" role="option" aria-selected="${cur}" style="--inset:60px;min-height:56px"><div class="lead" style="width:32px;height:32px;border-radius:9px">${icon(ic, { size: 18 })}</div><div class="grow col" style="gap:1px;min-width:0"><div class="t-body trunc" style="${cur ? 'font-weight:600' : ''}">${label}</div>${sub ? `<div class="t-foot muted" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere">${sub}</div>` : ''}</div>${cur ? `<span style="color:var(--primary)">${icon('check', { size: 20, stroke: 2.6 })}</span>` : ''}</div>`
   const sec = (t) =>
     `<div class="sechead" style="padding-top:14px"><span class="t-over">${t}</span></div>`
   const search = `<div style="position:sticky;top:0;z-index:2;padding:4px 16px 10px;background:var(--popover)"><div class="row" role="searchbox" aria-label="Пошук проєкту" style="gap:8px;height:44px;padding:0 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font-size:16px"><span class="muted">${icon('search', { size: 18 })}</span><span class="ph grow">Пошук проєкту</span></div></div>`
   const body = `${search}<div role="listbox" aria-label="Проєкт">
   <div class="group">${opt('circle-off', 'Без проєкту')}</div>
   ${sec('Нещодавні')}<div class="group">${opt('folder', 'Проєкт «Альфа»', { cur: true, sub: 'Використано сьогодні' })}${opt('folder', 'Проєкт «Бета»', { sub: 'Використано вчора' })}</div>
-  ${sec('Усі проєкти')}<div class="group">${opt('folder', 'Проєкт «Гамма»')}${opt('folder', 'Проєкт «Дельта»')}${opt('folder', 'Інфраструктура')}</div></div>`
-  const picker = sheet({ w, h, top: Math.round(h * 0.3), title: 'Проєкт', trail: closeBtn, body })
+  ${sec('Усі проєкти')}<div class="group">${opt('folder', 'Проєкт «Гамма»')}${opt('folder', 'Проєкт «Дельта»')}${opt('folder', 'Інфраструктура')}</div><div style="height:16px"></div></div>`
+  // R5-03: the option list scrolls and its scrollport ends above the bottom safe area (shell-v2 «Reachability»).
+  const picker = sheet({
+    w,
+    h,
+    top: Math.round(h * 0.3),
+    title: 'Проєкт',
+    trail: closeBtn,
+    body,
+    scroll: 'data-scroll-body',
+  })
   return moneyForm({ w, h, receipt: 'done', expanded: true, over: picker })
 }
 
@@ -183,7 +212,7 @@ export function formLongText(w, h) {
   const chips = `<div role="group" aria-label="Вставити змінну" class="row" style="gap:8px;margin:0 -16px;padding:0 16px;height:44px;white-space:nowrap"><div class="row grow" style="gap:8px;overflow:hidden;min-width:0">${chip('Клієнт', 'client_name')}${chip('Виконавець', 'contractor_name')}${chip('Ставка', 'rate_usd')}${chip('Дата початку', 'start_date')}</div>${all}</div>`
   const bar = submitBar({ w, kbdH: TEXT_H, inner: chips })
   const save = `<button type="button" class="btn sm ghost" style="height:44px;color:var(--primary);font-size:17px;font-weight:600;padding:0 8px">Зберегти</button>`
-  const inner = `${topBar({ back: true, title: 'Шаблон договору', bell: false, search: false, trailing: save, side: 104 })}<div class="content col" style="padding:0 16px ${TEXT_H + 61}px;justify-content:flex-end;scroll-padding-bottom:61px">${editor}</div>${bar}${textKeyboard()}`
+  const inner = `${topBar({ back: true, title: 'Шаблон договору', bell: false, search: false, trailing: save, side: 104 })}<div class="content col" style="padding:0 16px ${TEXT_H + 61}px;justify-content:flex-end;scroll-padding-bottom:61px">${editor}</div>${bar}${textKeyboard('enter')}`
   return phone({ w, h, inner })
 }
 
@@ -194,7 +223,8 @@ export function sheetMedium(w, h) {
   const body = `<div style="padding:4px 16px 14px">${segmented(['Усі', 'Витрати', 'Доходи'])}</div>
   <div class="group">${row('Проєкт', 'Усі проєкти')}${row('Період', 'Цей місяць')}${row('Чек', 'Будь-який')}</div>`
   const footer = `<div style="padding:12px 16px ${safeBottom(w) + 8}px"><span class="btn primary" style="width:100%">Показати 48</span></div>`
-  const top = Math.round(h * (w <= 320 ? 0.36 : 0.46))
+  // A short sheet takes its content height (F0-10): no blank band under the body.
+  const top = null
   const overlay = sheet({
     w,
     h,
@@ -222,10 +252,10 @@ export const sheetLarge = (w, h) =>
   moneyForm({
     w,
     h,
-    title: 'Редагувати',
+    title: 'Редагувати транзакцію',
     receipt: 'done',
     expanded: true,
-    footer: primaryBtn('Зберегти зміни'),
+    footer: primaryBtn('Зберегти'),
   })
 
 /** Irreversible action → confirm (never undo). Mobile = action sheet; ≥ 640 = centred dialog. */
@@ -233,7 +263,7 @@ export function sheetConfirm(w, h) {
   const overlay = actionConfirm(w, {
     id: 'cf',
     title: 'Видалити транзакцію «Оренда офісу»?',
-    desc: '−1 200,00 USD · 11.11.2026. Цю дію не можна скасувати.',
+    desc: '−1 200,00 USD · 11.11.2026. Цю дію не можна скасувати; чек теж буде видалено.',
     action: 'Видалити',
   })
   return tabScreen({
@@ -257,11 +287,12 @@ const sec = (t, action = '') =>
 
 export function listVariants(w, h) {
   const [ini, n, sub, st] = PEOPLE[3]
-  const inner = `${topBar({ title: 'ListRow', bell: false, search: false })}<div class="content">
+  // R5-03: a page with no bottom bar ends its scrollport above the bottom safe area too.
+  const inner = `${topBar({ title: 'ListRow', bell: false, search: false })}<div class="content" style="margin-bottom:${safeBottom(w)}px">
   ${sec('Навігація · 56')}<div class="group">${navRow('dollar-sign', 'Фінанси')}${navRow('clock', 'Чекають рішення', { badge: 3 })}${navRow('languages', 'Мова', { value: 'Українська' })}</div>
   ${sec('Дворядковий · 64', 'Усі')}<div class="group">${txnRow(TXNS[0])}${txnRow(TXNS[1])}</div>
-  ${sec('Аватар і статус')}<div class="group"><div class="lrow two" style="--inset:64px"><div class="lead av">${ini}</div><div class="grow col" style="gap:2px"><div class="t-body trunc" style="font-weight:500">${n}</div><div class="t-foot muted trunc">${sub}</div></div><span class="pill ok">${st}</span></div></div>
-  ${sec('Перемикач і небезпечна дія')}<div class="group"><div class="lrow" style="--inset:60px"><div class="lead" style="width:32px;height:32px;border-radius:9px">${icon('bell', { size: 18 })}</div><div class="grow t-body">Сповіщення</div>${toggle(true, 'Сповіщення')}</div>${navRow('log-out', 'Вийти', { danger: true })}</div></div>`
+  ${sec('Аватар і статус')}<div class="group"><div class="lrow two" style="--inset:64px"><div class="lead av">${ini}</div><div class="grow col" style="gap:2px"><div class="t-body trunc" style="font-weight:500">${n}</div><div class="t-foot muted" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere">${sub}</div></div><span class="pill ok">${st}</span></div></div>
+  ${sec('Перемикач і небезпечна дія')}<div class="group"><div class="lrow" style="--inset:60px"><div class="lead" style="width:32px;height:32px;border-radius:9px">${icon('bell', { size: 18 })}</div><div class="grow t-body">Сповіщення</div>${toggle(true, 'Сповіщення')}</div>${navRow('log-out', 'Вийти з акаунта', { danger: true })}</div></div>`
   return phone({ w, h, inner })
 }
 
@@ -272,27 +303,28 @@ const withMore = (row) =>
     `<button type="button" class="iconbtn" aria-label="Дії з файлом" aria-haspopup="menu" style="margin-right:-10px;color:var(--muted-fg)">${icon('ellipsis', { size: 20 })}</button></div>`,
   )
 
-/** Swipe reveals trailing actions; every action is also reachable from the row's ⋯ / long-press menu (WCAG 2.5.1). */
+/** Swipe reveals trailing actions; every action is also reachable from the row’s «…» action sheet (WCAG 2.5.1; §12 Row actions). */
 const fileRow = (name, sub, on = false) =>
-  `<div class="lrow two" style="--inset:64px${on ? ';background:var(--raised)' : ''}"><div class="lead" style="width:36px;height:36px;border-radius:10px">${icon('file-image', { size: 18 })}</div><div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc" style="font-weight:500">${name}</div><div class="t-foot muted trunc num">${sub}</div></div></div>`
+  `<div class="lrow two" style="--inset:64px${on ? ';background:var(--raised)' : ''}"><div class="lead" style="width:36px;height:36px;border-radius:10px">${icon('file-image', { size: 18 })}</div><div class="grow col" style="gap:2px;min-width:0"><div class="t-body clamp2" style="font-weight:500">${name}</div><div class="t-foot muted num" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere">${sub}</div></div></div>`
 
 export function listSwipe(w, h) {
   const swiped = `<div class="lrow two" style="padding:0;overflow:hidden"><div class="row" style="position:absolute;right:0;top:0;bottom:0">
-    <div class="col" style="width:76px;height:100%;background:oklch(0.42 0.02 250);justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('pencil', { size: 18 })}Змінити</div>
-    <div class="col" style="width:76px;height:100%;background:var(--destructive);color:#fff;justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('trash-2', { size: 18 })}Видалити</div></div>
-    <div style="width:100%;transform:translateX(-152px);background:var(--card)">${txnRow(TXNS[2]).replace('class="lrow two"', 'class="lrow two" style="background:var(--card)"')}</div></div>`
-  const menu = `<div role="menu" aria-label="Дії з файлом" style="position:absolute;right:16px;top:${safeTop(w) + 44 + 384}px;width:230px;z-index:40;background:var(--popover);border:1px solid var(--border);border-radius:14px;box-shadow:0 20px 50px oklch(0 0 0 / 0.6);overflow:hidden">
-    ${[
+    <div class="col" style="width:88px;height:100%;background:oklch(0.42 0.02 250);justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('pencil', { size: 18 })}Редагувати</div>
+    <div class="col" style="width:76px;height:100%;background:var(--destructive-solid);color:#fff;justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('trash-2', { size: 18 })}Видалити</div></div>
+    <div style="width:100%;transform:translateX(-164px);background:var(--card)">${txnRow(TXNS[2]).replace('class="lrow two"', 'class="lrow two" style="background:var(--card)"')}</div></div>`
+  const sheetRow = (i, t, ink = '') =>
+    `<div role="menuitem" class="row" style="gap:14px;height:56px;padding:0 20px;border-bottom:1px solid var(--separator);font-size:17px;${ink ? `color:${ink}` : ''}">${icon(i, { size: 20 })}${t}</div>`
+  const menu = `<div class="scrim" style="z-index:70"></div><div role="menu" aria-label="Дії: Чек · Оренда офісу" style="position:absolute;left:8px;right:8px;bottom:${safeBottom(w) + 8}px;z-index:75;display:grid;gap:8px">
+    <div style="background:var(--popover);border-radius:14px;border:1px solid var(--border);overflow:hidden">${[
       ['eye', 'Переглянути'],
       ['download', 'Завантажити'],
       ['replace', 'Замінити'],
     ]
-      .map(
-        ([i, t]) =>
-          `<div role="menuitem" class="row" style="gap:12px;height:44px;padding:0 14px;border-bottom:1px solid var(--separator);font-size:16px">${icon(i, { size: 18 })}${t}</div>`,
-      )
-      .join('')}
-    <div role="menuitem" class="row" style="gap:12px;height:44px;padding:0 14px;color:var(--destructive);font-size:16px">${icon('trash-2', { size: 18 })}Видалити…</div></div>`
+      .map(([i, t]) => sheetRow(i, t))
+      .join(
+        '',
+      )}${sheetRow('trash-2', 'Видалити', 'var(--destructive)').replace('border-bottom:1px solid var(--separator);', '')}</div>
+    <div role="button" style="background:var(--popover);border-radius:14px;border:1px solid var(--border);height:56px;display:grid;place-items:center;font-size:17px;font-weight:600">Скасувати</div></div>`
   const inner = `${topBar({ title: 'Свайп і меню', bell: false, search: false })}<div class="content">
   ${sec('Свайп ліворуч')}<div class="group">${txnRow(TXNS[1])}${swiped}${txnRow(TXNS[3])}</div>
   ${sec('Без деталей: «…» або довге натискання')}<div class="group">${withMore(fileRow('Чек · Оренда офісу', '1,4 МБ · 11.11.2026', true))}${withMore(fileRow('Рахунок · Хмарний хостинг', '220 КБ · 10.11.2026'))}</div></div>${menu}`
@@ -306,15 +338,13 @@ export function listSticky(w, h) {
     s: 'Витрата · Проєкт «Інфраструктура та інструменти»',
     a: '−1 029,00 USD',
   }
-  const inner = `${topBar({ title: 'Фінанси', bell: false })}<div class="content">
-  <div class="sechead sticky" style="box-shadow:0 1px 0 var(--border)"><span class="t-over">Вчора</span><span class="t-cap muted num">−3 186,40 USD</span></div>
-  <div class="group" style="margin-top:-18px">${txnRow(TXNS[3])}${txnRow(long)}${txnRow(TXNS[4])}${txnRow(TXNS[5])}</div>
-  <div class="sechead"><span class="t-over">9 листопада</span><span class="t-cap muted num">+2 870,00 USD</span></div><div class="group">${TXNS.slice(
-    0,
-    4,
-  )
-    .map((x) => txnRow(x))
-    .join('')}</div></div>`
+  // The rows drawn under each header ARE the rows its total sums (R1-03).
+  const yesterday = [TXNS[3], { ...long, day: 'Вчора' }, TXNS[4], TXNS[5]]
+  const nov9 = TXNS.filter((x) => x.day === '9 листопада')
+  const inner = `${topBar({ title: 'Фінанси' })}<div class="content">
+  <div class="sechead sticky" style="box-shadow:0 1px 0 var(--border)"><span class="t-over">Вчора</span><span class="t-cap muted num">${dayTotal(yesterday)}</span></div>
+  <div class="group" style="margin-top:-18px">${yesterday.map((x) => txnRow(x)).join('')}</div>
+  <div class="sechead"><span class="t-over">9 листопада</span><span class="t-cap muted num">${dayTotal(nov9)}</span></div><div class="group">${nov9.map((x) => txnRow(x)).join('')}</div></div>`
   return phone({ w, h, inner })
 }
 
@@ -323,7 +353,7 @@ export function sectionHeaders(w, h) {
   const inner = `${topBar({ title: 'Заголовки секцій', bell: false, search: false })}<div class="content col" style="gap:14px;padding-top:6px">
   ${card(`${sec('Overline · 12/16')}<div class="lrow"><span class="t-foot muted">Групує рядки списку. Колір muted, не жовтий.</span></div>`)}
   ${card(`${sec('З дією', 'Усі')}<div class="lrow"><span class="t-foot muted">Дія 15 px, ціль ≥ 44 px по висоті.</span></div>`)}
-  ${card(`<div class="sechead"><span class="t-over">З підсумком</span><span class="t-cap muted num">−3 186,40 USD</span></div><div class="lrow"><span class="t-foot muted">Підсумок дня — tabular-nums.</span></div>`)}
+  ${card(`<div class="sechead"><span class="t-over">З підсумком</span><span class="t-cap muted num" style="text-align:right">${dayTotal(TXNS.filter((x) => x.day === 'Вчора'))}</span></div><div class="lrow"><span class="t-foot muted">Підсумок дня — tabular-nums, окремо за кожною валютою. Різні валюти ніколи не зводяться в одну суму.</span></div>`)}
   ${card(`<div class="sechead" style="padding-top:16px"><span class="t-title">Цей місяць</span><span class="btn sm secondary">${icon('calendar', { size: 14 })}Листопад</span></div><div class="lrow"><span class="t-foot muted">Заголовок блоку дашборда 20/26.</span></div>`)}
   ${card(`<div class="sechead sticky" style="margin:0"><span class="t-over">Липкий · blur</span></div><div class="lrow"><span class="t-foot muted">Липне під верхньою панеллю, фон 92% + blur.</span></div>`)}</div>`
   return phone({ w, h, inner })
