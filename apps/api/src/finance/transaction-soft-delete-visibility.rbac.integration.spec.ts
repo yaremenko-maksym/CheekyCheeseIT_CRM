@@ -34,6 +34,7 @@
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { inArray } from 'drizzle-orm'
+import { ForbiddenException } from '@nestjs/common'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
@@ -304,6 +305,12 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     // ── AC6: restore — ADMIN only ─────────────────────────────────────────────
+
+    it('AC6 — a non-ADMIN (SENIOR owner) cannot restore (403)', async () => {
+      await expect(
+        svc.restoreTransaction(TX_DELETED_ID, 'senior tries to restore', SENIOR_OWNER),
+      ).rejects.toThrow(ForbiddenException)
+    })
 
     it('AC6 — ADMIN restores; the row reappears in the default list for every role', async () => {
       await svc.restoreTransaction(TX_DELETED_ID, 'восстановлено после проверки', ADMIN_1)

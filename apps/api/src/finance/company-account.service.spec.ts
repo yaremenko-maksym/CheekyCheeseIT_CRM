@@ -45,6 +45,7 @@ const ADMIN: SessionUser = {
   seniorSharePercent: 0,
   legalFullName: null,
 }
+const JUNIOR: SessionUser = { ...SENIOR, id: 'j-1', role: 'JUNIOR' }
 
 // A configurable fake DatabaseService.db. Each test wires only the methods it
 // needs; unimplemented paths throw so an unexpected call is visible.
@@ -198,6 +199,14 @@ describe('CompanyAccountService.getAccount — balance derivation (AC6)', () => 
     const svc = makeService(db)
     const acc = await svc.getAccount(ADMIN)
     expect(acc.balance).toBe(650)
+  })
+
+  it('a non-ADMIN role → 403', async () => {
+    const db = makeDb({ select: selectReturning(['0', '0', '0', '0', '0', '0']) })
+    const svc = makeService(db)
+    await expect(svc.getAccount(JUNIOR)).rejects.toMatchObject({
+      response: { code: 'FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN', statusCode: 403 },
+    })
   })
 })
 
