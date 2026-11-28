@@ -264,10 +264,10 @@ case_red gfree2 apps/web/app/lib/gf2.ts modified "const o = {}, k = 'x'; const v
 src glocal "import { rows } from './rows'
 export function pick(items: string[], i: number, props: { m: Record<string, number> }, key: string) {
   const map = new Map<string, number>()
-  return [items[i], props.m[key], rows[i], this?.[key], [1, 2][i], map.get(key)]
+  return [items[i], props.m[key], rows[i], rows[0], (rows ?? [])[1], map.get(key)]
 }"
 mk glocal apps/web/app/components/gl.tsx modified
-assert_green "non-literal keys on parameters / imports / literals are NOT triggers" \
+assert_green "non-literal keys on parameters / imports, numeric keys anywhere are NOT triggers" \
   --contains "[not-required]" -- run glocal
 src galiasok "const top = 10
 const parent = getParent()
@@ -330,8 +330,9 @@ assert_green "fetch plan lists only the unowned code file" --contains "apps/web/
 # Verdict parsing (owner requirement 2 + 5): fresh / stale / BLOCK / non-owner / owner-authored
 src v "import pg from 'pg'"
 mk v apps/web/app/lib/x.ts added
-review() { # <author> <state> <body> [commit_id]
-  node -e 'console.log(JSON.stringify({ author: process.argv[1], state: process.argv[2], body: process.argv[3], commit_id: process.argv[4] }))' "$1" "$2" "$3" "${4:-$HEAD}"
+review() { # <author> <state> <body> [commit_id] [edited: true|false|absent]
+  node -e 'const [author, state, body, commit_id, e] = process.argv.slice(1); const r = { author, state, body, commit_id }
+    if (e !== "absent") r.edited = e === "true"; console.log(JSON.stringify(r))' "$1" "$2" "$3" "${4:-$HEAD}" "${5:-false}"
 }
 verdict_case() { # <name> <reviews-json> [author]
   cp "$T/v.files.json" "$T/$1.files.json"

@@ -1,5 +1,5 @@
 {
-  "_comment": "Critical zones for the Owner Verdict gate (scripts/devops/check-owner-approval.mjs). A non-owner PR touching any path below needs an `Owner Verdict: APPROVE` review by the owner on its head. Superset of CRITICAL_PATH_GLOBS in scripts/architect/flow-gate.mjs (contracts.md section 2.1) — the unit test fails if it is not. Glob: `**/` any directories, `**` anything, `*` within one segment.",
+  "_comment": "Critical zones for the Owner Verdict gate (scripts/devops/check-owner-approval.mjs). A non-owner PR touching any path below needs an `Owner Verdict: APPROVE` review by the owner on its head. Superset of CRITICAL_PATH_GLOBS in scripts/architect/flow-gate.mjs (contracts.md section 2.1) — the unit test fails if it is not. `pipeline` holds the gate itself: every script both gate workflows run or source (`scripts/devops/**` — the unit test parses the workflows and fails if one is outside a zone) and the tsconfig alias inputs of the scanner. Glob: `**/` any directories, `**` anything, `*` within one segment.",
   "zones": [
     { "zone": "auth", "glob": "apps/api/src/**/auth/**" },
     { "zone": "auth", "glob": "**/*.guard.ts" },
@@ -27,8 +27,9 @@
     { "zone": "pipeline", "glob": ".claude/hooks/**" },
     { "zone": "pipeline", "glob": ".claude/settings*.json" },
     { "zone": "pipeline", "glob": "scripts/architect/flow-gate*" },
-    { "zone": "pipeline", "glob": "scripts/devops/check-owner-approval.mjs" },
-    { "zone": "pipeline", "glob": "scripts/devops/owner-verdict-zones.json" },
+    { "zone": "pipeline", "glob": "scripts/devops/**" },
+    { "zone": "pipeline", "glob": "tsconfig.base.json" },
+    { "zone": "pipeline", "glob": "apps/*/tsconfig.json" },
     { "zone": "rbac", "glob": "apps/web/app/lib/route-access.ts" },
     { "zone": "auth", "glob": "apps/web/app/context/auth.tsx" },
     { "zone": "auth", "glob": "apps/web/app/routes/login.tsx" },

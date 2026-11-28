@@ -21,7 +21,8 @@
 // verdict of malice; it means "the owner looks".
 //
 // VERDICT: the owner's (login OWNER) latest review whose first non-empty line is
-// `Owner Verdict: APPROVE|BLOCK` decides; DISMISSED reviews do not count. APPROVE needs state
+// `Owner Verdict: APPROVE|BLOCK` decides; an edited owner review resets it (never approves); a
+// DISMISSED APPROVE does not count, a dismissed BLOCK still blocks. APPROVE needs state
 // COMMENTED or APPROVED and a `Commit: <sha>` line (full 40 hex) equal to the head, and the review's commit_id equal to the head — a push after
 // the verdict makes it stale. A label is not used: any write-role user can set one.
 //
@@ -31,7 +32,7 @@
 //     --contents <contents.json> --owner <login> [--summary <path>] [--json]
 //   --codeowners <path> --owner-of <path>                          # owners or "(unowned)"
 //   --codeowners <path> --check-paths <repo>                       # every pattern names a path
-// pr.json:       {headSha, author, counts: {changedFiles}, reviews: [{author, state, body}]}
+// pr.json:       {headSha, author, counts: {changedFiles}, reviews: [{author, state, body, commit_id, edited}]}
 // files.json:    [{filename, previous_filename, status}]   (REST pulls/{n}/files)
 // contents.json: [{filename, content} | {filename, unavailable: true}]
 // TypeScript: `typescript` resolved from this file, or the path in OWNER_GATE_TS.
@@ -267,6 +268,25 @@ const LOADER_PROPS = new Set([...LOADER_IDS, 'getBuiltinModule'])
 // (fs/promises) follow their root.
 export const E2E_BUILTINS = Object.freeze(['fs', 'path', 'url', 'os', 'crypto'])
 const REFLECT_LOADERS = new Set(['get', 'apply', 'construct'])
+// Names that are never a local receiver for a non-literal key, even if the file declares one
+// somewhere (the `declared` set is file-wide, not scoped): the JS / Node globals of the running
+// runtime plus the browser globals Node lacks.
+export const WELL_KNOWN_GLOBALS = new Set([
+  ...Object.getOwnPropertyNames(globalThis),
+  'document',
+  'navigator',
+  'location',
+  'history',
+  'localStorage',
+  'sessionStorage',
+  'indexedDB',
+  'caches',
+  'customElements',
+  'opener',
+  'parent',
+  'top',
+  'frames',
+])
 
 export function builtinVerdict(filename, spec) {
   if (!spec.startsWith('node:') && !isBuiltin(spec)) return null
@@ -320,6 +340,13 @@ export function scanCode(filename, content, aliases) {
     SK.AmpersandAmpersandToken,
     SK.CommaToken,
   ]
+  // `=`, `??=`, `||=`, `&&=`, `+=` …: an assignment's value is its right side.
+  const isAssignOp = (k) => k >= SK.FirstAssignment && k <= SK.LastAssignment
+  const LOGICAL_ASSIGN = [
+    SK.QuestionQuestionEqualsToken,
+    SK.BarBarEqualsToken,
+    SK.AmpersandAmpersandEqualsToken,
+  ]
   const passedAsValue = (node) => {
     let n = node
     for (let p = n.parent; p; n = p, p = p.parent) {
@@ -344,7 +371,7 @@ export function scanCode(filename, content, aliases) {
     ) {
       return p.initializer === n
     }
-    if (T.isBinaryExpression(p)) return p.right === n && p.operatorToken.kind === SK.EqualsToken
+    if (T.isBinaryExpression(p)) return p.right === n && isAssignOp(p.operatorToken.kind)
     return (
       T.isSpreadElement(p) ||
       T.isSpreadAssignment(p) ||
@@ -367,11 +394,16 @@ export function scanCode(filename, content, aliases) {
     return n
   }
   // The expressions a value may come from: both sides of `,` / `??` / `||` / `&&`, both branches
-  // of `?:` (the same wrappers passedAsValue sees through).
+  // of `?:` (the same wrappers passedAsValue sees through), the right side of `=`, both sides of
+  // `??=` / `||=` / `&&=` (`(x ??= globalThis)[k]`).
   const sources = (n) => {
     n = unwrap(n)
-    if (T.isBinaryExpression(n) && WRAP_OPS.includes(n.operatorToken.kind))
-      return [...sources(n.left), ...sources(n.right)]
+    if (T.isBinaryExpression(n)) {
+      const k = n.operatorToken.kind
+      if (WRAP_OPS.includes(k) || LOGICAL_ASSIGN.includes(k))
+        return [...sources(n.left), ...sources(n.right)]
+      if (k === SK.EqualsToken) return sources(n.right)
+    }
     if (T.isConditionalExpression(n)) return [...sources(n.whenTrue), ...sources(n.whenFalse)]
     return [n]
   }
@@ -428,12 +460,18 @@ export function scanCode(filename, content, aliases) {
       else return n
     }
   }
+  // Only a root that is a name declared in this file — and not a well-known global, which a
+  // file-wide `declared` set cannot tell from a shadowing local — is local. `this`, a literal,
+  // `new X()`, an array / object literal are not: `''[k]` / `({})[k]` reach `constructor`.
   const isLocalReceiver = (n) =>
     sources(n).every((src) => {
       const r = rootOf(src)
-      if (T.isIdentifier(r)) return declared.has(r.text) && !GLOBAL_OBJECTS.has(r.text)
+      if (T.isIdentifier(r))
+        return (
+          declared.has(r.text) && !GLOBAL_OBJECTS.has(r.text) && !WELL_KNOWN_GLOBALS.has(r.text)
+        )
       if (sources(r).length > 1) return isLocalReceiver(r) // `(x ?? window).a[k]`
-      return true // `this`, a literal, `new X()`, an array / object literal
+      return false
     })
   if (sf.parseDiagnostics?.length)
     out.push({
@@ -497,6 +535,8 @@ export function scanCode(filename, content, aliases) {
     } else if (T.isElementAccessExpression(node)) {
       const obj = node.expression
       const key = literal(node.argumentExpression) ? node.argumentExpression.text : null
+      // `rows[0]`, `(await x)[1]`: a numeric index never names `constructor` or a loader.
+      const numeric = T.isNumericLiteral(unwrap(node.argumentExpression))
       if (T.isMetaProperty(obj)) push('loader-alias', node, 'import.meta[...]')
       else if (isGlobalExpr(obj) || (T.isIdentifier(obj) && obj.text === 'Reflect')) {
         push('loader-alias', node, `${obj.getText(sf)}[...] (computed global member)`)
@@ -504,7 +544,7 @@ export function scanCode(filename, content, aliases) {
         push('loader-alias', node, `${obj.getText(sf)}['${key}']`)
       } else if (key !== null && GLOBAL_PROPS.has(key) && passedAsValue(node)) {
         push('loader-alias', node, `\`${node.getText(sf)}\` (global object) passed as a value`)
-      } else if (key === null && !isLocalReceiver(obj)) {
+      } else if (key === null && !numeric && !isLocalReceiver(obj)) {
         push(
           'loader-alias',
           node,
@@ -565,10 +605,20 @@ export function fetchPlan(rules, files) {
 }
 
 // ── verdict ──────────────────────────────────────────────────────────────────────────────
+// An owner review edited after it was posted (SR-H-1: a write collaborator may be able to edit a
+// review body; author and commit_id stay fixed) is a RESET, whatever its body says now: nothing
+// approves until a newer, unedited verdict follows. Skipping it instead would revive an earlier
+// APPROVE once the latest BLOCK is edited away. A review without a boolean `edited` (the old REST
+// shape, which cannot tell) is treated as edited — fail closed.
+// A DISMISSED review drops out only when it is an APPROVE; a dismissed BLOCK still blocks (SR-M-1).
 export function latestVerdict(reviews, owner) {
   let latest = null
   for (const r of reviews) {
-    if (String(r.author).toLowerCase() !== owner.toLowerCase() || r.state === 'DISMISSED') continue
+    if (String(r.author).toLowerCase() !== owner.toLowerCase()) continue
+    if (r.edited !== false) {
+      latest = { verdict: 'EDITED' }
+      continue
+    }
     const body = String(r.body ?? '')
     const first =
       body
@@ -577,6 +627,7 @@ export function latestVerdict(reviews, owner) {
         ?.trim() ?? ''
     const m = first.match(/^Owner Verdict:\s*(APPROVE|BLOCK)\s*$/)
     if (!m) continue
+    if (r.state === 'DISMISSED' && m[1] === 'APPROVE') continue
     // Full 40-hex only: a short prefix could be satisfied by a later commit (Master addendum 3).
     const c = body.match(/^\s*Commit:\s*`?([0-9a-f]{40})`?\s*$/m)
     latest = { verdict: m[1], commit: c ? c[1] : null, state: r.state, commitId: r.commit_id }
@@ -587,6 +638,11 @@ export function latestVerdict(reviews, owner) {
 export function verdictStatus(reviews, owner, headSha) {
   const v = latestVerdict(reviews, owner)
   if (!v) return { status: 'missing', reason: `no \`Owner Verdict:\` review by @${owner}` }
+  if (v.verdict === 'EDITED')
+    return {
+      status: 'missing',
+      reason: `an owner review was edited after it was posted — @${owner} posts a new verdict review`,
+    }
   if (v.verdict === 'BLOCK')
     return { status: 'blocked', reason: `@${owner} posted \`Owner Verdict: BLOCK\`` }
   if (!['COMMENTED', 'APPROVED'].includes(v.state)) {
