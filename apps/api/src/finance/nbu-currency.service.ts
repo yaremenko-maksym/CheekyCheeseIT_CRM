@@ -242,9 +242,10 @@ export class NbuCurrencyService {
    *     CR-M-1: the read never asks NBU for today a second time);
    *   - persisted past days: one store query for all of them, no NBU call;
    *   - missing past days: one NBU fetch per distinct day (each persisted on an exact hit), at
-   *     most `MAX_HISTORICAL_FETCHES_PER_READ` per read. A day that comes back stale while the
-   *     live rate is stale too (the feed is down) stops further fetches for this read; a day
-   *     that is merely unanswerable does not. The whole prefetch has ONE deadline,
+   *     most `MAX_HISTORICAL_FETCHES_PER_READ` per read. A stale `live` rate means the feed is
+   *     already hung or down (code review PR #1523, CR-M-5): then NO historical fetch is made on
+   *     this read. A day that is merely unanswerable does not stop later days. The whole
+   *     prefetch has ONE deadline,
    *     `HISTORICAL_PREFETCH_DEADLINE_MS`; a request still in flight at it is aborted. Every day
    *     left over is priced at the live rate and marked `stale: true` with no `rateDate`, so no
    *     money path can take it.
@@ -276,7 +277,12 @@ export class NbuCurrencyService {
     const { usdUah, usdtUah, eurUah } = live
     let fetches = 0
     let standIns = 0
-    let stop: string | null = persisted === null ? 'rate store unavailable' : null
+    let stop: string | null =
+      persisted === null
+        ? 'rate store unavailable'
+        : live.stale === true
+          ? 'NBU feed down (live rate stale)'
+          : null
     for (const d of missing) {
       if (stop === null && fetches >= MAX_HISTORICAL_FETCHES_PER_READ) {
         stop = `per-read cap of ${MAX_HISTORICAL_FETCHES_PER_READ} fetches reached`
@@ -289,10 +295,6 @@ export class NbuCurrencyService {
         const fetched = await this.fetchRates(d, today, deadline)
         if (fetched.stale !== true || Date.now() < deadline) {
           out.set(d, fetched)
-          // A stale day trips the breaker only when the feed itself is down (the live rate is
-          // stale too); one unanswerable day must not starve the days after it on every read.
-          if (fetched.stale === true && live.stale === true)
-            stop = 'NBU feed down (live rate stale)'
           continue
         }
         // Cut by the deadline: priced as a stand-in below, never as a fallback for this day.
@@ -337,24 +339,12 @@ export class NbuCurrencyService {
 
   /**
    * Persist an exact past-day hit. Only a result that is not stale and whose `rateDate` is the
-   * requested day qualifies: a previous-day, cached or hardcoded value is never written, since a
-   * row here is permanent. NBU's own date on BOTH the USD and the EUR row (`exchangedate` /
-   * `StartDate`) must also be the requested day: a source that answers a different day than asked
-   * (security review PR #1523, SR-M-1) is served for this read but never stored under the wrong
-   * label. A write failure is logged and ignored (the read already succeeded).
+   * requested day qualifies: a previous-day, cached, hardcoded or wrong-day (see `fetchRates`)
+   * value is never written, since a row here is permanent. A write failure is logged and ignored
+   * (the read already succeeded).
    */
-  private async persistExact(result: ExchangeRateResult, hit: SourceHit): Promise<void> {
+  private async persistExact(result: ExchangeRateResult, sourceId: string): Promise<void> {
     if (!this.rateStore || result.stale !== false || result.rateDate !== result.date) return
-    const asked = ymdToDotted(result.date)
-    // Both currencies are present here: a hit missing one makes `result` stale (returned above).
-    const dated = (cc: string): boolean =>
-      hit.rates.every((r) => r.cc !== cc || r.exchangedate === asked)
-    if (!dated('USD') || !dated('EUR')) {
-      this.logger.warn(
-        `NBU rate not persisted | provider=bank.gov.ua | source=${hit.sourceId} | day=${result.date} | cause=answer is dated another day`,
-      )
-      return
-    }
     const usd = Number(result.usdUah)
     const eur = Number(result.eurUah)
     if (!(usd > 0 && Number.isFinite(usd) && eur > 0 && Number.isFinite(eur))) return
@@ -363,7 +353,7 @@ export class NbuCurrencyService {
         day: result.date,
         usdUah: result.usdUah,
         eurUah: result.eurUah,
-        sourceId: hit.sourceId,
+        sourceId,
       })
     } catch (err: unknown) {
       this.logger.error(
@@ -412,14 +402,37 @@ export class NbuCurrencyService {
         sourceId: exact.sourceId,
         calcdate: this.calcdateOf(exact.rates),
       })
-      this.logProvenance(result, {
+      // Security review PR #1523 (SR-M-1, then LOW note 1): a past-day answer must carry NBU's own
+      // date for the requested day on BOTH the USD and the EUR row (`exchangedate` / `StartDate`).
+      // An answer dated another day is shown for display only: stale, no `rateDate`, so every
+      // money path (settlement, payout request) refuses it and nothing is persisted.
+      // A hit lacking USD or EUR is already stale from `buildResult`.
+      const asked = ymdToDotted(dateStr)
+      const dated = (cc: string): boolean =>
+        exact.rates.every((r) => r.cc !== cc || r.exchangedate === asked)
+      const served: ExchangeRateResult =
+        dateStr < today && (!dated('USD') || !dated('EUR'))
+          ? {
+              usdUah: result.usdUah,
+              usdtUah: result.usdtUah,
+              eurUah: result.eurUah,
+              date: dateStr,
+              stale: true,
+            }
+          : result
+      if (served !== result) {
+        this.logger.warn(
+          `NBU answer dated another day | provider=bank.gov.ua | source=${exact.sourceId} | day=${dateStr} | stale=true, not persisted, money paths refuse`,
+        )
+      }
+      this.logProvenance(served, {
         origin: `live:${exact.sourceId}`,
         url: exact.url,
         requested: dateStr,
         calcdate: this.calcdateOf(exact.rates),
       })
-      if (dateStr < today) await this.persistExact(result, exact)
-      return result
+      if (dateStr < today) await this.persistExact(served, exact.sourceId)
+      return served
     }
 
     // Attempt 2: previous day (weekend / holiday / not-yet-published gap).

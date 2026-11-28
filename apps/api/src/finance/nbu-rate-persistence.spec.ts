@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Logger } from '@nestjs/common'
 import { NbuCurrencyService } from './nbu-currency.service'
 import type { NbuRateStore, PersistedNbuRate } from './nbu-rate-store'
+import { convertDropPayoutAmount } from './pending-settlement-arithmetic.util'
 
 /**
  * Manager-role plan PR 8 (design §4.6 currency): past NBU days are persisted once and never
@@ -178,19 +179,34 @@ describe('AC1 — a past day is fetched once and persisted', () => {
   })
 
   it.each(['USD', 'EUR'] as const)(
-    'never persists an answer whose %s row is dated another day (SR-M-1)',
+    'an answer whose %s row is dated another day is display-only: stale, undated, unstored (SR-M-1)',
     async (cc) => {
       answeredAs = { [cc]: '09.11.2026' }
       const r = await svc.getRates('20261110')
-      // Served for this read, as before; only the permanent row is refused.
-      expect(r).toMatchObject({ usdUah: '41.1000', stale: false })
+      expect(r).toEqual({
+        usdUah: '41.1000',
+        usdtUah: '41.1000',
+        eurUah: '44.1000',
+        date: '20261110',
+        stale: true,
+      })
       expect(store.save).not.toHaveBeenCalled()
+      // The settlement money path refuses it (no `rateDate`).
+      let refused: unknown
+      try {
+        convertDropPayoutAmount(100, 'USDT', 'UAH', r)
+      } catch (err: unknown) {
+        refused = err
+      }
+      expect(refused).toMatchObject({ response: { code: 'FINANCE_NBU_RATE_UNAVAILABLE' } })
 
       answeredAs = {}
       const before = askedDays().length
-      await svc.getRates('20261110')
+      const dated = await svc.getRates('20261110')
       expect(askedDays().slice(before)).toEqual(['20261110'])
       expect(store.rows.get('20261110')?.usdUah).toBe('41.1000')
+      // The correctly dated answer prices money: 100 USDT at 41.1 UAH.
+      expect(convertDropPayoutAmount(100, 'USDT', 'UAH', dated)).toBe(4110)
     },
   )
 
@@ -366,8 +382,8 @@ describe('AC3 — outage degrades to stale, never breaks', () => {
     expect(rates.get('20261111')?.stale).toBe(true)
     expect(rates.get('20261111')?.rateDate).toBeUndefined()
     expect(rates.get('20261112')?.stale).toBe(true)
-    // The outage breaker: after the first missing day fails, the next one is not tried.
-    expect(askedDays().filter((d) => d === '20261112')).toEqual([])
+    // CR-M-5: a stale live rate means the feed is down, so the prefetch asks NBU nothing.
+    expect(askedDays()).toEqual([])
     expect(store.save).not.toHaveBeenCalled()
   })
 
