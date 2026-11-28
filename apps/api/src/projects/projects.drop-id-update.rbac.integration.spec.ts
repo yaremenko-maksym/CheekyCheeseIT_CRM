@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Global,
   Inject,
   Module,
@@ -57,6 +58,8 @@ import { makeNotificationsStub } from '../notifications/__test-helpers__/notific
  *               (contract: absent key must NOT clear the column — security regression guard)
  *   DROP-UPD-9  PATCH {dropId: 'invalid-uuid'} → 400 from updateProjectSchema.parse
  *               (Zod v4 rejects non-RFC-4122 strings before service layer is reached)
+ *   ROLE-SET-1  findAll role set per role, an unknown role sees nothing
+ *   ROLE-SET-2  update role check: SENIOR / JUNIOR / DROP / unknown → 403, own-team HR passes
  *
  * SEED namespace: a9b8c7d6-e5f4-4020-**
  *   (distinct from 4000/4002/4003/4010 used by other integration specs)
@@ -666,6 +669,45 @@ describe.skipIf(!hasDatabaseUrl())(
       const body = res.json() as { message?: string; errors?: unknown[] }
       expect(body.message, "400 body message must be 'Validation failed'").toBe('Validation failed')
       expect(Array.isArray(body.errors), '400 body must contain errors array from Zod').toBe(true)
+    })
+
+    // ── ROLE-SET (PR 1b, ACCOUNTANT retirement): the body-level role checks of
+    // `findAll` and `update` keep their role set; a role outside the five (a
+    // retired one included) sees nothing and edits nothing. Real service, real DB.
+    // Assertions are scoped to TEST_PROJ_ID: the scratch DB may hold other rows.
+
+    const UNKNOWN: SessionUser = { ...SENIOR1, role: 'X' as SessionUser['role'] }
+
+    it('ROLE-SET-1. findAll — ADMIN, owning SENIOR, own-team HR, member JUNIOR and the project DROP see the project; foreign HR and an unknown role do not', async () => {
+      await resetDropId(DROP1.id)
+      await dbSvc.db.insert(projectMembers).values({ projectId: TEST_PROJ_ID, userId: JUNIOR1.id })
+      try {
+        const svc = app.get(ProjectsService)
+        const sees = async (u: SessionUser) =>
+          (await svc.findAll(u)).some((p) => p.id === TEST_PROJ_ID)
+
+        expect(await sees(ADMIN), 'ADMIN').toBe(true)
+        expect(await sees(SENIOR1), 'owning SENIOR').toBe(true)
+        expect(await sees(HR_OWN), 'own-team HR').toBe(true)
+        expect(await sees(JUNIOR1), 'member JUNIOR').toBe(true)
+        expect(await sees(DROP1), 'project DROP').toBe(true)
+        expect(await sees(HR_FOREIGN), 'foreign HR').toBe(false)
+        expect(await svc.findAll(UNKNOWN), 'unknown role').toEqual([])
+      } finally {
+        await dbSvc.db.delete(projectMembers).where(eq(projectMembers.projectId, TEST_PROJ_ID))
+      }
+    })
+
+    it('ROLE-SET-2. update (non-finance field) — SENIOR, JUNIOR, DROP and an unknown role → 403 from the role check; own-team HR → allowed', async () => {
+      const svc = app.get(ProjectsService)
+      for (const u of [SENIOR1, JUNIOR1, DROP1, UNKNOWN]) {
+        await expect(
+          svc.update(TEST_PROJ_ID, { name: 'RoleSet rename' }, u),
+          u.role,
+        ).rejects.toBeInstanceOf(ForbiddenException)
+      }
+      const updated = await svc.update(TEST_PROJ_ID, { name: 'DropUpd Test Project' }, HR_OWN)
+      expect(updated.id).toBe(TEST_PROJ_ID)
     })
   },
 )
