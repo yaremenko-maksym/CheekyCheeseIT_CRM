@@ -218,7 +218,9 @@ const DB_PKG =
 const FINANCE_WORD =
   /(financ|transaction|payout|company-account|wallet|salary|ledger|requisite|invoice|dividend)/i
 
-// SO-L-1: a `node_modules` segment reaches any installed package (a DB client too) by path.
+// SO-L-1: a `node_modules` segment in the SPECIFIER reaches any installed package (a DB client
+// too) by path. The resolved path is not checked: main's own tsconfig `paths` map `react` into
+// `node_modules/@types` (measured: 344 files would trigger on that alone).
 const NODE_MODULES = /(^|\/)node_modules(\/|$)/
 
 export function classifySpecifier(filename, spec, aliases) {
@@ -228,7 +230,6 @@ export function classifySpecifier(filename, spec, aliases) {
   if (r.pkg && DB_PKG.test(r.pkg)) return { kind: 'db-client', detail: spec }
   if (!r.path) return null
   const via = `${spec} -> ${r.path}`
-  if (NODE_MODULES.test(r.path)) return { kind: 'node-modules', detail: via }
   if (r.path.startsWith('..') || r.path.startsWith('/'))
     return { kind: 'unresolved-specifier', detail: via }
   if (r.path === 'apps/api' || r.path.startsWith('apps/api/'))
