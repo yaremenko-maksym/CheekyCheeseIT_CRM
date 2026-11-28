@@ -19,6 +19,7 @@
 //   reach    — r5 (R4-01): a list drawn `[data-reach="N"]` must hold N `[data-dest]` rows, and every row must be
 //              scrollable fully into view: inside its scroller's box, inside the viewport, above the home indicator.
 //   reach    — r6 (R5-02): also every control of every bottom sheet (`.sheet`), scroller or not.
+//   reach    — r8 (R7-03): a sheet row marked `[data-detent-row]` is fully visible at the initial detent, as drawn.
 //   home     — r6 (R5-03): no interactive element painted inside the bottom safe area (`.device[data-safe-bottom]`)
 //              in the frame as drawn (its initial scroll position).
 //   band     — r7 (R6-04): no two text runs of different elements overlap inside the header band of a scrollport
@@ -30,6 +31,8 @@
 //              r8 (R7-11): a neighbour with `data-hit="44"` is compared by its extended box too (both hit boxes), so
 //              two extensions that overlap between separated visuals fail. Proof: `node measure.mjs fixtures` must
 //              report `hit 1` on `fixture-hit-overlap` (fixtures.mjs; never part of shell / primitives).
+//   chart    — r8 (R7-02): no chart text (`svg[role=img] text`, a `[data-legend]` entry) straddles the tab bar's top edge
+//              or sits under the FAB, in the frame as drawn.
 //   panel    — r7 (R6-14): a full-height side panel (`aside[role=dialog]`) at the right edge is 400 px at 640–1023,
 //              420 at 1024–1439 and 480 at ≥ 1440 (primitives-v2 §2 Side panel).
 //   float    — r7 (R6-20): at >= 640 no interactive control (a row, its «…», a button) is painted under the floating
@@ -100,6 +103,7 @@ function probe(coarse) {
     home: [],
     band: [],
     hit: [],
+    chart: [],
     panel: [],
     float: [],
   }
@@ -139,6 +143,18 @@ function probe(coarse) {
       /auto|scroll/.test(getComputedStyle(e).overflowY),
     )
     const keep = scs.map((e) => e.scrollTop)
+    // r8 (R7-03): a row the spec keeps at the initial detent (`[data-detent-row]`) is fully visible as drawn, before
+    // any scroll: inside its scroller, the sheet, the viewport and above the bottom safe area.
+    for (const el of sh.querySelectorAll('[data-detent-row]')) {
+      if (!vis(el)) continue
+      const r = el.getBoundingClientRect()
+      const sc = scs.filter((e) => e.contains(el)).pop()
+      const b = sc ? sc.getBoundingClientRect() : shb
+      if (r.top < b.top - 1 || r.bottom > b.bottom + 1 || r.bottom > band + 1 || r.top < shb.top - 1)
+        out.reach.push(
+          `sheet ${name(el)} not above the fold at the initial detent (${Math.round(r.top)}–${Math.round(r.bottom)}, box ${Math.round(b.top)}–${Math.round(b.bottom)}, safe-area top ${Math.round(band)})`,
+        )
+    }
     for (const el of sh.querySelectorAll(CTL)) {
       if (el.closest(OS) || !vis(el) || (el.parentElement && el.parentElement.closest(CTL)))
         continue
@@ -400,6 +416,23 @@ function probe(coarse) {
       }
     }
   }
+  // r8 (R7-02): no chart text (an svg label, a legend entry) is cut by the top edge of the tab bar or painted under
+  // the FAB in the frame as drawn. Text wholly below the tab bar's top edge is below the fold, not cut.
+  {
+    const tab = document.querySelector('nav.tabbar')?.getBoundingClientRect()
+    const fab = [...document.querySelectorAll('.fab')].filter((e) => vis(e)).map((e) => e.getBoundingClientRect())
+    for (const t of document.querySelectorAll('svg[role=img] text, [data-legend] > span')) {
+      if (t.closest(OS) || !vis(t) || !t.textContent.trim()) continue
+      const r = t.getBoundingClientRect()
+      if (tab && r.top < tab.top - 0.5 && r.bottom > tab.top + 1)
+        out.chart.push(`«${t.textContent.trim()}» cut by the tab bar`)
+      for (const f of fab) {
+        const w = Math.min(f.right, r.right) - Math.max(f.left, r.left)
+        const hh = Math.min(f.bottom, r.bottom) - Math.max(f.top, r.top)
+        if (w > 1 && hh > 1) out.chart.push(`«${t.textContent.trim()}» under the FAB`)
+      }
+    }
+  }
   // r7 (R6-14): a full-height side panel anchored to the right edge has the width of its class (§2 Side panel).
   for (const el of document.querySelectorAll('aside[role=dialog],[role=dialog][data-panel]')) {
     if (el.closest(OS) || !vis(el)) continue
@@ -429,6 +462,7 @@ const totals = {
   home: 0,
   band: 0,
   hit: 0,
+  chart: 0,
   panel: 0,
   float: 0,
 }

@@ -998,8 +998,9 @@ const menuDraftHead = (drafts) => {
     drafts.length > 2
       ? `<a href="#" class="num" style="padding:14px 8px;margin:-14px -8px;font-size:13px;font-weight:600;color:var(--primary);text-decoration:none;white-space:nowrap">Усі чернетки (${drafts.length})</a>`
       : ''
-  const label = all ? 'Чернетки' : `Чернетки · ${open} потребують перевірки`
-  return `<div class="row" style="justify-content:space-between;gap:12px;padding:${all ? '14px' : '0'} 16px 8px"><span class="t-over">${label}</span>${all}</div>`
+  // R7-03: the state count stays beside «Усі чернетки (N)»; at 320 the label wraps, the button never does.
+  const label = `Чернетки · ${open} потребують перевірки`
+  return `<div class="row" style="justify-content:space-between;align-items:flex-start;gap:12px;padding:${all ? '14px' : '0'} 16px 8px"><span class="t-over" style="min-width:0">${label}</span>${all}</div>`
 }
 
 /**
@@ -1018,9 +1019,13 @@ export function quickAddDrafts(
   // new-action entries stay above the fold even at 320.
   const n = drafts.length > 2 ? 1 : 2
   const rows = menuDraftRows(drafts, n)
-  const acts = `<div class="group" role="group" aria-label="Дії" style="margin:8px 0 16px">${quickAddRows('ADMIN')}</div>`
+  // R7-03: every create row is above the fold at the initial detent (measure.mjs `reach`, `[data-detent-row]`).
+  const acts = `<div class="group" role="group" aria-label="Дії" style="margin:8px 0 16px">${quickAddRows('ADMIN').replaceAll('<div class="lrow two"', '<div data-detent-row class="lrow two"')}</div>`
   const body = `${menuDraftHead(drafts)}${rows}${acts}`
-  const listH = 52 + 26 + n * 72 + 8 + 4 * 64 + safeBottom(w) + 24
+  // R7-03: the initial detent holds the header (two lines at 320), the draft rows and all four create rows.
+  const headH = drafts.length > 2 ? (w <= 320 ? 70 : 50) : 26
+  const rowH = w <= 320 ? 92 : 80
+  const listH = 52 + headH + n * rowH + 8 + 4 * 64 + safeBottom(w) + 24
   // R5-02: the body scrolls when the content is taller than the space under the status bar (320 × 568), and its
   // scrollport ends above the bottom safe area; measure.mjs `reach` checks every row of every sheet.
   const overlay = sheet({

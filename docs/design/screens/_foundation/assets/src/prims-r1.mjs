@@ -359,7 +359,7 @@ export function chartTablet(w, h, { tapped = false } = {}) {
       ['', 'Збиток', 'hatch'],
     ],
   )}</div>${valueSlot(tapped, 56)}<div style="margin-top:8px">${netBars(w - 80 - 64, 300, { labelSize: 12, pad: 34, selected: tapped ? 4 : -1 })}</div></div>`
-  const partners = `<div style="margin:0 16px 12px;padding:14px 16px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted">Виплати партнерам · 2026</div><div class="num" style="font-size:24px;font-weight:700">${usd(PART_K)} USD</div><div style="margin:8px 0 6px">${partnerBars(w - 80 - 64, 170, { labelSize: 12 })}</div>${legend([])}</div>`
+  const partners = `<div style="margin:0 16px 12px;padding:14px 16px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted">Дивіденди адміну · 2026</div><div class="num" style="font-size:24px;font-weight:700">${usd(PART_K)} USD</div><div style="margin:8px 0 6px">${partnerBars(w - 80 - 64, 170, { labelSize: 12 })}</div>${legend([])}</div>`
   const list = `<section aria-label="Статистика" class="col grow" style="min-width:0">${paneHead('Статистика')}<div style="padding:0 16px 12px">${segmented(['3 міс', '6 міс', 'Рік'], 1, { fit: true })}</div>${card}${partners}</section>`
   return tablet({ w, h, list, active: '/stats' })
 }

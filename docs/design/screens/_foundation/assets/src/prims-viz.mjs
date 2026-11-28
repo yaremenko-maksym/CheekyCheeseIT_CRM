@@ -464,7 +464,7 @@ export function partnerBars(W, H, { labelSize = 11, pad = 8 } = {}) {
   const y = (v) => top + ((max - v) / max) * (bottom - top)
   const gw = (W - pad * 2) / PART.length
   const q = ['I кв', 'II кв', 'III кв', 'IV кв']
-  return `<svg width="${W}" height="${H}" role="img" aria-label="Виплати партнерам по кварталах, тис. USD: Віктор Кравець — 3,1; 2,2; 4,0; 2,8. Олена Шевчук — 2,4; 3,6; 1,8; 3,0."><line x1="${pad}" x2="${W - pad}" y1="${y(0)}" y2="${y(0)}" stroke="var(--chart-grid)"/>${PART.map(
+  return `<svg width="${W}" height="${H}" role="img" aria-label="Дивіденди адміну по кварталах, тис. USD: Віктор Кравець — 3,1; 2,2; 4,0; 2,8. Олена Шевчук — 2,4; 3,6; 1,8; 3,0."><line x1="${pad}" x2="${W - pad}" y1="${y(0)}" y2="${y(0)}" stroke="var(--chart-grid)"/>${PART.map(
     ([a, b], i) => {
       const x = pad + i * gw + gw * 0.16,
         bw = gw * 0.32
@@ -503,13 +503,15 @@ export function chartMobile(w, h, { scrolled = 0, tapped = false } = {}) {
     'Чистий прибуток · 6 міс',
     `+${kFmt(NET_K)} тис. USD`,
     valueSlot(tapped, w <= 320 ? 76 : 56),
-    netBars(w - 60, w <= 320 ? 200 : 380, tapped ? { selected: 4 } : {}),
+    // R7-02: the plot is sized to the viewport at scroll 0, so the legend ends above the FAB band and the last axis
+    // label («лист») clears the FAB; measure.mjs `chart` asserts no chart text is cut by the tab bar or the FAB.
+    netBars(w - 60, w <= 320 ? 104 : 274, tapped ? { selected: 4 } : {}),
     legend([
       ['var(--chart-1)', 'Прибуток'],
       ['', 'Збиток', 'hatch'],
-    ]),
+    ]).replace('<div class="row"', '<div data-legend class="row"'),
   )}
-  ${card('Виплати партнерам · 2026', `${kFmt(PART_K)} тис. USD`, '', partnerBars(w - 60, 150), legend([]))}`
+  ${card('Дивіденди адміну · 2026', `${kFmt(PART_K)} тис. USD`, '', partnerBars(w - 60, 150), legend([]))}`
   return tabScreen({
     w,
     h,
@@ -529,9 +531,14 @@ export function chartMobile(w, h, { scrolled = 0, tapped = false } = {}) {
 export const chartTip = (pos, role = 'tooltip') =>
   `<div role="${role}" style="position:absolute;${pos};z-index:5;padding:8px 10px;border-radius:10px;background:var(--popover);border:1px solid oklch(0.28 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5);font-size:13px;min-width:176px;white-space:nowrap"><div style="font-weight:600">Жовтень 2026</div><div class="row" style="justify-content:space-between;gap:12px;margin-top:4px"><span class="muted">Дохід</span><span class="num" style="white-space:nowrap">${money(OCT.income)} USD</span></div><div class="row" style="justify-content:space-between;gap:12px"><span class="muted">Витрати</span><span class="num" style="white-space:nowrap">${money(OCT.expenses)} USD</span></div><div class="row" style="justify-content:space-between;gap:12px;margin-top:2px;font-weight:600"><span>Чистий</span><span class="num" style="white-space:nowrap">+${money(OCT.net)} USD</span></div></div>`
 
-export function chartDesktop() {
+export function chartDesktop({ selected = false } = {}) {
   // No room right of «жовт», so the tooltip flips to its left, clear of every bar and label.
-  const tooltip = chartTip('left:321px;top:46px')
+  // R7-22: a click or arrow-key focus selects «жовт»: no tooltip, the bar keeps its ring, the others dim, and the
+  // value slot under the heading reads the month exactly (the phone slot's content, one line at this width).
+  const tooltip = selected ? '' : chartTip('left:321px;top:46px')
+  const slot = selected
+    ? `<div role="status" class="row t-foot num" style="gap:0 14px;flex-wrap:wrap;height:42px;align-content:flex-start;margin-top:2px"><span style="font-weight:600">Жовтень 2026</span><span style="font-weight:600;white-space:nowrap">+${money(OCT.net)} USD</span><span class="row" style="gap:6px"><span class="muted">Дохід</span><span style="white-space:nowrap">${money(OCT.income)} USD</span></span><span class="row" style="gap:6px"><span class="muted">Витрати</span><span style="white-space:nowrap">${money(OCT.expenses)} USD</span></span></div>`
+    : `<div class="t-foot" style="color:var(--positive);height:42px;margin-top:2px">${DELTA}</div>`
   // F0-39: the period control and the active filter sit above the charts they drive; a filter is a removable chip.
   const seg = ['3 міс', '6 міс', 'Рік']
     .map(
@@ -541,13 +548,13 @@ export function chartDesktop() {
     .join('')
   const controls = `<div class="row" style="gap:10px;margin-bottom:16px"><span role="radiogroup" aria-label="Період графіка" class="row" style="gap:2px;padding:2px;border-radius:9px;background:var(--surface);border:1px solid var(--border)">${seg}</span><span class="row btn sm secondary" style="gap:6px;height:32px">${icon('calendar', { size: 14 })}Червень – листопад 2026</span><span class="row" style="gap:6px;height:32px;padding:0 6px 0 10px;border-radius:8px;background:var(--yellow-subtle);border:1px solid oklch(0.34 0.07 85);font-size:13px">Проєкт: Альфа<span class="iconbtn" aria-label="Прибрати фільтр «Проєкт: Альфа»" style="width:24px;height:24px">${icon('x', { size: 13 })}</span></span><span class="grow"></span><span class="t-foot muted">Дані на 12.11.2026, 09:00</span></div>`
   return `<div style="padding:24px;background:var(--bg);width:1200px">${controls}<div class="row" style="gap:16px;align-items:stretch">
-  <div style="position:relative;flex:2;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted" style="font-size:13px">Чистий прибуток</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+${usd(NET_K)} USD</div><div class="t-foot" style="color:var(--positive);margin-top:2px">${DELTA}</div></div>${legend(
+  <div style="position:relative;flex:2;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted" style="font-size:13px">Чистий прибуток</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+${usd(NET_K)} USD</div>${slot}</div>${legend(
     [
       ['var(--chart-1)', 'Прибуток'],
       ['', 'Збиток', 'hatch'],
     ],
-  )}</div><div style="margin-top:10px">${netBars(720, 260, { labelSize: 12, pad: 34 })}</div>${tooltip}</div>
-  <div style="flex:1;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Виплати партнерам · 2026</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">${usd(PART_K)} USD</div><div style="margin:10px 0 8px">${partnerBars(330, 252, { labelSize: 12 })}</div><div class="t-cap muted">тис. USD · ВК — Віктор Кравець · ОШ — Олена Шевчук</div></div></div>
+  )}</div><div style="margin-top:10px">${netBars(720, 260, { labelSize: 12, pad: 34, ...(selected ? { selected: 4 } : {}) })}</div>${tooltip}</div>
+  <div style="flex:1;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Дивіденди адміну · 2026</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">${usd(PART_K)} USD</div><div style="margin:10px 0 8px">${partnerBars(330, 252, { labelSize: 12 })}</div><div class="t-cap muted">тис. USD · ВК — Віктор Кравець · ОШ — Олена Шевчук</div></div></div>
   <div class="row" style="gap:10px;margin-top:16px;flex-wrap:wrap">${[
     ['--chart-1', 'chart-1 · primary'],
     ['--chart-2', 'chart-2'],
