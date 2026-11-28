@@ -45,11 +45,11 @@ export class SummaryService {
   // ── Finance Summary (stats) ───────────────────────────────────────────────
 
   async getSummary(currentUser: SessionUser) {
-    // RBAC: only ADMIN and ACCOUNTANT may see the full financial summary
+    // RBAC: only ADMIN may see the full financial summary
     // (adminBalances, dropBalances, totalIncome, dropSharePercent).
     // Any other authenticated role (SENIOR / JUNIOR / HR / DROP) reaching
     // GET /api/finance/summary directly would leak payment-routing config.
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    if (currentUser.role !== 'ADMIN') {
       throw apiError('FINANCE_SUMMARY_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
@@ -113,7 +113,7 @@ export class SummaryService {
     // PR #531 — see the mutation-gate backlog item). Writing the guaranteed
     // value directly removes the equivalent mutant instead of hiding it: the
     // only mutant left is `true → false` (BooleanLiteral), which IS real —
-    // flipping it empties `adminBalances` for actual ADMIN/ACCOUNTANT
+    // flipping it empties `adminBalances` for actual ADMIN
     // callers, which the `getSummary` unit spec already asserts against — so
     // it needs no suppression at all.
     const canSeeAdminBalances = true
@@ -205,7 +205,7 @@ export class SummaryService {
     //   sent:     ALL PAID transactions where senderId = admin.id (any type:
     //             SALARY, EXPENSE, ADMIN_TRANSFER, etc.) — the full HOLDING debit.
     // Drop role - phase 3 (spec §8.4): PAYOUT_CONFIRMED — the row inserted by
-    // `confirmPayout` when ACCOUNTANT/ADMIN manually confirms an off-platform
+    // `confirmPayout` when ADMIN manually confirms an off-platform
     // payout — also credits the chosen admin's balance. Phase 2 PAYOUT_ADMIN
     // (automatic 50/50 split) remains untouched and continues to count too;
     // both flows run in parallel per task scope ("Phase 2 auto-50/50 НЕ
@@ -369,7 +369,7 @@ export class SummaryService {
   /**
    * Accountant KPI snapshot for the финансовый хаб (Sprint 2).
    *
-   * RBAC: ACCOUNTANT + ADMIN only. Every other role (SENIOR / JUNIOR / HR /
+   * RBAC: ADMIN only. Every other role (SENIOR / JUNIOR / HR /
    * DROP) reaching GET /api/finance/accountant-summary directly would leak
    * company-wide payment-validation figures → ForbiddenException. Mirrors the
    * guard in `getSummary` above (single, explicit role check) and is thrown
@@ -404,7 +404,7 @@ export class SummaryService {
     paidThisMonth: { amount: number }
     recipientCount: number
   }> {
-    if (currentUser.role !== 'ACCOUNTANT' && currentUser.role !== 'ADMIN') {
+    if (currentUser.role !== 'ADMIN') {
       throw apiError('FINANCE_ACCOUNTANT_SUMMARY_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
@@ -723,7 +723,7 @@ export class SummaryService {
   }
 
   /**
-   * Income compliance overview — «Контроль приходов». ADMIN + ACCOUNTANT only;
+   * Income compliance overview — «Контроль приходов». ADMIN only;
    * logic and full contract live in `income-compliance.util.ts`.
    */
   async getIncomeComplianceOverview(

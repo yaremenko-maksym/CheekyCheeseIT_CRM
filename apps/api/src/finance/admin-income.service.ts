@@ -44,7 +44,7 @@ export class AdminIncomeService {
       notes?: string | null | undefined
       txDate?: string | null | undefined
       // SR-809-H-1 / D-2: travels with txDate. Consumed only when an
-      // ADMIN/ACCOUNTANT dates this row beyond the 31-day window, and then
+      // ADMIN dates this row beyond the 31-day window, and then
       // written to the audit log next to the row it justifies.
       backdateReason?: string | null | undefined
       // task-admin-income-unified: REPLACES the old `fundingSource` toggle.
@@ -66,8 +66,7 @@ export class AdminIncomeService {
     //     project's senior must be an ADMIN). The accountant is the recorder
     //     (createdBy), never the recipient — enforced below, independent of
     //     project eligibility.
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
-      throw new ForbiddenException()
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
     // task-project-draft-status (Д2): fused fetch+status guard — a DRAFT or
     // REJECTED project must never accrue income. See project-status.util.ts's
@@ -217,7 +216,7 @@ export class AdminIncomeService {
     // this business date is allowed at all, BEFORE a transaction is opened —
     // EXECUTED, because an income records money already received, so it may be
     // backdated inside the window but never dated into the future. An
-    // ADMIN/ACCOUNTANT may exceed the window only with a reason, which comes
+    // ADMIN may exceed the window only with a reason, which comes
     // back here and is written to the audit log alongside the row.
     const dateDecision = resolveTransactionDateWithPolicy(data.txDate, {
       role: currentUser.role,
@@ -339,7 +338,7 @@ export class AdminIncomeService {
       notes?: string | null | undefined
       txDate?: string | null | undefined
       // SR-809-H-1 / D-2: travels with txDate. Consumed only when an
-      // ADMIN/ACCOUNTANT dates this row beyond the 31-day window, and then
+      // ADMIN dates this row beyond the 31-day window, and then
       // written to the audit log next to the row it justifies.
       backdateReason?: string | null | undefined
     },
@@ -451,7 +450,7 @@ export class AdminIncomeService {
     // this business date is allowed at all, BEFORE a transaction is opened —
     // EXECUTED, because an income records money already received, so it may be
     // backdated inside the window but never dated into the future. An
-    // ADMIN/ACCOUNTANT may exceed the window only with a reason, which comes
+    // ADMIN may exceed the window only with a reason, which comes
     // back here and is written to the audit log alongside the row.
     const dateDecision = resolveTransactionDateWithPolicy(data.txDate, {
       role: currentUser.role,

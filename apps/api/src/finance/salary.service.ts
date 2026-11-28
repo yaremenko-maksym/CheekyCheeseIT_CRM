@@ -414,7 +414,7 @@ export class SalaryService {
   }
 
   /**
-   * GET /api/finance/salary-parts — ADMIN + ACCOUNTANT only (the pair that may
+   * GET /api/finance/salary-parts — ADMIN only (the pair that may
    * create a salary). SR-795-M-1 / owner decision D-3, second half: the create
    * dialog shows what is already on the ledger for this receiver and month
    * BEFORE the operator submits.
@@ -433,7 +433,7 @@ export class SalaryService {
     currentUser: SessionUser,
     query: SalaryPartsQuery,
   ): Promise<SalaryPartsResponseDto> {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    if (currentUser.role !== 'ADMIN') {
       throw apiError('FINANCE_SALARY_MONTH_GAP_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
@@ -480,12 +480,12 @@ export class SalaryService {
     }
   }
 
-  /** GET /api/finance/salary-month-gap — ADMIN + ACCOUNTANT only. */
+  /** GET /api/finance/salary-month-gap — ADMIN only. */
   async getSalaryMonthGapReport(
     currentUser: SessionUser,
     month?: string,
   ): Promise<SalaryMonthGapReportDto> {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    if (currentUser.role !== 'ADMIN') {
       throw apiError('FINANCE_SALARY_MONTH_GAP_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     // security-review HIGH-2: default to the PREVIOUS calendar month — the

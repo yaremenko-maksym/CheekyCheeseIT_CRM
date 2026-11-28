@@ -83,7 +83,7 @@ export async function settleObligationInTx(
   } = plan
   // SECURITY (TOCTOU, MED — PR #262): the PENDING→PAID transition is the
   // money gate and MUST be atomic + idempotent, else two concurrent / repeated
-  // settle calls (e.g. a double-clicked ADMIN/ACCOUNTANT button) both pass the
+  // settle calls (e.g. a double-clicked ADMIN button) both pass the
   // out-of-transaction status read above, both insert a SENIOR_INCOME and both
   // debit the company account → DOUBLE payout to the senior. There is no
   // unique/partial-index backstop on pending_obligations (unlike the payout

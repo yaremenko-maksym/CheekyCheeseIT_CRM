@@ -127,10 +127,10 @@ export class CompanyAccountService {
 
   /**
    * GET /api/company-account — wallet config + derived balance.
-   * RBAC enforced at the controller (ADMIN/ACCOUNTANT) AND here defensively.
+   * RBAC enforced at the controller (ADMIN) AND here defensively.
    */
   async getAccount(currentUser: SessionUser): Promise<CompanyAccountDto> {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    if (currentUser.role !== 'ADMIN') {
       throw apiError('FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     const row = await this.getRow()
@@ -388,7 +388,7 @@ export class CompanyAccountService {
     // WHO SENT IT — recorded, not enforced (task-onchain-payment-integrity).
     // A deposit from an exchange withdrawal legitimately shows the exchange's
     // hot wallet, so gating on the sender would reject honest top-ups; instead
-    // the address is persisted and shown to ADMIN/ACCOUNTANT.
+    // the address is persisted and shown to ADMIN.
     const onChainFromAddress = normalizeEthAddress(verification.fromAddress)
 
     let tx: typeof transactions.$inferSelect
@@ -494,7 +494,7 @@ export class CompanyAccountService {
     )
 
     const isOwner = tx.senderId === currentUser.id
-    const isPrivileged = currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
+    const isPrivileged = currentUser.role === 'ADMIN'
     if (!isOwner && !isPrivileged) {
       throw apiError('FINANCE_DEPOSIT_STATUS_ACCESS_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
@@ -513,11 +513,11 @@ export class CompanyAccountService {
     }
 
     // security-review PR #456 round 2 (MED): a deleted PENDING deposit is
-    // only reachable here by ADMIN/ACCOUNTANT (assertFoundAndVisible above
+    // only reachable here by ADMIN (assertFoundAndVisible above
     // already 404'd everyone else) — and the owner requirement is "видны
     // админу/бухгалтеру", i.e. they must get a REAL status back, not an
     // error. Round 1 threw `assertTransactionNotDeleted` unconditionally
-    // here, which put a WRITE gate on a READ endpoint — ADMIN/ACCOUNTANT got
+    // here, which put a WRITE gate on a READ endpoint — ADMIN got
     // a 400 instead of a status. Fixed: only the MUTATING re-poll/flip is
     // skipped for a deleted row; the read itself always succeeds. No live
     // Etherscan call for a deleted row (nothing to progress toward), so
@@ -816,7 +816,7 @@ export class CompanyAccountService {
         throw err
       }
 
-      // SR-809-L-3 / owner decision D-2: "ADMIN/ACCOUNTANT may go beyond the
+      // SR-809-L-3 / owner decision D-2: "ADMIN may go beyond the
       // 31-day limit ONLY with a mandatory reason written to the audit log".
       // Without this the reason was collected and validated and then dropped —
       // the rule would look enforced while leaving nothing an auditor could

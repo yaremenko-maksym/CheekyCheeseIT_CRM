@@ -16,7 +16,7 @@ export class ProjectFinanceSettingsService {
   constructor(private db: DatabaseService) {}
 
   async getProjectFinanceSettings(projectId: string, currentUser: SessionUser) {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    if (currentUser.role !== 'ADMIN') {
       throw new ForbiddenException()
     }
 
@@ -53,7 +53,7 @@ export class ProjectFinanceSettingsService {
     },
     currentUser: SessionUser,
   ) {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    if (currentUser.role !== 'ADMIN') {
       throw new ForbiddenException()
     }
 

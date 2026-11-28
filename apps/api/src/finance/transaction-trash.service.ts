@@ -23,7 +23,7 @@ export class TransactionTrashService {
   // salaries off this ledger. Now marks the row instead (`deletedAt` /
   // `deletedBy` / `deletionReason`); the row is never physically removed.
   //
-  // Visibility (owner requirement, 27.07): only ADMIN/ACCOUNTANT can ever see
+  // Visibility (owner requirement, 27.07): only ADMIN can ever see
   // a deleted row again, and even they don't by default — see the
   // `includeDeleted` toggle on `findAll`. Every other role gets a 404 (never
   // 403) both in the list and on a direct `GET /transactions/:id` fetch —

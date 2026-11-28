@@ -13,7 +13,7 @@ import { formatTransactionBusinessDate, sourceBusinessDay } from './transaction-
 import { assertTransactionWritable } from './transaction-visibility.util'
 
 /**
- * ACCOUNTANT/ADMIN review of income rows and manual payout confirmation:
+ * ADMIN review of income rows and manual payout confirmation:
  * `validateTransaction` (validate / reject a PENDING SENIOR_INCOME or DROP_INCOME)
  * and `confirmPayout` (flip a PENDING_PAYMENT PAYOUT to PAID and credit the chosen
  * admin with a PAYOUT_CONFIRMED row). Depends on the database and the lifecycle
@@ -35,7 +35,7 @@ export class PayoutConfirmationService {
     rejectionReason: string | null | undefined,
     currentUser: SessionUser,
   ): Promise<void> {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    if (currentUser.role !== 'ADMIN') {
       throw new ForbiddenException()
     }
 
@@ -157,7 +157,7 @@ export class PayoutConfirmationService {
 
   // ── Manual payout confirmation (Drop role - phase 3, spec §8.4) ──────────
   //
-  // ACCOUNTANT/ADMIN confirms a previously created PAYOUT actually landed on a
+  // ADMIN confirms a previously created PAYOUT actually landed on a
   // specific admin partner (Maksym/Kostya) off-platform. This is a **safety
   // net** on top of the auto 50/50 PAYOUT_ADMIN split that `payPayoutRequest`
   // emits — both flows live in parallel; phase 2 distribution math is NOT
@@ -179,7 +179,7 @@ export class PayoutConfirmationService {
   //      - `notes` records who confirmed + when, for the audit trail.
   //
   // Validation:
-  //   - RBAC: ADMIN + ACCOUNTANT only. Anyone else → 403.
+  //   - RBAC: ADMIN only. Anyone else → 403.
   //   - PAYOUT row must exist, type = PAYOUT, status = PENDING_PAYMENT.
   //   - `recipientAdminId` must exist, role = ADMIN, NOT archived.
   //
@@ -196,14 +196,14 @@ export class PayoutConfirmationService {
       method?: 'CRYPTO' | 'CASH'
       txHash?: string | null
       txDate?: string | null
-      // SR-809-H-1 / D-2: travels with txDate. ADMIN/ACCOUNTANT (the only roles
+      // SR-809-H-1 / D-2: travels with txDate. ADMIN (the only roles
       // this method admits) may exceed the backdating window with a stated
       // reason, which is recorded on the audit trail below.
       backdateReason?: string | null
     } = {},
     readBack: (id: string) => Promise<T>,
   ): Promise<{ payout: T; confirmed: T | null }> {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    if (currentUser.role !== 'ADMIN') {
       throw new ForbiddenException()
     }
 

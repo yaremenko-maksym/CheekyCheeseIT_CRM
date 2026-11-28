@@ -9,7 +9,7 @@
  *   debtorType='COMPANY': both crypto + cash channels create a
  *   SENIOR_PENDING_PAYOUT (debtor=COMPANY) immediately after the
  *   drop→company payment is recorded. The senior balance only moves once
- *   ACCOUNTANT/ADMIN closes the obligation via `settleByCompany`, which
+ *   ADMIN closes the obligation via `settleByCompany`, which
  *   (task-settle-in-place, ADR 2026-07-14):
  *     - flips the source IOU row (SENIOR_PENDING_PAYOUT) → SENIOR_INCOME
  *       (status=PAID, the legal invoice type) IN PLACE — no second row,
@@ -27,9 +27,9 @@
  *   debtorType='TOV'  — bank channel rows (read endpoints filter them out).
  *
  * Read endpoints:
- *   - `listSeniorObligations` — SENIOR sees own; ADMIN/ACCOUNTANT see all
+ *   - `listSeniorObligations` — SENIOR sees own; ADMIN see all
  *     active COMPANY-debt + legacy DROP-debt obligations.
- *   - `listCompanyObligations` — ADMIN/ACCOUNTANT-only view of pending
+ *   - `listCompanyObligations` — ADMIN-only view of pending
  *     COMPANY debts to seniors. Used by the new finance page card.
  *
  * The DTO denormalises debtor/senior/project names so the UI cards render
@@ -86,7 +86,7 @@ import {
 
 /**
  * task-senior-settle-owner: the pay-time funding selection for a senior IOU
- * settlement. Identical contract to paySalary — the ADMIN/ACCOUNTANT picks the
+ * settlement. Identical contract to paySalary — the ADMIN picks the
  * source (shared company account vs an admin partner's personal account) and,
  * for ADMIN_PERSONAL, which admin paid.
  *   - COMPANY_ACCOUNT → currency forced USDT, debits the shared account.
@@ -145,12 +145,12 @@ export class PendingSettlementService {
 
   /**
    * SENIOR self-view: returns own PENDING obligations (COMPANY-debt + legacy
-   * DROP-debt for backwards compatibility). ADMIN/ACCOUNTANT: returns every
+   * DROP-debt for backwards compatibility). ADMIN: returns every
    * PENDING obligation across all seniors. TOV-debtor history rows are
    * intentionally excluded.
    */
   async listSeniorObligations(actor: SessionUser): Promise<PendingSettlementItemDto[]> {
-    if (actor.role !== 'SENIOR' && actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
+    if (actor.role !== 'SENIOR' && actor.role !== 'ADMIN') {
       throw apiError('FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     const conjuncts: Array<ReturnType<typeof eq>> = [eq(pendingObligations.status, 'PENDING')]
@@ -167,12 +167,12 @@ export class PendingSettlementService {
   }
 
   /**
-   * Company-debt view. ADMIN/ACCOUNTANT-only — DROP no longer has any
+   * Company-debt view. ADMIN-only — DROP no longer has any
    * obligations to close. Returns every PENDING obligation with
    * debtorType='COMPANY'.
    */
   async listCompanyObligations(actor: SessionUser): Promise<PendingSettlementItemDto[]> {
-    if (actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
+    if (actor.role !== 'ADMIN') {
       throw apiError('FINANCE_COMPANY_OBLIGATIONS_LIST_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     const rows = await this.db.db.query.pendingObligations.findMany({
@@ -188,7 +188,7 @@ export class PendingSettlementService {
   // ── Settle endpoints ──────────────────────────────────────────────────────
 
   /**
-   * Close a COMPANY-debt obligation. RBAC: ACCOUNTANT / ADMIN only. DROP is
+   * Close a COMPANY-debt obligation. RBAC: ADMIN only. DROP is
    * explicitly forbidden — they no longer hold or close senior debts.
    *
    * task-settle-in-place (ADR 2026-07-14): the settlement transitions the source
@@ -215,7 +215,7 @@ export class PendingSettlementService {
     actor: SessionUser,
     funding?: SettleFunding,
   ): Promise<{ obligation: PendingObligationDto; created: TransactionDto[] }> {
-    if (actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
+    if (actor.role !== 'ADMIN') {
       throw apiError('FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
@@ -320,7 +320,7 @@ export class PendingSettlementService {
     let senderLabel: string = COMPANY_ACCOUNT_LABEL
     if (funding && funding.fundingSource === 'ADMIN_PERSONAL') {
       // ADMIN_PERSONAL: paid from an admin partner's personal account. The payer
-      // defaults to the calling (ADMIN/ACCOUNTANT) user only when they are an
+      // defaults to the calling (ADMIN) user only when they are an
       // ADMIN; an explicit payerAdminId must resolve to an ADMIN. The company
       // account is NOT touched. Mirrors paySalary.
       const payerAdminId = funding.payerAdminId ?? actor.id
@@ -354,7 +354,7 @@ export class PendingSettlementService {
     // Verified NOT reachable today the same way as `paySalary`: a senior/drop
     // creditor can never become an ADMIN either — `UsersService.changeRole`
     // and `.adminUpdateUser` both refuse `role === 'ADMIN'` unconditionally
-    // ("ADMIN pool is fixed"), and only an ADMIN/ACCOUNTANT-verified ADMIN can
+    // ("ADMIN pool is fixed"), and only an ADMIN-verified ADMIN can
     // be an `ADMIN_PERSONAL` payer here. Kept as defense-in-depth for the same
     // reason as `paySalary`'s guard — do not rely on that invariant forever.
     const settleSelfPayErr = selfPayError(senderId, obligation.creditorUserId)
@@ -716,7 +716,7 @@ export class PendingSettlementService {
    * cascade). RBAC, money gate and double-settle protection are all inherited
    * verbatim from settleByCompany — this method adds NO new money path.
    *
-   * RBAC is checked HERE first (ADMIN/ACCOUNTANT only) so a non-privileged
+   * RBAC is checked HERE first (ADMIN only) so a non-privileged
    * caller gets 403 BEFORE we reveal whether any obligation exists (no
    * enumeration oracle). settleByCompany re-checks the same gate (defense in
    * depth).
@@ -726,7 +726,7 @@ export class PendingSettlementService {
     actor: SessionUser,
     funding?: SettleFunding,
   ): Promise<{ obligation: PendingObligationDto; created: TransactionDto[] }> {
-    if (actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
+    if (actor.role !== 'ADMIN') {
       throw apiError('FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 

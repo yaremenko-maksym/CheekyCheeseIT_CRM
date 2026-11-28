@@ -58,8 +58,7 @@ export class TransactionEntryService {
     // task-accountant-create-transaction. ACCOUNTANT has create-parity with
     // ADMIN for company expenses (business doc finance.md: «ACCOUNTANT — …,
     // расходы, …»). senderId = currentUser.id records who booked the expense.
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
-      throw new ForbiddenException()
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
     // task-receipts-backend (review round 1, MED-2): defense-in-depth mandatory-
     // receipt re-check on the service, not only in Zod at the controller
@@ -158,8 +157,7 @@ export class TransactionEntryService {
     // allow-list covers every salaried role: JUNIOR, HR, ACCOUNTANT (salaried
     // employees), SENIOR and DROP (project-based contractors who may also
     // receive a flat salary). Self-pay for ACCOUNTANT remains allowed.
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
-      throw new ForbiddenException()
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
     if (!data.idempotencyKey) {
       throw new BadRequestException('idempotencyKey is required for manual salary creation')
@@ -383,8 +381,7 @@ export class TransactionEntryService {
     //   - ADMIN caller: sender defaults to self (as before).
     //   - ACCOUNTANT caller: senderId is REQUIRED and must resolve to an ADMIN
     //     (no implicit self-as-sender, which would book a non-ADMIN sender).
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
-      throw new ForbiddenException()
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
     const isAdminCaller = currentUser.role === 'ADMIN'
 

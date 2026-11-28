@@ -21,7 +21,7 @@ import { resolveTransactionDate } from './transaction-date.util'
  * implemented here; the fourth is NOT implemented anywhere yet:
  *   - future dates only for PENDING/planned rows — implemented;
  *   - SENIOR/DROP may backdate at most 31 days — implemented;
- *   - ADMIN/ACCOUNTANT may go beyond 31 days only with a mandatory reason,
+ *   - ADMIN may go beyond 31 days only with a mandatory reason,
  *     which is written to the audit log — implemented;
  *   - on-chain-verified flows take the date from the block timestamp —
  *     **NOT implemented**. `submitDeposit` and the payout cascade both pass the
@@ -89,7 +89,7 @@ import { resolveTransactionDate } from './transaction-date.util'
  * to end it.
  *
  * Its residual gap is narrower than the four above: it has no backdating window
- * and no audit reason, so an ADMIN/ACCOUNTANT can date a settlement anywhere
+ * and no audit reason, so an ADMIN can date a settlement anywhere
  * between the source day and today without stating why.
  *
  * ── THE ON-CHAIN CLAUSE OF D-2 IS NOT MET ───────────────────────────────────

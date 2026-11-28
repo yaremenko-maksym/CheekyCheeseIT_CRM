@@ -37,7 +37,7 @@ export async function loadTransactionForViewer(
   })) as TxWithRelations | undefined
 
   if (!tx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
-  // AC2: hidden from every non-ADMIN/ACCOUNTANT viewer, regardless of
+  // AC2: hidden from every non-ADMIN viewer, regardless of
   // ownership — MUST run before assertTransactionReadAccess (see that guard's doc).
   assertTransactionVisible(tx, currentUser)
   assertTransactionReadAccess(tx, currentUser)

@@ -19,7 +19,7 @@ import { transactions, users, visibleProjects } from '../database/schema'
  * their active project count (N), plus the list of projects WITHOUT a counted
  * income for the expand drawer. Sorted laggards-first.
  *
- * RBAC: ADMIN + ACCOUNTANT ONLY. Defense-in-depth — the controller's @Roles
+ * RBAC: ADMIN ONLY. Defense-in-depth — the controller's @Roles
  * gate runs first, and this service-side check throws 403 too (kept
  * intentionally, never replaced; same belt-and-suspenders as
  * getAccountantSummary / getSeniorSummary). Because this aggregates MANY
@@ -69,7 +69,7 @@ export async function getIncomeComplianceOverview(
   currentUser: SessionUser,
   month?: string,
 ): Promise<IncomeComplianceOverviewDto> {
-  if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+  if (currentUser.role !== 'ADMIN') {
     throw apiError('FINANCE_INCOME_COMPLIANCE_FORBIDDEN', HttpStatus.FORBIDDEN)
   }
 

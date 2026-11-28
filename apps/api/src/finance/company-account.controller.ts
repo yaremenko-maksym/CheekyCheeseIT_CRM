@@ -55,7 +55,7 @@ export class CompanyAccountController {
   constructor(@Inject(CompanyAccountService) private readonly svc: CompanyAccountService) {}
 
   @Get()
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   getAccount(@CurrentUser() user: SessionUser) {
     return this.svc.getAccount(user)
   }
@@ -87,11 +87,11 @@ export class CompanyAccountController {
     return this.svc.submitDeposit(dto, user)
   }
 
-  // Owner OR ADMIN/ACCOUNTANT — the flat guard admits every role that could be
+  // Owner OR ADMIN — the flat guard admits every role that could be
   // an owner-or-privileged caller; the service enforces the precise
   // owner-vs-privileged decision (a SENIOR/DROP who is not the owner → 403).
   @Get('deposits/:id/status')
-  @Roles('SENIOR', 'DROP', 'ADMIN', 'ACCOUNTANT')
+  @Roles('SENIOR', 'DROP', 'ADMIN')
   @RelaxableThrottle(DEPOSIT_STATUS_LIMIT) // AC4 (BIZ-23): each call hits Etherscan — throttle to prevent API abuse
   getDepositStatus(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
     return this.svc.getDepositStatus(id, user)
