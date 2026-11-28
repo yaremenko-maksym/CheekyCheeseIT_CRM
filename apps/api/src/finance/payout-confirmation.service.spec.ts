@@ -36,6 +36,8 @@ function user(role: SessionUser['role'], id: string, extra: Partial<SessionUser>
 const ADMIN = user('ADMIN', 'admin-actor')
 const SENIOR = user('SENIOR', 'senior-1')
 const HR = user('HR', 'hr-1')
+const JUNIOR = user('JUNIOR', 'junior-1')
+const DROP = user('DROP', 'drop-1')
 
 function compiled(where: unknown) {
   return new PgDialect().sqlToQuery(where as SQL)
@@ -120,7 +122,7 @@ const INCOME = {
 }
 
 describe('validateTransaction — guards', () => {
-  it.each([SENIOR, HR])(
+  it.each([SENIOR, HR, JUNIOR, DROP])(
     'refuses %# non-finance role with 403 before touching the db',
     async (u) => {
       const h = makeHarness({ txRows: [INCOME] })
