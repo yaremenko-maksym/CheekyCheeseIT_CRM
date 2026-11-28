@@ -65,7 +65,7 @@ export type UserDialogProps = CreateProps | EditProps
  *   3. Tech stack
  *   4. Finance (SENIOR ShareSlider | non-SENIOR monthly salary with currency)
  *   5. Payment requisites (USDT / Bank UAH FOP)
- *   6. Team (SENIOR HR multiselect + Accountant; JUNIOR initial project (create) / current projects read-only (edit))
+ *   6. Team (SENIOR HR multiselect; JUNIOR initial project (create) / current projects read-only (edit))
  *
  * Sticky footer: role badge (left) + Cancel/Submit (right).
  *
@@ -113,12 +113,11 @@ export function UserDialog(props: UserDialogProps) {
   const isSelfAdminEdit =
     isEdit && !!editingUser && !!me && editingUser.id === me.id && editingUser.role === 'ADMIN'
 
-  // ── Auxiliary data: HR / Accountant / project / team queries + derived lists ──
+  // ── Auxiliary data: HR / project / team queries + derived lists ──
   const {
     exchangeRates,
     allTeams,
     hrUsers,
-    accountantUsers,
     vacantDropTeams,
     juniorActiveProjects,
     availableJuniorProjects,
@@ -152,14 +151,11 @@ export function UserDialog(props: UserDialogProps) {
       const isSenior = value.role === 'SENIOR'
       const isDrop = value.role === 'DROP'
       const hrIds = selectedHrIdsRef.current
-      const accountantId = selectedAccountantIdRef.current
 
       if (isCreate && isDrop) {
         // DROP creation hits the dedicated endpoint which atomically
-        // provisions both the user and the drop-team. HR is mandatory (≥1);
-        // the accountant picker is OPTIONAL (a workspace may have 0
-        // accountants — a drop-team is valid without one, same as a senior
-        // team). We surface an inline error under the HR multiselect AND a
+        // provisions both the user and the drop-team. HR is mandatory (≥1).
+        // We surface an inline error under the HR multiselect AND a
         // field-specific toast so the user sees *which* field blocked submit
         // even if their eyes are off the form.
         if (hrIds.length === 0) {
@@ -167,7 +163,7 @@ export function UserDialog(props: UserDialogProps) {
           toast.error(translateZodCode('HR_REQUIRED_MIN'))
           return
         }
-        const payload = buildCreateDropPayload(value, { hrIds, accountantId })
+        const payload = buildCreateDropPayload(value, { hrIds })
         const result = createDropSchema.safeParse(payload)
         if (!result.success) {
           const first = result.error.issues[0]
@@ -188,7 +184,6 @@ export function UserDialog(props: UserDialogProps) {
         if (createdUserId !== null) {
           const updatePayload = buildWizardUpdatePayload(value, {
             hrIds,
-            accountantId,
             exchangeRates,
           })
           const updateResult = adminUpdateUserSchema.safeParse(updatePayload)
@@ -204,7 +199,7 @@ export function UserDialog(props: UserDialogProps) {
           return
         }
 
-        // Drop role - phase 1 (AC3): when JOIN_DROP_TEAM, HR/accountant are
+        // Drop role - phase 1 (AC3): when JOIN_DROP_TEAM, HR is
         // sourced from the existing drop-team — local pickers stay hidden
         // and we skip the «HR required» guard. CREATE_NEW retains the
         // legacy validation 1:1.
@@ -223,7 +218,6 @@ export function UserDialog(props: UserDialogProps) {
 
         const payload = buildCreateUserPayload(value, {
           hrIds,
-          accountantId,
           exchangeRates,
         })
         const result = createUserSchema.safeParse(payload)
@@ -243,7 +237,6 @@ export function UserDialog(props: UserDialogProps) {
         const payload = buildEditUpdatePayload(value, {
           editingUser,
           hrIds,
-          accountantId,
           exchangeRates,
         })
         const result = adminUpdateUserSchema.safeParse(payload)
@@ -260,26 +253,19 @@ export function UserDialog(props: UserDialogProps) {
     },
   })
 
-  // ── Team selection (SENIOR/DROP HR + Accountant) ─────────────────────────
+  // ── Team selection (SENIOR/DROP HR) ─────────────────────────
   // Must stay after `useUserDialogData` (reads its lists) and `useForm` (takes `form`).
-  const {
-    selectedHrIds,
-    selectedAccountantId,
-    setSelectedAccountantId,
-    hrError,
-    setHrError,
-    handleHrChange,
-    selectedHrIdsRef,
-    selectedAccountantIdRef,
-  } = useTeamSelection(form, {
-    editingUser,
-    allTeams,
-    hrUsers,
-    accountantUsers,
-    isCreate,
-    isEdit,
-    open,
-  })
+  const { selectedHrIds, hrError, setHrError, handleHrChange, selectedHrIdsRef } = useTeamSelection(
+    form,
+    {
+      editingUser,
+      allTeams,
+      hrUsers,
+      isCreate,
+      isEdit,
+      open,
+    },
+  )
 
   // ut-9: Email change warning. We delay the form-level update until the admin
   // confirms; cancel reverts the field to the original email.
@@ -419,12 +405,9 @@ export function UserDialog(props: UserDialogProps) {
                 isCreate={isCreate}
                 isEdit={isEdit}
                 hrUsers={hrUsers}
-                accountantUsers={accountantUsers}
                 selectedHrIds={selectedHrIds}
                 handleHrChange={handleHrChange}
                 hrError={hrError}
-                selectedAccountantId={selectedAccountantId}
-                setSelectedAccountantId={setSelectedAccountantId}
                 vacantDropTeams={vacantDropTeams}
                 availableJuniorProjects={availableJuniorProjects}
                 juniorActiveProjects={juniorActiveProjects}

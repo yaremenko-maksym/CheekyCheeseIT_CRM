@@ -17,7 +17,6 @@ import { SettleSeniorPayoutDialog } from './finance/components/dialogs/SettleSen
 import { PaySalaryDialog } from './finance/components/dialogs/PaySalaryDialog'
 import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
 import { DropDashboard } from './routing/components/DropDashboard'
-import { AccountantDashboard } from './routing/components/AccountantDashboard'
 import { HRDashboard } from './routing/components/HRDashboard'
 import { SeniorDashboard } from './routing/components/SeniorDashboard'
 
@@ -25,7 +24,6 @@ import { SeniorDashboard } from './routing/components/SeniorDashboard'
  * `/` — корневая страница авторизованной CRM. Единая точка входа,
  * рендерит роль-зависимый дашборд (консолидация: бывший /dashboard удалён):
  *   - DROP        → DropDashboard (платёжный хаб)
- *   - ACCOUNTANT  → AccountantDashboard (финансовый хаб + KPI валидации)
  *   - HR          → HRDashboard (рекрутинг хаб + KPI собеседований)
  *   - SENIOR      → SeniorDashboard (рабочий хаб: мои проекты + доход + выплаты)
  *   - JUNIOR      → редирект на собственный хаб /project
@@ -85,12 +83,6 @@ function CrmDashboard() {
     return <DropDashboard />
   }
 
-  // ACCOUNTANT role: финансовый хаб-дашборд с KPI валидации (ACCOUNTANT Sprint 1).
-  // Данные KPI отдаёт GET /api/finance/accountant-summary (RBAC ACCOUNTANT+ADMIN).
-  if (user?.role === 'ACCOUNTANT') {
-    return <AccountantDashboard />
-  }
-
   // HR role: рекрутинг хаб-дашборд с KPI собеседований + статусом зарплаты.
   // Данные KPI отдаёт GET /api/interviews/hr-summary (RBAC HR+ADMIN).
   if (user?.role === 'HR') {
@@ -107,6 +99,8 @@ function CrmDashboard() {
   // ADMIN role: «центр действий» — рабочий дашборд с реальными данными
   // (GET /api/admin/summary, RBAC ADMIN-only). 4 нейтральных KPI + таблица
   // «Активные транзакции» в стиле страницы Финансы (переиспользует TransactionRow).
+  // A stale session of the retired role gets no dashboard instead of the admin one.
+  if (user && user.role !== 'ADMIN') return null
   return <AdminDashboard />
 }
 

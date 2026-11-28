@@ -7,16 +7,13 @@
  * task-admin-income-unified (2026-08-12, §2): ADMIN_INCOME's toggle is GONE for
  * ADMIN — replaced by the flat "Счёт получателя" receiver Select
  * (`admin-income-receiver-trigger`, any active admin + «Счёт компании»).
- * ACCOUNTANT keeps a toggle-shaped selector (same `fundingSource` state/markup
- * EXPENSE uses) since the server denies them a specific-admin choice (AC10).
  *
  * AC coverage:
  *  AC5 — SALARY: NO funding-source section (neutral PENDING reminder); the salary
  *         POST payload carries NO fundingSource / payerAdminId.
  *  AC2 — EXPENSE: default legacy; switch to COMPANY_ACCOUNT → USDT-lock +
  *         company-balance-hint visible.
- *  AC3 — ADMIN_INCOME: ADMIN gets the flat receiver Select (not the toggle);
- *         ACCOUNTANT gets the toggle (default legacy → company → USDT-lock + hint).
+ *  AC3 — ADMIN_INCOME: ADMIN gets the flat receiver Select (not the toggle).
  *
  * Strategy:
  *  - All tests are mocked (route.fulfill only, NO route.continue).
@@ -294,21 +291,6 @@ test.describe('AC3 — ADMIN_INCOME "Счёт получателя" (task-admin-
       .filter({ hasText: /USDT|USD|EUR|UAH/ })
       .last()
     await expect(currencyTrigger).toBeDisabled()
-  })
-
-  // AC10: the accountant has never been a router of funds — the server
-  // hard-credits the project's admin owner for this role. The interface
-  // reflects that by keeping the OLD toggle-shaped selector (project owner /
-  // «Счёт компании» only), never the flat any-admin Select.
-  test('ACCOUNTANT: constrained "Счёт получателя" toggle visible, NOT the flat admin Select (AC10)', async ({
-    asAccountant,
-  }) => {
-    await mockAdminDialogRoutes(asAccountant)
-    const dialog = await openDialog(asAccountant)
-
-    await expect(dialog.getByTestId('create-transaction-type-admin_income')).toBeVisible()
-    await expect(dialog.getByTestId('admin-income-receiver-trigger')).not.toBeVisible()
-    await expect(dialog.getByTestId('create-transaction-funding-source-section')).toBeVisible()
   })
 })
 

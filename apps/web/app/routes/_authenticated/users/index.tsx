@@ -58,7 +58,7 @@ function UsersPage() {
   // /api/users now returns 403 for DROP — without a route guard the page
   // would render the «Доступ только для администратора» panel since DROP is
   // not ADMIN, but a direct redirect is cleaner and matches the spec.
-  useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
+  useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR'])
   const { user: me } = useAuth()
   const search = Route.useSearch()
   const navigate = Route.useNavigate()

@@ -15,7 +15,6 @@ import {
 } from '@/components/ui/select'
 import { translateZodCode } from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
-import { AccountantChipField } from '../AccountantChipField'
 import { HrChipsField } from '../HrChipsField'
 import { Field, Section } from '../section'
 
@@ -30,12 +29,9 @@ interface TeamSectionProps {
   isCreate: boolean
   isEdit: boolean
   hrUsers: UserProfileDto[]
-  accountantUsers: UserProfileDto[]
   selectedHrIds: string[]
   handleHrChange: (next: string[]) => void
   hrError: string | undefined
-  selectedAccountantId: string
-  setSelectedAccountantId: (next: string) => void
   vacantDropTeams: TeamDto[]
   availableJuniorProjects: ProjectDto[]
   juniorActiveProjects: ProjectDto[]
@@ -44,7 +40,7 @@ interface TeamSectionProps {
 
 /**
  * Team section of UserDialog: DROP team provisioning (create), SENIOR team
- * mode / HR + accountant pickers / drop-team join / channel, and JUNIOR project
+ * mode / HR picker / drop-team join / channel, and JUNIOR project
  * assignment. SECURITY-SENSITIVE (RBAC team assignment). Pure move out of
  * UserDialog — role gates, filters and validators unchanged. State and the
  * useMemo derivations stay in the parent; payload building stays in the parent
@@ -55,12 +51,9 @@ export function TeamSection({
   isCreate,
   isEdit,
   hrUsers,
-  accountantUsers,
   selectedHrIds,
   handleHrChange,
   hrError,
-  selectedAccountantId,
-  setSelectedAccountantId,
   vacantDropTeams,
   availableJuniorProjects,
   juniorActiveProjects,
@@ -79,7 +72,6 @@ export function TeamSection({
         // and routes through PATCH /api/users/:id.
         if (role === 'DROP' && isCreate) {
           const onlyHr = hrUsers.length === 1
-          const onlyAccountant = accountantUsers.length === 1
           return (
             <Section title={t`Команда дропа`}>
               <HrChipsField
@@ -89,13 +81,6 @@ export function TeamSection({
                 required
                 onlyHr={onlyHr}
                 error={hrError}
-              />
-
-              <AccountantChipField
-                accountantUsers={accountantUsers}
-                selectedId={selectedAccountantId}
-                onChange={setSelectedAccountantId}
-                onlyAccountant={onlyAccountant}
               />
 
               <form.Field
@@ -150,14 +135,13 @@ export function TeamSection({
 
         if (role === 'SENIOR') {
           const onlyHr = hrUsers.length === 1
-          const onlyAccountant = accountantUsers.length === 1
 
           return (
             <Section title={t`Команда`}>
               {/* Drop role - phase 1 (AC3): two-option team picker.
                           - CREATE_NEW (default): legacy senior-team flow.
                           - JOIN_DROP_TEAM: pick a vacant drop-team. HR /
-                            accountant / channel sourced from that team. */}
+                            channel sourced from that team. */}
               {isCreate && (
                 <form.Field name="teamMode">
                   {(field) => (
@@ -232,13 +216,13 @@ export function TeamSection({
                 </form.Field>
               )}
 
-              {/* CREATE_NEW branch: legacy HR / accountant / channel pickers. */}
+              {/* CREATE_NEW branch: legacy HR / channel pickers. */}
               <form.Subscribe selector={(s) => s.values.teamMode}>
                 {(teamMode) => {
                   // Edit mode: teamMode field doesn't apply — keep
                   // the original SENIOR edit form unchanged (renders
                   // the legacy CREATE_NEW pickers so admin can swap
-                  // HR/accountant for the existing team).
+                  // HR for the existing team).
                   if (isEdit || teamMode === 'CREATE_NEW')
                     return (
                       <>
@@ -251,18 +235,10 @@ export function TeamSection({
                           onlyHr={onlyHr}
                           error={hrError}
                         />
-
-                        {/* ut-16: Accountant as a chip in the same visual language. */}
-                        <AccountantChipField
-                          accountantUsers={accountantUsers}
-                          selectedId={selectedAccountantId}
-                          onChange={setSelectedAccountantId}
-                          onlyAccountant={onlyAccountant}
-                        />
                       </>
                     )
                   // JOIN_DROP_TEAM branch: pick the drop-team to attach to.
-                  // HR/accountant are inherited from that team — no local
+                  // HR is inherited from that team — no local
                   // pickers, no channel input.
                   return (
                     <form.Field
@@ -455,7 +431,7 @@ export function TeamSection({
           )
         }
 
-        // ADMIN / HR / ACCOUNTANT — no team section (HR and ACCOUNTANT manage assignments via Teams page)
+        // ADMIN / HR — no team section (HR manages assignments via Teams page)
         return null
       }}
     </form.Subscribe>

@@ -79,24 +79,17 @@ beforeEach(async () => {
 })
 
 describe('IdentitySection — role options (RBAC)', () => {
-  it('create mode omits ADMIN and lists exactly the five create-allowed roles', async () => {
+  it('create mode omits ADMIN and lists exactly the four create-allowed roles (no retired accountant)', async () => {
     render(<Harness isCreate role="SENIOR" />)
     const { listbox } = await openRoleOptions()
-    expect(optionNames(listbox)).toEqual(['Сеньйор', 'Джуніор', 'HR', 'Бухгалтер', 'Дроп'])
+    expect(optionNames(listbox)).toEqual(['Сеньйор', 'Джуніор', 'HR', 'Дроп'])
     expect(within(listbox).queryByRole('option', { name: 'Адміністратор' })).toBeNull()
   })
 
-  it('edit mode lists all six roles including ADMIN', async () => {
+  it('edit mode lists all five assignable roles including ADMIN', async () => {
     render(<Harness role="SENIOR" />)
     const { listbox } = await openRoleOptions()
-    expect(optionNames(listbox)).toEqual([
-      'Адміністратор',
-      'Сеньйор',
-      'Джуніор',
-      'HR',
-      'Бухгалтер',
-      'Дроп',
-    ])
+    expect(optionNames(listbox)).toEqual(['Адміністратор', 'Сеньйор', 'Джуніор', 'HR', 'Дроп'])
   })
 
   it('selecting an option writes the role into the form', async () => {

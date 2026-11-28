@@ -28,7 +28,7 @@ import { ROLE_VARIANT } from './constants'
  * from the snapshot on the project DTO. The remainder is split 50/50
  * between partners. Component is mounted only when the project is a
  * drop-project (`project.dropId != null`); the caller enforces the RBAC
- * (ADMIN/ACCOUNTANT/SENIOR/DROP — same audience that sees the Финансы tab).
+ * (ADMIN/SENIOR/DROP — same audience that sees the Финансы tab).
  */
 export function ProjectDropDistribution({ project }: { project: ProjectDetailDto }) {
   const { t } = useLingui()
@@ -132,7 +132,7 @@ export function MemberRow({
 
 /**
  * Renders the project's *effective team* — a computed view (NOT snapshot at archive).
- * HR/Accountants come from the SENIOR's current team_members (dynamic).
+ * HR come from the SENIOR's current team_members (dynamic).
  * Juniors come from THIS project's active project_members.
  *
  * If `project.effectiveTeam` is absent (e.g. response from older API or list endpoint),
@@ -167,15 +167,14 @@ export function ProjectEffectiveTeamCard({
   // ensures drop identity never reaches the render tree regardless.
   const drop = viewerRole === 'SENIOR' || viewerRole === 'JUNIOR' ? null : rawDrop
   const hrs = effective?.hrs ?? []
-  const accountants = effective?.accountants ?? []
   // RBAC rule #1: SENIOR viewers must not see JUNIOR identity.
   // Backend already filters juniors[] to [] for SENIOR; UI double-guard for safety.
   const rawJuniors =
     effective?.juniors ?? project.members.filter((m) => m.role === 'JUNIOR' && m.leftAt === null)
   const juniors = viewerRole === 'SENIOR' ? [] : rawJuniors
 
-  // ut-30: flat list — single «Эффективный состав» heading; role-specific
-  // section headings («СИНЬОР», «HR (N)», «БУХГАЛТЕРЫ (N)», «ДЖУНЫ (N)») removed.
+  // ut-30: flat list — single effective team heading; role-specific
+  // section headings (Senior, HR, Juniors) removed.
   // Each row keeps its role badge for visual differentiation.
   // task-admin-as-senior: profileNavigable=false for admin-senior when viewer lacks
   // profile access — renders plain text instead of a navigable link.
@@ -185,7 +184,7 @@ export function ProjectEffectiveTeamCard({
     displayName: string
     avatarUrl: string | null
     avatarDocumentId: string | null
-    role: 'SENIOR' | 'DROP' | 'HR' | 'ACCOUNTANT' | 'JUNIOR'
+    role: 'SENIOR' | 'DROP' | 'HR' | 'JUNIOR'
     sectionTestId: string
     profileNavigable?: boolean
   }
@@ -227,17 +226,6 @@ export function ProjectEffectiveTeamCard({
       sectionTestId: 'effective-team-hrs',
     })
   }
-  for (const m of accountants) {
-    flatMembers.push({
-      key: `acc-${m.id}`,
-      profileId: m.userId,
-      displayName: m.displayName,
-      avatarUrl: m.avatarUrl,
-      avatarDocumentId: m.avatarDocumentId,
-      role: 'ACCOUNTANT',
-      sectionTestId: 'effective-team-accountants',
-    })
-  }
   for (const m of juniors) {
     flatMembers.push({
       key: `jun-${m.id}`,
@@ -258,7 +246,7 @@ export function ProjectEffectiveTeamCard({
             <Trans>
               Ефективний склад
               <span className="ml-2 text-[10px] font-normal normal-case text-muted-foreground/60">
-                (HR/бухгалтер — з поточної команди сеньйора)
+                (HR — з поточної команди сеньйора)
               </span>
             </Trans>
           </CardTitle>
@@ -326,7 +314,7 @@ export function ProjectEffectiveTeamCard({
                 {m.displayName}
               </span>
               {/* Drop role - phase 2. DROP gets a distinct blue/info badge so
-                  it is visually separable from SENIOR/HR/ACCOUNTANT/JUNIOR. */}
+                  it is visually separable from SENIOR/HR/JUNIOR. */}
               {m.role === 'DROP' ? (
                 <Badge
                   variant="outline"
@@ -336,15 +324,7 @@ export function ProjectEffectiveTeamCard({
                 </Badge>
               ) : (
                 <Badge
-                  variant={
-                    m.role === 'SENIOR'
-                      ? 'senior'
-                      : m.role === 'HR'
-                        ? 'hr'
-                        : m.role === 'ACCOUNTANT'
-                          ? 'accountant'
-                          : 'junior'
-                  }
+                  variant={m.role === 'SENIOR' ? 'senior' : m.role === 'HR' ? 'hr' : 'junior'}
                   className="shrink-0 text-[9px]"
                 >
                   {i18n._(ROLE_LABEL_MESSAGES[m.role])}

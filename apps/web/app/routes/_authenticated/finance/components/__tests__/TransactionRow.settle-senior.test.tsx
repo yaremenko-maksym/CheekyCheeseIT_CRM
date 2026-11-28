@@ -4,7 +4,7 @@
  * Pins the new in-row settle flow that replaced the (removed)
  * PendingSettlementCompanyCard:
  *
- *   - ADMIN / ACCOUNTANT see «Выплатить» on a SENIOR_PENDING_PAYOUT row in
+ *   - ADMIN sees «Выплатить» on a SENIOR_PENDING_PAYOUT row in
  *     PENDING_PAYMENT; clicking calls onSettleSeniorPayout(tx).
  *   - SENIOR / DROP / JUNIOR / HR never see it (privileged money action).
  *   - The button is gated to SENIOR_PENDING_PAYOUT + PENDING_PAYMENT only
@@ -141,11 +141,6 @@ describe('TransactionRow — settle senior payout button', () => {
     expect(screen.getByTestId(SETTLE_TESTID)).toHaveTextContent('Розрахуватися')
   })
 
-  it('ACCOUNTANT sees «Выплатить»', () => {
-    renderRow({ tx: makeTx(), role: 'ACCOUNTANT', onSettleSeniorPayout: () => {} })
-    expect(screen.getByTestId(SETTLE_TESTID)).toBeInTheDocument()
-  })
-
   it('clicking «Выплатить» calls onSettleSeniorPayout with the tx', async () => {
     const onSettle = vi.fn()
     renderRow({ tx: makeTx(), role: 'ADMIN', onSettleSeniorPayout: onSettle })
@@ -226,11 +221,6 @@ describe('TransactionRow — settle drop payout button (mirror of settle senior)
     expect(screen.getByTestId(DROP_SETTLE_TESTID)).toHaveTextContent('Розрахуватися')
   })
 
-  it('ACCOUNTANT sees «Выплатить» on a DROP_PENDING_PAYOUT row', () => {
-    renderRow({ tx: makeDropTx(), role: 'ACCOUNTANT', onSettleSeniorPayout: () => {} })
-    expect(screen.getByTestId(DROP_SETTLE_TESTID)).toBeInTheDocument()
-  })
-
   it('clicking «Выплатить» on a DROP row calls onSettleSeniorPayout with the tx', async () => {
     const onSettle = vi.fn()
     renderRow({ tx: makeDropTx(), role: 'ADMIN', onSettleSeniorPayout: onSettle })
@@ -290,11 +280,6 @@ describe('TransactionRow — multipart salary action', () => {
     expect(screen.getByTestId(addPartTestId)).toHaveTextContent('Додати частину зарплати')
     await userEvent.click(screen.getByTestId(addPartTestId))
     expect(onAdd).toHaveBeenCalledWith(salaryTx)
-  })
-
-  it('ACCOUNTANT can add another salary part', () => {
-    renderRow({ tx: salaryTx, role: 'ACCOUNTANT', onAddSalaryPart: () => {} })
-    expect(screen.getByTestId(addPartTestId)).toBeInTheDocument()
   })
 
   it('employee roles do not get the privileged add-part action', () => {

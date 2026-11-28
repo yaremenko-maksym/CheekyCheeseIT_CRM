@@ -109,18 +109,17 @@ export function ProjectHero({
               {/* Drop role - phase 2. Distinct blue/info badge for drop-
                     projects so it's obvious at a glance that money flows
                     through a DROP user. Hidden for regular senior-projects.
-                    RBAC: only ADMIN/HR/ACCOUNTANT see this badge — JUNIOR
+                    RBAC: only ADMIN/HR see this badge — JUNIOR
                     must not know the identity behind the legend is a DROP. */}
-              {project.dropId &&
-                (viewerRole === 'ADMIN' || viewerRole === 'HR' || viewerRole === 'ACCOUNTANT') && (
-                  <Badge
-                    variant="outline"
-                    className="border-blue-500/30 bg-blue-500/10 text-blue-400 text-xs"
-                    data-testid="project-drop-badge"
-                  >
-                    <Trans>Проєкт з дропом</Trans>
-                  </Badge>
-                )}
+              {project.dropId && (viewerRole === 'ADMIN' || viewerRole === 'HR') && (
+                <Badge
+                  variant="outline"
+                  className="border-blue-500/30 bg-blue-500/10 text-blue-400 text-xs"
+                  data-testid="project-drop-badge"
+                >
+                  <Trans>Проєкт з дропом</Trans>
+                </Badge>
+              )}
               <Badge variant="outline" className="text-xs">
                 {project.domain}
               </Badge>
@@ -129,8 +128,7 @@ export function ProjectHero({
         </div>
 
         {/* ut-28: Explicit Edit + Archive buttons (replaces «Действия» dropdown
-              and former «Завершить» button). Visible to ADMIN/HR (full edit)
-              and ACCOUNTANT (override-only edit). */}
+              and former «Завершить» button). Visible to ADMIN/HR. */}
         <div className="flex items-center gap-2 shrink-0 self-start lg:self-center">
           {canOpenEdit && !project.archivedAt && (
             <Button

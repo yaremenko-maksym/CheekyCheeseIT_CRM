@@ -115,10 +115,10 @@ export function useCreateTransactionMutation({
           // task-admin-income-unified (§2): `receiverId` REPLACES the old
           // `fundingSource` toggle. ADMIN always sends an explicit value
           // (validate() enforces it — an admin uuid or the COMPANY_ACCOUNT
-          // sentinel). ACCOUNTANT never gets a choice: 'legacy' sends nothing
-          // (server credits the project owner, unchanged default), 'COMPANY_ACCOUNT'
-          // sends the SAME sentinel (still allowed for this role — only picking a
-          // SPECIFIC other admin is not, and the UI never offers that).
+          // sentinel). The non-admin branch is unreachable from the dialog (only
+          // ADMIN is offered ADMIN_INCOME); it keeps the hook's legacy contract:
+          // 'legacy' sends nothing (server credits the project owner) and
+          // 'COMPANY_ACCOUNT' sends the same sentinel.
           ...(isAdmin
             ? { receiverId }
             : fundingSource === 'COMPANY_ACCOUNT'
@@ -234,8 +234,8 @@ export function useCreateTransactionMutation({
         toast.success(t`Дивіденди виведено`)
       }
       // Invalidate company-account balance when any company-account debit/credit
-      // succeeds. `isAdminIncomeCompanyFunded` covers ADMIN_INCOME's two shapes
-      // (ADMIN's receiverId sentinel, ACCOUNTANT's fundingSource toggle);
+      // succeeds. `isAdminIncomeCompanyFunded` covers ADMIN_INCOME (ADMIN's
+      // receiverId sentinel);
       // `fundingSource === 'COMPANY_ACCOUNT'` covers EXPENSE (unaffected by
       // task-admin-income-unified — still its own toggle).
       if (fundingSource === 'COMPANY_ACCOUNT' || isAdminIncomeCompanyFunded) {

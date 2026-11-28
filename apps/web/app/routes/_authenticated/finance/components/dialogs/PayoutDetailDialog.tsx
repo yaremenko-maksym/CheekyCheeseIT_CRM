@@ -26,7 +26,7 @@ import { PayoutPaymentForm } from './PayoutPaymentForm'
  * /payout-requests/:id/pay where the backend verifies on-chain (stub
  * auto-confirms in dev) and flips the payout to PAID.
  *
- * ADMIN/ACCOUNTANT additionally get a secondary «Ручное подтверждение» section
+ * ADMIN additionally get a secondary «Ручное подтверждение» section
  * (escape hatch) that calls the NEW /payout-requests/:id/manual-confirm
  * endpoint — for payouts settled off the on-chain happy path.
  *
@@ -50,7 +50,7 @@ export function PayoutDetailDialog({
 }) {
   const { t } = useLingui()
   const { user } = useAuth()
-  const canManualConfirm = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
+  const canManualConfirm = user?.role === 'ADMIN'
 
   function handleClose() {
     state.resetLocal()

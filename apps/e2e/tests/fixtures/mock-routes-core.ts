@@ -97,8 +97,6 @@ export async function mockCoreRoutes(page: Page, user: MockUser) {
           }
         case 'HR':
           return { type: 'user' as const, role: 'HR' as const, teamsCount: 1 }
-        case 'ACCOUNTANT':
-          return { type: 'user' as const, role: 'ACCOUNTANT' as const, teamsCount: 1 }
         case 'JUNIOR':
           return { type: 'user' as const, role: 'JUNIOR' as const, projectsCount: 1 }
         default:
@@ -115,20 +113,13 @@ export async function mockCoreRoutes(page: Page, user: MockUser) {
     return jsonOk(r, { ...target, archivedAt: null })
   })
 
-  // /users/:id/team — used by UserDialog Edit to seed HR/Accountant selections
+  // /users/:id/team — used by UserDialog Edit to seed the HR selection
   await page.route(new RegExp(`${API_RE}/users/([^/?]+)/team$`), (r) =>
     jsonOk(r, [
       {
         id: USERS.hr.id,
         displayName: USERS.hr.displayName,
         role: 'HR',
-        avatarUrl: null,
-        avatarDocumentId: null,
-      },
-      {
-        id: USERS.accountant.id,
-        displayName: USERS.accountant.displayName,
-        role: 'ACCOUNTANT',
         avatarUrl: null,
         avatarDocumentId: null,
       },

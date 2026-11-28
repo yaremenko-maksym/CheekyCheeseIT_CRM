@@ -27,7 +27,6 @@ import {
 } from '@/components/ui/select'
 import { Field } from './section'
 import { HrChipsField } from './HrChipsField'
-import { AccountantChipField } from './AccountantChipField'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
 
@@ -36,7 +35,7 @@ import { cn } from '@/lib/utils'
  * teamless SENIOR. Mirrors the create-senior team-mode picker from
  * UserDialog (CREATE_NEW vs JOIN_DROP_TEAM) but submits to:
  *
- *   POST /api/users/me/rejoin-team { teamMode, dropTeamId?, hrIds?, accountantId? }
+ *   POST /api/users/me/rejoin-team { teamMode, dropTeamId?, hrIds? }
  *
  * Only SENIORs can land here — the backend rejects other roles with 403.
  */
@@ -51,10 +50,6 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
   })
   const hrUsers = useMemo(
     () => allUsers?.filter((u) => u.role === 'HR' && !u.archivedAt) ?? [],
-    [allUsers],
-  )
-  const accountantUsers = useMemo(
-    () => allUsers?.filter((u) => u.role === 'ACCOUNTANT' && !u.archivedAt) ?? [],
     [allUsers],
   )
 
@@ -75,24 +70,16 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
   }, [dropTeams])
 
   const [selectedHrIds, setSelectedHrIds] = useState<string[]>([])
-  const [selectedAccountantId, setSelectedAccountantId] = useState<string>('')
 
   useEffect(() => {
     if (!open) return
     const initialHr = hrUsers.length === 1 && hrUsers[0] ? [hrUsers[0].id] : []
     setSelectedHrIds(initialHr)
-    const initialAcc =
-      accountantUsers.length === 1 && accountantUsers[0] ? accountantUsers[0].id : ''
-    setSelectedAccountantId(initialAcc)
-  }, [open, hrUsers.length, accountantUsers.length])
+  }, [open, hrUsers.length])
 
   const mutation = useMutation({
-    mutationFn: (data: {
-      teamMode: TeamMode
-      dropTeamId?: string
-      hrIds?: string[]
-      accountantId?: string | null
-    }) => api.post('/users/me/rejoin-team', data),
+    mutationFn: (data: { teamMode: TeamMode; dropTeamId?: string; hrIds?: string[] }) =>
+      api.post('/users/me/rejoin-team', data),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
       void queryClient.invalidateQueries({ queryKey: ['team'] })
@@ -131,7 +118,6 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
         : {
             teamMode: 'CREATE_NEW' as TeamMode,
             hrIds: selectedHrIds,
-            accountantId: selectedAccountantId || null,
           }
 
       const result = rejoinTeamSchema.safeParse(payload)
@@ -155,7 +141,6 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
   const handleClose = () => {
     form.reset()
     setSelectedHrIds([])
-    setSelectedAccountantId('')
     onClose()
   }
 
@@ -204,7 +189,7 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
                         <Trans>Створити свою команду</Trans>
                       </div>
                       <p className="text-muted-foreground mt-0.5">
-                        <Trans>Нова команда — оберіть HR і бухгалтера нижче.</Trans>
+                        <Trans>Нова команда — оберіть HR нижче.</Trans>
                       </p>
                     </div>
                   </label>
@@ -300,15 +285,6 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
                     // can create users, so the empty state must not tell
                     // the SENIOR reader to add one themselves.
                     emptyStateText={<Trans>HR ще немає — зверніться до адміністратора</Trans>}
-                  />
-                  <AccountantChipField
-                    accountantUsers={accountantUsers}
-                    selectedId={selectedAccountantId}
-                    onChange={setSelectedAccountantId}
-                    onlyAccountant={accountantUsers.length === 1}
-                    emptyStateText={
-                      <Trans>Бухгалтерів ще немає — зверніться до адміністратора</Trans>
-                    }
                   />
                 </>
               )

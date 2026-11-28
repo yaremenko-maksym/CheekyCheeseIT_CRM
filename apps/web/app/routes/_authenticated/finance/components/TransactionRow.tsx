@@ -60,7 +60,7 @@ function StatusBadge({ status }: { status: TransactionDto['status'] }) {
   )
 }
 
-// task-soft-delete-and-money-audit. Only ever rendered for ADMIN/ACCOUNTANT —
+// task-soft-delete-and-money-audit. Only ever rendered for ADMIN —
 // a deleted row can never reach this component for any other viewer (server-
 // side `findAll`/`findOne` hide it entirely, AC2). The reason is surfaced via
 // title-tooltip rather than a second visible line — keeps the row height
@@ -96,7 +96,7 @@ type TransactionRowProps = {
   onPaySalary?: (tx: TransactionDto) => void
   onAddSalaryPart?: (tx: TransactionDto) => void
   /**
-   * task-senior-settle-in-tx-row. ADMIN/ACCOUNTANT clicks «Выплатить» on a
+   * task-senior-settle-in-tx-row. ADMIN clicks «Выплатить» on a
    * SENIOR_PENDING_PAYOUT row (PENDING_PAYMENT) to pay the senior their
    * drop-project share from the company account. Mirrors the salary pay flow:
    * an auto-created PENDING row is settled manually from the transactions list.
@@ -121,7 +121,7 @@ type TransactionRowProps = {
   onOpenPayoutDetail?: (payoutRequestId: string) => void
   /**
    * Drop role - phase 3 (manual payout confirmation, spec §8.4). Opens the
-   * ConfirmPayoutDialog for an ACCOUNTANT/ADMIN. Shown on PAYOUT rows in
+   * ConfirmPayoutDialog for an ADMIN. Shown on PAYOUT rows in
    * PENDING_PAYMENT — the confirmation flips the row to PAID and inserts a
    * new PAYOUT_CONFIRMED credit row for the chosen admin.
    */
@@ -138,9 +138,8 @@ type TransactionRowProps = {
   onClick?: (tx: TransactionDto) => void
   /**
    * task-soft-delete-and-money-audit. ADMIN-only restore action on a deleted
-   * row (visible only after the ADMIN/ACCOUNTANT «показать удалённые» toggle
-   * — see FinancePage). Never rendered for ACCOUNTANT (they can see a
-   * deleted row but not restore it — mirrors the server-side RBAC).
+   * row (visible only after the ADMIN «показать удалённые» toggle
+   * — see FinancePage). Mirrors the server-side RBAC.
    */
   onRestore?: (tx: TransactionDto) => void
 }
@@ -179,10 +178,9 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     const { t, i18n } = useLingui()
     const locale = useLocale()
     const isAdmin = role === 'ADMIN'
-    const isAccountant = role === 'ACCOUNTANT'
     const isSenior = role === 'SENIOR'
     // task-soft-delete-and-money-audit. This row can only ever be a deleted
-    // one when the viewer is ADMIN/ACCOUNTANT AND explicitly toggled
+    // one when the viewer is ADMIN AND explicitly toggled
     // «показать удалённые» — every other viewer never receives it (AC2/AC3).
     // No further mutating action is available on it (must restore first) —
     // every `can*`/`show*` gate below is additionally guarded by `!isDeleted`.
@@ -195,10 +193,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     const remainingToPay = settlement?.remaining ?? 0
 
     const canValidate =
-      !isDeleted &&
-      (isAdmin || isAccountant) &&
-      tx.type === 'SENIOR_INCOME' &&
-      tx.status === 'PENDING'
+      !isDeleted && isAdmin && tx.type === 'SENIOR_INCOME' && tx.status === 'PENDING'
     // feat/finance-payout-flow (#7): SENIOR sees «Выплатить» on their own
     // VALIDATED SENIOR_INCOME rows that haven't been included in a payout yet
     // (payoutRequestId is null). Clicking opens PayoutDialog pre-selecting
@@ -213,8 +208,8 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     const canEdit =
       !isDeleted && isSenior && tx.type === 'SENIOR_INCOME' && tx.status === 'REJECTED'
     const canPaySalary = !isDeleted && isAdmin && tx.type === 'SALARY' && tx.status === 'PENDING'
-    const canAddSalaryPart = !isDeleted && (isAdmin || isAccountant) && tx.type === 'SALARY'
-    // task-senior-settle-in-tx-row. ADMIN/ACCOUNTANT see «Выплатить» on a
+    const canAddSalaryPart = !isDeleted && isAdmin && tx.type === 'SALARY'
+    // task-senior-settle-in-tx-row. ADMIN see «Выплатить» on a
     // SENIOR_PENDING_PAYOUT row (the company's IOU to a senior from a
     // drop-project) while it is still PENDING_PAYMENT. Clicking settles the IOU
     // from the company account (the senior's auto-created SENIOR_INCOME + invoice
@@ -230,7 +225,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     // restriction is introduced for the drop mirror.
     const canSettleSeniorPayout =
       !isDeleted &&
-      (isAdmin || isAccountant) &&
+      isAdmin &&
       (tx.type === 'SENIOR_PENDING_PAYOUT' || tx.type === 'DROP_PENDING_PAYOUT') &&
       tx.status === 'PENDING_PAYMENT'
     const canAdminEdit =
@@ -241,11 +236,10 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
       (tx.status === 'PENDING_PAYMENT' || !tx.payoutRequestId)
     const canAdminDelete = canAdminEdit
     // task-soft-delete-and-money-audit. ADMIN-only, and only on an already-
-    // deleted row (mirrors the server-side `restoreTransaction` guard —
-    // ACCOUNTANT can see the row but not restore it).
+    // deleted row (mirrors the server-side `restoreTransaction` guard).
     const canRestore = isDeleted && isAdmin
     // Inline «Оплатить» for the «Выплата» row (PAYOUT type, PENDING_PAYMENT).
-    // New flow (task-payout-auto-on-validate): when ACCOUNTANT clicks
+    // New flow (task-payout-auto-on-validate): when an ADMIN clicks
     // «Подтвердить» on a SENIOR_INCOME, the backend atomically creates a
     // PAYOUT row carrying this button. SENIOR_INCOME rows no longer have any
     // inline «Выплатить» pill — they just show «Ожидает выплаты» status.
@@ -257,15 +251,12 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
       tx.status === 'PENDING_PAYMENT' &&
       !!tx.payoutRequestId &&
       tx.senderId === currentUserId
-    // Drop role - phase 3 (manual payout confirmation, spec §8.4). ADMIN /
-    // ACCOUNTANT see «Подтвердить оплату» on every PAYOUT row in
+    // Drop role - phase 3 (manual payout confirmation, spec §8.4). ADMIN
+    // sees «Подтвердить оплату» on every PAYOUT row in
     // PENDING_PAYMENT. The action records which admin actually received the
     // off-platform money and flips the PAYOUT to PAID (see ConfirmPayoutDialog).
     const showConfirmPayout =
-      !isDeleted &&
-      (isAdmin || isAccountant) &&
-      tx.type === 'PAYOUT' &&
-      tx.status === 'PENDING_PAYMENT'
+      !isDeleted && isAdmin && tx.type === 'PAYOUT' && tx.status === 'PENDING_PAYMENT'
     // task-receipts-frontend. Compact row entry for attach/replace-receipt —
     // visible from ≥768px only (see `onAttachReceipt` doc above). Gated on
     // BOTH the shared RBAC/status rule AND the handler actually being wired
@@ -281,7 +272,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
         ref={ref}
         initial={{ opacity: 0, y: -4 }}
         // task-soft-delete-and-money-audit: a deleted row (visible only to
-        // ADMIN/ACCOUNTANT via the «показать удалённые» toggle) is dimmed —
+        // ADMIN via the «показать удалённые» toggle) is dimmed —
         // motion's `animate.opacity` is an inline style, so a Tailwind
         // opacity utility class would be silently overridden by it; the dim
         // has to be expressed here instead.
@@ -376,7 +367,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
               {remainingToPay > 0 && t` · до сплати ${fmtAmount(remainingToPay, tx.currency)}`}
             </p>
           )}
-          {/* SENIOR_INCOME — show the snapshot share % so ADMIN/ACCOUNTANT/SENIOR
+          {/* SENIOR_INCOME — show the snapshot share % so ADMIN/SENIOR
             can see what split this row will use at payout time. The snapshot
             is immutable (set on creation), so historical rows keep their
             original % even if the project override changes later.
@@ -384,7 +375,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
             row has one — legacy rows (no source) render as before. */}
           {tx.type === 'SENIOR_INCOME' &&
             tx.seniorSharePercent !== null &&
-            (isAdmin || isAccountant || (isSenior && tx.receiverId === currentUserId)) && (
+            (isAdmin || (isSenior && tx.receiverId === currentUserId)) && (
               <p
                 className="text-[11px] text-muted-foreground font-normal"
                 data-testid={`tx-row-senior-share-${tx.id}`}

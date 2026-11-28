@@ -4,7 +4,7 @@
  * RBAC (per-project, subject excluded):
  *   Доступ (view == edit): ADMIN, HR из той же команды, активный JUNIOR проекта.
  *   Субъект (seniorId / dropId) — НЕ видит свою легенду.
- *   Остальные (ACCOUNTANT, другой SENIOR) — не видят.
+ *   Остальные (другой SENIOR) — не видят.
  *
  * Props:
  *   projectId — UUID проекта

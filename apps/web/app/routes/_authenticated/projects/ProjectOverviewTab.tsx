@@ -86,7 +86,6 @@ export function ProjectOverviewTab({
   const dropMember = project.effectiveTeam?.drop ?? null
   const activeJuniors = activeMembers.filter((m) => m.role === 'JUNIOR')
   const activeHRs = activeMembers.filter((m) => m.role === 'HR')
-  const activeAccountants = activeMembers.filter((m) => m.role === 'ACCOUNTANT')
 
   return (
     <>
@@ -282,37 +281,36 @@ export function ProjectOverviewTab({
             )}
 
             {/* Drop row — display-only; after senior, before HR.
-                  RBAC: ADMIN/HR/ACCOUNTANT only (API masks drop=null for SENIOR/JUNIOR, PR #363).
+                  RBAC: ADMIN/HR only (API masks drop=null for SENIOR/JUNIOR, PR #363).
                   No manage buttons here — drop management is on the «Состав» tab. */}
-            {dropMember != null &&
-              (viewerRole === 'ADMIN' || viewerRole === 'HR' || viewerRole === 'ACCOUNTANT') && (
-                <div className="pb-3" data-testid="team-card-drop-row">
-                  <ProfileNameLink
-                    userId={dropMember.id}
-                    // Stryker disable next-line LogicalOperator: equivalent — this row only renders for ADMIN/HR/ACCOUNTANT, never DROP/SENIOR, so the role passed does not change the rendered link
-                    viewerRole={viewerRole ?? 'JUNIOR'}
-                    className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
+            {dropMember != null && (viewerRole === 'ADMIN' || viewerRole === 'HR') && (
+              <div className="pb-3" data-testid="team-card-drop-row">
+                <ProfileNameLink
+                  userId={dropMember.id}
+                  // Stryker disable next-line LogicalOperator: equivalent — this row only renders for ADMIN/HR, never DROP/SENIOR, so the role passed does not change the rendered link
+                  viewerRole={viewerRole ?? 'JUNIOR'}
+                  className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
+                >
+                  <Avatar className="h-8 w-8 shrink-0">
+                    {dropMember.avatarUrl && (
+                      <AvatarImage src={dropMember.avatarUrl} alt={dropMember.displayName} />
+                    )}
+                    <AvatarFallback className="text-[11px] font-semibold">
+                      {getInitialsBySpaceSplit(dropMember.displayName)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="text-sm font-medium truncate text-primary">
+                    {dropMember.displayName}
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className="border-blue-500/30 bg-blue-500/10 text-blue-400 shrink-0 text-[9px] ml-auto"
                   >
-                    <Avatar className="h-8 w-8 shrink-0">
-                      {dropMember.avatarUrl && (
-                        <AvatarImage src={dropMember.avatarUrl} alt={dropMember.displayName} />
-                      )}
-                      <AvatarFallback className="text-[11px] font-semibold">
-                        {getInitialsBySpaceSplit(dropMember.displayName)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="text-sm font-medium truncate text-primary">
-                      {dropMember.displayName}
-                    </span>
-                    <Badge
-                      variant="outline"
-                      className="border-blue-500/30 bg-blue-500/10 text-blue-400 shrink-0 text-[9px] ml-auto"
-                    >
-                      {i18n._(ROLE_LABEL_MESSAGES.DROP)}
-                    </Badge>
-                  </ProfileNameLink>
-                </div>
-              )}
+                    {i18n._(ROLE_LABEL_MESSAGES.DROP)}
+                  </Badge>
+                </ProfileNameLink>
+              </div>
+            )}
 
             {/* HR */}
             <div className="pt-3 pb-3">
@@ -321,24 +319,6 @@ export function ProjectOverviewTab({
               ) : (
                 <div className="space-y-1.5">
                   {activeHRs.map((m) => (
-                    <MemberRow
-                      key={m.id}
-                      member={m}
-                      canManage={canRemoveMembers}
-                      onRemove={() => onRemoveMember(m)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Accountants */}
-            <div className="pt-3 pb-3">
-              {activeAccountants.length === 0 ? (
-                <p className="text-xs text-muted-foreground/50 italic">{t`Не призначено`}</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {activeAccountants.map((m) => (
                     <MemberRow
                       key={m.id}
                       member={m}

@@ -172,7 +172,7 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_ADMIN_INCOME_RECEIVER_FIXED_FOR_ACCOUNTANT: /* i18n */ {
       id: 'api-error.FINANCE_ADMIN_INCOME_RECEIVER_FIXED_FOR_ACCOUNTANT',
-      message: 'Бухгалтер не обирає, хто отримує дохід адміністратора',
+      message: 'Цей розділ недоступний для вашої ролі',
     },
     FINANCE_INCOME_RECEIVER_MUST_BE_ACTIVE_ADMIN: /* i18n */ {
       id: 'api-error.FINANCE_INCOME_RECEIVER_MUST_BE_ACTIVE_ADMIN',
@@ -225,7 +225,7 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_RECEIPT_REPLACE_AFTER_PAID_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_RECEIPT_REPLACE_AFTER_PAID_FORBIDDEN',
-      message: 'Замінити чек після оплати можуть лише адміністратор або бухгалтер',
+      message: 'Замінити чек після оплати може лише адміністратор',
     },
     FINANCE_RECEIPT_DOCUMENT_NOT_FOUND: /* i18n */ {
       id: 'api-error.FINANCE_RECEIPT_DOCUMENT_NOT_FOUND',
@@ -288,7 +288,7 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_SALARY_ROLE_NOT_ELIGIBLE: /* i18n */ {
       id: 'api-error.FINANCE_SALARY_ROLE_NOT_ELIGIBLE',
-      message: 'Зарплату можна створити лише для джуніора, HR, бухгалтера, сеньйора або дропа',
+      message: 'Зарплату можна створити лише для джуніора, HR, сеньйора або дропа',
     },
     FINANCE_SALARY_RECEIVER_ARCHIVED: /* i18n */ {
       id: 'api-error.FINANCE_SALARY_RECEIVER_ARCHIVED',
@@ -422,11 +422,11 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_SUMMARY_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_SUMMARY_FORBIDDEN',
-      message: 'Фінансове зведення бачать лише адміністратор і бухгалтер',
+      message: 'Фінансове зведення бачить лише адміністратор',
     },
     FINANCE_ACCOUNTANT_SUMMARY_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_ACCOUNTANT_SUMMARY_FORBIDDEN',
-      message: 'Зведення бухгалтера бачать лише адміністратор і бухгалтер',
+      message: 'Цей розділ недоступний для вашої ролі',
     },
     FINANCE_SENIOR_SUMMARY_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_SENIOR_SUMMARY_FORBIDDEN',
@@ -434,11 +434,11 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_INCOME_COMPLIANCE_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_INCOME_COMPLIANCE_FORBIDDEN',
-      message: 'Огляд відповідності доходів бачать лише адміністратор і бухгалтер',
+      message: 'Огляд відповідності доходів бачить лише адміністратор',
     },
     FINANCE_SALARY_MONTH_GAP_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_SALARY_MONTH_GAP_FORBIDDEN',
-      message: 'Звіт про пропущені місяці зарплати бачать лише адміністратор і бухгалтер',
+      message: 'Звіт про пропущені місяці зарплати бачить лише адміністратор',
     },
     FINANCE_SALARY_MONTH_BACKFILL_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_SALARY_MONTH_BACKFILL_FORBIDDEN',
@@ -446,23 +446,23 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_ADMIN_BALANCE_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_ADMIN_BALANCE_FORBIDDEN',
-      message: 'Баланс адміністратора бачать лише він сам і бухгалтер',
+      message: 'Баланс адміністратора бачить лише він сам',
     },
     FINANCE_SENIOR_BALANCE_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_SENIOR_BALANCE_FORBIDDEN',
-      message: 'Баланс сеньйора бачать лише адміністратор, бухгалтер і сам сеньйор',
+      message: 'Баланс сеньйора бачать лише адміністратор і сам сеньйор',
     },
     FINANCE_TOTAL_EARNED_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_TOTAL_EARNED_FORBIDDEN',
-      message: 'Показник «всього зароблено» бачать лише адміністратор і бухгалтер',
+      message: 'Показник «всього зароблено» бачить лише адміністратор',
     },
     FINANCE_PENDING_OBLIGATIONS_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_PENDING_OBLIGATIONS_FORBIDDEN',
-      message: 'Зобов’язання, що очікують виплати, бачать лише адміністратор, бухгалтер і сеньйор',
+      message: 'Зобов’язання, що очікують виплати, бачать лише адміністратор і сеньйор',
     },
     FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN',
-      message: 'Рахунок компанії бачать лише адміністратор і бухгалтер',
+      message: 'Рахунок компанії бачить лише адміністратор',
     },
     FINANCE_COMPANY_WALLET_CHANGE_ADMIN_ONLY: /* i18n */ {
       id: 'api-error.FINANCE_COMPANY_WALLET_CHANGE_ADMIN_ONLY',
@@ -486,7 +486,7 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_DEPOSIT_STATUS_ACCESS_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_DEPOSIT_STATUS_ACCESS_FORBIDDEN',
-      message: 'Статус поповнення бачать лише його автор, адміністратор і бухгалтер',
+      message: 'Статус поповнення бачать лише його автор і адміністратор',
     },
     FINANCE_DIVIDEND_WITHDRAW_ADMIN_ONLY: /* i18n */ {
       id: 'api-error.FINANCE_DIVIDEND_WITHDRAW_ADMIN_ONLY',
@@ -510,15 +510,15 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN',
-      message: 'Зобов’язання, що очікують виплати, бачать лише адміністратор, бухгалтер і сеньйор',
+      message: 'Зобов’язання, що очікують виплати, бачать лише адміністратор і сеньйор',
     },
     FINANCE_COMPANY_OBLIGATIONS_LIST_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_COMPANY_OBLIGATIONS_LIST_FORBIDDEN',
-      message: 'Зобов’язання компанії бачать лише адміністратор і бухгалтер',
+      message: 'Зобов’язання компанії бачить лише адміністратор',
     },
     FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN',
-      message: 'Закривати зобов’язання компанії можуть лише адміністратор або бухгалтер',
+      message: 'Закривати зобов’язання компанії може лише адміністратор',
     },
     FINANCE_OBLIGATION_NOT_COMPANY_TYPE: /* i18n */ {
       id: 'api-error.FINANCE_OBLIGATION_NOT_COMPANY_TYPE',

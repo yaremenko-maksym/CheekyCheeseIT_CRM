@@ -95,11 +95,11 @@ export function ArchiveUserConfirmDialog({
       // Role stands in the accusative case (uk) — "Сеньйора й команду
       // архівовано" reads as a completed passive action and stays the same
       // regardless of the archived person's gender, unlike an adjective
-      // agreement would. `other` is reachable: HR/ACCOUNTANT/JUNIOR/ADMIN
+      // agreement would. `other` is reachable: HR/JUNIOR/ADMIN
       // all take the generic "Користувача архівовано".
       // Stryker disable next-line OptionalChaining: same non-null guarantee as the `if` above
       const archivedRole = user?.role ?? 'ADMIN'
-      // Stryker disable next-line ObjectLiteral,StringLiteral: Lingui's select() macro needs this options object to stay a literal it can statically read at compile time (the `{}` mutant makes the transform throw before any test runs) — `other` covers HR/ACCOUNTANT/JUNIOR/ADMIN and is reachable by every one of them.
+      // Stryker disable next-line ObjectLiteral,StringLiteral: Lingui's select() macro needs this options object to stay a literal it can statically read at compile time (the `{}` mutant makes the transform throw before any test runs) — `other` covers HR/JUNIOR/ADMIN and is reachable by every one of them.
       const successMessage = select(archivedRole, {
         SENIOR: 'Сеньйора й команду архівовано',
         DROP: 'Дропа й команду архівовано',

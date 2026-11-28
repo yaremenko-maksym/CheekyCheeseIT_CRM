@@ -16,7 +16,6 @@ const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accou
   SENIOR: 'senior',
   JUNIOR: 'junior',
   HR: 'hr',
-  ACCOUNTANT: 'accountant',
 }
 
 export interface UserProfileHeaderProps {

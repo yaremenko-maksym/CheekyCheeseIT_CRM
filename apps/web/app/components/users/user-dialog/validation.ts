@@ -38,7 +38,7 @@ export const rnokppPattern = /^\d{10}$/
 /**
  * Default payment method per role. SENIOR / ADMIN are USDT-only (enforced both
  * frontend & backend). Other roles default to BANK_UAH_FOP since most internal
- * payouts (HR, JUNIOR, ACCOUNTANT) go through ФОП in UAH.
+ * payouts (HR, JUNIOR) go through ФОП in UAH.
  */
 export function defaultPaymentMethod(role: Role): PaymentMethod {
   return role === 'SENIOR' || role === 'ADMIN' ? 'USDT_ERC20' : 'BANK_UAH_FOP'

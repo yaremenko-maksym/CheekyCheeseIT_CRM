@@ -747,7 +747,6 @@ describe('/job-queue page', () => {
   it.each([
     ['JUNIOR', '/project'],
     ['SENIOR', '/'],
-    ['ACCOUNTANT', '/'],
   ])('renders nothing for %s and sends them home', async (role, home) => {
     serve()
     signIn({ id: HR_ID, role })

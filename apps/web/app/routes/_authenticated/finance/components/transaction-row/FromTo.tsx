@@ -194,7 +194,7 @@ export function FromTo({ tx: rawTx }: { tx: TransactionDto }) {
 
     // fix/payout-drop-from-to (audit pass, AC2): two more LIVE money types
     // that insert real rows into `transactions` (CompanyAccountService) and
-    // are visible to ADMIN/ACCOUNTANT in the unfiltered findAll() list, yet
+    // are visible to ADMIN in the unfiltered findAll() list, yet
     // had no FromTo case — same bare-«—» bug as PAYOUT_DROP above.
     //
     // COMPANY_DEPOSIT: a SENIOR/DROP submits a verified USDT deposit onto the

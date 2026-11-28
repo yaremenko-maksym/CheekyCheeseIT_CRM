@@ -29,7 +29,7 @@ import { SettleSeniorPayoutDialog } from './components/dialogs/SettleSeniorPayou
 // CompanySharePayoutModal (batch payout) — re-activated by
 // feat/finance-payout-flow (#7), replaced task-company-share-cta. SENIOR
 // manually creates a payout request by selecting one or more VALIDATED
-// SENIOR_INCOME rows. The old auto-create path on ACCOUNTANT validate has been
+// SENIOR_INCOME rows. The old auto-create path on receipt validation has been
 // removed to eliminate duplicate payouts.
 import { CompanySharePayoutModal } from './components/dialogs/CompanySharePayoutModal'
 import { PayoutDetailDialog } from './components/dialogs/PayoutDetailDialog'
@@ -46,7 +46,7 @@ import { CompanySharePayoutStrip } from './components/CompanySharePayoutStrip'
  * Deep-link search params for /finance.
  *
  * `status` — optional pre-selected transaction-status filter (e.g. the
- * AccountantDashboard CTA navigates with `?status=PENDING`). Validated against
+ * a deep link may carry `?status=PENDING`). Validated against
  * the known transaction statuses; anything unexpected is dropped (returns
  * undefined) so a malformed URL never poisons the filter UI.
  */
@@ -80,9 +80,9 @@ export const Route = createFileRoute('/_authenticated/finance/')({
 function FinancePage() {
   const { t, i18n } = useLingui()
   const locale = useLocale()
-  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'ACCOUNTANT', 'HR', 'DROP', 'JUNIOR'])
+  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'DROP', 'JUNIOR'])
   const { user } = useAuth()
-  // Deep-link status filter (?status=PENDING) — from the AccountantDashboard CTA.
+  // Deep-link status filter (?status=PENDING).
   // useSearch is hook-order-safe (called before the early returns below).
   const { status: deepLinkStatus } = Route.useSearch()
   const role = user?.role ?? ''
@@ -92,10 +92,6 @@ function FinancePage() {
   const isSenior = role === 'SENIOR'
   const isJunior = role === 'JUNIOR'
   const isHr = role === 'HR'
-  // task-accountant-create-transaction. ACCOUNTANT may create transactions with
-  // the SAME set as ADMIN (income/expense/salary/transfer) — see business doc
-  // finance.md: «ACCOUNTANT — Все транзакции, валидация, расходы, выплаты».
-  const isAccountant = role === 'ACCOUNTANT'
   // Drop role - phase 2. DROP user reaches the normal finance table and
   // can register new income via «Новая транзакция» (which renders the
   // DROP_INCOME card from CreateTransactionDialog).
@@ -107,7 +103,7 @@ function FinancePage() {
   const [editTx, setEditTx] = useState<TransactionDto | null>(null)
   const [adminEditTx, setAdminEditTx] = useState<TransactionDto | null>(null)
   const [deleteTx, setDeleteTx] = useState<TransactionDto | null>(null)
-  // task-soft-delete-and-money-audit (AC3). ADMIN/ACCOUNTANT-only «показать
+  // task-soft-delete-and-money-audit (AC3). ADMIN-only «показать
   // удалённые» toggle — default OFF, matching the server's default-hidden
   // list. Reset is unnecessary: the query itself is gated by role below.
   const [showDeleted, setShowDeleted] = useState(false)
@@ -115,7 +111,7 @@ function FinancePage() {
   const [restoreTx, setRestoreTx] = useState<TransactionDto | null>(null)
   const [paySalaryTx, setPaySalaryTx] = useState<TransactionDto | null>(null)
   // task-senior-settle-owner. SENIOR_PENDING_PAYOUT row whose «Выплатить» funding
-  // dialog is open (ADMIN/ACCOUNTANT). null = closed.
+  // dialog is open (ADMIN). null = closed.
   const [settleSeniorTx, setSettleSeniorTx] = useState<TransactionDto | null>(null)
   // PayoutDialog state — feat/finance-payout-flow (#7). SENIOR selects one or
   // more VALIDATED SENIOR_INCOME rows → POST /api/payout-requests creates a
@@ -129,7 +125,7 @@ function FinancePage() {
   // «Выплата» (PAYOUT) row (PENDING_PAYMENT). null = closed.
   const [payoutDetailId, setPayoutDetailId] = useState<string | null>(null)
   // Drop role - phase 3 (spec §8.4). PAYOUT row whose manual confirmation
-  // dialog is currently open. Visible only to ADMIN/ACCOUNTANT (the row
+  // dialog is currently open. Visible only to ADMIN (the row
   // button itself is hidden for other roles — see TransactionRow).
   const [confirmPayoutTx, setConfirmPayoutTx] = useState<TransactionDto | null>(null)
   const [detailTx, setDetailTx] = useState<TransactionDto | null>(null)
@@ -163,7 +159,7 @@ function FinancePage() {
   }, [])
 
   // task-senior-settle-owner. Pay the senior their drop-project share directly
-  // from the SENIOR_PENDING_PAYOUT row (ADMIN/ACCOUNTANT only). The «Выплатить»
+  // from the SENIOR_PENDING_PAYOUT row (ADMIN only). The «Выплатить»
   // button now opens SettleSeniorPayoutDialog — the SAME funding-source picker as
   // the SALARY pay flow (Счёт компании vs an admin partner + currency). The
   // dialog owns the settle mutation + the idempotent backend cascade; here we
@@ -172,12 +168,12 @@ function FinancePage() {
     setSettleSeniorTx(tx)
   }, [])
 
-  const canCreate = isAdmin || isSenior || isDrop || isAccountant
-  // task-soft-delete-and-money-audit (AC2/AC3). Only ADMIN/ACCOUNTANT may
+  const canCreate = isAdmin || isSenior || isDrop
+  // task-soft-delete-and-money-audit (AC2/AC3). Only ADMIN may
   // ever request `includeDeleted` — the server ignores it for every other
   // role regardless, but gating the toggle's very existence here means a
   // SENIOR/JUNIOR/HR/DROP never even sees the affordance.
-  const canSeeDeleted = isAdmin || isAccountant
+  const canSeeDeleted = isAdmin
   const effectiveShowDeleted = canSeeDeleted && showDeleted
 
   // DROP has its own self-scoped API endpoints (drop-incomes / drop-payments)
@@ -489,11 +485,11 @@ function FinancePage() {
           removed — they carried no info beyond what the transactions table
           already shows. The senior IOU is now paid straight from its
           SENIOR_PENDING_PAYOUT row in the table via the «Виплатити» button
-          (ADMIN/ACCOUNTANT only), mirroring the salary pay flow. */}
+          (ADMIN only), mirroring the salary pay flow. */}
 
           {/* task-company-share-cta. First element, right above the
               transactions table (design spec §4.2 — «буквально вверху
-              списка»). SENIOR only — task boundary excludes ADMIN/ACCOUNTANT
+              списка»). SENIOR only — task boundary excludes ADMIN
               here since /finance's `transactions` query is UNSCOPED for them
               (would otherwise show every senior's outstanding share). */}
           {isSenior && (

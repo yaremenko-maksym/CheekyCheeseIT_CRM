@@ -60,7 +60,7 @@ test.describe('Drop frontend route-guards — dashboard consolidated to /crm roo
   })
 
   test('/stats for DROP → /', async ({ asDrop: page }) => {
-    // /stats is ADMIN/ACCOUNTANT-only → DROP redirected to /crm.
+    // /stats is ADMIN-only → DROP redirected to /crm.
     await page.goto('/stats')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
   })
@@ -72,7 +72,7 @@ test.describe('Drop frontend route-guards — dashboard consolidated to /crm roo
   })
 
   test('/projects for DROP → /', async ({ asDrop: page }) => {
-    // ROUTE_ACCESS for /projects: ['ADMIN','SENIOR','HR','ACCOUNTANT']
+    // ROUTE_ACCESS for /projects: ['ADMIN','SENIOR','HR']
     // DROP excluded → redirect to /crm.
     await page.goto('/projects')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })

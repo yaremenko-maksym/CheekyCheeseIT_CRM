@@ -19,7 +19,6 @@ const editArgs = (allTeams: TeamDto[] | undefined, over: Partial<Args> = {}): Ar
   editingUser: senior,
   allTeams,
   hrUsers: [],
-  accountantUsers: [],
   isCreate: false,
   isEdit: true,
   open: true,
@@ -29,7 +28,6 @@ const createArgs = (over: Partial<Args> = {}): Args => ({
   editingUser: null,
   allTeams: undefined,
   hrUsers: [],
-  accountantUsers: [],
   isCreate: true,
   isEdit: false,
   open: true,
@@ -45,7 +43,7 @@ function render(args: Args) {
 }
 
 describe('useTeamSelection seed effect', () => {
-  it('seeds active HRs, accountant and team channel from the senior active team', () => {
+  it('seeds active HRs and team channel from the senior active team', () => {
     const { result, setFieldValue } = render(
       editArgs([
         team(
@@ -54,22 +52,18 @@ describe('useTeamSelection seed effect', () => {
             member('h1', 'HR'),
             member('h2', 'HR', '2026-01-01'),
             member('h3', 'HR'),
-            member('a0', 'ACCOUNTANT', '2026-01-01'),
-            member('a1', 'ACCOUNTANT'),
           ],
           'chan',
         ),
       ]),
     )
     expect(result.current.selectedHrIds).toEqual(['h1', 'h3'])
-    expect(result.current.selectedAccountantId).toBe('a1')
     expect(setFieldValue).toHaveBeenCalledWith('teamTelegramChannel', 'chan')
   })
 
-  it('uses empty accountant and empty channel when team has neither', () => {
+  it('uses empty HRs and empty channel when team has neither', () => {
     const { result, setFieldValue } = render(editArgs([team([member('s1', 'SENIOR')])]))
     expect(result.current.selectedHrIds).toEqual([])
-    expect(result.current.selectedAccountantId).toBe('')
     expect(setFieldValue).toHaveBeenCalledWith('teamTelegramChannel', '')
   })
 
@@ -88,12 +82,11 @@ describe('useTeamSelection seed effect', () => {
   it('picks the team of the edited senior, not another senior active team listed first', () => {
     const { result, setFieldValue } = render(
       editArgs([
-        team([member('other', 'SENIOR'), member('hx', 'HR'), member('ax', 'ACCOUNTANT')], 'theirs'),
-        team([member('s1', 'SENIOR'), member('h1', 'HR'), member('a1', 'ACCOUNTANT')], 'mine'),
+        team([member('other', 'SENIOR'), member('hx', 'HR')], 'theirs'),
+        team([member('s1', 'SENIOR'), member('h1', 'HR')], 'mine'),
       ]),
     )
     expect(result.current.selectedHrIds).toEqual(['h1'])
-    expect(result.current.selectedAccountantId).toBe('a1')
     expect(setFieldValue).toHaveBeenCalledWith('teamTelegramChannel', 'mine')
   })
 
@@ -111,12 +104,11 @@ describe('useTeamSelection seed effect', () => {
 
   it('clears previous selection when the team disappears', () => {
     const { result, rerender, setFieldValue } = render(
-      editArgs([team([member('s1', 'SENIOR'), member('h1', 'HR'), member('a1', 'ACCOUNTANT')])]),
+      editArgs([team([member('s1', 'SENIOR'), member('h1', 'HR')])]),
     )
     expect(result.current.selectedHrIds).toEqual(['h1'])
     rerender(editArgs([team([member('other', 'SENIOR')])]))
     expect(result.current.selectedHrIds).toEqual([])
-    expect(result.current.selectedAccountantId).toBe('')
     expect(setFieldValue).toHaveBeenLastCalledWith('teamTelegramChannel', '')
   })
 
@@ -133,26 +125,20 @@ describe('useTeamSelection seed effect', () => {
     expect(b.setFieldValue).not.toHaveBeenCalled()
   })
 
-  it('create: pre-selects the only HR / accountant, none when several or zero', () => {
-    const one = render(
-      createArgs({ hrUsers: [user({ id: 'h1' })], accountantUsers: [user({ id: 'a1' })] }),
-    )
+  it('create: pre-selects the only HR, none when several or zero', () => {
+    const one = render(createArgs({ hrUsers: [user({ id: 'h1' })] }))
     expect(one.result.current.selectedHrIds).toEqual(['h1'])
-    expect(one.result.current.selectedAccountantId).toBe('a1')
     expect(one.setFieldValue).not.toHaveBeenCalled()
 
     const many = render(
       createArgs({
         hrUsers: [user({ id: 'h1' }), user({ id: 'h2' })],
-        accountantUsers: [user({ id: 'a1' }), user({ id: 'a2' })],
       }),
     )
     expect(many.result.current.selectedHrIds).toEqual([])
-    expect(many.result.current.selectedAccountantId).toBe('')
 
     const none = render(createArgs())
     expect(none.result.current.selectedHrIds).toEqual([])
-    expect(none.result.current.selectedAccountantId).toBe('')
   })
 
   it('create: does not seed while the dialog is closed', () => {
@@ -174,16 +160,11 @@ describe('useTeamSelection handlers and refs', () => {
   })
 
   it('refs track the latest selection (seeded and user-changed)', () => {
-    const { result } = render(
-      editArgs([team([member('s1', 'SENIOR'), member('h1', 'HR'), member('a1', 'ACCOUNTANT')])]),
-    )
+    const { result } = render(editArgs([team([member('s1', 'SENIOR'), member('h1', 'HR')])]))
     expect(result.current.selectedHrIdsRef.current).toEqual(['h1'])
-    expect(result.current.selectedAccountantIdRef.current).toBe('a1')
     act(() => {
       result.current.handleHrChange(['h7', 'h8'])
-      result.current.setSelectedAccountantId('a9')
     })
     expect(result.current.selectedHrIdsRef.current).toEqual(['h7', 'h8'])
-    expect(result.current.selectedAccountantIdRef.current).toBe('a9')
   })
 })

@@ -8,7 +8,7 @@
  * - GET /projects?archived=true
  * - GET /projects/:projectId (detail with admin actions + tabs)
  *
- * The effective team dynamism test verifies that HR/Accountant come from the
+ * The effective team dynamism test verifies that the HR comes from the
  * senior's CURRENT team_members snapshot — not frozen at archive time.
  */
 
@@ -43,16 +43,7 @@ const projectWithEffectiveTeam = {
         role: 'HR',
       },
     ],
-    accountants: [
-      {
-        id: 'tm-acc-1',
-        userId: USERS.accountant.id,
-        displayName: USERS.accountant.displayName,
-        email: USERS.accountant.email,
-        avatar: null,
-        role: 'ACCOUNTANT',
-      },
-    ],
+    accountants: [],
     juniors: [],
   },
 }
@@ -78,7 +69,7 @@ test.describe('Projects archive — list page tab', () => {
   // SPEC-M-5 (PR #646 fix-round 1): SENIOR now GETS a status tabs row —
   // task-project-status-filter-ui (design spec §2's visibility table) gives
   // SENIOR two of the four values (Активные + Ждут решения, so
-  // they can act on their own draft from the card, AC3) while HR/ACCOUNTANT/
+  // they can act on their own draft from the card, AC3) while HR/
   // JUNIOR/DROP still see none (their list is always ACTIVE-only — the
   // `(isAdmin || isSenior) &&` guard in index.tsx is exactly this). AC2's
   // OLD claim ("non-ADMIN sees no tabs row at all") was true for every non-
@@ -96,7 +87,7 @@ test.describe('Projects archive — list page tab', () => {
     await expect(tabs.getByRole('tab', { name: 'Архів' })).toHaveCount(0)
   })
 
-  // HR/ACCOUNTANT/JUNIOR/DROP: the SPEC-M-5 exception above is SENIOR-only —
+  // HR/JUNIOR/DROP: the SPEC-M-5 exception above is SENIOR-only —
   // every other non-ADMIN role still sees no tabs row at all (AC2's original
   // claim, unchanged for them).
   test('non-ADMIN (HR) still sees no status tabs row at all', async ({ asHr: page }) => {
@@ -301,10 +292,9 @@ test.describe('Project detail page — header actions + tabs', () => {
 
     const card = page.getByTestId('effective-team-card')
     await expect(card).toBeVisible()
-    // Senior + HR + Accountant from effectiveTeam
+    // Senior + HR from effectiveTeam
     await expect(card.getByText(USERS.senior.displayName)).toBeVisible()
     await expect(card.getByText(USERS.hr.displayName)).toBeVisible()
-    await expect(card.getByText(USERS.accountant.displayName)).toBeVisible()
   })
 
   test('effective team dynamism — HR shown matches current team_members (not snapshot)', async ({

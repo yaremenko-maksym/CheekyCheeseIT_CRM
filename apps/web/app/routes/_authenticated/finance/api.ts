@@ -90,8 +90,8 @@ export const financeApi = {
   validateTransaction: (id: string, data: ValidateTransactionDto) =>
     api.patch<TransactionDto>(`/transactions/${id}/validate`, data).then((r) => r.data),
 
-  // Drop role - phase 3 (manual payout confirmation, spec §8.4). ADMIN /
-  // ACCOUNTANT confirm that an off-platform PAYOUT actually arrived to one of
+  // Drop role - phase 3 (manual payout confirmation, spec §8.4). ADMIN
+  // confirms that an off-platform PAYOUT actually arrived to one of
   // the admin partners. Backend atomically flips PAYOUT → PAID and inserts a
   // PAYOUT_CONFIRMED row crediting the chosen admin.
   confirmPayout: (id: string, data: ConfirmPayoutDto) =>
@@ -155,7 +155,7 @@ export const financeApi = {
   payPayoutRequest: (id: string, data: PayPayoutRequestDto) =>
     api.patch<PayoutRequestDto>(`/payout-requests/${id}/pay`, data).then((r) => r.data),
 
-  // Phase 8 v2 — manual payout confirmation (ADMIN/ACCOUNTANT). Escape hatch for
+  // Phase 8 v2 — manual payout confirmation (ADMIN). Escape hatch for
   // payouts settled OFF the on-chain happy path. The chosen `method`
   // (CASH | ADMIN_USDT | COMPANY_ACCOUNT) decides whether the company balance
   // moves — only COMPANY_ACCOUNT credits it. RBAC enforced server-side (403 for
@@ -167,7 +167,7 @@ export const financeApi = {
   // Summary
   getSummary: () => api.get<FinanceSummaryDto>('/finance/summary').then((r) => r.data),
 
-  // «Контроль приходов» (task-income-compliance) — ADMIN + ACCOUNTANT only.
+  // «Контроль приходов» (task-income-compliance) — ADMIN only.
   // Company-wide overview of which income receivers have / have not registered a
   // counted (VALIDATED|PAID) income per active project for the target month.
   // Response is Zod-validated (`.parse`) — the endpoint sits behind an RBAC gate,
@@ -183,14 +183,14 @@ export const financeApi = {
   // company and paid directly from the SENIOR_PENDING_PAYOUT row in the
   // transactions list (no dedicated card). The row knows the SENIOR_PENDING_PAYOUT
   // transaction id; the backend resolves the linked pending_obligation and runs
-  // the same idempotent, ADMIN/ACCOUNTANT-only settleByCompany cascade. The old
+  // the same idempotent, ADMIN-only settleByCompany cascade. The old
   // `listSeniorPendingSettlements` / `listCompanyPendingSettlements` /
   // `settleObligationByCompany` (obligation-id) wrappers were removed with the
   // settlement cards.
   // task-senior-settle-owner: the body now carries the pay-time funding choice
   // (mirrors paySalary) — COMPANY_ACCOUNT (default, USDT) or ADMIN_PERSONAL with
   // the paying admin + currency. The backend resolves the linked pending
-  // obligation and runs the idempotent, ADMIN/ACCOUNTANT-only settle cascade.
+  // obligation and runs the idempotent, ADMIN-only settle cascade.
   settleSeniorPayoutFromTransaction: (sourceTransactionId: string, data: SettleSeniorPayoutDto) =>
     api
       .post<SettleObligationResponseDto>(

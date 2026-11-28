@@ -181,7 +181,7 @@ export function TransactionsTable({
   role: string
   rates: ExchangeRates | undefined
   /**
-   * Deep-link initial status filter (e.g. AccountantDashboard CTA →
+   * Deep-link initial status filter (e.g. a link →
    * `?status=PENDING`). When omitted, the filter starts at 'all'. The user can
    * still change/clear it freely afterwards — it only seeds the initial value.
    */
@@ -194,7 +194,7 @@ export function TransactionsTable({
   onPaySalary: (tx: TransactionDto) => void
   onAddSalaryPart: (tx: TransactionDto) => void
   /**
-   * task-senior-settle-in-tx-row. ADMIN/ACCOUNTANT clicks «Выплатить» on a
+   * task-senior-settle-in-tx-row. ADMIN clicks «Выплатить» on a
    * SENIOR_PENDING_PAYOUT row (PENDING_PAYMENT) — settles the senior IOU from
    * the company account. Passed straight to TransactionRow.
    */
@@ -212,7 +212,7 @@ export function TransactionsTable({
   onInitiatePayout?: (txId: string) => void
   /**
    * Drop role - phase 3 (spec §8.4). Opens ConfirmPayoutDialog for an
-   * ADMIN/ACCOUNTANT on PAYOUT rows in PENDING_PAYMENT.
+   * ADMIN on PAYOUT rows in PENDING_PAYMENT.
    */
   onConfirmPayout: (tx: TransactionDto) => void
   /**
@@ -231,7 +231,7 @@ export function TransactionsTable({
   /**
    * task-soft-delete-and-money-audit (AC3). «Показать удалённые» toggle —
    * only rendered when the caller passes `onToggleShowDeleted` (i.e. the
-   * viewer is ADMIN/ACCOUNTANT; see FinancePage). Default OFF, matching the
+   * viewer is ADMIN; see FinancePage). Default OFF, matching the
    * server's default-hidden list.
    */
   showDeleted?: boolean
@@ -263,7 +263,7 @@ export function TransactionsTable({
   )
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
-  // Seed from the deep-link `?status=` param (AccountantDashboard CTA). Falls
+  // Seed from the deep-link `?status=` param. Falls
   // back to 'all'. Only the initial value — user changes/clears it freely after.
   const [statusFilter, setStatusFilter] = useState(initialStatus ?? 'all')
   const [sortKey, setSortKey] = useState<TxSort>('date')
@@ -358,7 +358,7 @@ export function TransactionsTable({
               options={STATUS_OPTIONS}
             />
             {/* task-soft-delete-and-money-audit (AC3). Only rendered for
-                ADMIN/ACCOUNTANT (FinancePage passes the handler only for
+                ADMIN (FinancePage passes the handler only for
                 those roles). Default OFF — matches the server's
                 default-hidden list; explicit toggle widens it. */}
             {onToggleShowDeleted && (

@@ -170,7 +170,7 @@ export const STATUS_LABEL_MESSAGES = {
   REJECTED: msg`Відхилено`, // en: Rejected
   PAID: msg`Оплачено`, // en: Paid
   LOCKED: msg`Заблоковано`, // en: Locked
-  PENDING_CASH_CONFIRM: msg`Очікує підтвердження бухгалтером (готівка)`, // en: Awaiting accountant confirmation (cash)
+  PENDING_CASH_CONFIRM: msg`Очікує підтвердження адміном (готівка)`, // en: Awaiting admin confirmation (cash)
 } satisfies Record<TransactionStatus, MessageDescriptor>
 
 export const STATUS_COLORS: Record<TransactionStatus, string> = {

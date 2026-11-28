@@ -67,7 +67,7 @@ const TX_VALIDATED_SENIOR: object = {
   ...TX_PENDING_SENIOR,
   id: 'tx-validated-senior',
   status: 'VALIDATED',
-  validatedBy: USERS.accountant.id,
+  validatedBy: USERS.admin.id,
   validatedAt: '2026-05-02T10:00:00.000Z',
 }
 
@@ -297,17 +297,6 @@ test.describe('Finance — page load', () => {
     await expect(asJunior.getByText(assertInCatalog(uk, 'Виплат ще немає'))).toBeVisible()
   })
 
-  test('ACCOUNTANT: видит полную таблицу и кнопку создания транзакции', async ({ page }) => {
-    const uk = await loadMessages('uk')
-    await mockAuthAs(page, USERS.accountant)
-    await mockTransactions(page, [TX_PENDING_SENIOR])
-    await page.goto('/finance')
-    await expect(page.getByTestId('finance-page')).toBeVisible()
-    await expect(
-      page.getByRole('button', { name: assertInCatalog(uk, 'Нова транзакція') }),
-    ).toBeVisible()
-  })
-
   test('пустое состояние: "Нет данных"', async ({ asAdmin }) => {
     const uk = await loadMessages('uk')
     await mockTransactions(asAdmin, [])
@@ -365,9 +354,7 @@ test.describe('Finance — таблица транзакций', () => {
     ).toBeVisible()
   })
 
-  test('ADMIN/ACCOUNTANT: кнопка "Проверить" видна на PENDING SENIOR_INCOME', async ({
-    asAdmin,
-  }) => {
+  test('ADMIN: кнопка "Проверить" видна на PENDING SENIOR_INCOME', async ({ asAdmin }) => {
     const uk = await loadMessages('uk')
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR])
     await asAdmin.goto('/finance')
@@ -531,36 +518,13 @@ test.describe('Finance — создание транзакции', () => {
     const dialog = asAdmin.getByRole('dialog')
     await dialog.getByTestId('create-transaction-type-admin_transfer').click()
 
-    await expect(dialog.getByText(USERS.admin.displayName, { exact: true })).toBeVisible()
-    await expect(dialog.getByText(SECOND_ADMIN.displayName, { exact: true })).toBeVisible()
-    await expect(dialog.getByTitle(assertInCatalog(uk, 'Поміняти напрямок'))).toHaveCount(0)
-    await expect(
-      dialog.getByTitle(assertInCatalog(uk, 'Натисніть, щоб змінити напрямок')),
-    ).toHaveCount(0)
-  })
-
-  test('ADMIN_TRANSFER: ACCOUNTANT can still reverse the two admin parties', async ({
-    asAccountant,
-  }) => {
-    const uk = await loadMessages('uk')
-    await mockTransferAdmins(asAccountant)
-    await mockTransactions(asAccountant, [])
-    await asAccountant.goto('/finance')
-    await asAccountant.getByRole('button', { name: assertInCatalog(uk, 'Нова транзакція') }).click()
-
-    const dialog = asAccountant.getByRole('dialog')
-    await dialog.getByTestId('create-transaction-type-admin_transfer').click()
-
-    const cardTitle = assertInCatalog(uk, 'Натисніть, щоб змінити напрямок')
-    const cards = dialog.getByTitle(cardTitle)
-    await expect(cards).toHaveCount(2)
-    await expect(cards.nth(0)).toContainText(USERS.admin.displayName)
-    await expect(cards.nth(1)).toContainText(SECOND_ADMIN.displayName)
-
-    await dialog.getByTitle(assertInCatalog(uk, 'Поміняти напрямок')).click()
-
-    await expect(cards.nth(0)).toContainText(SECOND_ADMIN.displayName)
-    await expect(cards.nth(1)).toContainText(USERS.admin.displayName)
+    const senderCard = dialog.getByTestId('transfer-sender-card')
+    await expect(senderCard).toContainText(USERS.admin.displayName)
+    await expect(dialog.getByTestId('transfer-receiver-card')).toContainText(
+      SECOND_ADMIN.displayName,
+    )
+    // The direction row is read-only: no swap button, no clickable card.
+    await expect(senderCard.locator('..').getByRole('button')).toHaveCount(0)
   })
 })
 
@@ -611,25 +575,6 @@ test.describe('Finance — валидация транзакции', () => {
     await expect(rejectBtn).not.toBeDisabled()
     await rejectBtn.click()
     await expect(asAdmin.getByTestId('validate-transaction-dialog')).not.toBeVisible()
-  })
-
-  test('ACCOUNTANT: тоже видит кнопку Проверить и может валидировать (AC2: confirm popup)', async ({
-    page,
-  }) => {
-    const uk = await loadMessages('uk')
-    await mockAuthAs(page, USERS.accountant)
-    await mockTransactions(page, [TX_PENDING_SENIOR])
-    await page.goto('/finance')
-    await expect(
-      page.getByRole('button', { name: assertInCatalog(uk, 'Перевірити') }),
-    ).toBeVisible()
-    await page.getByRole('button', { name: assertInCatalog(uk, 'Перевірити') }).click()
-    await expect(page.getByTestId('validate-transaction-dialog')).toBeVisible()
-    // AC2: confirm popup перед валидацией
-    await page.getByTestId('validate-transaction-confirm').click()
-    await expect(page.getByTestId('validate-confirm-alert')).toBeVisible()
-    await page.getByTestId('validate-confirm-ok').click()
-    await expect(page.getByTestId('validate-transaction-dialog')).not.toBeVisible()
   })
 })
 
@@ -823,7 +768,7 @@ test.describe('Finance — выплата зарплаты (ADMIN)', () => {
 // 10. ЗАПРОС ВЫПЛАТЫ — auto-create при validate (SENIOR)
 // ═══════════════════════════════════════════════════════════════════════════════
 // Старый batch PayoutDialog удалён в task-payout-auto-on-validate. Теперь
-// ACCOUNTANT validate атомарно создаёт PAYOUT row + payout_request, SENIOR
+// ADMIN validate атомарно создаёт PAYOUT row + payout_request, SENIOR
 // видит inline pill «Оплатить» на PAYOUT row и попадает в PayoutDetailDialog.
 //
 // Полное покрытие нового flow:
@@ -976,15 +921,14 @@ test.describe('Finance — PENDING_PAYMENT status', () => {
     await expect(asSenior.getByTestId('header-payout-button')).not.toBeVisible()
   })
 
-  test('ACCOUNTANT: видит PENDING_PAYMENT статус без кнопок действий', async ({ page }) => {
+  test('ADMIN: видит PENDING_PAYMENT статус без кнопки «Проверить»', async ({ asAdmin }) => {
     const uk = await loadMessages('uk')
-    await mockAuthAs(page, USERS.accountant)
-    await mockTransactions(page, [TX_PENDING_PAYMENT_SENIOR])
-    await page.goto('/finance')
-    await expect(page.getByText(assertInCatalog(uk, 'Очікує виплати')).first()).toBeVisible()
+    await mockTransactions(asAdmin, [TX_PENDING_PAYMENT_SENIOR])
+    await asAdmin.goto('/finance')
+    await expect(asAdmin.getByText(assertInCatalog(uk, 'Очікує виплати')).first()).toBeVisible()
     // Нет кнопки "Проверить" для PENDING_PAYMENT статуса
     await expect(
-      page.getByRole('button', { name: assertInCatalog(uk, 'Перевірити') }),
+      asAdmin.getByRole('button', { name: assertInCatalog(uk, 'Перевірити') }),
     ).not.toBeVisible()
   })
 

@@ -64,7 +64,7 @@ const MANUAL_METHODS: ManualPayoutMethod[] = ['CASH', 'ADMIN_USDT', 'COMPANY_ACC
  * unchanged from `PayoutDetailDialog.tsx` (task-company-share-cta §7.3 of the
  * design spec). Instruction card / transactions-in-payout list / tx-hash
  * input / dev-simulate radiogroup / on-chain status block / manual-confirm
- * section (ADMIN/ACCOUNTANT) — same JSX, same logic, now reading from the
+ * section (ADMIN) — same JSX, same logic, now reading from the
  * shared `usePayoutPaymentForm` hook state instead of local closures.
  *
  * Purely presentational — does NOT own a `<Dialog>`/`<CrmDialogContent>` or a
@@ -579,7 +579,7 @@ export function PayoutPaymentForm({
             </div>
           )}
 
-          {/* Manual override section — ADMIN/ACCOUNTANT only, hidden once the
+          {/* Manual override section — ADMIN only, hidden once the
               payout is PAID (design spec §3.7). */}
           {canManualConfirm && !isPaid && (
             <div className="space-y-3" data-testid="payout-detail-manual-section">

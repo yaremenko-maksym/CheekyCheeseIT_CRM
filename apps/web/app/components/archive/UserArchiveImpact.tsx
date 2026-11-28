@@ -70,6 +70,7 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
     })
     // Stryker disable next-line ObjectLiteral,StringLiteral: same literal-options requirement and the same unreachable `other` as roleGenitive above
     const pairWord = select(impact.role, { SENIOR: 'сеньйор', DROP: 'дроп', other: 'співробітник' })
+    const totalAffected = (impact.hrAccountantsOnTeam ?? 0) + (impact.juniorsAffected ?? 0)
     return (
       <>
         <Trans>
@@ -85,26 +86,30 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
           />
           {namesSuffix}). Вхід у CRM для цього акаунта буде закрито.
         </Trans>{' '}
-        <Trans>
-          У команді{' '}
-          <Plural
-            value={impact.hrAccountantsOnTeam ?? 0}
-            one="# HR/бухгалтер"
-            few="# HR/бухгалтери"
-            many="# HR/бухгалтерів"
-            other="# HR/бухгалтера"
-          />
-          , на її проєктах —{' '}
-          <Plural
-            value={impact.juniorsAffected ?? 0}
-            one="# джуніор"
-            few="# джуніори"
-            many="# джуніорів"
-            other="# джуніора"
-          />
-          : їхні профілі залишаються активними, оплату вони отримують як і раніше. Після відновлення
-          HR/бухгалтерів доведеться додати в команду заново.
-        </Trans>{' '}
+        {totalAffected > 0 && (
+          <>
+            <Trans>
+              У команді {impact.hrAccountantsOnTeam ?? 0} HR, на проєктах —{' '}
+              <Plural
+                value={impact.juniorsAffected ?? 0}
+                one="# джуніор"
+                few="# джуніори"
+                many="# джуніорів"
+                other="# джуніора"
+              />
+              :{' '}
+              <Plural
+                value={totalAffected}
+                _1="профіль залишається активним, оплата надходить як і раніше"
+                one="їхні профілі залишаються активними, оплату вони отримують як і раніше"
+                few="їхні профілі залишаються активними, оплату вони отримують як і раніше"
+                many="їхні профілі залишаються активними, оплату вони отримують як і раніше"
+                other="їхні профілі залишаються активними, оплату вони отримують як і раніше"
+              />
+              . Після відновлення HR доведеться додати в команду заново.
+            </Trans>{' '}
+          </>
+        )}
         <Trans>
           Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати
           окремо.
@@ -134,28 +139,6 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
     )
   }
 
-  if (impact.role === 'ACCOUNTANT') {
-    return (
-      <>
-        <Trans>
-          В архів піде профіль <Name>{entityName}</Name>; його буде прибрано з{' '}
-          <strong>
-            <Plural
-              value={impact.teamsCount ?? 0}
-              one="# команди"
-              few="# команд"
-              many="# команд"
-              other="# команди"
-            />
-          </strong>{' '}
-          (роль бухгалтера). Самі команди залишаться активними. Вхід у CRM для цього акаунта буде
-          закрито.
-        </Trans>{' '}
-        <Trans>Профіль можна відновити з архіву.</Trans>
-      </>
-    )
-  }
-
   if (impact.role === 'JUNIOR') {
     return (
       <>
@@ -177,7 +160,7 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
     )
   }
 
-  // ADMIN — the only remaining member of the role union.
+  // ADMIN (and a stored retired role, which holds no team or project after PR 1b).
   return (
     <>
       <Trans>

@@ -65,8 +65,8 @@ const STATUS_EXPECTED: Record<TransactionStatus, [uk: string, en: string]> = {
   PAID: ['Оплачено', 'Paid'],
   LOCKED: ['Заблоковано', 'Locked'],
   PENDING_CASH_CONFIRM: [
-    'Очікує підтвердження бухгалтером (готівка)',
-    'Awaiting accountant confirmation (cash)',
+    'Очікує підтвердження адміном (готівка)',
+    'Awaiting admin confirmation (cash)',
   ],
 }
 

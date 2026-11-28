@@ -1,4 +1,4 @@
-import { test, expect, TEAMS, USERS, mockAuthAs, API_GLOB } from './fixtures'
+import { test, expect, TEAMS, USERS, mockAuthAs, API_GLOB, API_RE } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 let uk: Awaited<ReturnType<typeof loadMessages>>
@@ -210,13 +210,30 @@ test.describe('Team page', () => {
 
   test.describe('Remove member', () => {
     test('ADMIN can remove a non-protected member', async ({ asAdmin: page }) => {
+      // Two HRs: neither is the last HR, so both carry a remove button
+      // (SENIOR / JUNIOR / the last HR are protected).
+      const secondHr = {
+        ...TEAMS[0]!.members[0]!,
+        id: 'member-hr-2',
+        userId: 'hr-2-id',
+        displayName: 'HR Two',
+        email: 'hr2@cheekycheese.dev',
+      }
+      await page.route(new RegExp(`${API_RE}/teams/${TEAMS[0]!.id}$`), (r) =>
+        r.request().method() === 'GET'
+          ? r.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({ ...TEAMS[0], members: [...TEAMS[0]!.members, secondHr] }),
+            })
+          : r.fallback(),
+      )
       await page.goto(`/team/${TEAMS[0]!.id}`)
 
       const deleteReq = page.waitForRequest(
         (req) => req.url().includes('/members/') && req.method() === 'DELETE',
       )
 
-      // Two accountants in team — neither is "last" so both have remove buttons
       await page.getByTitle(assertInCatalog(uk, 'Виключити')).first().click()
       expect((await deleteReq).method()).toBe('DELETE')
     })

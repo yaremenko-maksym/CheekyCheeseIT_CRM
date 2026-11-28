@@ -181,7 +181,7 @@ describe('TeamDetailHeader action gates', () => {
     expect(q('unarchive-stub')).toBeNull()
   })
 
-  it.each<Role | undefined>(['HR', 'SENIOR', 'JUNIOR', 'ACCOUNTANT', 'DROP', undefined])(
+  it.each<Role | undefined>(['HR', 'SENIOR', 'JUNIOR', 'DROP', undefined])(
     'viewer %s never sees archive or unarchive, even with canManage',
     (viewerRole) => {
       renderHeader({ viewerRole, canManage: true })
@@ -213,7 +213,7 @@ describe('TeamDetailHeader action gates', () => {
 })
 
 describe('TeamDetailHeader back button', () => {
-  it.each<Role>(['ADMIN', 'HR', 'ACCOUNTANT'])('is shown for %s and links to /team', (role) => {
+  it.each<Role>(['ADMIN', 'HR'])('is shown for %s and links to /team', (role) => {
     renderHeader({ viewerRole: role })
     expect(screen.getByTestId('back-button').getAttribute('href')).toBe('/team')
   })

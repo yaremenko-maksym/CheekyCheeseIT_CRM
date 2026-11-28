@@ -49,7 +49,7 @@ export type FundingSourceUI = 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | 'legacy'
 // affects the pre-existing seniorId/dropId filters when absent).
 // task-admin-income-unified. Extended with the resolved senior/drop share +
 // source + display names — `ProjectsService.mapProject` already returns all
-// of these on `GET /projects` for a non-JUNIOR viewer (ADMIN/ACCOUNTANT here
+// of these on `GET /projects` for a non-JUNIOR viewer (ADMIN here
 // always are); this just declares the fields the pre-submit obligation-
 // preview banner reads. Optional + nullable throughout — absence degrades to
 // "no preview", never a crash.

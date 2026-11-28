@@ -43,10 +43,6 @@ describe('JUNIOR profile guard — synchronous render block (Fix#3)', () => {
     expect(shouldBlockRender('HR', 'user-xyz', 'user-abc')).toBe(false)
   })
 
-  it('ACCOUNTANT viewing any profile → NOT blocked', () => {
-    expect(shouldBlockRender('ACCOUNTANT', 'user-xyz', 'user-abc')).toBe(false)
-  })
-
   it('DROP viewing any profile → NOT blocked (DROP has backend 403)', () => {
     expect(shouldBlockRender('DROP', 'user-xyz', 'user-abc')).toBe(false)
   })

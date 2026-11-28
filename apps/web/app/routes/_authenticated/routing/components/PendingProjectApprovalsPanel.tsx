@@ -21,7 +21,7 @@ export const card = {
  * task-project-status-filter-ui, §Что сделать item 3 + the task's «Два
  * места, где это ломается» decision (recorded in the PR's «Допущения»).
  * DROP has no route access to /projects at all
- * (`useRoleGuard(['ADMIN','SENIOR','HR','ACCOUNTANT'])` on that route
+ * (`useRoleGuard(['ADMIN','SENIOR','HR'])` on that route
  * excludes DROP outright — confirmed by reading `route-access.ts`'s
  * `ROUTE_ACCESS` map) — this panel is DROP's ONLY reachable surface for
  * acting on a project awaiting their confirmation. Mounted on BOTH

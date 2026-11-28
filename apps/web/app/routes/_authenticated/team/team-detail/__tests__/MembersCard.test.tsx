@@ -139,7 +139,6 @@ describe('MembersCard rendering', () => {
     ['SENIOR', 'text-blue-400'],
     ['JUNIOR', 'text-green-400'],
     ['HR', 'text-purple-400'],
-    ['ACCOUNTANT', 'text-orange-400'],
     ['DROP', 'text-cyan-400'],
   ])('renders the %s role badge with its own variant', (role, cls) => {
     renderCard([member('u1', role)], { canManage: false })
@@ -175,9 +174,9 @@ describe('MembersCard rendering', () => {
   })
 
   it('passes the viewer role to profile links', () => {
-    renderCard([member('h1', 'HR')], { viewerRole: 'ACCOUNTANT' })
+    renderCard([member('h1', 'HR')], { viewerRole: 'DROP' })
     for (const link of screen.getAllByTestId('profile-link')) {
-      expect(link.getAttribute('data-viewer')).toBe('ACCOUNTANT')
+      expect(link.getAttribute('data-viewer')).toBe('DROP')
     }
   })
 
@@ -201,7 +200,7 @@ describe('MembersCard visibleMembers filter (RBAC)', () => {
     expect(screen.getByText('3')).toBeTruthy()
   })
 
-  it.each(['ADMIN', 'HR', 'ACCOUNTANT', 'DROP', undefined] as const)(
+  it.each(['ADMIN', 'HR', 'DROP', undefined] as const)(
     '%s viewer sees every member including JUNIORs',
     (role) => {
       renderCard(roster(), { viewerRole: role, canManage: false })
@@ -236,16 +235,14 @@ describe('MembersCard removal matrix (canRemove)', () => {
   })
 
   describe('ADMIN viewer', () => {
-    it('can remove ADMIN/DROP/ACCOUNTANT/HR members when not last', () => {
+    it('can remove ADMIN/DROP/HR members when not last', () => {
       renderCard([
         member('a2', 'ADMIN'),
         member('d1', 'DROP'),
         member('h1', 'HR'),
         member('h2', 'HR'),
-        member('c1', 'ACCOUNTANT'),
-        member('c2', 'ACCOUNTANT'),
       ])
-      for (const id of ['a2', 'd1', 'h1', 'h2', 'c1', 'c2']) expect(hasRemove(id)).toBe(true)
+      for (const id of ['a2', 'd1', 'h1', 'h2']) expect(hasRemove(id)).toBe(true)
     })
 
     it('can never remove SENIOR or JUNIOR members', () => {
@@ -259,26 +256,6 @@ describe('MembersCard removal matrix (canRemove)', () => {
       renderCard([member('h1', 'HR'), member('d1', 'DROP')])
       expect(hasRemove('h1')).toBe(false)
       expect(hasRemove('d1')).toBe(true)
-    })
-
-    it('cannot remove the last ACCOUNTANT (exactly one)', () => {
-      renderCard([member('c1', 'ACCOUNTANT'), member('d1', 'DROP')])
-      expect(hasRemove('c1')).toBe(false)
-      expect(hasRemove('d1')).toBe(true)
-    })
-
-    it('last-HR and last-ACCOUNTANT checks are independent of each other', () => {
-      renderCard([member('h1', 'HR'), member('c1', 'ACCOUNTANT'), member('c2', 'ACCOUNTANT')])
-      expect(hasRemove('h1')).toBe(false)
-      expect(hasRemove('c1')).toBe(true)
-      expect(hasRemove('c2')).toBe(true)
-    })
-
-    it('last-ACCOUNTANT does not block HR removal when HRs are plural', () => {
-      renderCard([member('h1', 'HR'), member('h2', 'HR'), member('c1', 'ACCOUNTANT')])
-      expect(hasRemove('h1')).toBe(true)
-      expect(hasRemove('h2')).toBe(true)
-      expect(hasRemove('c1')).toBe(false)
     })
   })
 
@@ -316,23 +293,6 @@ describe('MembersCard removal matrix (canRemove)', () => {
         viewerId: 'x1',
       })
       expect(hasRemove('x1')).toBe(false)
-    })
-
-    it('an ACCOUNTANT can leave only when not the last accountant', () => {
-      renderCard([member('c1', 'ACCOUNTANT'), member('c2', 'ACCOUNTANT')], {
-        viewerRole: 'ACCOUNTANT',
-        viewerId: 'c1',
-      })
-      expect(hasRemove('c1')).toBe(true)
-      expect(hasRemove('c2')).toBe(false)
-    })
-
-    it('the last ACCOUNTANT cannot remove themselves', () => {
-      renderCard([member('c1', 'ACCOUNTANT'), member('h1', 'HR')], {
-        viewerRole: 'ACCOUNTANT',
-        viewerId: 'c1',
-      })
-      expect(hasRemove('c1')).toBe(false)
     })
 
     it('an undefined viewer id never matches a member as self', () => {

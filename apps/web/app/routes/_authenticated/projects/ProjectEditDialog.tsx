@@ -132,10 +132,10 @@ export function ProjectEditDialog({
         teamSize: value.teamSize.trim() || null,
         benefits: value.benefits.trim() || null,
         // task-drop-share-override-and-receiver (Surface C). Field-scoped RBAC —
-        // backend throws ForbiddenException for non-ADMIN/ACCOUNTANT if this key
+        // backend throws ForbiddenException for non-ADMIN if this key
         // is present AT ALL (even unchanged/null), mirroring
-        // seniorSharePercentOverride/dropSharePercentOverride above. Only ADMIN/
-        // ACCOUNTANT (canEditOverride) ever include it; HR's disabled Select
+        // seniorSharePercentOverride/dropSharePercentOverride above. Only ADMIN
+        // (canEditOverride) ever includes it; HR's disabled Select
         // never reaches the wire.
         ...(canEditOverride ? { paymentType: value.paymentType } : {}),
         salaryReview: value.salaryReview.trim() || null,

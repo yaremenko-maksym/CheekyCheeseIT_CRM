@@ -30,7 +30,7 @@ export const Route = createFileRoute('/_authenticated/projects/$projectId')({
 
 function ProjectDetailPage() {
   const { t } = useLingui()
-  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'JUNIOR'])
+  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'JUNIOR'])
   const { projectId } = Route.useParams()
   const { user } = useAuth()
 
@@ -157,7 +157,7 @@ function ProjectDetailPage() {
         <div className="space-y-5 px-4 sm:px-6">
           {/* ut-29 + ut-33: project detail tabs — unified through SegmentedToggle
           variant="tabs" (same yellow page-level styling as projects list).
-          ut-fix-round2: «Финансы» табу видят только не-HR (ADMIN/ACCOUNTANT/
+          ut-fix-round2: «Финансы» табу видят только не-HR (ADMIN/
           SENIOR). HR на ?tab=finance — fallback на «Обзор». */}
           {(() => {
             type ProjectTab = 'overview' | 'members' | 'finance'

@@ -1,7 +1,6 @@
 import { useForm } from '@tanstack/react-form'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check, UserPlus } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import { z } from 'zod'
@@ -24,13 +23,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PhoneInput } from '@/components/ui/phone-input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { ShareSlider } from '@/components/ui/share-slider'
 import { toast } from 'sonner'
 import { NEW_SENIOR_SHARE_PERCENT } from '@/components/users/user-dialog/form-defaults'
@@ -38,20 +30,6 @@ import { RolesSection } from '@/components/users/user-dialog/RolesSection'
 import { seniorRolesError } from '@/components/users/user-dialog/validation'
 import { focusFirstInvalid } from '@/lib/focus-first-invalid'
 import { normalizeTelegram } from '@/components/users/constants'
-
-type UserOption = {
-  id: string
-  displayName: string
-  email: string
-  role: string
-  avatarUrl: string | null
-  avatarDocumentId: string | null
-}
-
-async function fetchAllUsers(): Promise<UserOption[]> {
-  const res = await api.get<UserOption[]>('/users')
-  return res.data
-}
 
 // ── Field wrapper ─────────────────────────────────────────────────────────────
 
@@ -96,7 +74,7 @@ function enteredPhone(value: string): string | undefined {
 
 // ── HR: Create Senior Dialog ──────────────────────────────────────────────────
 // HR uses this to create a new SENIOR user (which auto-creates the team).
-// hrIds is pre-filled with the current HR user; accountant is optional.
+// hrIds is pre-filled with the current HR user.
 
 export function HrCreateSeniorDialog({
   open,
@@ -109,28 +87,6 @@ export function HrCreateSeniorDialog({
 }) {
   const { t } = useLingui()
   const queryClient = useQueryClient()
-
-  const { data: allUsers } = useQuery({
-    queryKey: ['users'],
-    queryFn: fetchAllUsers,
-    enabled: open,
-  })
-
-  const accountantUsers = useMemo(
-    // Stryker disable next-line ArrayDeclaration: a non-empty placeholder array has no ACCOUNTANT-role item either, so the filtered result is identical
-    () => (allUsers ?? []).filter((u) => u.role === 'ACCOUNTANT'),
-    [allUsers],
-  )
-
-  // Stryker disable next-line StringLiteral: the initial value is overwritten by the open-effect on the first commit, before any user can observe or submit it
-  const [selectedAccountantId, setSelectedAccountantId] = useState('')
-
-  useEffect(() => {
-    if (!open) return
-    setSelectedAccountantId(
-      accountantUsers.length === 1 && accountantUsers[0] ? accountantUsers[0].id : '',
-    )
-  }, [open, accountantUsers])
 
   const mutation = useMutation({
     mutationFn: (data: HrCreateSeniorDto) => api.post<UserProfileDto>('/users', data),
@@ -170,7 +126,6 @@ export function HrCreateSeniorDialog({
         technicalRoles: value.technicalRoles,
         seniorSharePercent: value.seniorSharePercent,
         hrIds: [hrUserId],
-        accountantId: selectedAccountantId || null,
       }
       const result = hrCreateSeniorSchema.safeParse(payload)
       if (!result.success) {
@@ -191,7 +146,6 @@ export function HrCreateSeniorDialog({
 
   const handleClose = () => {
     form.reset()
-    setSelectedAccountantId('')
     onClose()
   }
 
@@ -411,36 +365,6 @@ export function HrCreateSeniorDialog({
                     <Trans>авто</Trans>
                   </span>
                 </div>
-              </Field>
-
-              {/* Accountant */}
-              <Field label={t`Бухгалтер`}>
-                {accountantUsers.length === 0 ? (
-                  <p className="text-xs text-muted-foreground italic">
-                    <Trans>Бухгалтерів ще немає — зверніться до адміністратора</Trans>
-                  </p>
-                ) : accountantUsers.length === 1 ? (
-                  <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
-                    <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                    <span>{accountantUsers[0]!.displayName}</span>
-                    <span className="text-xs text-muted-foreground ml-auto">
-                      <Trans>авто</Trans>
-                    </span>
-                  </div>
-                ) : (
-                  <Select value={selectedAccountantId} onValueChange={setSelectedAccountantId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder={t`— оберіть бухгалтера —`} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {accountantUsers.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.displayName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
               </Field>
             </div>
           </div>

@@ -26,7 +26,6 @@ describe('defaultPaymentMethod', () => {
     ['ADMIN', 'USDT_ERC20'],
     ['JUNIOR', 'BANK_UAH_FOP'],
     ['HR', 'BANK_UAH_FOP'],
-    ['ACCOUNTANT', 'BANK_UAH_FOP'],
   ])('%s -> %s', (role, expected) => {
     expect(defaultPaymentMethod(role)).toBe(expected)
   })

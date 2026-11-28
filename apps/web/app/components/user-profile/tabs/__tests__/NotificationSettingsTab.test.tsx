@@ -169,22 +169,6 @@ describe('NotificationSettingsTab — AC2 grouping + titles', () => {
     ).toBeInTheDocument()
   })
 
-  // SR-M-4 (security-review, fix-round 3, PR #675): ACCOUNTANT is the third
-  // actual recipient — a finance-scoped `seniorSharePercentOverride` patch
-  // (`projects.service.ts` `update()`) lets ACCOUNTANT propose a share
-  // override, and the SENIOR who confirms/rejects it is a different user,
-  // so ACCOUNTANT receives APPROVAL_CONFIRMED/APPROVAL_REJECTED same as
-  // ADMIN/HR would.
-  it('shows "Ваши предложения" group for an ACCOUNTANT viewer too', () => {
-    viewerRole = 'ACCOUNTANT'
-    render(<NotificationSettingsTab />, { wrapper: I18nTestProvider })
-    const scope = within(screen.getByTestId('notification-settings-desktop'))
-    expect(scope.getByTestId('notification-group-admin')).toBeInTheDocument()
-    expect(
-      scope.getByText(NOTIFICATION_TITLE_MESSAGES.APPROVAL_CONFIRMED.message!),
-    ).toBeInTheDocument()
-  })
-
   it('hides "Ваши предложения" group for a SENIOR viewer', () => {
     viewerRole = 'SENIOR'
     render(<NotificationSettingsTab />, { wrapper: I18nTestProvider })

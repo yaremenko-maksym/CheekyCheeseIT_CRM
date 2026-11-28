@@ -59,21 +59,6 @@ const TEAM_WITH_JUNIOR = {
       joinedAt: '2024-01-10T00:00:00.000Z',
       leftAt: null,
     },
-    {
-      id: `member-${USERS.accountant.id}`,
-      userId: USERS.accountant.id,
-      displayName: USERS.accountant.displayName,
-      email: USERS.accountant.email,
-      avatarUrl: null,
-      avatarDocumentId: null,
-      role: 'ACCOUNTANT' as const,
-      techStack: null,
-      technicalRoles: [],
-      phone: null,
-      telegram: null,
-      joinedAt: '2024-01-10T00:00:00.000Z',
-      leftAt: null,
-    },
     // JUNIOR derived from project membership
     {
       id: `member-${USERS.junior.id}`,
@@ -137,17 +122,7 @@ const PROJECT_WITH_JUNIOR = {
         role: 'HR' as const,
       },
     ],
-    accountants: [
-      {
-        id: 'tm-acc',
-        userId: USERS.accountant.id,
-        displayName: USERS.accountant.displayName,
-        email: USERS.accountant.email,
-        avatarUrl: null,
-        avatarDocumentId: null,
-        role: 'ACCOUNTANT' as const,
-      },
-    ],
+    accountants: [],
     // Backend already redacts juniors for SENIOR viewer — empty array
     juniors: [],
   },
@@ -209,7 +184,7 @@ test.describe('RBAC #1 — SENIOR does not see JUNIOR identity on team page', ()
     await page.goto(`/team/${TEAM_WITH_JUNIOR.id}`)
     await expect(page.getByRole('heading', { name: TEAM_WITH_JUNIOR.name })).toBeVisible()
 
-    // SENIOR should see HR, SENIOR, ACCOUNTANT members — but NOT JUNIOR.
+    // SENIOR should see HR and SENIOR members — but NOT JUNIOR.
     // Scoped to <main>: the SENIOR's own name also renders in the header identity chip.
     const main = page.locator('main')
     await expect(main.getByText(USERS.hr.displayName).first()).toBeVisible()
@@ -436,7 +411,7 @@ test.describe('Regression — ADMIN and HR still see JUNIOR identity (not broken
 
 test.describe('Regression — JUNIOR /team route-guard redirect (not content render)', () => {
   // PR #184 route-guard: JUNIOR is redirected from /team to /project.
-  // STALE: previously "JUNIOR sees team members section (HR, SENIOR, ACCOUNTANT)".
+  // STALE: previously "JUNIOR sees team members section (HR, SENIOR)".
   // The route-guard now fires before the team component mounts — no content is shown.
   test('JUNIOR navigating to team detail is redirected to /project', async ({ asJunior: page }) => {
     const teamForJunior = {

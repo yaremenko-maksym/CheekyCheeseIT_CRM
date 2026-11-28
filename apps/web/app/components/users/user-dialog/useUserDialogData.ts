@@ -13,11 +13,11 @@ type UseUserDialogDataArgs = {
 }
 
 /**
- * Auxiliary data for UserDialog: the HR / Accountant / project / team
+ * Auxiliary data for UserDialog: the HR / project / team
  * queries plus the collections derived from them.
  */
 export function useUserDialogData({ open, isCreate, isEdit, editingUser }: UseUserDialogDataArgs) {
-  // ── Auxiliary data: HR / Accountant / project list ────────────────────────
+  // ── Auxiliary data: HR / project list ────────────────────────
   const { data: allUsers } = useQuery({
     queryKey: ['users-admin'],
     queryFn: fetchUsersForDialog,
@@ -47,12 +47,8 @@ export function useUserDialogData({ open, isCreate, isEdit, editingUser }: UseUs
     () => allUsers?.filter((u) => u.role === 'HR' && !u.archivedAt) ?? [],
     [allUsers],
   )
-  const accountantUsers = useMemo(
-    () => allUsers?.filter((u) => u.role === 'ACCOUNTANT' && !u.archivedAt) ?? [],
-    [allUsers],
-  )
 
-  // Fetch all teams (active) to find current HR/Accountant for a SENIOR being edited.
+  // Fetch all teams (active) to find current HR for a SENIOR being edited.
   const { data: allTeams } = useQuery({
     queryKey: ['teams'],
     queryFn: () => api.get<TeamDto[]>('/teams').then((r) => r.data),
@@ -117,7 +113,6 @@ export function useUserDialogData({ open, isCreate, isEdit, editingUser }: UseUs
     allTeams,
     dropTeamsForJoin,
     hrUsers,
-    accountantUsers,
     vacantDropTeams,
     juniorActiveProjects,
     availableJuniorProjects,

@@ -56,7 +56,7 @@ function makeSeniorIncome(overrides: object = {}) {
     txHash: null,
     rejectionReason: null,
     payoutRequestId: null,
-    validatedBy: USERS.accountant.id,
+    validatedBy: USERS.admin.id,
     validatedAt: '2026-05-02T10:00:00.000Z',
     createdAt: '2026-05-01T10:00:00.000Z',
     updatedAt: '2026-05-02T10:00:00.000Z',
@@ -140,7 +140,7 @@ async function mockTransactions(page: MockPage, txs: object[], payouts: object[]
 // ─── Bug 1 — «Оплатить» visibility / functionality ─────────────────────────────
 //
 // Updated for task-payout-auto-on-validate: the batch «Выплатить (N)» header
-// flow is gone. ACCOUNTANT validate now atomically creates a PAYOUT row that
+// flow is gone. ADMIN validate now atomically creates a PAYOUT row that
 // carries the inline «Оплатить» pill. SENIOR_INCOME rows never show any
 // pay-out button anymore.
 
@@ -203,7 +203,7 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
   })
 
   test('SENIOR sees inline «Оплатить» on the auto-created PAYOUT row', async ({ asSenior }) => {
-    // ACCOUNTANT-just-validated state: SENIOR_INCOME in PENDING_PAYMENT plus
+    // ADMIN-just-validated state: SENIOR_INCOME in PENDING_PAYMENT plus
     // the auto-created «Выплата» (PAYOUT, PENDING_PAYMENT, senderId=senior).
     const incomeTx = makeSeniorIncome({
       status: 'PENDING_PAYMENT',
@@ -303,10 +303,8 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     await expect(asSenior.getByTestId(`tx-row-pay-salary-${rejected.id}`)).not.toBeVisible()
   })
 
-  test('ACCOUNTANT does NOT see the «Оплатить» pill on PAYOUT rows (SENIOR-only)', async ({
-    page,
-  }) => {
-    await mockAuthAs(page, USERS.accountant)
+  test('ADMIN does NOT see the «Оплатить» pill on PAYOUT rows (SENIOR-only)', async ({ page }) => {
+    await mockAuthAs(page, USERS.admin)
     const incomeTx = makeSeniorIncome({
       status: 'PENDING_PAYMENT',
       payoutRequestId: 'payout-flow-1',

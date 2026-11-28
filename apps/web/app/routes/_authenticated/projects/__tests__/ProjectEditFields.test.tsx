@@ -9,12 +9,12 @@
  *
  * Pins:
  * 1. Surface A — drop-share section renders ONLY when `dropId != null`, and
- *    only for viewers who are neither HR nor JUNIOR; ADMIN/ACCOUNTANT edit,
+ *    only for viewers who are neither HR nor JUNIOR; ADMIN edits,
  *    everyone else sees it disabled.
  * 2. Surface A — changing the slider makes the form dirty and the value
  *    reaches submit.
- * 3. Surface C — the "Тип оплаты" Select renders 3 options; ADMIN/ACCOUNTANT
- *    edit, everyone else (who can still open the dialog — HR) sees it
+ * 3. Surface C — the "Тип оплаты" Select renders 3 options; ADMIN
+ *    edits, everyone else (who can still open the dialog — HR) sees it
  *    disabled with a hint.
  * 4. Surface C — selecting an option makes the form dirty and the value
  *    reaches submit.
@@ -173,9 +173,7 @@ describe('ProjectEditFields — Surface A (drop-share ShareSlider)', () => {
     const section = screen.getByTestId('project-edit-drop-share-section')
     expect(section).toBeInTheDocument()
     expect(screen.getByTestId('project-edit-drop-share-override')).toBeDisabled()
-    expect(
-      within(section).getByText('Змінювати можуть лише Адміністратор або Бухгалтер.'),
-    ).toBeInTheDocument()
+    expect(within(section).getByText('Змінювати може лише Адміністратор.')).toBeInTheDocument()
   })
 
   it('defaults the slider value to defaultDropSharePercent when no override is set', () => {
@@ -308,12 +306,10 @@ describe('ProjectEditFields — Surface C (paymentType Select)', () => {
     expect(within(listbox).getByText('USDT')).toBeInTheDocument()
   })
 
-  it('is disabled with a hint for non-ADMIN/ACCOUNTANT viewers (e.g. HR)', () => {
+  it('is disabled with a hint for non-ADMIN viewers (e.g. HR)', () => {
     render(<Harness onSubmit={vi.fn()} canEditOverride={false} dropId={null} viewerRole="HR" />)
     expect(screen.getByTestId('project-payment-type-trigger')).toBeDisabled()
-    expect(
-      screen.getByText('Змінювати можуть лише Адміністратор або Бухгалтер.'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('Змінювати може лише Адміністратор.')).toBeInTheDocument()
   })
 
   it('selecting an option makes the form dirty and reaches submit', async () => {
@@ -498,7 +494,7 @@ describe('ProjectEditFields — live proposal notice', () => {
 // existing behaviour — nothing here changes it.
 // ---------------------------------------------------------------------------
 
-const adminHint = 'Змінювати можуть лише Адміністратор або Бухгалтер.'
+const adminHint = 'Змінювати може лише Адміністратор.'
 /** The red validation-error paragraphs inside `root` (whole document by default). */
 const errParas = (root: HTMLElement = document.body) =>
   within(root).queryAllByText((_content, el) => {

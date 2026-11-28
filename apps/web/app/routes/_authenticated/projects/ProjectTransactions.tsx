@@ -22,11 +22,11 @@ export function ProjectTransactions({
 }) {
   const { t } = useLingui()
   const { user } = useAuth()
-  // task-648-fix-round-2 (UX-H-3(r2)): same ADMIN/ACCOUNTANT gate the page
+  // task-648-fix-round-2 (UX-H-3(r2)): same ADMIN gate the page
   // computes for its own copy of this widget — the backend's cancel endpoint
   // allows exactly this pair. Derived here rather than threaded through a new
   // prop: this component already has the session it needs.
-  const canEditOverride = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
+  const canEditOverride = user?.role === 'ADMIN'
   const [selected, setSelected] = useState<TransactionDto | null>(null)
 
   const { data: transactions, isLoading } = useQuery({
@@ -45,14 +45,13 @@ export function ProjectTransactions({
   if (!user) return null
 
   // Drop role - phase 2 (AC3). Distribution panel visible to ADMIN /
-  // ACCOUNTANT / SENIOR (the project's) / DROP (the project's). Other
+  // SENIOR (the project's) / DROP (the project's). Other
   // roles never reach this tab (gated upstream by `canSeeProjectFinance`).
   const role = user.role
   const isProjectSenior = role === 'SENIOR' && project.seniorId === user.id
   const isProjectDrop = role === 'DROP' && project.dropId === user.id
   const canSeeDistribution =
-    !!project.dropId &&
-    (role === 'ADMIN' || role === 'ACCOUNTANT' || isProjectSenior || isProjectDrop)
+    !!project.dropId && (role === 'ADMIN' || isProjectSenior || isProjectDrop)
 
   return (
     <>

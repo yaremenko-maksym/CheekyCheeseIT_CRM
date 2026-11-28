@@ -296,75 +296,52 @@ describe('SalaryFields', () => {
 })
 
 describe('TransferSwapField', () => {
-  const SWAP_TITLE = 'Натисніть, щоб змінити напрямок'
-
   function renderField(over: Partial<Parameters<typeof TransferSwapField>[0]> = {}) {
     const props = {
       transferSender: ADMINS[0],
       transferReceiver: ADMINS[1],
-      swapTransfer: vi.fn(),
       ...over,
     }
     ui(<TransferSwapField {...props} />)
     return props
   }
 
+  const cardOf = (caption: 'надсилає' | 'отримує') =>
+    screen.getByTestId(caption === 'надсилає' ? 'transfer-sender-card' : 'transfer-receiver-card')
+
   it('shows both parties: initial, name and role caption', () => {
     renderField()
-    const [senderCard, , receiverCard] = screen.getAllByRole('button')
-    expect(within(senderCard!).getByText('A')).toBeInTheDocument()
+    const senderCard = cardOf('надсилає')
+    const receiverCard = cardOf('отримує')
+    expect(within(senderCard).getByText('A')).toBeInTheDocument()
     expect(senderCard).toHaveTextContent('Alice Admin')
     expect(senderCard).toHaveTextContent('надсилає')
-    expect(within(receiverCard!).getByText('B')).toBeInTheDocument()
+    expect(within(receiverCard).getByText('B')).toBeInTheDocument()
     expect(receiverCard).toHaveTextContent('Bob Admin')
     expect(receiverCard).toHaveTextContent('отримує')
   })
 
   it('falls back to "?" and an em dash while a party is unresolved', () => {
     renderField({ transferSender: undefined, transferReceiver: undefined })
-    const [senderCard, , receiverCard] = screen.getAllByRole('button')
-    expect(senderCard).toHaveTextContent('?')
-    expect(senderCard).toHaveTextContent('—')
-    expect(receiverCard).toHaveTextContent('?')
-    expect(receiverCard).toHaveTextContent('—')
-  })
-
-  it('the sender card, the arrow and the receiver card all swap the direction', () => {
-    const props = renderField()
-    const [senderCard, swapButton, receiverCard] = screen.getAllByRole('button')
-    // These cards sit inside a form: the swap action must never submit it.
-    for (const button of [senderCard, swapButton, receiverCard]) {
-      expect(button).toHaveAttribute('type', 'button')
-      fireEvent.click(button!)
+    for (const card of [cardOf('надсилає'), cardOf('отримує')]) {
+      expect(card).toHaveTextContent('?')
+      expect(card).toHaveTextContent('—')
     }
-    expect(props.swapTransfer).toHaveBeenCalledTimes(3)
   })
 
-  it('renders fixed outgoing direction as non-interactive cards without swap hints', () => {
-    renderField({ swapTransfer: undefined })
+  it('renders the fixed outgoing direction as non-interactive cards without swap hints', () => {
+    renderField()
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
-    expect(screen.getByText('Alice Admin')).toBeInTheDocument()
-    expect(screen.getByText('Bob Admin')).toBeInTheDocument()
-    expect(screen.queryByTitle(SWAP_TITLE)).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Натисніть, щоб змінити напрямок')).not.toBeInTheDocument()
     expect(screen.queryByTitle('Поміняти напрямок')).not.toBeInTheDocument()
     expect(
       screen.queryByText('Натисніть на картки або стрілку, щоб змінити напрямок'),
     ).not.toBeInTheDocument()
   })
 
-  it('has the swap hint titles and caption', () => {
-    renderField()
-    expect(screen.getAllByTitle(SWAP_TITLE)).toHaveLength(2)
-    expect(screen.getByTitle('Поміняти напрямок')).toBeInTheDocument()
-    expect(
-      screen.getByText('Натисніть на картки або стрілку, щоб змінити напрямок'),
-    ).toBeInTheDocument()
-  })
-
   it('the two party cards share the bordered card styling', () => {
     renderField()
-    const [senderCard, , receiverCard] = screen.getAllByRole('button')
-    for (const card of [senderCard, receiverCard]) {
+    for (const card of [cardOf('надсилає'), cardOf('отримує')]) {
       expect(card).toHaveClass(
         'flex-1',
         'flex',
@@ -375,12 +352,11 @@ describe('TransferSwapField', () => {
         'border',
         'px-3',
         'py-2.5',
-        'transition-all',
         'text-center',
         'border-border',
         'bg-muted/20',
-        'hover:bg-muted/40',
       )
+      expect(card).not.toHaveClass('hover:bg-muted/40')
     }
   })
 })
@@ -519,10 +495,8 @@ describe('ProjectSelectSection', () => {
       adminProjects: [ADMIN_POOL],
       dropProjects: [DROP_POOL],
       myProjects: [OWN],
-      adminOwnProjects: [ADMIN_POOL],
       projects: [OWN, ADMIN_POOL, DROP_POOL],
       userId: 'u-1',
-      isAccountant: false,
       onProjectChange: vi.fn(),
       ...over,
     }

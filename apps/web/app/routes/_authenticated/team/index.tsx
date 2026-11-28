@@ -64,7 +64,7 @@ function TeamPage() {
   // and cannot be called from inside a `.map()` callback (Rules of Hooks).
   const dropRoleLabel = i18n._(ROLE_LABEL_MESSAGES.DROP)
   const locale = useLocale()
-  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
+  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP'])
   const { user } = useAuth()
   const navigate = useNavigate()
   const routeSearch = Route.useSearch()

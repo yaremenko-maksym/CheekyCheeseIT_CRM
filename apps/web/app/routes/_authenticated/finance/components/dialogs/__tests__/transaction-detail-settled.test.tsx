@@ -220,20 +220,6 @@ describe('TransactionDetailDialog — settle accumulator and payment fact', () =
     expect(screen.queryByText(/До сплати/)).toBeNull()
   })
 
-  it('PF-4. the ACCOUNTANT sees the payment fact too — same audience as ADMIN', async () => {
-    renderDetail(
-      {
-        ...TX,
-        originalAmount: '800.000000',
-        originalCurrency: 'USD',
-        exchangeRate: '37.5',
-      } as TransactionDto,
-      'ACCOUNTANT',
-    )
-
-    expect(await screen.findByTestId('tx-detail-payment-fact')).toBeTruthy()
-  })
-
   it('PF-5. a triplet with no recorded original currency falls back to the row currency', async () => {
     renderDetail(
       { ...TX, originalAmount: '800.000000', originalCurrency: null } as TransactionDto,

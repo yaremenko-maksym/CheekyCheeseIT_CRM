@@ -35,8 +35,6 @@ type Fixtures = {
   asJunior: Page
   /** Drop role - phase 1: DROP-authenticated page for AC8 RBAC sweep. */
   asDrop: Page
-  /** ACCOUNTANT Sprint 1: ACCOUNTANT-authenticated page for the finance hub. */
-  asAccountant: Page
 }
 
 /** The first-visit bookmarklet dialog (/job-queue, HR) would cover what a spec clicks. */
@@ -72,10 +70,6 @@ export const test = base.extend<Fixtures>({
   },
   asDrop: async ({ page }, use) => {
     await mockAuthAs(page, USERS.drop)
-    await use(page)
-  },
-  asAccountant: async ({ page }, use) => {
-    await mockAuthAs(page, USERS.accountant)
     await use(page)
   },
 })

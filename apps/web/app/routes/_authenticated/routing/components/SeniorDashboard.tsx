@@ -22,7 +22,7 @@ import { PendingProjectApprovalsPanel } from './PendingProjectApprovalsPanel'
  * SeniorDashboard — ролевой дашборд для роли SENIOR (и ADMIN, который видит ТУ
  * ЖЕ self-scoped картину, что и синьор: эндпоинт строго привязан к currentUser.id).
  *
- * Визуально консистентен с HRDashboard / AccountantDashboard: stagger-grid
+ * Визуально консистентен с HRDashboard: stagger-grid
  * карточек, переиспользует KpiCard-примитив из finance/components/KpiCards. KPI:
  * активные проекты, senior-доход за период, ожидают выплаты. Плюс блоки:
  *   1. EarningsStatsBlock — hero «Всего заработано» + sparkline + список проектов

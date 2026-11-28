@@ -504,7 +504,7 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   'app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx#1':
     'Free-text "Заметки" field on the create-transaction dialog (non-dividend types).',
   'app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx#1':
-    'Free-text rejection reason typed by ACCOUNTANT when rejecting a transaction.',
+    'Free-text rejection reason typed by ADMIN when rejecting a transaction.',
   'app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx#2':
     'Salary month typed as a raw "2025-03" string — no existing date-picker component is used here, and the task explicitly says not to invent a new one for this PR.',
   'app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx#3':

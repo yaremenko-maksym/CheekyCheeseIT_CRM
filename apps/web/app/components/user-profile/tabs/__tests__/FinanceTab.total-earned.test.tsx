@@ -3,7 +3,7 @@
  *
  * Verifies the «Всего заработано с нами» card visibility contract on the
  * profile Finance tab:
- *   - ADMIN / ACCOUNTANT viewer on a SENIOR/DROP/JUNIOR/HR profile → card shown
+ *   - ADMIN viewer on a SENIOR/DROP/JUNIOR/HR profile → card shown
  *     with the server-provided amount (AC1).
  *   - Non-privileged viewer (SENIOR/JUNIOR/HR/DROP) → card NOT rendered AND the
  *     total-earned endpoint is never called (AC2 — front guard mirrors the
@@ -139,14 +139,6 @@ describe('FinanceTab — «Всего заработано» card', () => {
     })
     expect(screen.getByTestId('total-earned-amount')).toHaveTextContent('12')
     expect(screen.getByText('Усього виплачено цій людині')).toBeInTheDocument()
-  })
-
-  it('ACCOUNTANT viewer on JUNIOR profile sees the card', async () => {
-    viewerRole = 'ACCOUNTANT'
-    renderTab('JUNIOR')
-    await waitFor(() => {
-      expect(screen.getByTestId('total-earned-card')).toBeInTheDocument()
-    })
   })
 
   it('SENIOR viewer never sees the card and never calls the endpoint', async () => {

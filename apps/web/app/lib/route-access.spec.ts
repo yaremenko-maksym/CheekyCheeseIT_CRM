@@ -6,21 +6,22 @@ import {
   navRolesFor,
   resolveRoleHome,
   resolveRouteAccess,
+  ROUTE_ACCESS,
 } from './route-access'
 
-const ALL: Role[] = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
+const ALL: Role[] = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP']
 
 describe('route-access · resolveRoleHome', () => {
   it('JUNIOR → /project', () => {
     expect(resolveRoleHome('JUNIOR')).toBe('/project')
   })
-  // Dashboard consolidation: home для всех ролей (вкл. DROP/ACCOUNTANT/HR) — корень
+  // Dashboard consolidation: home для всех ролей (вкл. DROP/HR) — корень
   // /, который рендерит роль-зависимый дашборд. Отдельного /dashboard больше нет.
   it('DROP → /', () => {
     expect(resolveRoleHome('DROP')).toBe('/')
   })
-  it('ADMIN/SENIOR/HR/ACCOUNTANT → /', () => {
-    for (const r of ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'] as Role[]) {
+  it('ADMIN/SENIOR/HR → /', () => {
+    for (const r of ['ADMIN', 'SENIOR', 'HR'] as Role[]) {
       expect(resolveRoleHome(r)).toBe('/')
     }
   })
@@ -120,22 +121,51 @@ describe('route-access · isRouteAllowed (other roles not broken)', () => {
     expect(isRouteAllowed('/project', 'HR')).toBe(false)
   })
 
-  it('ACCOUNTANT allowed root/team/projects/finance/documents/stats, denied users/interviews/junior-hub', () => {
-    for (const path of [
-      '/', // consolidated dashboard root
-      '/team',
-      '/projects',
-      '/finance',
-      '/documents',
-      // task-accountant-stats: ACCOUNTANT gets the stats section (economic part
-      // only — non-economic sub-sections are gated ADMIN-only inside stats.tsx).
-      '/stats',
-    ]) {
-      expect(isRouteAllowed(path, 'ACCOUNTANT')).toBe(true)
+  // The retired role stays in `Role` until the enum is dropped (PR 1d); a stale session must open no section.
+  it('retired ACCOUNTANT role is denied every mapped section', () => {
+    for (const { prefix } of EXPECTED_TABLE) {
+      expect(isRouteAllowed(prefix, 'ACCOUNTANT')).toBe(false)
     }
-    expect(isRouteAllowed('/users', 'ACCOUNTANT')).toBe(false)
-    expect(isRouteAllowed('/interviews', 'ACCOUNTANT')).toBe(false)
-    expect(isRouteAllowed('/project', 'ACCOUNTANT')).toBe(false)
+    expect(DASHBOARD_NAV_ROLES).not.toContain('ACCOUNTANT')
+  })
+})
+
+// Full ROUTE_ACCESS table, written out by hand. Retiring the accountant role (PR 1c) dropped it from
+// /stats, /team, /projects, /finance, /documents, /profile, /onboarding, /pending and granted no role anything new.
+const EXPECTED_TABLE: ReadonlyArray<{ prefix: string; roles: Role[] }> = [
+  { prefix: '/project', roles: ['JUNIOR'] },
+  { prefix: '/legend', roles: ['JUNIOR'] },
+  { prefix: '/routing', roles: ['DROP'] },
+  { prefix: '/users', roles: ['ADMIN'] },
+  { prefix: '/stats', roles: ['ADMIN'] },
+  { prefix: '/team', roles: ['ADMIN', 'SENIOR', 'HR', 'DROP'] },
+  { prefix: '/projects', roles: ['ADMIN', 'SENIOR', 'HR'] },
+  { prefix: '/interviews', roles: ['ADMIN', 'SENIOR', 'HR'] },
+  { prefix: '/finance', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP'] },
+  { prefix: '/documents', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP'] },
+  { prefix: '/vacancies', roles: ['ADMIN', 'HR'] },
+  { prefix: '/job-queue', roles: ['ADMIN', 'HR'] },
+  { prefix: '/profile', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP'] },
+  { prefix: '/admin', roles: ['ADMIN'] },
+  { prefix: '/onboarding', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP'] },
+  { prefix: '/pending', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP'] },
+]
+
+describe('route-access · full table (role set per prefix)', () => {
+  for (const { prefix, roles } of EXPECTED_TABLE) {
+    it(`${prefix} → ${roles.join(', ')}`, () => {
+      expect(resolveRouteAccess(prefix)).toEqual(roles)
+      // a sub-path inherits the prefix's role set
+      expect(resolveRouteAccess(`${prefix}/x`)).toEqual(roles)
+    })
+  }
+
+  it('the whole ROUTE_ACCESS table equals the hand-written one (no extra prefix, no extra role)', () => {
+    expect(ROUTE_ACCESS).toEqual(EXPECTED_TABLE)
+  })
+
+  it('no prefix outside the table exists (navRolesFor throws for an unknown prefix)', () => {
+    expect(() => navRolesFor('/accountant')).toThrow()
   })
 })
 
@@ -193,7 +223,7 @@ describe('route-access · navRolesFor (nav sync source-of-truth)', () => {
     expect(navRolesFor('/job-queue')).toEqual(['ADMIN', 'HR'])
     expect(isRouteAllowed('/job-queue', 'ADMIN')).toBe(true)
     expect(isRouteAllowed('/job-queue', 'HR')).toBe(true)
-    for (const role of ['SENIOR', 'JUNIOR', 'ACCOUNTANT', 'DROP'] as const) {
+    for (const role of ['SENIOR', 'JUNIOR', 'DROP'] as const) {
       expect(isRouteAllowed('/job-queue', role)).toBe(false)
       expect(isRouteAllowed('/job-queue/x', role)).toBe(false)
     }
@@ -205,16 +235,13 @@ describe('route-access · navRolesFor (nav sync source-of-truth)', () => {
     expect(DASHBOARD_NAV_ROLES).toContain('ADMIN')
     expect(DASHBOARD_NAV_ROLES).toContain('SENIOR')
     expect(DASHBOARD_NAV_ROLES).toContain('HR')
-    expect(DASHBOARD_NAV_ROLES).toContain('ACCOUNTANT')
     expect(DASHBOARD_NAV_ROLES).toContain('DROP')
     expect(DASHBOARD_NAV_ROLES).not.toContain('JUNIOR')
   })
-  // task-accountant-stats: «Статистика» nav item must surface for ACCOUNTANT
-  // (so the section is reachable) and ADMIN — and STAY hidden for everyone else.
-  it('/stats nav roles = ADMIN + ACCOUNTANT only', () => {
+  // «Статистика» nav item is ADMIN-only and STAYS hidden for everyone else.
+  it('/stats nav roles = ADMIN only', () => {
     const statsRoles = navRolesFor('/stats')
-    expect(statsRoles).toContain('ADMIN')
-    expect(statsRoles).toContain('ACCOUNTANT')
+    expect(statsRoles).toEqual(['ADMIN'])
     for (const r of ['SENIOR', 'JUNIOR', 'HR', 'DROP'] as Role[]) {
       expect(statsRoles).not.toContain(r)
     }

@@ -7,7 +7,7 @@
  *   AC1  — SENIOR sees REJECTED tx, opens edit dialog, resubmits with new receipt URL,
  *           dialog closes and tx row reflects PENDING status.
  *   AC2  — Edit button is NOT visible on a PENDING tx (only REJECTED unlocks it).
- *   AC3  — Edit button is NOT visible when ACCOUNTANT views the same REJECTED tx
+ *   AC3  — Edit button is NOT visible when ADMIN views the same REJECTED tx
  *           (RBAC: only receiver SENIOR can edit).
  *   AC4  — SENIOR can also replace receipt using a file-mode input (receiptDocumentId path).
  *   AC5  — Rejection reason panel is shown inside the edit dialog when tx has rejectionReason.
@@ -52,7 +52,7 @@ function makeRejectedTx(overrides: object = {}) {
     txHash: null,
     rejectionReason: 'Нечитаемый чек — загрузите снова',
     payoutRequestId: null,
-    validatedBy: USERS.accountant.id,
+    validatedBy: USERS.admin.id,
     validatedAt: '2026-06-01T10:00:00.000Z',
     createdAt: '2026-06-01T09:00:00.000Z',
     updatedAt: '2026-06-01T10:00:00.000Z',
@@ -190,20 +190,20 @@ test.describe('PR-3 receipt replace — AC2: edit locked on non-REJECTED tx', ()
 })
 
 // ---------------------------------------------------------------------------
-// AC3 — ACCOUNTANT cannot see edit button (RBAC: only receiver SENIOR)
+// AC3 — ADMIN cannot see edit button (RBAC: only receiver SENIOR)
 // ---------------------------------------------------------------------------
 
 test.describe('PR-3 receipt replace — AC3: RBAC — только SENIOR-получатель может редактировать', () => {
-  test('ACCOUNTANT НЕ видит кнопку редактирования для REJECTED SENIOR_INCOME транзакции', async ({
+  test('ADMIN НЕ видит кнопку редактирования для REJECTED SENIOR_INCOME транзакции', async ({
     page,
   }) => {
-    await mockAuthAs(page, USERS.accountant)
+    await mockAuthAs(page, USERS.admin)
     const rejectedTx = makeRejectedTx()
     await setupFinanceMocks(page, [rejectedTx], rejectedTx)
     await page.goto('/finance')
     await page.waitForLoadState('networkidle')
 
-    // ACCOUNTANT sees no edit button — only SENIOR-receiver can resubmit
+    // ADMIN sees no edit button — only SENIOR-receiver can resubmit
     await expect(page.getByTestId(`tx-row-edit-${TX_ID}`)).toHaveCount(0)
   })
 })

@@ -18,13 +18,13 @@ import { financeApi } from '../../finance/api'
 
 // ── Income compliance «Контроль приходов» (task-income-compliance) ────────────
 //
-// ADMIN + ACCOUNTANT see this on /stats: a company-wide list of income
+// ADMIN see this on /stats: a company-wide list of income
 // receivers (seniors + admin-as-senior + drops with active projects) with an
 // «X/N приходов за месяц» progress bar and an expand drawer of the projects
 // WITHOUT a counted (VALIDATED|PAID) income. Laggards (least coverage) on top.
 // Fed by GET /api/finance/income-compliance — an RBAC-gated aggregate, so this
 // section never renders for a non-privileged viewer (the whole /stats route
-// is already ADMIN/ACCOUNTANT-only). NOT in the persist allow-list (financial
+// is already ADMIN-only). NOT in the persist allow-list (financial
 // data is never written to disk — the query is volatile by default).
 
 /**
@@ -54,7 +54,7 @@ export function receiverInitials(name: string): string {
 //
 // task-compliance-overview-pending-types: `accruedCount` (a company-booked
 // obligation still awaiting the COMPANY's payout) is grouped with
-// `pendingCount` (self-declared income still awaiting the ACCOUNTANT) for THIS
+// `pendingCount` (self-declared income still awaiting validation) for THIS
 // coverage classification only — both mean "nothing left for the receiver to
 // do, not their fault", so neither should ever render as the red `lagging`
 // false alarm. The two stay separate NUMBERS everywhere else (badge text,
@@ -172,7 +172,7 @@ export function ComplianceReceiverRow({ receiver }: { receiver: IncomeCompliance
   // condition `receiverStatus()` requires to return 'pending' in the first
   // place. `accruedCount` (booked, awaiting the company's payout) still gets
   // its OWN wording within that branch — reusing «На валидации» would be a
-  // wrong claim (nobody is validating anything; the accountant has nothing
+  // wrong claim (nobody is validating anything; there is nothing
   // to check, the company just hasn't paid out yet).
   const badge: { text: React.ReactNode; cls: string } =
     status === 'complete'
@@ -473,7 +473,7 @@ function IncomeComplianceBody({ data }: { data: IncomeComplianceOverviewDto }) {
           color="red"
         />
         <ComplianceKpi
-          label={<Trans>На валідації у бухгалтера</Trans>}
+          label={<Trans>На валідації</Trans>}
           value={String(totals.pendingProjects)}
           sub={
             <Plural

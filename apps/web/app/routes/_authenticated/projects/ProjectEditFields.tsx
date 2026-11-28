@@ -88,11 +88,10 @@ export function ProjectEditFields({
 }) {
   const { t, i18n } = useLingui()
   // FIX-H-2 (spec SPEC-M-1 / copy COPY-H-1): a raw role enum in visible text
-  // is a finding (urok #702 п.13) — ADMIN/ACCOUNTANT are not on the
+  // is a finding (urok #702 п.13) — ADMIN is not on the
   // exemption list. Resolved once here, reused by the three "who can edit
   // this" hints below (paymentType / senior share / drop share).
   const adminLabel = useRoleLabel('ADMIN')
-  const accountantLabel = useRoleLabel('ACCOUNTANT')
   if (mode === 'info') {
     return (
       <div className="space-y-3">
@@ -210,7 +209,7 @@ export function ProjectEditFields({
           ).map((fieldName) => {
             // task-drop-share-override-and-receiver (Surface C). paymentType
             // moves from free-text Input to a 3-value Select. Field-scoped RBAC
-            // reuses `canEditOverride` (ADMIN/ACCOUNTANT edit; everyone else who
+            // reuses `canEditOverride` (ADMIN edits; everyone else who
             // can reach this dialog — i.e. HR — sees it disabled/read).
             if (fieldName === 'paymentType') {
               // Stryker disable next-line StringLiteral: placeholder never renders in practice — `paymentType` always has a value (defaults to 'FOP'), so no test can observe this text. A JSX comment on the element itself does not suppress Stryker (urok #700) — the literal has to move to a plain JS assignment instead.
@@ -245,9 +244,7 @@ export function ProjectEditFields({
                       </Select>
                       {!canEditOverride && (
                         <p className="text-xs text-muted-foreground italic">
-                          <Trans>
-                            Змінювати можуть лише {adminLabel} або {accountantLabel}.
-                          </Trans>
+                          <Trans>Змінювати може лише {adminLabel}.</Trans>
                         </p>
                       )}
                     </div>
@@ -313,7 +310,7 @@ export function ProjectEditFields({
             ShareSlider всегда виден; implicit reset (когда value === default —
             backend пишет null). Toggle/Сбросить упразднены.
             RBAC: HR и JUNIOR не видят секцию вообще (фильтрация через viewerRole);
-            у не-ADMIN/ACCOUNTANT слайдер disabled. */}
+            у не-ADMIN слайдер disabled. */}
         {viewerRole !== 'HR' && viewerRole !== 'JUNIOR' && (
           <form.Field
             name="seniorSharePercentOverride"
@@ -404,9 +401,7 @@ export function ProjectEditFields({
                   )}
                   {!canEditOverride && (
                     <p className="text-xs text-muted-foreground italic">
-                      <Trans>
-                        Змінювати можуть лише {adminLabel} або {accountantLabel}.
-                      </Trans>
+                      <Trans>Змінювати може лише {adminLabel}.</Trans>
                     </p>
                   )}
                   {err && <p className="text-xs text-destructive">{err}</p>}
@@ -420,7 +415,7 @@ export function ProjectEditFields({
             (Surface A). Full analog of seniorSharePercentOverride above:
             differs only in field name / label / role / visibility gate
             (drop-projects only, `project.dropId != null`). Same RBAC —
-            HR/JUNIOR never see the section; non-ADMIN/ACCOUNTANT see it
+            HR/JUNIOR never see the section; non-ADMIN see it
             disabled. */}
         {viewerRole !== 'HR' && viewerRole !== 'JUNIOR' && dropId != null && (
           <form.Field
@@ -471,9 +466,7 @@ export function ProjectEditFields({
                   </p>
                   {!canEditOverride && (
                     <p className="text-xs text-muted-foreground italic">
-                      <Trans>
-                        Змінювати можуть лише {adminLabel} або {accountantLabel}.
-                      </Trans>
+                      <Trans>Змінювати може лише {adminLabel}.</Trans>
                     </p>
                   )}
                   {err && <p className="text-xs text-destructive">{err}</p>}

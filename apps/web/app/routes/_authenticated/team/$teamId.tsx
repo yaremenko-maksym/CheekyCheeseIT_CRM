@@ -32,7 +32,7 @@ export const Route = createFileRoute('/_authenticated/team/$teamId')({
 function TeamDetailPage() {
   const { t } = useLingui()
   const locale = useLocale()
-  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
+  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP'])
   const { user } = useAuth()
   const { teamId } = Route.useParams()
   const queryClient = useQueryClient()

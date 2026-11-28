@@ -105,7 +105,7 @@ describe('ArchiveConfirmDialog — fetch + loading', () => {
 })
 
 // task-i18n-stage3b (Task 2 / PR2), Step 2: the seven user-role branches
-// this dialog used to own (SENIOR+DROP pair-cascade, HR, ACCOUNTANT, JUNIOR,
+// this dialog used to own (SENIOR+DROP pair-cascade, HR, JUNIOR,
 // ADMIN, both no-team sub-cases) moved verbatim into
 // `components/archive/UserArchiveImpact.tsx` — that file's own test suite
 // (`archive/__tests__/UserArchiveImpact.test.tsx`) now owns per-role/locale
@@ -178,7 +178,8 @@ describe('ArchiveConfirmDialog — renderImpactText: team (SENIOR default vs DRO
     // MUT-1 (fix-round 2): the `</Trans>{' '}<Trans>` boundary itself
     // (legacy-SENIOR branch's own copy of the same block1→block2 join —
     // a SEPARATE source line from the pair-cascade one above).
-    expect(text).toContain('). HR/бухгалтери')
+    expect(text).toContain('). 2 HR у команді залишаються активними учасниками')
+    expect(text).toContain('архівація їх не стосується')
   })
 
   it('DROP team: uses dropName (trimmed), NOT the senior word (no cross-read of ROLE_RU.SENIOR)', async () => {
@@ -206,10 +207,11 @@ describe('ArchiveConfirmDialog — renderImpactText: team (SENIOR default vs DRO
     expect(text).toContain('від’єднається')
     // `{' '}` boundaries: "дроп" -> dropName, block1 -> block2.
     expect(text).toContain('дроп Dmytro Drop')
-    expect(text).toContain('стосується. Активний сеньйор')
+    expect(text).toContain('впливає. Активний сеньйор')
     // MUT-1 (fix-round 2): the `</Trans>{' '}<Trans>` boundary itself,
     // right after block1's closing ").").
-    expect(text).toContain('). HR/бухгалтери')
+    expect(text).toContain('). 1 HR у команді зберігає активний статус')
+    expect(text).toContain('на архівацію це не впливає')
   })
 
   it('DROP team: seniorWillBeDetached=false renders the "немає" branch, not the detach sentence', async () => {

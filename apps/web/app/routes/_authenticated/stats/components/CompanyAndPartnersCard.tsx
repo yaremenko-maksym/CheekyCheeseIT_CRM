@@ -37,7 +37,7 @@ export function partnerShare(balance: number, absTotal: number): { label: string
 // ── Combined Company + Partners balance card ──────────────────────────────────
 // Merges CompanyAccountKpi (USDT счёт компании) and PartnerBalancesCard into
 // one Card with two sections separated by a divider. Both sections are shown to
-// ADMIN and ACCOUNTANT (the page only renders for those roles).
+// ADMIN (the page only renders for those roles).
 
 export function CompanyAndPartnersCard({ summary }: { summary: FinanceSummaryDto }) {
   const { data: account, isLoading: accountLoading } = useQuery({

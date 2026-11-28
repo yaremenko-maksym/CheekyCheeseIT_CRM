@@ -50,7 +50,7 @@ const OUTSTANDING_INCOME = {
   txHash: null,
   rejectionReason: null,
   payoutRequestId: null,
-  validatedBy: 'accountant-id',
+  validatedBy: 'admin-id',
   validatedAt: '2026-07-01T00:00:00.000Z',
   createdBy: USERS.senior.id,
   createdAt: '2026-07-01T00:00:00.000Z',

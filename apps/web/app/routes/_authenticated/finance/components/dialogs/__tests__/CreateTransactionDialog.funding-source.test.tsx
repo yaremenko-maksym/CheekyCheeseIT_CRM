@@ -276,7 +276,7 @@ describe('CreateTransactionDialog — funding source: EXPENSE (kept)', () => {
     expect(screen.getByTestId('create-transaction-company-balance-hint')).toBeInTheDocument()
   })
 
-  it('EXPENSE toggle carries the EXPENSE-specific copy, not the ACCOUNTANT ADMIN_INCOME copy (shared renderFundingSourceToggle helper)', () => {
+  it('EXPENSE toggle carries the EXPENSE-specific copy (shared renderFundingSourceToggle helper)', () => {
     renderDialog()
     clickTypeCard('create-transaction-type-expense')
     expect(screen.getByTestId('create-transaction-funding-source-section')).toHaveTextContent(
@@ -293,32 +293,12 @@ describe('CreateTransactionDialog — funding source: EXPENSE (kept)', () => {
       'Списується з рахунку компанії (USDT)',
     )
   })
-
-  // task-admin-income-unified (§2). EXPENSE's toggle is gated by
-  // `type === 'EXPENSE'` alone (no role check — every role that reaches
-  // EXPENSE gets it); ADMIN_INCOME's ACCOUNTANT toggle is gated by
-  // `type === 'ADMIN_INCOME' && isAccountant`. The two conditions must never
-  // desync: an ACCOUNTANT switching to EXPENSE must see EXPENSE's OWN copy,
-  // never the "Счёт получателя" copy leaking in from the other gate.
-  it('ACCOUNTANT switching to EXPENSE sees the EXPENSE copy, not the ADMIN_INCOME "Счёт получателя" copy', () => {
-    currentRole = 'ACCOUNTANT'
-    renderDialog()
-    clickTypeCard('create-transaction-type-expense')
-    expect(screen.getByTestId('create-transaction-funding-source-section')).toHaveTextContent(
-      'Джерело коштів',
-    )
-    expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
-      'Звичайна витрата',
-    )
-  })
 })
 
 // task-admin-income-unified (§2, owner decision 2026-08-12): ADMIN's old
 // binary "Источник средств" toggle for ADMIN_INCOME is REPLACED by the flat
 // "Счёт получателя" receiver Select (any active admin + «Счёт компании») —
-// same Select the USDT route uses. ACCOUNTANT keeps a toggle-shaped selector
-// (see the next describe block) since the server denies them a specific-admin
-// choice; ADMIN does not have that restriction.
+// same Select the USDT route uses.
 describe('CreateTransactionDialog — ADMIN_INCOME receiver Select replaces the funding-source toggle for ADMIN (§2)', () => {
   beforeEach(() => {
     currentRole = 'ADMIN'
@@ -343,54 +323,6 @@ describe('CreateTransactionDialog — ADMIN_INCOME receiver Select replaces the 
     fireEvent.click(screen.getByTestId('admin-income-receiver-trigger'))
     fireEvent.click(await screen.findByRole('option', { name: 'Рахунок компанії' }))
     expect(screen.getByTestId('create-transaction-company-balance-hint')).toBeInTheDocument()
-  })
-})
-
-// task-admin-income-unified (§2): ACCOUNTANT keeps a toggle-shaped selector —
-// "Счёт получателя" reusing the exact `fundingSource` state/markup EXPENSE's
-// toggle uses (no new state) — but it can only ever mean "project owner" or
-// "company account", never a specific OTHER admin (server-enforced, AC10).
-describe('CreateTransactionDialog — ACCOUNTANT constrained "Счёт получателя" for ADMIN_INCOME (§2, AC10)', () => {
-  it('toggle-shaped section visible for ACCOUNTANT, no flat admin Select', () => {
-    currentRole = 'ACCOUNTANT'
-    renderDialog()
-    expect(screen.getByTestId('create-transaction-funding-source-section')).toBeInTheDocument()
-    expect(screen.queryByTestId('admin-income-receiver-trigger')).not.toBeInTheDocument()
-  })
-
-  it('defaults to "project owner" (no balance hint initially)', () => {
-    currentRole = 'ACCOUNTANT'
-    renderDialog()
-    expect(screen.queryByTestId('create-transaction-company-balance-hint')).not.toBeInTheDocument()
-  })
-
-  it('selecting «Счёт компании» shows the balance hint', () => {
-    currentRole = 'ACCOUNTANT'
-    renderDialog()
-    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
-    expect(screen.getByTestId('create-transaction-company-balance-hint')).toBeInTheDocument()
-  })
-
-  it("carries the ACCOUNTANT-specific copy, not EXPENSE's copy (shared renderFundingSourceToggle helper) — falls back when no project is selected yet", () => {
-    currentRole = 'ACCOUNTANT'
-    renderDialog()
-    expect(screen.getByTestId('create-transaction-funding-source-section')).toHaveTextContent(
-      'Рахунок отримувача',
-    )
-    expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
-      'Власник проєкту',
-    )
-    // No project selected yet in this fixture (`useQuery` stub returns no
-    // projects) — the fallback copy, not the `selectedAdminProject.seniorName`
-    // interpolation (that branch is pinned with a real project fixture in
-    // CreateTransactionDialog.usdt-income.test.tsx).
-    expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
-      'Дохід зарахується на рахунок адміністратора-власника проєкту',
-    )
-    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
-    expect(screen.getByTestId('create-transaction-funding-company')).toHaveTextContent(
-      'Зарахується на рахунок компанії (USDT)',
-    )
   })
 })
 

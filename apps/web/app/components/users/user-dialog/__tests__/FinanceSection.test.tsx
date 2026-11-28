@@ -314,7 +314,7 @@ describe('FinanceSection — salary (every other role)', () => {
     expect(screen.getByTestId('amount-value')).toBeEmptyDOMElement()
   })
 
-  it.each(['ADMIN', 'HR', 'ACCOUNTANT'])('%s sees the salary field, not a share slider', (role) => {
+  it.each(['ADMIN', 'HR'])('%s sees the salary field, not a share slider', (role) => {
     render(<Harness defaults={{ role }} />)
     expect(screen.getByTestId('amount-currency')).toBeInTheDocument()
     expect(screen.queryByRole('slider')).not.toBeInTheDocument()

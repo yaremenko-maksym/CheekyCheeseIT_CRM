@@ -107,6 +107,16 @@ describe('AdminDashboard (routes/_authenticated/index.tsx)', () => {
     expect(screen.getByTestId('admin-kpi-loading')).toBeInTheDocument()
   })
 
+  // A stale session of the retired role falls through every role branch: it gets nothing, not the admin view.
+  it('renders no admin dashboard for a role outside the dispatch', () => {
+    auth.user = { role: 'ACCOUNTANT' }
+    useAdminSummaryMock.mockClear()
+    useAdminSummaryMock.mockReturnValue({ data: makeSummary(), isLoading: false, isError: false })
+    const { container } = render(<CrmDashboard />)
+    expect(container).toBeEmptyDOMElement()
+    expect(useAdminSummaryMock).not.toHaveBeenCalled()
+  })
+
   it('renders the error state with both catalog strings', () => {
     useAdminSummaryMock.mockReturnValue({ data: undefined, isLoading: false, isError: true })
     render(<CrmDashboard />)

@@ -14,7 +14,7 @@ import { useLocale } from '@/lib/i18n'
 interface TeamMember {
   id: string
   displayName: string
-  role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
+  role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR'
   avatarUrl: string | null
   avatarDocumentId: string | null
 }
@@ -22,7 +22,6 @@ interface TeamMember {
 const ROLE_ORDER: Record<TeamMember['role'], number> = {
   SENIOR: 0,
   HR: 1,
-  ACCOUNTANT: 2,
   JUNIOR: 3,
   ADMIN: 4,
 }

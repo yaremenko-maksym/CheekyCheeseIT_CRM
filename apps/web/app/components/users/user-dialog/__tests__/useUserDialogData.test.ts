@@ -134,20 +134,17 @@ describe('useUserDialogData', () => {
     })
   })
 
-  describe('hrUsers / accountantUsers', () => {
-    it('keeps only non-archived HR / ACCOUNTANT users respectively', async () => {
+  describe('hrUsers', () => {
+    it('keeps only non-archived HR users', async () => {
       setup({
         '/users': [
           user({ id: 'hr', role: 'HR' }),
           user({ id: 'hr-arch', role: 'HR', archivedAt: '2026-01-01' }),
-          user({ id: 'acc', role: 'ACCOUNTANT' }),
-          user({ id: 'acc-arch', role: 'ACCOUNTANT', archivedAt: '2026-01-01' }),
           user({ id: 'sr', role: 'SENIOR' }),
         ],
       })
       const { result } = render(base)
       await waitFor(() => expect(result.current.hrUsers.map((u) => u.id)).toEqual(['hr']))
-      expect(result.current.accountantUsers.map((u) => u.id)).toEqual(['acc'])
     })
   })
 
@@ -261,7 +258,6 @@ describe('useUserDialogData', () => {
       setup({})
       const { result } = render(base)
       expect(result.current.hrUsers).toEqual([])
-      expect(result.current.accountantUsers).toEqual([])
       expect(result.current.availableJuniorProjects).toEqual([])
       expect(result.current.juniorActiveProjects).toEqual([])
     })

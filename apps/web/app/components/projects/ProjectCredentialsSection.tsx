@@ -4,7 +4,7 @@
  * RBAC (server-enforced; component hides itself on 403):
  *   View + reveal: ADMIN, HR of the senior's team, active JUNIOR member.
  *   Edit (add/edit/delete): ADMIN, HR (prop `canEdit`). JUNIOR → reveal only.
- *   SENIOR / DROP / ACCOUNTANT → 403 → section hidden.
+ *   SENIOR / DROP → 403 → section hidden.
  *
  * SECURITY: the list NEVER contains plaintext. Reveal fetches plaintext on
  * demand and keeps it in LOCAL row state only (never in the query cache). The

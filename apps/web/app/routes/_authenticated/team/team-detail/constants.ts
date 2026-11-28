@@ -6,7 +6,6 @@ export const ROLE_VARIANT: Record<
   SENIOR: 'senior',
   JUNIOR: 'junior',
   HR: 'hr',
-  ACCOUNTANT: 'accountant',
   DROP: 'drop',
 }
 

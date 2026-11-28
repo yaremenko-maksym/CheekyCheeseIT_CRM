@@ -45,11 +45,11 @@ export function ContractDataSection({ form, isCreate }: ContractDataSectionProps
                   return translateZodMessage(r.error.issues[0]?.message)
                 },
                 // A3-3 AC6 / bug #2: surface superRefine error on submit attempt
-                // for contract-eligible roles (SENIOR/HR/JUNIOR/ACCOUNTANT/DROP).
+                // for contract-eligible roles (SENIOR/HR/JUNIOR/DROP).
                 // This fires when form.handleSubmit() is called and makes the
                 // red border + error text visible without requiring blur first.
                 onSubmit: ({ value }) => {
-                  const CONTRACT_ROLES = new Set(['SENIOR', 'HR', 'JUNIOR', 'ACCOUNTANT', 'DROP'])
+                  const CONTRACT_ROLES = new Set(['SENIOR', 'HR', 'JUNIOR', 'DROP'])
                   if (isCreate && CONTRACT_ROLES.has(role) && !value.trim()) {
                     return translateZodCode('LEGAL_FULL_NAME_REQUIRED_FOR_CONTRACT')
                   }

@@ -64,14 +64,6 @@ const ROLE_FLAGS: Record<
     canSeeProjectFinance: false,
     canEditOverride: false,
   },
-  ACCOUNTANT: {
-    isAdmin: false,
-    canManage: false,
-    canOpenEdit: true,
-    canRemoveMembers: false,
-    canSeeProjectFinance: true,
-    canEditOverride: true,
-  },
 }
 
 // Legend: ADMIN/HR/JUNIOR when project loaded and viewer is not the subject.
@@ -124,10 +116,6 @@ describe('useProjectPermissions', () => {
       canManageCredentials: false,
     })
     expect(useProjectPermissions(asUser('SENIOR'), third)).toMatchObject({
-      canAccessLegend: false,
-      canManageCredentials: false,
-    })
-    expect(useProjectPermissions(asUser('ACCOUNTANT'), third)).toMatchObject({
       canAccessLegend: false,
       canManageCredentials: false,
     })

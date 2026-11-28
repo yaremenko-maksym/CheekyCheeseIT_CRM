@@ -182,10 +182,10 @@ describe('ProjectTransactions', () => {
   })
 
   it('hands role, current user id and loaded rates to every row', async () => {
-    mocks.user = { id: 'viewer-9', role: 'ACCOUNTANT' }
+    mocks.user = { id: 'viewer-9', role: 'HR' }
     renderIt()
     const btn = await screen.findByTestId('row-btn-tx-2')
-    expect(btn).toHaveAttribute('data-role', 'ACCOUNTANT')
+    expect(btn).toHaveAttribute('data-role', 'HR')
     expect(btn).toHaveAttribute('data-user', 'viewer-9')
     await waitFor(() => expect(btn).toHaveAttribute('data-rate', '41.5'))
   })
@@ -215,7 +215,7 @@ describe('ProjectTransactions', () => {
 
   it.each([
     ['ADMIN', 'true'],
-    ['ACCOUNTANT', 'true'],
+    ['HR', 'false'],
     ['SENIOR', 'false'],
     ['DROP', 'false'],
   ])('canCancelPendingShare for %s is %s', async (role, expected) => {
@@ -226,15 +226,12 @@ describe('ProjectTransactions', () => {
   })
 
   describe('drop distribution panel visibility', () => {
-    it.each([['ADMIN'], ['ACCOUNTANT']])(
-      'visible to %s when the project has a drop',
-      async (role) => {
-        mocks.user = { id: 'viewer-1', role }
-        renderIt()
-        expect(screen.getByTestId('drop-distribution')).toBeInTheDocument()
-        await screen.findByTestId('row-tx-1')
-      },
-    )
+    it.each([['ADMIN']])('visible to %s when the project has a drop', async (role) => {
+      mocks.user = { id: 'viewer-1', role }
+      renderIt()
+      expect(screen.getByTestId('drop-distribution')).toBeInTheDocument()
+      await screen.findByTestId('row-tx-1')
+    })
 
     it('visible to the project own SENIOR', async () => {
       mocks.user = { id: SENIOR_ID, role: 'SENIOR' }

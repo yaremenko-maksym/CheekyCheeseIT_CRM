@@ -62,7 +62,7 @@ beforeEach(() => loadCatalog('uk'))
 // off the legacy `ROLE_LABELS` map onto `ROLE_LABEL_MESSAGES`, this asserts
 // no consumer of `UserProfileHeader` can leak the raw `Role` enum into the
 // rendered screen on either locale.
-const RAW_ROLE = /\b(ADMIN|SENIOR|JUNIOR|ACCOUNTANT|DROP)\b/
+const RAW_ROLE = /\b(ADMIN|SENIOR|JUNIOR|DROP)\b/
 
 describe('role badge comes from ROLE_LABEL_MESSAGES (task-i18n-stage3b)', () => {
   it.each([

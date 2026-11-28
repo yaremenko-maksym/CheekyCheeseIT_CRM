@@ -9,7 +9,7 @@ import { financeApi } from '../api'
 /**
  * usePayoutPaymentForm — extracted from `PayoutDetailDialog.tsx`
  * (task-company-share-cta). ALL state/mutation logic for "step 2" of the
- * payout flow (submit the on-chain txHash, or an ADMIN/ACCOUNTANT manual
+ * payout flow (submit the on-chain txHash, or an ADMIN manual
  * override) lives here so it can be shared, unchanged, between:
  *   - `PayoutDetailDialog` — the existing standalone dialog, opened from the
  *     inline «Оплатить» pill on an already-created payout row.
@@ -50,7 +50,7 @@ export function usePayoutPaymentForm(
   // conscious dev-mode choice instead of accidentally submitting a stub.
   const [simulateMode, setSimulateMode] = useState<SimulateMode>('real')
 
-  // Manual-override (ADMIN/ACCOUNTANT) local state.
+  // Manual-override (ADMIN) local state.
   const [manualMethod, setManualMethod] = useState<ManualPayoutMethod>('COMPANY_ACCOUNT')
   const [manualNote, setManualNote] = useState('')
   const [manualTxHash, setManualTxHash] = useState('')

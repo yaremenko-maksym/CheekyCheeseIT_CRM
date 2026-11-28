@@ -59,8 +59,8 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
   const statusFilterPlaceholder = t`Усі статуси`
   const { user: viewer } = useAuth()
   const role = viewer?.role ?? ''
-  const isPrivileged = role === 'ADMIN' || role === 'ACCOUNTANT'
-  // «Всего заработано» is a privileged financial metric: only ADMIN / ACCOUNTANT
+  const isPrivileged = role === 'ADMIN'
+  // «Всего заработано» is a privileged financial metric: only ADMIN
   // viewers see it, and only on SENIOR / DROP / JUNIOR / HR profiles. Other
   // viewers (incl. the target self-viewing) never get the figure — the backend
   // also enforces this (assertCanReadTotalEarned → 403), so the query is the
@@ -77,7 +77,7 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
 
   const { data: transactions = [], isLoading } = useQuery({
     queryKey: ['profile-transactions', userId, role],
-    // ADMIN / ACCOUNTANT: use the privileged /users/:id/transactions endpoint
+    // ADMIN: use the privileged /users/:id/transactions endpoint
     // which returns every tx the target was part of. For SENIOR self-view
     // (and other roles looking at their own finances) we fall back to the
     // public /transactions endpoint and client-filter by sender/receiver.
@@ -198,7 +198,7 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
   const hasActive = search !== '' || typeFilter !== 'all' || statusFilter !== 'all'
 
   // «Всего заработано с нами» card — lifetime money the company paid this user.
-  // Rendered above the transactions list, visible to ADMIN / ACCOUNTANT only on
+  // Rendered above the transactions list, visible to ADMIN only on
   // SENIOR / DROP / JUNIOR / HR profiles (see showTotalEarned). Shown in both the
   // empty-state and the populated branch so the figure is consistent regardless
   // of whether the row list is non-empty.

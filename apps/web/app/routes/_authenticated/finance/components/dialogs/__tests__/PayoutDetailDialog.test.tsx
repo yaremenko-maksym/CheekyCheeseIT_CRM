@@ -7,7 +7,7 @@
  *   - The company wallet address (payout.contractAddress) + payable amount are
  *     rendered for the payer (SENIOR/DROP) — this is the "куда / сколько" they
  *     must see to perform the transfer.
- *   - The «Ручное подтверждение» section is visible ONLY to ADMIN / ACCOUNTANT
+ *   - The «Ручное подтверждение» section is visible ONLY to ADMIN
  *     and hidden for SENIOR / DROP / JUNIOR / HR. The backend re-checks RBAC,
  *     but the UI must not even render the escape hatch for unprivileged roles.
  *   - The COMPANY_ACCOUNT method (default) shows the «кредитует баланс счёта
@@ -113,7 +113,7 @@ function renderDialog() {
   return render(<PayoutDetailDialog open onClose={() => {}} payoutId={PAYOUT.id} />)
 }
 
-const PRIVILEGED = ['ADMIN', 'ACCOUNTANT'] as const
+const PRIVILEGED = ['ADMIN'] as const
 const UNPRIVILEGED = ['SENIOR', 'DROP', 'JUNIOR', 'HR'] as const
 
 beforeEach(() => {

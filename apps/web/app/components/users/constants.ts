@@ -8,11 +8,10 @@ export const ROLE_VARIANT: Record<
   SENIOR: 'senior',
   JUNIOR: 'junior',
   HR: 'hr',
-  ACCOUNTANT: 'accountant',
   DROP: 'drop',
 }
 
-export const ROLES = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] as const
+export const ROLES = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP'] as const
 export type Role = (typeof ROLES)[number]
 
 /**
@@ -24,7 +23,7 @@ export type Role = (typeof ROLES)[number]
  * slider + mandatory team section when DROP is picked, and submits to
  * `POST /api/users/drops` which provisions the drop-team atomically.
  */
-export const CREATE_ALLOWED_ROLES = ['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] as const
+export const CREATE_ALLOWED_ROLES = ['SENIOR', 'JUNIOR', 'HR', 'DROP'] as const
 export type CreateAllowedRole = (typeof CREATE_ALLOWED_ROLES)[number]
 
 export type SortKey = 'displayName' | 'role' | 'email' | 'createdAt'

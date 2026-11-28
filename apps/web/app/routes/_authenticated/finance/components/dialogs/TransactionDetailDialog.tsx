@@ -484,7 +484,7 @@ export function TransactionDetailDialog({
         row,
         user?.id,
         // Stryker disable next-line StringLiteral: canAttachReceipt only compares
-        // role against the literals 'ADMIN'/'ACCOUNTANT' — any other string
+        // role against the literal 'ADMIN' — any other string
         // (the '' fallback or the mutant's "Stryker was here!") is equally
         // non-matching, so no test can observe a difference between them.
         user?.role ?? '',
@@ -494,7 +494,7 @@ export function TransactionDetailDialog({
       // dialog is closed and unmounted.
       false
   // Same audience the server already uses for the audit fields on this DTO.
-  const privileged = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
+  const privileged = user?.role === 'ADMIN'
 
   return (
     <>
@@ -612,7 +612,7 @@ function TransactionInfoBlock({
   rates: ExchangeRates | undefined
   isLoading: boolean
   detailReady: boolean
-  /** ADMIN/ACCOUNTANT — the audience for the internal payment-fact triplet. */
+  /** ADMIN — the audience for the internal payment-fact triplet. */
   privileged: boolean
 }) {
   // Prop kept as `t` at the call sites (unchanged) — renamed to `tx` on
@@ -687,7 +687,7 @@ function TransactionInfoBlock({
           operator who hits the `PAYMENT_FACT_RECORDED` refusal («по цьому рядку
           вже зафіксовано факт платежу») had no way to see the fact they were being
           refused over. A refusal whose cause is invisible is worse than the
-          refusal itself. ADMIN/ACCOUNTANT only: an internal accounting detail,
+          refusal itself. ADMIN only: an internal accounting detail,
           the same audience as the other audit fields in this dialog.
 
           SR-L-2 (security-review): this is a RENDER gate, not RBAC. The triplet

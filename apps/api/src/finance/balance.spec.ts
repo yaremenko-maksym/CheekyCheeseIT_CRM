@@ -367,35 +367,35 @@ describe('R3 — BalanceService RBAC helpers: assertCanReadAdminBalance', () => 
     const svc = makeService()
     const viewer = makeViewer('ADMIN', 'other-admin-id')
     expect(() => svc.assertCanReadAdminBalance(viewer, TARGET_ADMIN_ID)).toThrow(
-      "Only that admin or an accountant can see an admin's balance",
+      "Only that admin can see an admin's balance",
     )
   })
 
   it('SENIOR cannot read admin balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('SENIOR'), TARGET_ADMIN_ID)).toThrow(
-      "Only that admin or an accountant can see an admin's balance",
+      "Only that admin can see an admin's balance",
     )
   })
 
   it('JUNIOR cannot read admin balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('JUNIOR'), TARGET_ADMIN_ID)).toThrow(
-      "Only that admin or an accountant can see an admin's balance",
+      "Only that admin can see an admin's balance",
     )
   })
 
   it('HR cannot read admin balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('HR'), TARGET_ADMIN_ID)).toThrow(
-      "Only that admin or an accountant can see an admin's balance",
+      "Only that admin can see an admin's balance",
     )
   })
 
   it('DROP cannot read admin balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('DROP'), TARGET_ADMIN_ID)).toThrow(
-      "Only that admin or an accountant can see an admin's balance",
+      "Only that admin can see an admin's balance",
     )
   })
 })
@@ -459,21 +459,21 @@ describe('R3 — BalanceService RBAC helpers: assertCanListPendingObligations', 
   it('JUNIOR cannot list pending obligations → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanListPendingObligations(makeViewer('JUNIOR'))).toThrow(
-      'Only an admin, an accountant, or a senior can see pending obligations',
+      'Only an admin or a senior can see pending obligations',
     )
   })
 
   it('HR cannot list pending obligations → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanListPendingObligations(makeViewer('HR'))).toThrow(
-      'Only an admin, an accountant, or a senior can see pending obligations',
+      'Only an admin or a senior can see pending obligations',
     )
   })
 
   it('DROP cannot list pending obligations → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanListPendingObligations(makeViewer('DROP'))).toThrow(
-      'Only an admin, an accountant, or a senior can see pending obligations',
+      'Only an admin or a senior can see pending obligations',
     )
   })
 })

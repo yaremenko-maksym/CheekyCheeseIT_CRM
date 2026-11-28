@@ -12,7 +12,7 @@
  *   AC1 — attach drop happy-path → drop row appears in effective team
  *   AC2 — detach drop confirm → drop row disappears + PATCH {dropId:null}
  *   AC3 — picker absent / attach-btn hidden when drop already assigned
- *   AC4 — regression: JUNIOR/HR/ACCOUNTANT still addable via POST /members
+ *   AC4 — regression: JUNIOR/HR still addable via POST /members
  *   AC5 — RBAC: SENIOR has no attach/detach controls (canManage = ADMIN||HR)
  */
 
@@ -348,7 +348,7 @@ test.describe('Picker hidden when drop already assigned (AC3)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// AC4 — Regression: JUNIOR/HR/ACCOUNTANT still addable via POST /members
+// AC4 — Regression: JUNIOR/HR still addable via POST /members
 // ---------------------------------------------------------------------------
 
 test.describe('Regression — non-DROP members still addable (AC4)', () => {
@@ -430,7 +430,7 @@ test.describe('Regression — non-DROP members still addable (AC4)', () => {
     // Click "Додати" button for Junior inside the dialog (row-level action —
     // distinct from the card-level "Додати до складу" button that opened it).
     // The dialog has one Додати button per candidate; Junior is first in
-    // availableToAdd (HR already in team, accountant in team, junior is free).
+    // availableToAdd (HR already in team, junior is free).
     // Using first() avoids strict-mode violation from nested div matches.
     await dialog
       .getByRole('button', { name: /^додати$/i })
@@ -500,7 +500,7 @@ test.describe('RBAC — SENIOR cannot manage drop (AC5)', () => {
 // team-card-drop-row is a DISPLAY-ONLY row in the "Команда" card on the
 // "Обзор" tab (distinct from effective-team-drop on the "Состав" tab).
 // It renders only when effectiveTeam.drop != null AND viewer role is
-// ADMIN/HR/ACCOUNTANT (see $projectId.tsx ~line 1110). For SENIOR the real
+// ADMIN/HR (see $projectId.tsx ~line 1110). For SENIOR the real
 // API already masks effectiveTeam.drop to null (PR #363), so both guards
 // independently keep the row out of the DOM.
 // ---------------------------------------------------------------------------

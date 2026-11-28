@@ -5,7 +5,7 @@
  * This test verifies the structural contract of the dev-login user list:
  *  - All entries have non-empty email and label
  *  - Emails have valid format (contain @ and .)
- *  - Each of the 6 roles (ADMIN, SENIOR, JUNIOR, HR, ACCOUNTANT, DROP) is
+ *  - Each of the 5 roles (ADMIN, SENIOR, JUNIOR, HR, DROP) is
  *    represented — so the dev-login panel covers every role for testing.
  *  - All emails match actual seeded DB accounts (apps/api/src/database/seed.ts):
  *    @cheekycheese.dev for devs, real Gmail/domain for admins.
@@ -38,8 +38,8 @@ describe('DEV_USERS — structural contract (security audit Fix#2 + Fix#3)', () 
     })
   })
 
-  it('every role is represented (ADMIN, SENIOR, JUNIOR, HR, ACCOUNTANT, DROP)', () => {
-    const roles = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
+  it('every role is represented (ADMIN, SENIOR, JUNIOR, HR, DROP)', () => {
+    const roles = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP']
     for (const role of roles) {
       const found = DEV_USERS.some((u) => u.label.includes(role))
       expect(found, `No DEV_USERS entry for role ${role}`).toBe(true)

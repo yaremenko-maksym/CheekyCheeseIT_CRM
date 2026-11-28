@@ -78,7 +78,7 @@ export function CascadeUnarchiveModal({
           </div>
           <p className="text-xs text-muted-foreground">
             <Trans>
-              HR/бухгалтери команди після відновлення залишаються відв’язаними — додайте їх заново.
+              HR команди після відновлення залишаються відв’язаними — додайте їх заново.
             </Trans>
           </p>
         </div>

@@ -93,7 +93,7 @@ const TX_USDT_SENIOR = {
   txHash: null,
   rejectionReason: null,
   payoutRequestId: null,
-  validatedBy: USERS.accountant.id,
+  validatedBy: USERS.admin.id,
   validatedAt: '2026-05-02T10:00:00.000Z',
   createdAt: '2026-05-01T10:00:00.000Z',
   updatedAt: '2026-05-02T10:00:00.000Z',

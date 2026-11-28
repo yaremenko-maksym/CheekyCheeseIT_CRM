@@ -338,7 +338,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   },
   TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN: /* i18n */ {
     id: 'api-error.TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN',
-    message: 'Змінити частку сеньйора на рівні команди можуть лише адміністратор і бухгалтер',
+    message: 'Змінити частку сеньйора на рівні команди може лише адміністратор',
   },
   TEAM_ALREADY_ARCHIVED: /* i18n */ {
     id: 'api-error.TEAM_ALREADY_ARCHIVED',
@@ -382,7 +382,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_MESSAGES: Record<
   },
   TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE: /* i18n */ {
     id: 'api-error.TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE',
-    message: 'У команді має залишитися щонайменше один бухгалтер',
+    message: 'Цей розділ недоступний для вашої ролі',
   },
   TEAM_USER_NOT_FOUND_OR_WRONG_ROLE: /* i18n */ {
     id: 'api-error.TEAM_USER_NOT_FOUND_OR_WRONG_ROLE',
@@ -512,7 +512,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_FALLBACK_EN: Record<
   TEAM_SENIOR_ALREADY_ON_ANOTHER_TEAM: 'The senior is already on another active team',
   TEAM_NOT_FOUND: 'Team not found',
   TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN:
-    "Only an administrator or an accountant can change the senior's share at the team level",
+    "Only an administrator can change the senior's share at the team level",
   TEAM_ALREADY_ARCHIVED: 'The team is already archived',
   TEAM_NO_ACTIVE_SENIOR_FOR_ARCHIVE: "The team has no active senior, so it can't be archived",
   TEAM_NOT_ARCHIVED: "The team isn't archived",
@@ -523,7 +523,7 @@ export const DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_FALLBACK_EN: Record<
   TEAM_USER_ALREADY_MEMBER: 'The user is already a team member',
   TEAM_MEMBER_NOT_FOUND: 'Team member not found',
   TEAM_CANNOT_REMOVE_SENIOR: "The senior can't be removed from a team — delete the team instead",
-  TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE: 'The team must keep at least one accountant',
+  TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE: 'This section is not available for your role',
   TEAM_USER_NOT_FOUND_OR_WRONG_ROLE: "The specified user wasn't found or has the wrong role",
   TEAM_UNEXPECTED_USER_ROLE:
     'This action needs {expectedRole, select, ADMIN {an administrator} SENIOR {a senior} JUNIOR {a junior} HR {an HR} ACCOUNTANT {an accountant} DROP {a drop} other {an employee}}, ' +

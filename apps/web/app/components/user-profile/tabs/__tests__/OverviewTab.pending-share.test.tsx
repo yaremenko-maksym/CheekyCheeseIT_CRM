@@ -119,7 +119,7 @@ const EMPTY_DATA = { overview: {} }
  * task-648-fix-round-2 (UX-H-3(r2)): the withdraw control is ADMIN-only, and
  * the component reads that off the SAME `set-note` action key `canSeeAdminNote`
  * already uses (see `UsersAccessService` — it means "ADMIN viewing someone
- * else"). An ACCOUNTANT/HR viewer has `fields.share` but not that action.
+ * else"). An HR viewer has `fields.share` but not that action.
  */
 const ADMIN_SHARE_PERMS: ViewPermissions = {
   tabs: ['overview'],
@@ -376,7 +376,7 @@ describe('OverviewTab — withdraw ("Скасувати пропозицію") c
   })
 
   it('a viewer who can see the share but is NOT an admin does not get it', () => {
-    // ACCOUNTANT/HR shape: `fields.share` yes, `set-note` action no. The
+    // HR shape: `fields.share` yes, `set-note` action no. The
     // backend would 403 them on the cancel endpoint, so offering the button
     // would be a promise the server refuses to keep.
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'view')

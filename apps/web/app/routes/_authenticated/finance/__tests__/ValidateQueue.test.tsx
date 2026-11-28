@@ -280,7 +280,7 @@ describe('ValidateDialog — queue behaviour (AC2)', () => {
 
     expect(invalidateQueriesMock).toHaveBeenCalledWith({ queryKey: ['transactions'] })
     expect(invalidateQueriesMock).toHaveBeenCalledWith({ queryKey: ['finance-summary'] })
-    expect(invalidateQueriesMock).toHaveBeenCalledWith({ queryKey: ['accountant', 'summary'] })
+    expect(invalidateQueriesMock).not.toHaveBeenCalledWith({ queryKey: ['accountant', 'summary'] })
   })
 })
 

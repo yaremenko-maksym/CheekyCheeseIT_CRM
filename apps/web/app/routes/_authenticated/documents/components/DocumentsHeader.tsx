@@ -37,7 +37,7 @@ export function DocumentsHeader({ viewer, categoryFilter, users }: HeaderProps) 
 
   const uploadableCats = UPLOADABLE_PER_ROLE[viewer.role] ?? []
   // The upload button is hidden when:
-  //   - the role can't upload anything from this page (e.g. ACCOUNTANT), OR
+  //   - the role can't upload anything from this page, OR
   //   - the dropdown is narrowed to Receipts only (uploads via Finance), OR
   //   - the dropdown is narrowed to an internal category (AVATAR/LOGO —
   //     managed in Profile/Project, not bulk-uploaded here).

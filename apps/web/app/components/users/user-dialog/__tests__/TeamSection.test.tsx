@@ -3,7 +3,7 @@
  * verbatim. SECURITY-SENSITIVE (RBAC team assignment): pins which role/mode
  * renders which sub-block (DROP create, SENIOR create/edit incl. the
  * CREATE_NEW / JOIN_DROP_TEAM split, JUNIOR create/edit, no section for the
- * rest), the HR / accountant wiring, the vacant-drop-team picker and the JUNIOR
+ * rest), the HR wiring, the vacant-drop-team picker and the JUNIOR
  * project lists through a real TanStack form.
  */
 import { render as rtlRender, screen, fireEvent, within, waitFor } from '@testing-library/react'
@@ -47,18 +47,8 @@ const hr = (id: string, displayName: string) =>
     email: `${id}@x.io`,
     role: 'HR',
   }) as unknown as UserProfileDto
-const acc = (id: string, displayName: string) =>
-  ({
-    id,
-    displayName,
-    avatarUrl: null,
-    email: `${id}@x.io`,
-    role: 'ACCOUNTANT',
-  }) as unknown as UserProfileDto
-
 const HR_A = hr('hr-a', 'Hanna HR')
 const HR_B = hr('hr-b', 'Hlib HR')
-const ACC_A = acc('acc-a', 'Anna Accountant')
 
 const dropTeam = (id: string, name: string, withDrop: boolean, hrs: string[]): TeamDto =>
   ({
@@ -87,10 +77,8 @@ interface Overrides {
   teamMode?: string
   isCreate?: boolean
   hrUsers?: UserProfileDto[]
-  accountantUsers?: UserProfileDto[]
   selectedHrIds?: string[]
   hrError?: string
-  selectedAccountantId?: string
   vacantDropTeams?: TeamDto[]
   availableJuniorProjects?: ProjectDto[]
   juniorActiveProjects?: ProjectDto[]
@@ -98,7 +86,6 @@ interface Overrides {
 
 interface Spies {
   handleHrChange: Mock<(next: string[]) => void>
-  setSelectedAccountantId: Mock<(next: string) => void>
   onClose: Mock<() => void>
 }
 
@@ -122,12 +109,9 @@ function Harness({ o = {}, spies }: { o?: Overrides; spies: Spies }) {
         isCreate={isCreate}
         isEdit={!isCreate}
         hrUsers={o.hrUsers ?? [HR_A, HR_B]}
-        accountantUsers={o.accountantUsers ?? [ACC_A]}
         selectedHrIds={o.selectedHrIds ?? []}
         handleHrChange={spies.handleHrChange}
         hrError={o.hrError}
-        selectedAccountantId={o.selectedAccountantId ?? ''}
-        setSelectedAccountantId={spies.setSelectedAccountantId}
         vacantDropTeams={o.vacantDropTeams ?? []}
         availableJuniorProjects={o.availableJuniorProjects ?? []}
         juniorActiveProjects={o.juniorActiveProjects ?? []}
@@ -166,7 +150,6 @@ function Harness({ o = {}, spies }: { o?: Overrides; spies: Spies }) {
 function setup(o: Overrides = {}) {
   const spies: Spies = {
     handleHrChange: vi.fn<(next: string[]) => void>(),
-    setSelectedAccountantId: vi.fn<(next: string) => void>(),
     onClose: vi.fn<() => void>(),
   }
   render(<Harness o={o} spies={spies} />)
@@ -188,7 +171,7 @@ beforeEach(async () => {
 })
 
 describe('TeamSection — role gating', () => {
-  it.each(['ADMIN', 'HR', 'ACCOUNTANT'])('%s renders no team section', (role) => {
+  it.each(['ADMIN', 'HR'])('%s renders no team section', (role) => {
     setup({ role })
     expect(screen.queryByRole('heading')).not.toBeInTheDocument()
     expect(screen.queryByTestId('user-dialog-hr-multiselect')).not.toBeInTheDocument()
@@ -202,11 +185,11 @@ describe('TeamSection — role gating', () => {
 })
 
 describe('TeamSection — DROP (create)', () => {
-  it('renders the drop-team heading, HR + accountant pickers and the channel field', () => {
+  it('renders the drop-team heading, the HR picker (no accountant picker) and the channel field', () => {
     setup({ role: 'DROP' })
     expect(screen.getByRole('heading', { name: 'Команда дропа' })).toBeInTheDocument()
     expect(screen.getByTestId('user-dialog-hr-multiselect')).toBeInTheDocument()
-    expect(screen.getByText('Бухгалтер')).toBeInTheDocument()
+    expect(screen.queryByText('Бухгалтер')).not.toBeInTheDocument()
     expect(screen.getByTestId('user-dialog-drop-team-telegram-channel')).toBeInTheDocument()
     // No senior-only controls on the drop flow.
     expect(screen.queryByTestId('user-dialog-team-mode')).not.toBeInTheDocument()
@@ -239,22 +222,6 @@ describe('TeamSection — DROP (create)', () => {
   it('two HRs in the system are removable (onlyHr false)', () => {
     setup({ role: 'DROP', selectedHrIds: ['hr-a'] })
     expect(screen.getByTestId('user-dialog-hr-remove-hr-a')).toBeInTheDocument()
-  })
-
-  it('clearing the accountant calls setSelectedAccountantId("")', () => {
-    const spies = setup({
-      role: 'DROP',
-      accountantUsers: [ACC_A, acc('acc-b', 'Borys Accountant')],
-      selectedAccountantId: 'acc-a',
-    })
-    fireEvent.click(screen.getByTestId('user-dialog-accountant-clear'))
-    expect(spies.setSelectedAccountantId).toHaveBeenCalledWith('')
-  })
-
-  it('a single accountant in the system is locked (onlyAccountant): no clear button', () => {
-    setup({ role: 'DROP', selectedAccountantId: 'acc-a' })
-    expect(screen.getByTestId('user-dialog-accountant-chip')).toBeInTheDocument()
-    expect(screen.queryByTestId('user-dialog-accountant-clear')).not.toBeInTheDocument()
   })
 
   it('channel: invalid handle on blur shows the format error and no hint', () => {
@@ -313,7 +280,7 @@ describe('TeamSection — SENIOR', () => {
     expect(screen.getByTestId('user-dialog-team-mode-join-drop')).toBeInTheDocument()
   })
 
-  it('edit: no team-mode picker, legacy HR / accountant / channel controls', () => {
+  it('edit: no team-mode picker, legacy HR / channel controls', () => {
     setup({ isCreate: false })
     expect(screen.queryByTestId('user-dialog-team-mode')).not.toBeInTheDocument()
     expect(screen.getByTestId('user-dialog-hr-multiselect')).toBeInTheDocument()
@@ -335,22 +302,15 @@ describe('TeamSection — SENIOR', () => {
     expect(screen.queryByTestId('user-dialog-drop-team-trigger')).not.toBeInTheDocument()
   })
 
-  it('CREATE_NEW: removing HR and clearing accountant forward to the parent handlers', () => {
-    const spies = setup({
-      selectedHrIds: ['hr-a', 'hr-b'],
-      accountantUsers: [ACC_A, acc('acc-b', 'Borys Accountant')],
-      selectedAccountantId: 'acc-a',
-    })
+  it('CREATE_NEW: removing HR forwards to the parent handler', () => {
+    const spies = setup({ selectedHrIds: ['hr-a', 'hr-b'] })
     fireEvent.click(screen.getByTestId('user-dialog-hr-remove-hr-b'))
     expect(spies.handleHrChange).toHaveBeenCalledWith(['hr-a'])
-    fireEvent.click(screen.getByTestId('user-dialog-accountant-clear'))
-    expect(spies.setSelectedAccountantId).toHaveBeenCalledWith('')
   })
 
-  it('CREATE_NEW: a single HR / accountant are locked', () => {
-    setup({ hrUsers: [HR_A], selectedHrIds: ['hr-a'], selectedAccountantId: 'acc-a' })
+  it('CREATE_NEW: a single HR is locked', () => {
+    setup({ hrUsers: [HR_A], selectedHrIds: ['hr-a'] })
     expect(screen.queryByTestId('user-dialog-hr-remove-hr-a')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('user-dialog-accountant-clear')).not.toBeInTheDocument()
   })
 
   it('CREATE_NEW: channel validator rejects a bad handle, accepts a good one, optional when blank', () => {
@@ -395,7 +355,7 @@ describe('TeamSection — SENIOR', () => {
     expect(screen.getByText('3 команди доступні.')).toBeInTheDocument()
   })
 
-  it('picking JOIN_DROP_TEAM swaps HR/accountant/channel for the drop-team picker', async () => {
+  it('picking JOIN_DROP_TEAM swaps HR/channel for the drop-team picker', async () => {
     const user = userEvent.setup()
     setup({ vacantDropTeams: [dropTeam('t1', 'Alpha', true, ['H1'])] })
     await user.click(screen.getByTestId('user-dialog-team-mode-join-drop'))

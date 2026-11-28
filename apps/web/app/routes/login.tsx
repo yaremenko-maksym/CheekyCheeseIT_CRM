@@ -201,7 +201,6 @@ export const DEV_USERS = [
   { email: 'ivan.petrenko@cheekycheese.dev', label: 'Junior 2 — JUNIOR (Ivan)' },
   { email: 'anna.lysenko@cheekycheese.dev', label: 'HR 1 — HR (Anna)' },
   { email: 'kateryna.shevchenko@cheekycheese.dev', label: 'HR 2 — HR (Kateryna)' },
-  { email: 'mykola.savchenko@cheekycheese.dev', label: 'Accountant — ACCOUNTANT (Mykola)' },
   { email: 'viktor.drop@cheekycheese.dev', label: 'Drop — DROP (Viktor)' },
 ]
 
