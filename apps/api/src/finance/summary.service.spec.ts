@@ -493,6 +493,9 @@ describe('SummaryService.getSummary — figures (hand-computed literals)', () =>
       '20260302',
       '20260601',
     ])
+    // CR-M-1: the summary hands over its own live rate, so the prefetch never asks NBU again
+    expect(nbu.getRates).toHaveBeenCalledTimes(1)
+    expect(nbu.getRatesForDays.mock.calls[0]![1]).toBe(RATES)
     // totals keep today's rate: 4000/40 + 1000/40 = 125 income, 20*50/40 = 25 expenses
     expect(r.totalIncome).toBe(125)
     expect(r.totalExpenses).toBe(25)
@@ -519,6 +522,43 @@ describe('SummaryService.getSummary — figures (hand-computed literals)', () =>
     expect(r.adminBalances).toEqual([
       { userId: 'a1', displayName: 'Alice', balance: 100, stale: true },
       { userId: 'a2', displayName: 'Bob', balance: 9, stale: false },
+    ])
+  })
+
+  // CR-M-3: a row HOLDING ignores neither costs an NBU fetch nor marks the balance stale.
+  it('a non-USD row the admin balance ignores is never priced and never marks it stale', async () => {
+    const { svc, nbu } = makeDb({
+      txs: [
+        // company-account income goes to the shared pool, not the admin's balance
+        stx({
+          type: 'ADMIN_INCOME',
+          amount: '4150',
+          currency: 'UAH',
+          receiverId: 'a1',
+          fundingSource: 'COMPANY_ACCOUNT',
+          txDate: new Date('2026-03-02T00:00:00Z'),
+        }),
+        // a plain PAYOUT received by an admin is not a HOLDING credit either
+        stx({
+          type: 'PAYOUT',
+          amount: '415',
+          currency: 'UAH',
+          receiverId: 'a2',
+          txDate: new Date('2026-03-03T00:00:00Z'),
+        }),
+        stx({ type: 'PAYOUT_ADMIN', amount: '9', currency: 'USD', receiverId: 'a1' }),
+      ],
+      admins: ADMINS,
+      ratesByDay: {
+        '20260302': { usdUah: '41.5', usdtUah: '41.5', eurUah: '44.8', stale: true },
+        '20260303': { usdUah: '41.5', usdtUah: '41.5', eurUah: '44.8', stale: true },
+      },
+    })
+    const r = await svc.getSummary(user('ADMIN'))
+    expect(nbu.getRatesForDays).not.toHaveBeenCalled()
+    expect(r.adminBalances).toEqual([
+      { userId: 'a1', displayName: 'Alice', balance: 9, stale: false },
+      { userId: 'a2', displayName: 'Bob', balance: 0, stale: false },
     ])
   })
 

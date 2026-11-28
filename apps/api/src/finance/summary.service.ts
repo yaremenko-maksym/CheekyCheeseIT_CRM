@@ -242,12 +242,27 @@ export class SummaryService {
       : await this.db.db.query.users.findMany({
           where: eq(users.role, 'ADMIN'),
         })
-    const adminIds = new Set(admins.map((a) => a.id))
+    // The rows HOLDING counts for `adminId`: a credit is one of the types below received by the
+    // admin, a debit is ANY paid row the admin sent. `needsRate`, `stale` and both sums read
+    // this one predicate (code review PR #1523, CR-M-3), so a row the balance ignores never
+    // costs an NBU fetch nor marks the balance stale.
+    const creditsAdmin = (tx: TxWithRelations, adminId: string): boolean =>
+      tx.receiverId === adminId &&
+      (tx.type === 'PAYOUT_ADMIN' ||
+        // task-salary-company-account: ADMIN_INCOME routed to the
+        // company account (fundingSource='COMPANY_ACCOUNT') went into
+        // the shared pool, NOT the admin's personal balance — exclude
+        // it here. Legacy/admin-personal ADMIN_INCOME (NULL funding)
+        // still credits the admin as before.
+        (tx.type === 'ADMIN_INCOME' && tx.fundingSource !== 'COMPANY_ACCOUNT') ||
+        tx.type === 'ADMIN_TRANSFER' ||
+        tx.type === 'PAYOUT_CONFIRMED')
+    const countsForAdmin = (tx: TxWithRelations, adminId: string): boolean =>
+      creditsAdmin(tx, adminId) || tx.senderId === adminId
     const needsRate = (tx: TxWithRelations): boolean =>
       tx.currency !== 'USD' &&
       tx.currency !== 'USDT' &&
-      ((tx.receiverId !== null && adminIds.has(tx.receiverId)) ||
-        (tx.senderId !== null && adminIds.has(tx.senderId)))
+      admins.some((admin) => countsForAdmin(tx, admin.id))
     // Same fail-loud rule as `transactionBusinessMonth` (backlog 338): a NULL txDate is a broken
     // invariant, never priced at some other day's rate.
     const rowDay = (tx: TxWithRelations): string => {
@@ -258,7 +273,10 @@ export class SummaryService {
     const dayRates =
       dayRows.length === 0
         ? new Map<string, ExchangeRateResult>()
-        : await this.nbuCurrency.getRatesForDays(dayRows.map(([, day]) => day))
+        : await this.nbuCurrency.getRatesForDays(
+            dayRows.map(([, day]) => day),
+            rates,
+          )
     // Resolved once per row: the admin loop below reads it for every admin.
     const rowRates = new Map<TxWithRelations, ExchangeRateResult>(
       dayRows.map(([tx, day]) => [tx, dayRates.get(day) ?? rates]),
@@ -272,23 +290,11 @@ export class SummaryService {
       )
 
     const adminBalances = admins.map((admin) => {
-      const isOwn = (tx: TxWithRelations): boolean =>
-        tx.receiverId === admin.id || tx.senderId === admin.id
-      const stale = paid.some((tx) => isOwn(tx) && rowRates.get(tx)?.stale === true)
+      const stale = paid.some(
+        (tx) => countsForAdmin(tx, admin.id) && rowRates.get(tx)?.stale === true,
+      )
       const receivedScaled = paid
-        .filter(
-          (tx) =>
-            tx.receiverId === admin.id &&
-            (tx.type === 'PAYOUT_ADMIN' ||
-              // task-salary-company-account: ADMIN_INCOME routed to the
-              // company account (fundingSource='COMPANY_ACCOUNT') went into
-              // the shared pool, NOT the admin's personal balance — exclude
-              // it here. Legacy/admin-personal ADMIN_INCOME (NULL funding)
-              // still credits the admin as before.
-              (tx.type === 'ADMIN_INCOME' && tx.fundingSource !== 'COMPANY_ACCOUNT') ||
-              tx.type === 'ADMIN_TRANSFER' ||
-              tx.type === 'PAYOUT_CONFIRMED'),
-        )
+        .filter((tx) => creditsAdmin(tx, admin.id))
         // Audit 2026-06-28 (#4): convert to base before scaling (mixed-currency
         // safe). USD/USDT → identity, so prod balances stay byte-exact.
         .reduce((sum, tx) => sum + Math.round(toBaseAtRowDay(tx) * SCALE), 0)
