@@ -184,12 +184,55 @@ case_red gcomp apps/web/app/lib/gc.ts modified "const r = globalThis['req' + 'ui
 case_red wcomp apps/web/app/lib/wc.ts modified "const r = window[name]" "window[...]" \
   "a computed member of window -> refused"
 case_red gprop apps/web/app/lib/gp.ts modified "const r = self.eval" "self.eval" "self.eval -> refused"
-case_red nodefs apps/e2e/helpers/fs.ts modified "import { readFileSync } from 'node:fs'" "module specifier node:fs" \
-  "a node:* import -> refused"
-case_red cp apps/e2e/helpers/cp.ts modified "import { exec } from 'child_process'" "module specifier child_process" \
-  "a child_process import -> refused"
-case_red nmod apps/e2e/helpers/nm.ts modified "import { createRequire as c } from 'module'" "module specifier module" \
-  "an import of 'module' (renamed binding) -> refused"
+case_red cp apps/e2e/helpers/cp.ts modified "import { exec } from 'child_process'" "Node built-in child_process" \
+  "e2e: a child_process import -> refused"
+case_red nmod apps/e2e/helpers/nm.ts modified "import { createRequire as c } from 'module'" "Node built-in module" \
+  "e2e: an import of 'module' (renamed binding) -> refused"
+
+# Master addendum 4: Node built-ins via isBuiltin(); e2e allowlist; Reflect; globals passed as values
+case_red webfs apps/web/app/lib/fs.ts modified "import { readFileSync } from 'node:fs'" "Node built-in node:fs" \
+  "web: node:fs -> refused (browser code may import no built-in)"
+case_red webpath apps/landing/src/p.ts modified "import path from 'path'" "Node built-in path" \
+  "landing: a bare built-in (path) -> refused"
+case_red e2evm apps/e2e/helpers/vm.ts modified "import vm from 'node:vm'" "Node built-in node:vm" "e2e: node:vm -> refused"
+case_red e2ewt apps/e2e/helpers/wt.ts modified "import { Worker } from 'worker_threads'" "Node built-in worker_threads" \
+  "e2e: bare worker_threads -> refused"
+case_red e2eins apps/e2e/helpers/in.ts modified "const i = await import('node:inspector')" "Node built-in node:inspector" \
+  "e2e: a literal import() of node:inspector -> refused"
+case_red e2enet apps/e2e/helpers/net.ts modified "import net from 'node:net'" "Node built-in node:net" \
+  "e2e: node:net (already used, not allowlisted) -> refused"
+case_red e2efake apps/e2e/helpers/fk.ts modified "import x from 'node:nope'" "Node built-in node:nope" \
+  "e2e: an unknown node: specifier -> refused"
+src e2eok "import { readFileSync } from 'node:fs'
+import { readFile } from 'fs/promises'
+import path from 'path'
+import { fileURLToPath } from 'node:url'
+import os from 'os'
+import { randomUUID } from 'node:crypto'"
+mk e2eok apps/e2e/helpers/ok.ts modified
+assert_green "e2e: fs / fs/promises / path / url / os / crypto are allowed" --contains "[not-required]" -- run e2eok
+assert_green "E2E_BUILTINS is exactly fs, path, url, os, crypto" --contains '["fs","path","url","os","crypto"]' \
+  -- env S="$SUBJECT" node --input-type=module -e "const m = await import(process.env.S); console.log(JSON.stringify(m.E2E_BUILTINS))"
+case_red rget apps/web/app/lib/rg.ts modified "const r = Reflect.get(o, k)" "Reflect.get" "Reflect.get -> refused"
+case_red rapply apps/web/app/lib/rp.ts modified "Reflect.apply(f, null, [])" "Reflect.apply" "Reflect.apply -> refused"
+case_red rcons apps/web/app/lib/rc.ts modified "Reflect.construct(F, [])" "Reflect.construct" "Reflect.construct -> refused"
+case_red rcomp apps/web/app/lib/rx.ts modified "Reflect['get'](o, k)" "Reflect[...]" "Reflect['get'] -> refused"
+case_red gval apps/web/app/lib/gv.ts modified "const g = self" "\`self\` passed as a value" "const g = self -> refused"
+case_red garg apps/web/app/lib/ga.ts modified "inspect(window)" "\`window\` passed as a value" "f(window) -> refused"
+case_red gobj apps/web/app/lib/go.ts modified "Object.entries(globalThis)" "\`globalThis\` passed as a value" \
+  "Object.entries(globalThis) -> refused"
+case_red gtern apps/web/app/lib/gt.ts modified "let g; g = ok ? window : null" "\`window\` passed as a value" \
+  "a global through ?: into an assignment -> refused"
+case_red gprop2 apps/web/app/lib/gq.ts modified "const o = { w: global }" "\`global\` passed as a value" \
+  "a global as a property value -> refused"
+case_red gret apps/web/app/lib/gr.ts modified "export const f = () => globalThis" "\`globalThis\` passed as a value" \
+  "a global returned from an arrow -> refused"
+src gok "const href = window.location.href
+if (typeof window !== 'undefined') window.addEventListener('resize', onResize)
+const dark = globalThis.matchMedia?.('(prefers-color-scheme: dark)')
+const w = window.innerWidth"
+mk gok apps/web/app/components/g.tsx modified
+assert_green "plain window / globalThis member reads are NOT triggers (trade-off)" --contains "[not-required]" -- run gok
 case_red ieq apps/web/app/lib/ie.ts modified "import x = require('./x')" "import = require" \
   "import x = require(...) -> refused"
 case_red ctor2 apps/web/app/lib/c2.ts modified "const f = ''['constructor']['constructor']('return 1')" "eval" \

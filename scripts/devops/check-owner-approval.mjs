@@ -37,7 +37,7 @@
 // TypeScript: `typescript` resolved from this file, or the path in OWNER_GATE_TS.
 // Exit: 0 pass, 1 refused, 2 usage / input error.
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
+import { createRequire, isBuiltin } from 'node:module'
 import { posix } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -234,6 +234,14 @@ export function classifySpecifier(filename, spec, aliases) {
 // Inverted (Master addendum 3): a static ESM import with a literal specifier is the only loader
 // allowed without a verdict (a literal `import('x')` is resolved and judged the same way). Any
 // reference to an identifier below — called, aliased, passed or shadowed — is a trigger.
+// Node built-ins (isBuiltin, bare or node:) are triggers in browser code (apps/web, apps/landing,
+// docs); apps/e2e may import only E2E_BUILTINS. Reflect.get/apply/construct and any computed
+// member of a global object are triggers.
+// Trade-off (Master addendum 4): a plain `window` / `globalThis` / `global` / `self` reference is
+// NOT a trigger — browser code reads `window.location` everywhere, and flagging it would put every
+// web PR behind the owner. Only a global object PASSED AS A VALUE (call / new argument, initializer,
+// assignment right-hand side, spread, property value, array element, return) is a trigger: that is
+// how a loader is reached without naming it (`Reflect.get(globalThis, k)`, `const g = self`).
 const META_OK = new Set(['env', 'url', 'hot', 'dirname', 'filename', 'main'])
 const LOADER_IDS = new Set([
   'require',
@@ -246,7 +254,19 @@ const LOADER_IDS = new Set([
   'Function',
 ])
 const GLOBAL_OBJECTS = new Set(['globalThis', 'global', 'window', 'self'])
-const LOADER_SPEC = /^(module|child_process|node:.*)(\/|$)/
+// What apps/e2e already imports (git grep 2026-11-28: crypto, path, fs; net / http / module are
+// NOT allowed and trigger when a file using them is edited) plus url / os. Subpaths
+// (fs/promises) follow their root.
+export const E2E_BUILTINS = Object.freeze(['fs', 'path', 'url', 'os', 'crypto'])
+const REFLECT_LOADERS = new Set(['get', 'apply', 'construct'])
+
+export function builtinVerdict(filename, spec) {
+  if (!spec.startsWith('node:') && !isBuiltin(spec)) return null
+  const root = spec.replace(/^node:/, '').split('/')[0]
+  if (filename.startsWith('apps/e2e/') && E2E_BUILTINS.includes(root) && isBuiltin(spec))
+    return null
+  return `Node built-in ${spec}`
+}
 
 function scriptKind(filename) {
   const k = ts().ScriptKind
@@ -272,7 +292,9 @@ export function scanCode(filename, content, aliases) {
     out.push({ kind, file: filename, detail: `${detail} (line ${at(node)})` })
   const literal = (n) => n && (T.isStringLiteral(n) || T.isNoSubstitutionTemplateLiteral(n))
   const spec = (node, text) => {
-    if (LOADER_SPEC.test(text)) return push('loader-alias', node, `module specifier ${text}`)
+    const b = builtinVerdict(filename, text)
+    if (b) return push('node-builtin', node, b)
+    if (text.startsWith('node:')) return
     const c = classifySpecifier(filename, text, aliases)
     if (c) push(c.kind, node, c.detail)
   }
@@ -282,6 +304,48 @@ export function scanCode(filename, content, aliases) {
     if (!p || T.isShorthandPropertyAssignment(p)) return true
     if (T.isQualifiedName(p) && p.right === node) return false
     return !('name' in p && p.name === node)
+  }
+  // A global object in a value position, seen through parentheses / casts / ?: / ?? / || / && / ,.
+  const WRAP_OPS = [
+    SK.QuestionQuestionToken,
+    SK.BarBarToken,
+    SK.AmpersandAmpersandToken,
+    SK.CommaToken,
+  ]
+  const passedAsValue = (node) => {
+    let n = node
+    for (let p = n.parent; p; n = p, p = p.parent) {
+      const wrap =
+        T.isParenthesizedExpression(p) ||
+        T.isAsExpression(p) ||
+        T.isNonNullExpression(p) ||
+        T.isTypeAssertionExpression(p) ||
+        T.isSatisfiesExpression(p) ||
+        (T.isConditionalExpression(p) && p.condition !== n) ||
+        (T.isBinaryExpression(p) && WRAP_OPS.includes(p.operatorToken.kind))
+      if (!wrap) break
+    }
+    const p = n.parent
+    if (!p) return false
+    if ((T.isCallExpression(p) || T.isNewExpression(p)) && p.arguments?.includes(n)) return true
+    if (
+      T.isVariableDeclaration(p) ||
+      T.isPropertyAssignment(p) ||
+      T.isParameter(p) ||
+      T.isBindingElement(p)
+    ) {
+      return p.initializer === n
+    }
+    if (T.isBinaryExpression(p)) return p.right === n && p.operatorToken.kind === SK.EqualsToken
+    return (
+      T.isSpreadElement(p) ||
+      T.isSpreadAssignment(p) ||
+      T.isShorthandPropertyAssignment(p) ||
+      T.isArrayLiteralExpression(p) ||
+      T.isReturnStatement(p) ||
+      (T.isArrowFunction(p) && p.body === n) ||
+      T.isExportAssignment(p)
+    )
   }
   if (sf.parseDiagnostics?.length)
     out.push({
@@ -323,6 +387,9 @@ export function scanCode(filename, content, aliases) {
         const k = node.text === 'eval' || node.text === 'Function' ? 'eval' : 'loader-alias'
         push(k, node, `reference to \`${node.text}\``)
       }
+      if (GLOBAL_OBJECTS.has(node.text) && isReference(node) && passedAsValue(node)) {
+        push('loader-alias', node, `\`${node.text}\` passed as a value`)
+      }
     } else if (T.isPropertyAccessExpression(node)) {
       const obj = node.expression
       if (T.isMetaProperty(obj) && obj.keywordToken === SK.ImportKeyword) {
@@ -334,11 +401,17 @@ export function scanCode(filename, content, aliases) {
         LOADER_IDS.has(node.name.text)
       ) {
         push('loader-alias', node, `${obj.text}.${node.name.text}`)
+      } else if (
+        T.isIdentifier(obj) &&
+        obj.text === 'Reflect' &&
+        REFLECT_LOADERS.has(node.name.text)
+      ) {
+        push('loader-alias', node, `Reflect.${node.name.text}`)
       }
     } else if (T.isElementAccessExpression(node)) {
       const obj = node.expression
       if (T.isMetaProperty(obj)) push('loader-alias', node, 'import.meta[...]')
-      else if (T.isIdentifier(obj) && GLOBAL_OBJECTS.has(obj.text)) {
+      else if (T.isIdentifier(obj) && (GLOBAL_OBJECTS.has(obj.text) || obj.text === 'Reflect')) {
         push('loader-alias', node, `${obj.text}[...] (computed global member)`)
       }
     }
@@ -587,4 +660,4 @@ function main() {
   process.exit(res.ok ? 0 : 1)
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) main()
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main()

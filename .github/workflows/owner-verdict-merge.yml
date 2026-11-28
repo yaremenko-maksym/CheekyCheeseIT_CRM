@@ -1,0 +1,247 @@
+name: Owner Verdict Merge
+# Squash-merges a non-owner PR once the owner has posted `Owner Verdict: APPROVE` + `Commit: <head>`
+# (a PR review by the owner — see .github/CODEOWNERS.md) and every required check is green.
+# Owner requirement 2026-11-28, item 3.
+#
+# WHY workflow_run and not pull_request_review: a review event from a PR branch runs with a
+# read-only token and no secrets; workflow_run runs THIS (default-branch) copy with them. The
+# owner's review starts Flow Gate Relay (a real user event); its completion starts this run. CI /
+# E2E Tests / Flow Gate completions start it too, so "checks still pending at verdict time" is
+# finished by the completion of the last pending one — GITHUB_TOKEN events start no workflow, so
+# nothing else would.
+#
+# Merge path, reused from auto-merge-on-label.yml: ADMIN_PAT reads the required contexts (one READ
+# call), check-required-checks-complete.sh waits, gh-merge-pr-with-retry.sh merges, then deploy +
+# post-merge CI are dispatched. PRs touching .github/workflows/** keep the manual-merge rule
+# (GITHUB_TOKEN cannot write workflow files). Labels `do-not-merge` / `awaiting-pm-review` stop it.
+#
+# NEVER checks out or runs PR code: main is checked out sparse, the PR is read through the REST API
+# as data. No `${{ }}` carrying PR-controlled text is interpolated into `run:`.
+
+on:
+  workflow_run:
+    workflows: [Flow Gate Relay, Flow Gate, CI, E2E Tests]
+    types: [completed]
+
+# One evaluation per head at a time; never cancel a run that may be merging.
+concurrency:
+  group: owner-verdict-merge-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+  checks: read
+
+jobs:
+  merge:
+    name: Merge on Owner Verdict
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Find the open PR for this head
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad head sha"; exit 1; }
+          n=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
+            | jq -r --arg s "$HEAD_SHA" '[.[] | select(.state == "open" and .base.ref == "main" and .head.sha == $s)] | .[0].number // empty')
+          if [ -z "$n" ]; then
+            echo "no open PR into main has head $HEAD_SHA — nothing to do"
+          fi
+          echo "number=$n" >>"$GITHUB_OUTPUT"
+
+      - name: Checkout main (gate logic only — never the PR's code)
+        if: steps.pr.outputs.number != ''
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/devops/
+            /.github/CODEOWNERS
+            /tsconfig.base.json
+            /apps/*/tsconfig.json
+
+      - uses: actions/setup-node@v4
+        if: steps.pr.outputs.number != ''
+        with:
+          node-version: 22
+
+      - name: Install the TypeScript parser
+        if: steps.pr.outputs.number != ''
+        env:
+          TS_DIR: ${{ runner.temp }}/ts
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-audit --no-fund --ignore-scripts --prefix "$TS_DIR" typescript@5.9.3
+          echo "OWNER_GATE_TS=$TS_DIR/node_modules/typescript" >>"$GITHUB_ENV"
+
+      - name: Fetch PR data (REST API, read-only)
+        if: steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          D: ${{ runner.temp }}/owner-verdict
+        run: bash scripts/devops/owner-verdict-fetch.sh
+
+      # Proceeds only on `approved` — the owner's fresh verdict on this exact head. `owner-authored`
+      # and `not-required` PRs keep the `merge-approved` label path; this workflow never merges them.
+      - name: Decide
+        id: decide
+        if: steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          D: ${{ runner.temp }}/owner-verdict
+          OWNER: yaremenko-maksym
+        run: |
+          set -uo pipefail
+          res=$(node scripts/devops/check-owner-approval.mjs --codeowners .github/CODEOWNERS \
+            --zones scripts/devops/owner-verdict-zones.json --tsconfig-root . \
+            --pr "$D/pr.json" --files "$D/files.json" --contents "$D/contents.json" \
+            --owner "$OWNER" --json)
+          status=$(printf '%s' "$res" | jq -r '.status // "error"')
+          echo "verdict status: $status"
+          go=false
+          if [ "$status" != "approved" ]; then
+            echo "not merging: status is $status"
+          elif [ "$(jq -r .headSha "$D/pr.json")" != "$HEAD_SHA" ]; then
+            echo "not merging: the PR head moved past $HEAD_SHA"
+          elif jq -e 'any(.[]; .filename | startswith(".github/workflows/"))' "$D/files.json" >/dev/null; then
+            echo "::notice::PR #$PR_NUMBER touches .github/workflows/ — manual merge by the owner (GITHUB_TOKEN cannot write workflow files)."
+          elif gh api "repos/$REPO/issues/$PR_NUMBER/labels" --jq '.[].name' | grep -qxE 'do-not-merge|awaiting-pm-review'; then
+            echo "not merging: a do-not-merge / awaiting-pm-review label is set"
+          else
+            go=true
+          fi
+          echo "go=$go" >>"$GITHUB_OUTPUT"
+
+      # Right after the owner's review the `Owner Verdict` check still shows its previous red run
+      # until flow-gate-recheck.yml has re-run it (seconds), and check-required-checks-complete.sh
+      # stops at the first failure — so first wait, bounded, for that one context to be green.
+      - name: Wait for the re-run Owner Verdict check
+        id: verdict_check
+        if: steps.decide.outputs.go == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -uo pipefail
+          state=none
+          for _ in $(seq 1 20); do
+            state=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs?check_name=Owner%20Verdict&filter=latest" \
+              --jq '[.check_runs[] | select(.app.id == 15368)] | sort_by(.started_at) | last | "\(.status)/\(.conclusion)"' || echo error)
+            [ "$state" = "completed/success" ] && break
+            sleep 15
+          done
+          echo "Owner Verdict check: $state"
+          echo "state=$state" >>"$GITHUB_OUTPUT"
+
+      - name: Read required status check contexts (owner PAT, read-only)
+        id: required_contexts
+        if: steps.verdict_check.outputs.state == 'completed/success'
+        env:
+          GH_TOKEN: ${{ secrets.ADMIN_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          CONTEXTS_JSON=$(gh api "repos/$REPO/branches/main/protection" --jq '.required_status_checks.contexts // []')
+          if [ "$(printf '%s' "$CONTEXTS_JSON" | jq length)" -eq 0 ]; then
+            echo "::error::branches/main/protection reports zero required contexts — refusing to guess."
+            exit 1
+          fi
+          {
+            echo "list<<REQUIRED_CONTEXTS_EOF"
+            printf '%s' "$CONTEXTS_JSON" | jq -r '.[]'
+            echo "REQUIRED_CONTEXTS_EOF"
+          } >>"$GITHUB_OUTPUT"
+
+      # Bounded: a check still running past the timeout gets a comment, and the completion of its
+      # own workflow (CI / E2E Tests) starts this workflow again and merges then.
+      - name: Wait for required checks
+        id: wait_checks
+        if: steps.required_contexts.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+          REQUIRED_CONTEXTS: ${{ steps.required_contexts.outputs.list }}
+          REPORT_FILE: ${{ runner.temp }}/required-checks-report.txt
+          INTERVAL_SECONDS: '15'
+          TIMEOUT_SECONDS: '600'
+        run: bash scripts/devops/check-required-checks-complete.sh
+
+      - name: Squash and merge
+        id: squash
+        if: steps.wait_checks.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: bash scripts/devops/gh-merge-pr-with-retry.sh
+
+      # One comment per head, saying what is pending or failed — later runs for the same head
+      # find the marker and stay silent.
+      - name: Say what is pending (once per head)
+        if: steps.decide.outputs.go == 'true' && steps.squash.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          VERDICT_STATE: ${{ steps.verdict_check.outputs.state }}
+          REPORT_FILE: ${{ runner.temp }}/required-checks-report.txt
+        run: |
+          set -euo pipefail
+          marker="<!-- owner-verdict-merge:$HEAD_SHA -->"
+          if gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[].body' | grep -qF "$marker"; then
+            echo "already commented for $HEAD_SHA"
+            exit 0
+          fi
+          report="Owner Verdict check: $VERDICT_STATE"
+          [ -s "$REPORT_FILE" ] && report="$report"$'\n'"$(cat "$REPORT_FILE")"
+          # shellcheck disable=SC2016 # the backticks are markdown, not command substitution
+          body=$(printf '%s\n\nOwner verdict is APPROVE for `%s`, but the PR is not merged yet:\n\n```\n%s\n```\n\nIt merges automatically when the pending workflow (CI / E2E Tests / Flow Gate) completes green.\n' \
+            "$marker" "$HEAD_SHA" "$report")
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$body"
+
+      - name: Dispatch production deploy
+        if: always() && steps.squash.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: gh workflow run deploy.yml --repo "$REPO" --ref main
+
+      - name: Dispatch post-merge CI on main
+        if: always() && steps.squash.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: gh workflow run ci.yml --repo "$REPO" --ref main
+
+      - name: Dispatch Signal Plus deploy
+        if: always() && steps.squash.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          D: ${{ runner.temp }}/owner-verdict
+        run: |
+          # Mirrors auto-merge-on-label.yml (deploy-signal-plus.yml `push.paths`).
+          if jq -r '.[].filename' "$D/files.json" | grep -qE '^(services/signal-plus/|\.github/workflows/deploy-signal-plus\.yml$)'; then
+            gh workflow run deploy-signal-plus.yml --repo "$REPO" --ref main
+          else
+            echo "no signal-plus paths — no signal-plus deploy dispatched"
+          fi
