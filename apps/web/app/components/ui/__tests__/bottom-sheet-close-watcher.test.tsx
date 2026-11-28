@@ -10,7 +10,7 @@
  */
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent, { PointerEventsCheckLevel } from '@testing-library/user-event'
-import { useLayoutEffect, useState } from 'react'
+import { useLayoutEffect, useState, type ComponentProps } from 'react'
 import { beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { useAnyDialogOpen } from '@/hooks/use-any-dialog-open'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
@@ -37,6 +37,26 @@ const watchers = vi.hoisted(() => {
   }
   Object.defineProperty(window, 'CloseWatcher', { configurable: true, value: FakeCloseWatcher })
   return list
+})
+
+// The props BottomSheet last passed to the real Drawer.Root, to move the snap point (a drag needs
+// layout happy-dom lacks); everything else goes through Base UI unchanged.
+const root = vi.hoisted(() => {
+  let props: Record<string, unknown> = {}
+  return {
+    get: () => props,
+    set: (next: Record<string, unknown>) => {
+      props = next
+    },
+  }
+})
+vi.mock('@base-ui/react/drawer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@base-ui/react/drawer')>()
+  function Root(props: ComponentProps<typeof actual.Drawer.Root>) {
+    root.set({ ...props })
+    return <actual.Drawer.Root {...props} />
+  }
+  return { ...actual, Drawer: { ...actual.Drawer, Root } }
 })
 
 beforeAll(() => loadCatalog('uk'), 60_000)
@@ -156,6 +176,12 @@ function Controlled({ open, nestedOpen = false }: { open: boolean; nestedOpen?: 
   )
 }
 
+// A back-driven close leaves no live watcher behind: a leaked one would swallow the next back.
+async function expectClosedWithNoWatcher() {
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  expect(watchers).toHaveLength(0)
+}
+
 async function renderSheet(dismissible = true, tooltip = false) {
   dialogOpenSeen.length = 0
   const onOpenChange = vi.fn()
@@ -180,6 +206,7 @@ describe('BottomSheet Android back (fake CloseWatcher; happy-dom has none)', () 
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(event.defaultPrevented).toBe(false)
+    await expectClosedWithNoWatcher()
   })
 
   it('with a select open, closes the select and keeps the sheet', async () => {
@@ -300,7 +327,7 @@ describe('BottomSheet Android back (fake CloseWatcher; happy-dom has none)', () 
     back(false)
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await expectClosedWithNoWatcher()
   })
 
   // The cleanup that destroys the sheet's own watcher: a leaked one would swallow the next back.
@@ -369,6 +396,39 @@ describe('BottomSheet Android back (fake CloseWatcher; happy-dom has none)', () 
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(event.defaultPrevented).toBe(false)
+    await expectClosedWithNoWatcher()
+  })
+
+  // Base UI resets the snap point to the first detent on the close it runs internally for a
+  // non-cancelable back; the refused back must leave the sheet on its detent.
+  it('a refused non-cancelable back keeps a not-dismissible sheet on its detent', async () => {
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(800)
+    onTestFinished(() => height.mockRestore())
+    render(
+      <I18nTestProvider>
+        <BottomSheet
+          open
+          onOpenChange={() => {}}
+          title="T"
+          detents={['half', 'full']}
+          dismissible={false}
+        >
+          <input aria-label="Amount" />
+        </BottomSheet>
+      </I18nTestProvider>,
+    )
+    const dialog = await screen.findByRole('dialog')
+    const offset = () => dialog.style.getPropertyValue('--drawer-snap-point-offset')
+    await waitFor(() => expect(offset()).toBe('400px'))
+    type SnapChange = (point: number, details: { cancel: () => void; reason: string }) => void
+    act(() => (root.get().onSnapPointChange as SnapChange)(1, { cancel: () => {}, reason: 'none' }))
+    await waitFor(() => expect(offset()).toBe('0px'))
+
+    back(false)
+    await act(async () => {})
+
+    expect(offset()).toBe('0px')
+    expect(dialog).toHaveAttribute('data-state', 'open')
   })
 
   it('with a select open in a not-dismissible sheet, a non-cancelable back closes only the select', async () => {
@@ -414,7 +474,7 @@ describe('BottomSheet Android back (fake CloseWatcher; happy-dom has none)', () 
     back(false)
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await expectClosedWithNoWatcher()
   })
 
   // A tooltip is a popper too, but it is not a layer the back press or a tap should close first.
@@ -427,6 +487,7 @@ describe('BottomSheet Android back (fake CloseWatcher; happy-dom has none)', () 
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(event.defaultPrevented).toBe(false)
+    await expectClosedWithNoWatcher()
   })
 
   // Only a tooltip's own popper is skipped: a layer whose content merely holds a tooltip counts.
