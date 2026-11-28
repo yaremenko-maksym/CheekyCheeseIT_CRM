@@ -403,6 +403,55 @@ describe.skipIf(!hasDatabaseUrl())(
         .insert(users)
         .values([
           {
+            id: ADMIN.id,
+            email: ADMIN.email,
+            displayName: ADMIN.displayName,
+            role: 'ADMIN',
+            googleId: `test-iv-${ADMIN.id}`,
+          },
+          {
+            id: SENIOR_A.id,
+            email: SENIOR_A.email,
+            displayName: SENIOR_A.displayName,
+            role: 'SENIOR',
+            googleId: `test-iv-${SENIOR_A.id}`,
+          },
+          {
+            id: SENIOR_B.id,
+            email: SENIOR_B.email,
+            displayName: SENIOR_B.displayName,
+            role: 'SENIOR',
+            googleId: `test-iv-${SENIOR_B.id}`,
+          },
+          {
+            id: HR_A.id,
+            email: HR_A.email,
+            displayName: HR_A.displayName,
+            role: 'HR',
+            googleId: `test-iv-${HR_A.id}`,
+          },
+          {
+            id: HR_LEFT.id,
+            email: HR_LEFT.email,
+            displayName: HR_LEFT.displayName,
+            role: 'HR',
+            googleId: `test-iv-${HR_LEFT.id}`,
+          },
+          {
+            id: SENIOR_C.id,
+            email: SENIOR_C.email,
+            displayName: SENIOR_C.displayName,
+            role: 'SENIOR',
+            googleId: `test-iv-${SENIOR_C.id}`,
+          },
+          {
+            id: JUNIOR.id,
+            email: JUNIOR.email,
+            displayName: JUNIOR.displayName,
+            role: 'JUNIOR',
+            googleId: `test-iv-${JUNIOR.id}`,
+          },
+          {
             id: DROP.id,
             email: DROP.email,
             displayName: DROP.displayName,

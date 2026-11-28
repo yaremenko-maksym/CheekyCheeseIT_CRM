@@ -330,8 +330,6 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     // ── Allowed receivers → 201 ──────────────────────────────────────────────────
-    describe('receiver = ADMIN_CALLER (incl. self-pay)', () => {})
-
     describe('receiver = SENIOR', () => {
       it('ADMIN caller + SENIOR receiver → 201', async () => {
         const { status, json } = await postSalary(ADMIN_CALLER, {

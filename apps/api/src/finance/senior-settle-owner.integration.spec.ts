@@ -447,7 +447,7 @@ describe.skipIf(!hasDatabaseUrl())(
       await seedPendingDropIou()
       const before = await gateBalance()
 
-      const result = await settleSvc.settleByCompanySourceTransaction(DROP_SOURCE_TX_ID, {
+      const result = await settleSvc.settleByCompanySourceTransaction(DROP_SOURCE_TX_ID, ADMIN, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN.id,
         // No `currency` field — defaults to obligation.currency (USDT), so the

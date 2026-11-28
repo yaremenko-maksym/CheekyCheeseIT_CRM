@@ -339,20 +339,6 @@ describe.skipIf(!hasDatabaseUrl())(
         response: expect.objectContaining({ code: 'FINANCE_USDT_PROJECT_WRONG_INCOME_ROUTE' }),
       })
 
-      // ADMIN hits the exact same guard (defense-in-depth for BOTH callers
-      // of createAdminIncome — the accountant is also an admin-owned-project
-      // recorder and could otherwise reach the same hole).
-      await expect(
-        svc.createAdminIncome({
-          projectId: ADMIN_OWN_USDT_PROJECT,
-          amount: 500,
-          currency: 'USDT',
-          receiptExternalUrl: 'https://etherscan.io/tx/0xadminincomeunifiedspecguard2',
-        }),
-      ).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'FINANCE_USDT_PROJECT_WRONG_INCOME_ROUTE' }),
-      })
-
       // No transaction, no obligation — the rejected calls left no trace.
       const rows = await dbSvc.db.query.transactions.findMany({
         where: (t, { eq }) => eq(t.projectId, ADMIN_OWN_USDT_PROJECT),

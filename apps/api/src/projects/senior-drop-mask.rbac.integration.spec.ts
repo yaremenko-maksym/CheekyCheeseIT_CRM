@@ -301,8 +301,41 @@ describe.skipIf(!hasDatabaseUrl())('SENIOR drop-identity masking — real DB int
 
     // ── Seed ──────────────────────────────────────────────────────────────────
 
-    // Users: S1 (SENIOR), J1 (JUNIOR), D1 (DROP), HR1 (HR), ACC1 (accountant)
-    await db.insert(users).values([]).onConflictDoNothing()
+    // Users: S1 (SENIOR), J1 (JUNIOR), D1 (DROP), HR1 (HR)
+    await db
+      .insert(users)
+      .values([
+        {
+          id: S1.id,
+          email: S1.email,
+          displayName: S1.displayName,
+          role: 'SENIOR',
+          googleId: `test-srmask-${S1.id}`,
+        },
+        {
+          id: J1.id,
+          email: J1.email,
+          displayName: J1.displayName,
+          role: 'JUNIOR',
+          googleId: `test-srmask-${J1.id}`,
+        },
+        {
+          id: D1.id,
+          email: D1.email,
+          displayName: D1.displayName,
+          role: 'DROP',
+          googleId: `test-srmask-${D1.id}`,
+          dropSharePercent: 15,
+        },
+        {
+          id: HR1.id,
+          email: HR1.email,
+          displayName: HR1.displayName,
+          role: 'HR',
+          googleId: `test-srmask-${HR1.id}`,
+        },
+      ])
+      .onConflictDoNothing()
 
     // DROP_PROJ_A: S1 senior + D1 drop attached
     await db

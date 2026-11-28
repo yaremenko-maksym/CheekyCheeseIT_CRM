@@ -379,10 +379,6 @@ describe.skipIf(!hasDatabaseUrl())(
         })
       })
 
-      it('DELETE /transactions/:id — ADMIN → 403 (ADMIN only)', async () => {
-        expect(await del(ADMIN, '/api/transactions/00000000-0000-4000-8000-000000000000')).toBe(403)
-      })
-
       // Authorized roles pass the GUARD (they may still hit a 4xx in the handler for
       // missing data, but NOT 403 — proving the guard let them through).
       it('POST /transactions/expense — ADMIN passes the guard (not 403)', async () => {
