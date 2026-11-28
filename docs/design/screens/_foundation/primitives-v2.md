@@ -249,7 +249,7 @@ both at once is refused too). The empty tile has two modes, **«Файл» / «�
 «Посилання на чек» (`form-receipt-link-375`; any `http(s)` link). Once a file is added, a card with the
 thumbnail, the title, the status line, **«Замінити»** and **«✕»** (`aria-label` «Видалити чек»), both
 44 × 44 real `<button>`s, replaces the switch (remove the file to switch to a link). **While uploading**
-the title is the file name and the status line reads «Завантаження · 62%»; **«Чек додано»** appears
+the title is the file name (one line; a long name truncates in the middle and keeps its extension, «receipt-2026-…-11.jpg», never breaking across lines, R3-34) and the status line reads «Завантаження · 62%»; **«Чек додано»** appears
 only at 100% (status «220 КБ», which wraps before it can run under «Замінити» and never truncates).
 **Upload failed** (`form-receipt-failed-375`): the card stays, red, with «Не завантажено · 220 КБ», the
 error «Чек не завантажився: з’єднання перервалося» and two 44 px exits «Повторити» / «Замінити»; on an

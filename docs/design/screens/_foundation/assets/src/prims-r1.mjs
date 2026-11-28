@@ -210,7 +210,7 @@ function peopleListBody() {
 const hrPane = (banner = '') =>
   pane(
     'Співбесіди',
-    `${paneHead('Співбесіди')}${banner}${searchField('Пошук співбесід')}${chips(['Усі', 'HR-скринінг', 'Технічна', 'Офер'])}${peopleList({ menu: true })}`,
+    `${paneHead('Співбесіди')}${banner}${searchField('Пошук співбесід')}${chips(['Усі', 'HR-скринінг', 'Технічна', 'З клієнтом', 'Офер'])}${peopleList({ menu: true })}`,
   )
 export const bannerStackTablet = (w, h) =>
   tablet({

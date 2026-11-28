@@ -108,7 +108,7 @@ const undoToast = (extra = '', btnH = 40) =>
 
 const interviewList = `<section aria-label="Співбесіди" class="col" style="width:320px;flex:none;border-right:1px solid var(--border)">
   <div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Співбесіди</div><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
-  ${searchField('Пошук співбесід')}${chips(['Усі', 'HR-скринінг', 'Технічна'])}${peopleList({ menu: true, omit: 'Олена Коваль' }).replace('class="group"', 'class="group" style="margin:0 12px"')}</section>`
+  ${searchField('Пошук співбесід')}${chips(['Усі', 'HR-скринінг', 'Технічна', 'З клієнтом', 'Офер'])}${peopleList({ menu: true, omit: 'Олена Коваль' }).replace('class="group"', 'class="group" style="margin:0 12px"')}</section>`
 const pickOne = `<section class="grow" style="display:grid;place-items:center;color:var(--muted-fg);font-size:15px">Оберіть співбесіду</section>`
 
 export const toastUndoTablet = (w, h) =>

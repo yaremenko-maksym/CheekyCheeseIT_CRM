@@ -1,6 +1,13 @@
 // Notifications panel (shell-v2 §2 / §4) and the Board primitive (primitives-v2 §3). Invented sample data.
 import { icon, safeBottom } from './base.mjs'
-import { tabScreen, financeBody, interviewsBody, searchField } from './mobile.mjs'
+import {
+  tabScreen,
+  financeBody,
+  interviewsBody,
+  searchField,
+  chips,
+  peopleList,
+} from './mobile.mjs'
 import { sheet, closeBtn, stateBlock, skRow } from './mobile-overlays.mjs'
 import { desktop } from './desktop.mjs'
 import { tablet } from './tablet.mjs'
@@ -301,12 +308,15 @@ export function board768() {
 
 /** board-undo-375: after a move (here the terminal «Відмова»), the row shows its new stage and the 5 s undo toast. */
 export function boardUndo(w, h) {
-  const body = interviewsBody()
-    .replace('Англійська<span class="nw-only"> · 12.11 · 11:00</span>', 'Відмова')
-    .replace(
-      '<span class="pill wide-only y">12.11 · 11:00</span>',
-      '<span class="pill wide-only ">Відмова</span>',
-    )
+  // R3-35: the stage is said once (the pill); the meta keeps the time. The list ends at the fixture's fifth row,
+  // so the frame shows its end clearing the toast by the shell-v2 §2 bottom padding (toast stack + 16 above the FAB line).
+  const body =
+    `${searchField('Пошук співбесід')}${chips(['Усі', 'HR-скринінг', 'Технічна', 'З клієнтом', 'Офер'])}${peopleList({ omit: 'Анна Бондар' })}`
+      .replace('Англійська<span class="nw-only"> · 12.11 · 11:00</span>', '12.11 · 11:00')
+      .replace(
+        '<span class="pill wide-only y">12.11 · 11:00</span>',
+        '<span class="pill wide-only ">Відмова</span>',
+      )
   return toastUndo(w, h, { text: 'Олена Коваль → Відмова', ic: 'arrow-right-left', body })
 }
 

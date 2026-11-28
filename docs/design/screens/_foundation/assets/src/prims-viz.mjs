@@ -70,6 +70,8 @@ const DOT =
   '<i aria-hidden="true" style="position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--bg)"></i>'
 
 const WARN = (p) => `color-mix(in oklch, var(--warning) ${p}%, transparent)`
+// R3-32: the pill's «Відкрити» is a visible tonal text button (one primary per context; never muted text).
+const OPEN = `<span class="btn sm" role="button" style="flex:none;height:36px;padding:0 12px;font-size:14px;color:var(--primary);background:oklch(0.84 0.183 85.3 / 0.14);border:0">Відкрити</span>`
 
 /**
  * The «+» menus off the phone (foundation §11): the «Чернетки» section on top. `role`: the rail quick-add
@@ -100,7 +102,7 @@ function chooserMenu({ drafts, pos, itemH, coarse = false, role = '' }) {
 
 /** Desktop with one unknown draft: the pill bottom-right, a pinned row in the 40 px table, the header dot. */
 export function draftsDesktop(w, h, { chooser = false } = {}) {
-  const pill = `<div role="button" aria-label="Результат невідомий: −${AMOUNT} USD, надіслано о\u00a0${SENT_AT}. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num" style="white-space:nowrap">−${AMOUNT} USD · ${SENT_AT} · Відкрити</span></span></div>`
+  const pill = `<div role="button" aria-label="Результат невідомий: −${AMOUNT} USD, надіслано о\u00a0${SENT_AT}. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num" style="white-space:nowrap">−${AMOUNT} USD · ${SENT_AT}</span></span>${OPEN}</div>`
   const row = `<tr><td colspan="6" style="padding:0;max-width:none;background:${WARN(7)};box-shadow:inset 2px 0 0 var(--warning)"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:var(--warning);display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">−${AMOUNT} USD</span><span class="grow muted num" style="white-space:nowrap;overflow:hidden;text-overflow:clip">Результат невідомий · ${SENT_AT} · Витрата</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку −${AMOUNT} USD, результат невідомий, надіслано о\u00a0${SENT_AT}" style="height:28px;font-size:13px;padding:0 12px;background:${WARN(18)};border-color:${WARN(45)}">Відкрити</button></div></td></tr>`
   const menu = chooser
     ? chooserMenu({ drafts: [DRAFT.unknown], pos: 'right:20px;top:52px', itemH: 40 })
@@ -141,7 +143,7 @@ export function draftsChooserTablet(w, h) {
     coarse: true,
     role: 'ADMIN',
   })
-  const pill = `<div role="button" aria-label="2 чернетки потребують перевірки. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.38 0.09 22);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--destructive);display:grid">${icon('file-pen', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">2 потребують перевірки</span><span class="t-cap muted">Відкрити</span></span></div>`
+  const pill = `<div role="button" aria-label="2 чернетки потребують перевірки. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.38 0.09 22);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--destructive);display:grid">${icon('file-pen', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">2 потребують перевірки</span></span>${OPEN}</div>`
   // The list pads by the pill height + 48 (52 + 24 + 24), so the corner never covers the last row.
   const list = `<section aria-label="Співбесіди" class="col" style="width:360px;flex:none;border-right:1px solid var(--border)">
   <div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Співбесіди</div></div>
@@ -219,7 +221,7 @@ export const confirmRecreateDesktop = (w, h) =>
 export const saveFailureTablet = (w, h) => tablet({ w, h, overlay: checkPanel(true) })
 /** R1-08: an unresolved draft on a tablet: the pill bottom-right and the pinned row at the top of the list; the rail «+» carries the dot. */
 export function unresolvedDraftTablet(w, h) {
-  const pill = `<div role="button" aria-label="Результат невідомий: −${AMOUNT} USD, надіслано о\u00a0${SENT_AT}. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:340px;min-height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num" style="white-space:nowrap">−${AMOUNT} USD · ${SENT_AT} · Відкрити</span></span></div>`
+  const pill = `<div role="button" aria-label="Результат невідомий: −${AMOUNT} USD, надіслано о\u00a0${SENT_AT}. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:340px;min-height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num" style="white-space:nowrap">−${AMOUNT} USD · ${SENT_AT}</span></span>${OPEN}</div>`
   return tablet({ w, h, overlay: pill })
     .replace(
       '<div class="sechead"><span class="t-over">Сьогодні</span></div>',
