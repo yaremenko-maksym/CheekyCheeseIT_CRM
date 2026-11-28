@@ -2848,9 +2848,11 @@ docker compose \
 echo "==> job queue entries published_at applied successfully"
 
 # Source: apps/api/drizzle/manual/2026-11-27_accountant_role_retire.sql
-# Manager-role plan PR 1a (owner A3 Q-C, 2026-11-28): deletes the ACCOUNTANT contract templates,
-# refusing first if any employee or signed contract references one, then fails the deploy while
-# any users.role or contract_templates.target_role holds ACCOUNTANT. MUST precede the container
+# Manager-role plan PR 1a (owner A3 Q-C, 2026-11-28): deletes the ACCOUNTANT contract templates
+# created before 2026-11-29 00:00 UTC. Refuses first, deleting nothing, when an ACCOUNTANT template
+# is newer than that cutoff or when any row references one (every FK onto contract_templates is
+# read from pg_constraint; a multi-column FK refuses too), then fails the deploy while any
+# users.role or contract_templates.target_role holds ACCOUNTANT. MUST precede the container
 # swap and PR 1d's role type rebuild. Compares through ::text, so it stays valid after the label
 # is gone. Creates no relation, grants nothing. Idempotent: a replay deletes nothing.
 ACCOUNTANT_ROLE_RETIRE_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-27_accountant_role_retire.sql"
