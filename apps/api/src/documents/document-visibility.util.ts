@@ -168,7 +168,7 @@ export async function buildVisibilityClause(
       // DROP can see their own uploaded CONTRACT documents (RESUME/SCAN/CONTRACT allowed per spec).
       visibleClauses.push(and(eq(documents.category, 'CONTRACT'), eq(documents.ownerId, actor.id))!)
     }
-    // JUNIOR see no contracts
+    // JUNIOR sees no contracts
   }
 
   if (!category || category === 'RECEIPT') {

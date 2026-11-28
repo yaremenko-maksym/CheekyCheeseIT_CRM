@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ViewPermissions } from '@crm/shared'
 import type { User } from '../database/schema'
-import {
-  collectExposedRequisiteFields,
-  computePendingSeniorShare,
-  projectProfileUser,
-} from './profile-view.util'
+import { computePendingSeniorShare, projectProfileUser } from './profile-view.util'
 
 const target = {
   id: 'u-1',
@@ -45,49 +41,6 @@ describe('computePendingSeniorShare', () => {
     const r = computePendingSeniorShare({ ...target, pendingSeniorSharePercent: 0 }, 'PENDING')
     expect(r?.percent).toBe(0)
     expect(r?.effectivePercentAfterApproval).toBe(0)
-  })
-})
-
-describe('collectExposedRequisiteFields', () => {
-  it('returns only non-null requisite fields, in canonical order', () => {
-    expect(
-      collectExposedRequisiteFields({
-        id: 'x',
-        adminNote: 'secret',
-        paymentMethod: 'USDT_ERC20',
-        walletUsdtErc20: '0xabc',
-        walletUsdtLabel: null,
-        bankUahRecipient: null,
-        bankUahIban: 'UA00',
-        bankUahRnokpp: null,
-        bankUahBankName: 'Mono',
-      }),
-    ).toEqual(['paymentMethod', 'walletUsdtErc20', 'bankUahIban', 'bankUahBankName'])
-  })
-
-  it('returns empty when all requisites are masked', () => {
-    expect(
-      collectExposedRequisiteFields({
-        paymentMethod: null,
-        walletUsdtErc20: null,
-        walletUsdtLabel: null,
-        bankUahRecipient: null,
-        bankUahIban: null,
-        bankUahRnokpp: null,
-        bankUahBankName: null,
-      }),
-    ).toEqual([])
-  })
-
-  it('treats undefined as not exposed and ignores non-requisite keys', () => {
-    expect(collectExposedRequisiteFields({ adminNote: 'x', walletUsdtLabel: 'main' })).toEqual([
-      'walletUsdtLabel',
-    ])
-    expect(collectExposedRequisiteFields({})).toEqual([])
-  })
-
-  it('counts empty-string values as exposed (only null/undefined are masked)', () => {
-    expect(collectExposedRequisiteFields({ bankUahRnokpp: '' })).toEqual(['bankUahRnokpp'])
   })
 })
 

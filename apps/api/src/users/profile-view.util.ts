@@ -3,8 +3,7 @@ import type { User, UserEmail } from '../database/schema'
 
 /**
  * Pure slices of `UsersService.buildProfileView`. No db, no audit, no `this` —
- * the reads, the `requisites_read` audit write and the masking orchestration
- * stay inline in the service.
+ * the reads and the masking orchestration stay inline in the service.
  */
 
 /**
@@ -34,25 +33,6 @@ export function computePendingSeniorShare(
         approverName: target.displayName,
       }
     : null
-}
-
-/** Payment-requisite fields that the `requisites_read` audit tracks. */
-const REQUISITE_FIELDS = [
-  'paymentMethod',
-  'walletUsdtErc20',
-  'walletUsdtLabel',
-  'bankUahRecipient',
-  'bankUahIban',
-  'bankUahRnokpp',
-  'bankUahBankName',
-] as const
-
-/**
- * Which requisite fields are actually present (non-null) on the already
- * masked profile — i.e. what the viewer really received.
- */
-export function collectExposedRequisiteFields(filteredUser: object): string[] {
-  return REQUISITE_FIELDS.filter((f) => (filteredUser as Record<string, unknown>)[f] != null)
 }
 
 // ---------------------------------------------------------------------------

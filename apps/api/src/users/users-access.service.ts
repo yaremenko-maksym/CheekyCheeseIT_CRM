@@ -41,7 +41,7 @@ export class UsersAccessService {
     // Drop role - phase 1: DROP also has a share (drop_share_percent default 5).
     const targetIsShareRole =
       target.role === 'SENIOR' || target.role === 'ADMIN' || target.role === 'DROP'
-    // HR have soft-skill tech stacks ("Рекрутинг", "Account Support", "1С") —
+    // HR has soft-skill tech stacks ("Рекрутинг", "Account Support", "1С") —
     // visible like dev stacks.
     const targetHasTechStack = true
 
