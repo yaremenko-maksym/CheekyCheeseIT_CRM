@@ -171,9 +171,8 @@ const MAX_COOLED_DAYS = 100
 /** `YYYYMMDD` that names a real calendar day (UTC round trip: `20260230` rolls to March). */
 function isCalendarYmd(s: string): boolean {
   if (!/^\d{8}$/.test(s)) return false
-  const [y, m, d] = [Number(s.slice(0, 4)), Number(s.slice(4, 6)), Number(s.slice(6, 8))]
-  const t = new Date(Date.UTC(y, m - 1, d))
-  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d
+  const t = new Date(Date.UTC(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6))))
+  return t.toISOString().slice(0, 10).replace(/-/g, '') === s
 }
 
 /** What the last-known-good cache remembers, beyond the numbers themselves. */
@@ -357,7 +356,6 @@ export class NbuCurrencyService {
 
   /** Start (or restart) the cooldown of a failed day, keeping the map at `MAX_COOLED_DAYS`. */
   private coolDown(day: string): void {
-    this.failedDays.delete(day)
     if (this.failedDays.size >= MAX_COOLED_DAYS) {
       const oldest = this.failedDays.keys().next().value
       if (oldest !== undefined) this.failedDays.delete(oldest)

@@ -491,6 +491,8 @@ describe('fix round 3 — a failed past day cools down for 10 minutes (LOW)', ()
     expect(askedDays()).toContain('20250101')
 
     vi.setSystemTime(Date.now() + 10 * 60_000 - 1)
+    const warn = vi.mocked(Logger.prototype.warn)
+    warn.mockClear()
     const before = askedDays().length
     const cooled = await svc.getRatesForDays(['20250101', '20261110'], LIVE)
     expect(askedDays().slice(before)).toEqual(['20261110'])
@@ -501,6 +503,9 @@ describe('fix round 3 — a failed past day cools down for 10 minutes (LOW)', ()
       date: '20250101',
       stale: true,
     })
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('cause=failed days cooling down | daysAtLiveRate=1 | cooledDays=1'),
+    )
 
     vi.setSystemTime(Date.now() + 1)
     const after = askedDays().length
