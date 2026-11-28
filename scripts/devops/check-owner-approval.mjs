@@ -245,16 +245,35 @@ export function classifySpecifier(filename, spec, aliases) {
 // web PR behind the owner. Only a global object PASSED AS A VALUE (call / new argument, initializer,
 // assignment right-hand side, spread, property value, array element, return) is a trigger: that is
 // how a loader is reached without naming it (`Reflect.get(globalThis, k)`, `const g = self`).
+// Token-level denylist (Master addendum 8, SR-M-5 / SR-M-6): an identifier, property name,
+// binding name, string literal or template chunk whose cooked text is one of these triggers,
+// wherever it appears and whatever it is bound to (`const R = Reflect`, `const { constructor: F }`,
+// `x['constructor']`, `getOwnPropertyDescriptor(getPrototypeOf(f), 'constructor')`). A class's own
+// `constructor() {}` is a keyword, not a token, and stays green. Comments and JSX text are not code.
+export const DENIED_NAMES = Object.freeze([
+  'constructor',
+  'Reflect',
+  'Function',
+  'eval',
+  'globalThis',
+  'getOwnPropertyDescriptor',
+  'getOwnPropertyDescriptors',
+  'getPrototypeOf',
+  'setPrototypeOf',
+  '__proto__',
+  'defineProperty',
+  '__defineGetter__',
+  '__lookupGetter__',
+  'process',
+])
+const DENIED = new Set(DENIED_NAMES)
 const META_OK = new Set(['env', 'url', 'hot', 'dirname', 'filename', 'main'])
 const LOADER_IDS = new Set([
   'require',
   'module',
-  'process',
   'exports',
   '__non_webpack_require__',
   'createRequire',
-  'eval',
-  'Function',
 ])
 const GLOBAL_OBJECTS = new Set(['globalThis', 'global', 'window', 'self'])
 // Master addendum 5: a PROPERTY with one of these names reaches the global object from any
@@ -269,7 +288,6 @@ const LOADER_PROPS = new Set([...LOADER_IDS, 'getBuiltinModule'])
 // NOT allowed and trigger when a file using them is edited) plus url / os. Subpaths
 // (fs/promises) follow their root.
 export const E2E_BUILTINS = Object.freeze(['fs', 'path', 'url', 'os', 'crypto'])
-const REFLECT_LOADERS = new Set(['get', 'apply', 'construct'])
 
 export function builtinVerdict(filename, spec) {
   if (!spec.startsWith('node:') && !isBuiltin(spec)) return null
@@ -401,6 +419,28 @@ export function scanCode(filename, content, aliases) {
       GLOBAL_PROPS.has(n.argumentExpression.text)
     )
   }
+  // A computed key that reads: in a binding pattern (`const { [k]: v } = o`, parameters too) or in
+  // an object literal that is an assignment / for-of / for-in target, at any nesting depth.
+  const inPattern = (cpn) => {
+    const p = cpn.parent
+    if (T.isBindingElement(p)) return true
+    if (!T.isPropertyAssignment(p) || p.name !== cpn) return false
+    let n = p.parent
+    for (let q = n.parent; q; n = q, q = q.parent) {
+      const up =
+        T.isParenthesizedExpression(q) ||
+        T.isObjectLiteralExpression(q) ||
+        T.isArrayLiteralExpression(q) ||
+        T.isSpreadElement(q) ||
+        T.isSpreadAssignment(q) ||
+        (T.isPropertyAssignment(q) && q.initializer === n)
+      if (!up) break
+    }
+    const q = n.parent
+    if (!q) return false
+    if (T.isBinaryExpression(q)) return q.left === n && q.operatorToken.kind === SK.EqualsToken
+    return (T.isForOfStatement(q) || T.isForInStatement(q)) && q.initializer === n
+  }
   if (sf.parseDiagnostics?.length)
     out.push({
       kind: 'unparseable',
@@ -427,19 +467,13 @@ export function scanCode(filename, content, aliases) {
         if (literal(a)) spec(node, a.text)
         else push('dynamic-specifier', node, 'import(<non-literal>)')
       }
-      const name = T.isPropertyAccessExpression(callee)
-        ? callee.name.text
-        : T.isElementAccessExpression(callee) && literal(callee.argumentExpression)
-          ? callee.argumentExpression.text
-          : null
-      if (name === 'constructor') push('eval', node, '.constructor(...)')
       if (T.isIdentifier(callee) && callee.text === 'Controller' && T.isDecorator(node.parent)) {
         push('controller', node, '@Controller(...)')
       }
-    } else if (T.isIdentifier(node)) {
+    } else if (T.isIdentifier(node) || T.isPrivateIdentifier(node)) {
+      if (DENIED.has(node.text)) push('denied-name', node, `denied name \`${node.text}\``)
       if (LOADER_IDS.has(node.text) && isReference(node)) {
-        const k = node.text === 'eval' || node.text === 'Function' ? 'eval' : 'loader-alias'
-        push(k, node, `reference to \`${node.text}\``)
+        push('loader-alias', node, `reference to \`${node.text}\``)
       }
       if (GLOBAL_OBJECTS.has(node.text) && isReference(node) && passedAsValue(node)) {
         push('loader-alias', node, `\`${node.text}\` passed as a value`)
@@ -453,12 +487,20 @@ export function scanCode(filename, content, aliases) {
         push('loader-alias', node, `${obj.getText(sf)}.${node.name.text}`)
       } else if (GLOBAL_PROPS.has(node.name.text) && passedAsValue(node)) {
         push('loader-alias', node, `\`${node.getText(sf)}\` (global object) passed as a value`)
-      } else if (
-        T.isIdentifier(obj) &&
-        obj.text === 'Reflect' &&
-        REFLECT_LOADERS.has(node.name.text)
-      ) {
-        push('loader-alias', node, `Reflect.${node.name.text}`)
+      }
+    } else if (
+      T.isStringLiteral(node) ||
+      T.isNoSubstitutionTemplateLiteral(node) ||
+      T.isTemplateHead(node) ||
+      T.isTemplateMiddle(node) ||
+      T.isTemplateTail(node)
+    ) {
+      // `.text` is the cooked value: 'constructor' is caught too.
+      if (DENIED.has(node.text)) push('denied-name', node, `denied name \`${node.text}\` (string)`)
+    } else if (T.isComputedPropertyName(node)) {
+      const e = unwrap(node.expression)
+      if (!literal(e) && !T.isNumericLiteral(e) && inPattern(node)) {
+        push('loader-alias', node, 'computed key in a destructuring pattern')
       }
     } else if (T.isElementAccessExpression(node)) {
       const obj = node.expression
@@ -466,7 +508,7 @@ export function scanCode(filename, content, aliases) {
       // `rows[0]`, `(await x)[1]`: a numeric index never names `constructor` or a loader.
       const numeric = T.isNumericLiteral(unwrap(node.argumentExpression))
       if (T.isMetaProperty(obj)) push('loader-alias', node, 'import.meta[...]')
-      else if (isGlobalExpr(obj) || (T.isIdentifier(obj) && obj.text === 'Reflect')) {
+      else if (isGlobalExpr(obj)) {
         push('loader-alias', node, `${obj.getText(sf)}[...] (computed global member)`)
       } else if (key !== null && LOADER_PROPS.has(key)) {
         push('loader-alias', node, `${obj.getText(sf)}['${key}']`)
