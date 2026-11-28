@@ -59,8 +59,8 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
   const statusFilterPlaceholder = t`Усі статуси`
   const { user: viewer } = useAuth()
   const role = viewer?.role ?? ''
-  const isPrivileged = role === 'ADMIN' || role === 'ACCOUNTANT'
-  // «Всего заработано» is a privileged financial metric: only ADMIN / ACCOUNTANT
+  const isPrivileged = role === 'ADMIN'
+  // «Всего заработано» is a privileged financial metric: only ADMIN
   // viewers see it, and only on SENIOR / DROP / JUNIOR / HR profiles. Other
   // viewers (incl. the target self-viewing) never get the figure — the backend
   // also enforces this (assertCanReadTotalEarned → 403), so the query is the

@@ -78,20 +78,19 @@ export function computeMonthlySalaryUsd(args: {
 /** Everything the CREATE payload closes over beyond the form `value`. */
 export type CreateUserPayloadDeps = {
   hrIds: string[]
-  accountantId: string
   exchangeRates: ExchangeRates | undefined
 }
 
 /**
- * The create payload before `onSubmit` validates it. The form can still hold ACCOUNTANT until the web
- * removal (manager-role plan PR 1c); `createUserSchema.safeParse` in `onSubmit` refuses it.
+ * The create payload before `onSubmit` validates it. The form role is the stored `Role`;
+ * `createUserSchema.safeParse` in `onSubmit` refuses any role that is not assignable.
  */
 export type CreateUserPayload = Omit<CreateUserDto, 'role'> & { role: Role }
 
 /** Normal (non-DROP, first-POST) CREATE payload. Verbatim move from `onSubmit`. */
 export function buildCreateUserPayload(
   value: CreateUserFormValue,
-  { hrIds, accountantId, exchangeRates }: CreateUserPayloadDeps,
+  { hrIds, exchangeRates }: CreateUserPayloadDeps,
 ): CreateUserPayload {
   const isSenior = value.role === 'SENIOR'
   const isJoinDropTeam = isSenior && value.teamMode === 'JOIN_DROP_TEAM'
@@ -144,13 +143,12 @@ export function buildCreateUserPayload(
     }),
     ...(isSenior && {
       seniorSharePercent: value.seniorSharePercent,
-      // Drop role - phase 1 (AC3): when JOIN_DROP_TEAM, omit HR /
-      // accountant — backend reads them from the chosen drop-team.
+      // Drop role - phase 1 (AC3): when JOIN_DROP_TEAM, omit HR —
+      // backend reads it from the chosen drop-team.
       // Sending stale arrays would just be ignored, but omitting
       // them keeps the payload truthful.
       ...(!isJoinDropTeam && {
         hrIds,
-        accountantId: accountantId || null,
       }),
       ...(value.teamMode === 'JOIN_DROP_TEAM' && {
         teamMode: 'JOIN_DROP_TEAM' as TeamMode,
@@ -205,7 +203,7 @@ export type CreateDropFormValue = {
  */
 export function buildCreateDropPayload(
   value: CreateDropFormValue,
-  { hrIds, accountantId }: { hrIds: string[]; accountantId: string },
+  { hrIds }: { hrIds: string[] },
 ): CreateDropDto {
   const trimmedChannel = value.teamTelegramChannelDrop.trim()
   const normalizedChannel = trimmedChannel
@@ -237,7 +235,6 @@ export function buildCreateDropPayload(
       }),
     }),
     hrIds,
-    accountantId: accountantId || null,
     telegramChannel: normalizedChannel,
     // Данные для контракта — DROP still gets an MSA contract (owner
     // decision). legalFullName is REQUIRED (schema + UI validator);
@@ -282,7 +279,7 @@ export type WizardUpdateFormValue = {
  */
 export function buildWizardUpdatePayload(
   value: WizardUpdateFormValue,
-  { hrIds, accountantId, exchangeRates }: CreateUserPayloadDeps,
+  { hrIds, exchangeRates }: CreateUserPayloadDeps,
 ): AdminUpdateUserDto {
   const isSenior = value.role === 'SENIOR'
   const paymentMethodUpdate: PaymentMethod =
@@ -306,7 +303,6 @@ export function buildWizardUpdatePayload(
     ...(isSenior && {
       seniorSharePercent: value.seniorSharePercent,
       hrIds,
-      accountantId: accountantId || null,
     }),
     ...(!isSenior && {
       monthlySalary: value.monthlySalary
@@ -366,7 +362,7 @@ export type EditUserPayloadDeps = CreateUserPayloadDeps & {
  */
 export function buildEditUpdatePayload(
   value: EditUserFormValue,
-  { editingUser, hrIds, accountantId, exchangeRates }: EditUserPayloadDeps,
+  { editingUser, hrIds, exchangeRates }: EditUserPayloadDeps,
 ): AdminUpdateUserDto {
   const isSenior = value.role === 'SENIOR'
   const isDrop = value.role === 'DROP'
@@ -375,7 +371,7 @@ export function buildEditUpdatePayload(
   // When nothing changed we omit the entire payment slice — otherwise
   // `refineRequisitePresence` would block submit for users with empty
   // requisites in seed data (e.g. SENIOR without a wallet) even when the
-  // admin only edited unrelated fields like HR/Accountant.
+  // admin only edited unrelated fields like HR.
   const paymentChanged =
     !!editingUser &&
     (value.paymentMethod !== (editingUser.paymentMethod ?? defaultPaymentMethod(value.role)) ||
@@ -425,7 +421,6 @@ export function buildEditUpdatePayload(
     ...(isSenior && {
       ...(shareChanged && { seniorSharePercent: value.seniorSharePercent }),
       hrIds,
-      accountantId: accountantId || null,
       teamTelegramChannel: normalizedTeamChannel,
     }),
     // Prod bug fix: DROP's «Доля дропа (%)» edit was silently dropped —

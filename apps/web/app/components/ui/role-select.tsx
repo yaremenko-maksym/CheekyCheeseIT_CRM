@@ -1,7 +1,7 @@
 import { msg } from '@lingui/core/macro'
 import type { MessageDescriptor } from '@lingui/core'
 import { useLingui } from '@lingui/react/macro'
-import type { Role } from '@crm/shared'
+import { assignableRoleSchema, type Role } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 import {
   Select,
@@ -20,13 +20,16 @@ import {
  * task-i18n-stage3b-pr3 (Step 3): the legacy `ROLE_LABELS: Record<Role,
  * string>` export this map replaced has been removed — every consumer in
  * the app's perimeter now reads from here.
+ *
+ * The retired role keeps a key only because `Role` still lists it until PR 1d: a plain descriptor,
+ * not a `msg` macro, so the catalogs carry no label for it and a stored user renders the raw value.
  */
 export const ROLE_LABEL_MESSAGES: Record<Role, MessageDescriptor> = {
   ADMIN: msg`Адміністратор`,
   SENIOR: msg`Сеньйор`,
   JUNIOR: msg`Джуніор`,
   HR: msg`HR`,
-  ACCOUNTANT: msg`Бухгалтер`,
+  ACCOUNTANT: { id: 'ACCOUNTANT', message: 'ACCOUNTANT' },
   DROP: msg`Дроп`,
 }
 
@@ -47,7 +50,7 @@ export const ROLE_BADGE_VARIANT: Record<Role, 'admin' | 'senior' | 'junior' | 'h
     DROP: 'accountant',
   }
 
-const ALL_ROLES: Role[] = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
+const ALL_ROLES: readonly Role[] = assignableRoleSchema.options
 
 export interface RoleSelectProps {
   value: Role
@@ -66,7 +69,7 @@ export interface RoleSelectProps {
 /**
  * Colored role picker — each option renders the role's `Badge` variant
  * (yellow = ADMIN, blue = SENIOR, green = JUNIOR, purple = HR, brown/orange =
- * ACCOUNTANT) so the picker matches the badge styling used everywhere else
+ * DROP) so the picker matches the badge styling used everywhere else
  * in the CRM. Shared between admin dialogs and user-create forms.
  */
 export function RoleSelect({
