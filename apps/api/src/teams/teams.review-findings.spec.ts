@@ -305,6 +305,32 @@ describe('TeamsService.create — HIGH-2: ADMIN-only (HR removed from create gat
 
     await expect(service.create('My Team', SENIOR_ID, [HR_ID], adminUser)).resolves.toBeDefined()
   })
+
+  it('H2c: ADMIN create adds the senior and every HR as team members', async () => {
+    const { dbSvc } = makeCreateDb({ [SENIOR_ID]: 'SENIOR', [HR_ID]: 'HR' })
+    const inserted: unknown[] = []
+    const values = vi.fn().mockImplementation((row: unknown) => {
+      inserted.push(row)
+      return { returning: vi.fn().mockResolvedValue([{ id: TEAM_ID, name: 'T', type: 'SENIOR' }]) }
+    })
+    ;(dbSvc.db as unknown as { transaction: unknown }).transaction = vi
+      .fn()
+      .mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) =>
+        cb({ insert: vi.fn().mockReturnValue({ values }) }),
+      )
+    const service = makeCreateService(dbSvc)
+
+    await service.create('My Team', SENIOR_ID, [HR_ID], adminUser)
+
+    const memberRows = inserted.filter(
+      (row): row is { teamId: string; userId: string } =>
+        typeof row === 'object' && row !== null && 'teamId' in row,
+    )
+    expect(memberRows).toEqual([
+      { teamId: TEAM_ID, userId: SENIOR_ID },
+      { teamId: TEAM_ID, userId: HR_ID },
+    ])
+  })
 })
 
 // ── MED: assertUserRole oracle on non-ADMIN paths ─────────────────────────
