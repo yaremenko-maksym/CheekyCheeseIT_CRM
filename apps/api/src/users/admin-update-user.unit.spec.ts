@@ -1114,17 +1114,6 @@ describe('UsersService.adminUpdateUser — SENIOR team composition + team telegr
     )
   })
 
-  it('accountantId null (explicit clear) triggers reconcile with { hrIds: undefined, accountantId: null }', async () => {
-    const h = makeHarness(senior())
-    await edit(h, { accountantId: null }, 'admin-1')
-    expect(h.reconcileSeniorTeamTx).toHaveBeenCalledWith(
-      h.tx,
-      'target-1',
-      { hrIds: undefined, accountantId: null },
-      'admin-1',
-    )
-  })
-
   it('neither hrIds nor accountantId: no reconcile', async () => {
     const h = makeHarness(senior())
     await edit(h, { displayName: 'x' }, 'admin-1')

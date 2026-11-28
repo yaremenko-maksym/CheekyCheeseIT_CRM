@@ -625,49 +625,6 @@ describe('getTeamMembersForUser — DROP branch is covered by the SAME viewerRol
     ).toContain(ACCOUNTANT_ID)
   })
 
-  it("BRANCH-SELECT-4. ACCOUNTANT target → their team's SENIOR is resolved too (pins the '|| user.role === ACCOUNTANT' half in isolation from the HR half)", async () => {
-    // security-review PR #541 round 4 (mutation-gate follow-up): `user.role
-    // === 'HR' || user.role === 'ACCOUNTANT'` survived on its RIGHT-hand
-    // side specifically (forced to `false`, and the 'ACCOUNTANT' string
-    // literal forced to `''`) even with BRANCH-SELECT-3 in place —
-    // BRANCH-SELECT-3 only ever uses an HR target, for whom the LEFT half
-    // alone already makes the condition true; the RIGHT half is never
-    // exercised. An ACCOUNTANT target pins it in isolation, mirroring
-    // MEMBER-MASK-2/3's "each half separately" rigor elsewhere in this PR.
-    const ACCOUNTANT_TARGET_ID = 'accountant-target-uuid-9018'
-    const SENIOR_OF_ACCOUNTANT_ID = 'senior-of-accountant-uuid-9019'
-    const store = {
-      users: [
-        {
-          id: ACCOUNTANT_TARGET_ID,
-          displayName: 'Accountant Target',
-          role: 'ACCOUNTANT',
-          avatarUrl: null,
-          avatarDocumentId: null,
-        },
-        {
-          id: SENIOR_OF_ACCOUNTANT_ID,
-          displayName: 'Senior Of Accountant',
-          role: 'SENIOR',
-          avatarUrl: null,
-          avatarDocumentId: null,
-        },
-      ],
-      teamMembers: [
-        { teamId: TEAM_ID, userId: ACCOUNTANT_TARGET_ID, leftAt: null },
-        { teamId: TEAM_ID, userId: SENIOR_OF_ACCOUNTANT_ID, leftAt: null },
-      ],
-    }
-    const service = buildService(store)
-
-    const rows = await service.getTeamMembersForUser(ACCOUNTANT_TARGET_ID, 'ADMIN')
-    const ids = rows.map((r) => r.id)
-    expect(
-      ids,
-      "ACCOUNTANT target's own team SENIOR must be resolved via Step 1's team_members lookup",
-    ).toContain(SENIOR_OF_ACCOUNTANT_ID)
-  })
-
   it("DROP-BRANCH-MASK-5. DROP target whose drop-team ALSO has a SENIOR → the SENIOR's OTHER team is not leaked in (proves the HR/ACCOUNTANT branch selection excludes DROP)", async () => {
     // security-review PR #541 round 4 (mutation-gate follow-up): `else if
     // (user.role === 'HR' || user.role === 'ACCOUNTANT')` survived —

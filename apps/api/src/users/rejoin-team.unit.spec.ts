@@ -59,9 +59,8 @@ interface HarnessOpts {
   staff?: Record<string, string | null>
 }
 
-/** Default probe role: `hr-*` are HR, `acc-*` ACCOUNTANT; anything else is unknown. */
-const defaultStaffRole = (id: string): string | null =>
-  id.startsWith('hr-') ? 'HR' : id.startsWith('acc-') ? 'ACCOUNTANT' : null
+/** Default probe role: `hr-*` are HR; anything else is unknown. */
+const defaultStaffRole = (id: string): string | null => (id.startsWith('hr-') ? 'HR' : null)
 
 function makeHarness(opts: HarnessOpts = {}) {
   const log: Log = []
@@ -281,13 +280,12 @@ describe('UsersService.rejoinTeam — CREATE_NEW', () => {
     },
   )
 
-  it('creates the team then inserts senior, HRs (in order), accountant — all on ONE tx, exact payloads', async () => {
+  it('creates the team then inserts senior, HRs (in order) — all on ONE tx, exact payloads', async () => {
     const h = makeHarness()
     await expect(
       rejoin(h, {
         teamMode: 'CREATE_NEW',
         hrIds: ['hr-1', 'hr-2'],
-        accountantId: 'acc-1',
         // must be ignored on this path
         dropTeamId: 'drop-ignored',
       }),
@@ -321,33 +319,12 @@ describe('UsersService.rejoinTeam — CREATE_NEW', () => {
         table: 'team_members',
         values: { teamId: NEW_TEAM_ID, userId: 'hr-2' },
       },
-      {
-        op: 'insert',
-        on: 'tx',
-        table: 'team_members',
-        values: { teamId: NEW_TEAM_ID, userId: 'acc-1' },
-      },
       { op: 'tx-end' },
     ])
     expect(h.db.transaction).toHaveBeenCalledTimes(1)
     // the drop-team collaborators are never touched on CREATE_NEW
     expect(h.wasFormerMemberOfTeam).not.toHaveBeenCalled()
     expect(h.addSeniorToDropTeam).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    ['omitted', undefined],
-    ['null', null],
-    ['empty string', ''],
-  ])('accountantId %s => no accountant membership row', async (_label, accountantId) => {
-    const h = makeHarness()
-    const data: Input =
-      accountantId === undefined
-        ? { teamMode: 'CREATE_NEW', hrIds: ['hr-1'] }
-        : { teamMode: 'CREATE_NEW', hrIds: ['hr-1'], accountantId }
-    await expect(rejoin(h, data)).resolves.toEqual({ teamId: NEW_TEAM_ID })
-    const memberRows = h.log.filter((e) => e.op === 'insert' && e.table === 'team_members')
-    expect(memberRows.map((e) => (e.values as Row).userId)).toEqual([SENIOR_ID, 'hr-1'])
   })
 
   it('team name uses the caller displayName of the loaded user row', async () => {
@@ -369,11 +346,11 @@ describe('UsersService.rejoinTeam — CREATE_NEW', () => {
 
   it('a failing member insert rejects the whole call and stops further inserts (tx rollback is the db’s job)', async () => {
     const h = makeHarness({ failMemberInsertAt: 1 })
-    await expect(
-      rejoin(h, { teamMode: 'CREATE_NEW', hrIds: ['hr-1', 'hr-2'], accountantId: 'acc-1' }),
-    ).rejects.toThrow('member insert failed')
+    await expect(rejoin(h, { teamMode: 'CREATE_NEW', hrIds: ['hr-1', 'hr-2'] })).rejects.toThrow(
+      'member insert failed',
+    )
     const memberRows = h.log.filter((e) => e.op === 'insert' && e.table === 'team_members')
-    // senior ok, hr-1 failed => hr-2 / accountant never attempted; no tx-end
+    // senior ok, hr-1 failed => hr-2 never attempted; no tx-end
     expect(memberRows.map((e) => (e.values as Row).userId)).toEqual([SENIOR_ID, 'hr-1'])
     expect(ops(h.log)).not.toContain('tx-end')
   })
@@ -387,7 +364,6 @@ describe('UsersService.rejoinTeam — CREATE_NEW team-staff role invariant (SR-M
 
   it.each([
     ['an ADMIN', { 'adm-1': 'ADMIN' }],
-    ['an ACCOUNTANT', { 'acc-9': 'ACCOUNTANT' }],
     ['a SENIOR', { 'sen-2': 'SENIOR' }],
     ['an archived/unknown user', { 'ghost-1': null }],
   ])('rejects %s in hrIds -> 400 TEAM_HR_MEMBER_MUST_BE_HR, nothing written', async (_n, staff) => {
@@ -407,32 +383,16 @@ describe('UsersService.rejoinTeam — CREATE_NEW team-staff role invariant (SR-M
     nothingWritten(h)
   })
 
-  it.each([
-    ['an HR', { 'hr-9': 'HR' }],
-    ['an ADMIN', { 'adm-1': 'ADMIN' }],
-    ['an archived/unknown user', { 'ghost-1': null }],
-  ])(
-    'rejects %s as accountantId -> 400 TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT, nothing written',
-    async (_n, staff) => {
-      const bad = Object.keys(staff)[0]!
-      const h = makeHarness({ staff })
-      await expect(
-        rejoin(h, { teamMode: 'CREATE_NEW', hrIds: ['hr-1'], accountantId: bad }),
-      ).rejects.toMatchObject(code('TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT', 400))
-      nothingWritten(h)
-    },
-  )
-
-  it('valid HRs + ACCOUNTANT: ONE probe (non-archived ids, de-duplicated) before the transaction, team created with them', async () => {
+  it('valid HRs: ONE probe (non-archived ids, de-duplicated) before the transaction, team created with them', async () => {
     const h = makeHarness()
     await expect(
-      rejoin(h, { teamMode: 'CREATE_NEW', hrIds: ['hr-1', 'hr-1', 'hr-2'], accountantId: 'acc-1' }),
+      rejoin(h, { teamMode: 'CREATE_NEW', hrIds: ['hr-1', 'hr-1', 'hr-2'] }),
     ).resolves.toEqual({ teamId: NEW_TEAM_ID })
     expect(h.probes).toEqual([
       {
         on: 'db',
-        where: '("users"."id" in ($1, $2, $3) and "users"."archived_at" is null)',
-        params: ['hr-1', 'hr-2', 'acc-1'],
+        where: '("users"."id" in ($1, $2) and "users"."archived_at" is null)',
+        params: ['hr-1', 'hr-2'],
         // after the caller select + membership probe, before tx-begin / any insert
         logLen: 2,
       },

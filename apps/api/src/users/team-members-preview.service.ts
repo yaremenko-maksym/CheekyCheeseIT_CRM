@@ -181,7 +181,7 @@ export class TeamMembersPreviewService {
           .innerJoin(projects, eq(projectMembers.projectId, projects.id))
           .where(and(eq(projectMembers.userId, userId), isNull(projectMembers.leftAt)))
         seniorIds = Array.from(new Set(activeProjects.map((p) => p.seniorId)))
-      } else if (user.role === 'HR' || user.role === 'ACCOUNTANT') {
+      } else if (user.role === 'HR') {
         // MED-2 (security-review round 2): `isNull(leftAt)` — a soft-removed
         // HR membership must not resolve a team roster anymore.
         // Mirrors the HIGH-1 fix in teams.service.ts (isHrOfTeam/assertAccess).
@@ -219,7 +219,7 @@ export class TeamMembersPreviewService {
         seniorIds = Array.from(new Set(seniorsInTeams.map((s) => s.userId)))
       }
 
-      // Step 2: Collect team_members (SENIOR + HR + ACCOUNTANT) across those seniors' teams.
+      // Step 2: Collect team_members (SENIOR + HR) across those seniors' teams.
       // Teams are linked to senior via team_members (the SENIOR is itself a member).
       // MED-2 (security-review round 2): `isNull(leftAt)` on BOTH queries below —
       // a detached (rotated-out) senior's team_members row must not resolve a

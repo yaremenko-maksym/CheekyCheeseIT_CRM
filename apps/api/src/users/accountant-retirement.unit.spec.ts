@@ -1,0 +1,143 @@
+/**
+ * ACCOUNTANT retirement (design §13.3, PR 1b). The role stays in `roleSchema` / the Postgres
+ * enum until PR 1d, so a legacy ACCOUNTANT row or session can still exist. This spec is the
+ * one place that names the role: it proves that the API grants such a row or session nothing.
+ *
+ * - AC 5: team reconcile never touches the `team_members` row of a former accountant.
+ * - Master addendum: `TransactionsService.findAll` is an allowlist — an ACCOUNTANT session
+ *   gets `[]`, while ADMIN over the same data gets the row (so the empty result is not vacuous).
+ */
+import { describe, expect, it, vi } from 'vitest'
+import { getTableName, type SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
+import type { SessionUser } from '@crm/shared'
+import { TeamReconcileService } from './team-reconcile.service'
+import { makeTransactionsService } from '../finance/__test-helpers__/make-transactions-service'
+
+const dialect = new PgDialect()
+
+describe('AC 5 — reconcile leaves a former accountant team_members row untouched', () => {
+  function makeTx(selects: unknown[][]) {
+    const queue = [...selects]
+    const updates: Array<{ table: string; set: Record<string, unknown>; params: unknown[] }> = []
+    const tx = {
+      select: vi.fn(() => {
+        const chain = {
+          from: () => chain,
+          innerJoin: () => chain,
+          where: () => {
+            const rows = queue.shift()
+            if (rows === undefined) throw new Error('unexpected extra tx.select()')
+            const p = Promise.resolve(rows)
+            return { then: p.then.bind(p) }
+          },
+        }
+        return chain
+      }),
+      update: vi.fn((t: never) => ({
+        set: (set: Record<string, unknown>) => ({
+          where: async (cond: SQL) => {
+            updates.push({ table: getTableName(t), set, params: dialect.sqlToQuery(cond).params })
+          },
+        }),
+      })),
+      insert: vi.fn(),
+    }
+    return { tx, updates }
+  }
+
+  it('clearing every HR removes the HR only; the ACCOUNTANT row gets no leftAt and no audit', async () => {
+    const { tx, updates } = makeTx([
+      [{ teamId: 'team-1' }],
+      [
+        { userId: 'hr-1', id: 'tm-1', role: 'HR' },
+        { userId: 'acc-legacy', id: 'tm-2', role: 'ACCOUNTANT' },
+      ],
+    ])
+    const record = vi.fn(async () => undefined)
+    const service = new TeamReconcileService({ record } as never)
+    const reconcile = (
+      service as unknown as {
+        reconcileSeniorTeamTx: (
+          tx: unknown,
+          seniorId: string,
+          data: { hrIds?: string[] },
+          actorId: string | null,
+        ) => Promise<void>
+      }
+    ).reconcileSeniorTeamTx.bind(service)
+
+    await reconcile(tx, 'sn-1', { hrIds: [] }, 'admin-1')
+
+    expect(updates).toEqual([
+      { table: 'team_members', set: { leftAt: expect.any(Date) }, params: ['team-1', 'hr-1'] },
+    ])
+    expect(record).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(record.mock.calls)).not.toContain('acc-legacy')
+    expect(tx.insert).not.toHaveBeenCalled()
+  })
+})
+
+describe('Master addendum — TransactionsService.findAll is an allowlist', () => {
+  const VIEWER_ID = '11111111-1111-4111-8111-111111111111'
+  // The viewer is both parties, so any party-based branch would let the row through.
+  const row = {
+    id: '33333333-3333-4333-8333-333333333333',
+    type: 'SALARY',
+    status: 'PAID',
+    amount: '100.000000',
+    currency: 'USDT',
+    settledAmount: null,
+    settledCurrency: null,
+    originalAmount: null,
+    originalCurrency: null,
+    exchangeRate: null,
+    senderId: VIEWER_ID,
+    senderLabel: null,
+    receiverId: VIEWER_ID,
+    receiverLabel: null,
+    projectId: null,
+    payoutRequestId: null,
+    dropCascadeOrigin: null,
+    seniorSharePercent: null,
+    receiptDocumentId: null,
+    receiptExternalUrl: null,
+    txHash: null,
+    validatedBy: null,
+    validatedAt: null,
+    rejectionReason: null,
+    notes: null,
+    salaryMonth: null,
+    txDate: null,
+    fundingSource: null,
+    createdBy: VIEWER_ID,
+    createdAt: new Date('2026-08-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-08-01T00:00:00.000Z'),
+    deletedAt: null,
+    deletedBy: null,
+    deletionReason: null,
+    sender: { displayName: 'Viewer', role: 'ADMIN' },
+    receiver: { displayName: 'Viewer', role: 'ADMIN' },
+    project: null,
+    payoutRequest: null,
+  }
+  const svc = makeTransactionsService({
+    db: { db: { query: { transactions: { findMany: async () => [row] } } } } as never,
+  })
+  const session = (role: string): SessionUser =>
+    ({
+      id: VIEWER_ID,
+      email: 'v@example.com',
+      displayName: 'V',
+      avatarUrl: null,
+      role,
+    }) as SessionUser
+
+  it('ADMIN over the same data gets the row', async () => {
+    expect(await svc.findAll(session('ADMIN'))).toHaveLength(1)
+  })
+
+  it.each(['ACCOUNTANT', 'UNKNOWN_ROLE'])('a %s session gets []', async (role) => {
+    expect(await svc.findAll(session(role))).toEqual([])
+  })
+})

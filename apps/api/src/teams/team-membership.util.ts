@@ -193,13 +193,6 @@ export async function removeTeamMember(
     }
   }
 
-  if (removedRole === 'ACCOUNTANT') {
-    const accountantCount = activeMembers.filter((m) => m.user?.role === 'ACCOUNTANT').length
-    if (accountantCount <= 1) {
-      throw apiError('TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE', HttpStatus.BAD_REQUEST)
-    }
-  }
-
   // Soft-delete the membership (set leftAt=now) instead of a physical DELETE,
   // so the row survives for audit/history — consistent with every other exit
   // path (archiveDropTeam, rotateSenior). A physical delete erased the

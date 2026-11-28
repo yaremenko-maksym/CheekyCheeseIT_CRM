@@ -129,7 +129,7 @@ export async function fetchAllProjects(db: TeamsDb): Promise<ProjectWithMembers[
 export async function assertUserRole(
   db: TeamsDb,
   userId: string,
-  expectedRole: 'DROP' | 'SENIOR' | 'HR' | 'ACCOUNTANT',
+  expectedRole: 'DROP' | 'SENIOR' | 'HR',
   tx?: DrizzleTx,
   genericMessage = false,
 ): Promise<void> {

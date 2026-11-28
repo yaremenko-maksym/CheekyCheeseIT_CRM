@@ -1999,7 +1999,7 @@ describe('UsersService.createUser — SENIOR', () => {
     expect(insertMock).toHaveBeenCalledTimes(4)
   })
 
-  it('creates a SENIOR team with HR and accountant members', async () => {
+  it('creates a SENIOR team with two HR members', async () => {
     const senior = makeSenior()
     const db = makeDb({
       existingUser: undefined,
@@ -2007,7 +2007,6 @@ describe('UsersService.createUser — SENIOR', () => {
       staffRoles: [
         { id: 'hr-1', role: 'HR' },
         { id: 'hr-2', role: 'HR' },
-        { id: 'acc-1', role: 'ACCOUNTANT' },
       ],
     })
     const service = makeUsersService(db)
@@ -2020,16 +2019,15 @@ describe('UsersService.createUser — SENIOR', () => {
       role: 'SENIOR',
       technicalRoles: ['BACKEND_ENGINEER'],
       hrIds: ['hr-1', 'hr-2'],
-      accountantId: 'acc-1',
     })
 
     const insertMock = db.db.insert as ReturnType<typeof vi.fn>
     // insert: users + user_emails WORK row (§4.4) + teams + teamMembers(senior)
-    // + teamMembers(hr-1) + teamMembers(hr-2) + teamMembers(acc-1) = 7
-    expect(insertMock).toHaveBeenCalledTimes(7)
+    // + teamMembers(hr-1) + teamMembers(hr-2) = 6
+    expect(insertMock).toHaveBeenCalledTimes(6)
   })
 
-  it('creates a SENIOR team with HR only (no accountant)', async () => {
+  it('creates a SENIOR team with a single HR', async () => {
     const senior = makeSenior()
     const db = makeDb({
       existingUser: undefined,
@@ -2046,7 +2044,6 @@ describe('UsersService.createUser — SENIOR', () => {
       role: 'SENIOR',
       technicalRoles: ['BACKEND_ENGINEER'],
       hrIds: ['hr-1'],
-      accountantId: null,
     })
 
     const insertMock = db.db.insert as ReturnType<typeof vi.fn>

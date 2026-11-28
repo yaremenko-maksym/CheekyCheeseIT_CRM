@@ -551,16 +551,15 @@ describe('UsersService.createUser — transactional write, audit, invite', () =>
 
 describe('UsersService.createUser — team / project linkage (post-commit, plain db handle)', () => {
   const senior = { ...CREATED, role: 'SENIOR' }
-  const STAFF = { 'hr-1': 'HR', 'hr-2': 'HR', 'acc-1': 'ACCOUNTANT' }
+  const STAFF = { 'hr-1': 'HR', 'hr-2': 'HR' }
 
-  it('SENIOR default (CREATE_NEW): team named «Команда <displayName>» + members creator, hrIds in order, accountant', async () => {
+  it('SENIOR default (CREATE_NEW): team named «Команда <displayName>» + members creator, hrIds in order', async () => {
     const h = makeHarness({ created: senior, staffRoles: STAFF })
     await h.service.createUser(
       baseInput({
         role: 'SENIOR',
         displayName: 'Ivan',
         hrIds: ['hr-1', 'hr-2'],
-        accountantId: 'acc-1',
       }),
     )
     // r5 4.6 S5 (CR-M-2): the new senior is marked dirty inside the membership transaction.
@@ -595,23 +594,14 @@ describe('UsersService.createUser — team / project linkage (post-commit, plain
         returning: false,
         values: { teamId: 'team-new', userId: 'hr-2' },
       },
-      {
-        op: 'insert',
-        on: 'tx',
-        table: 'team_members',
-        returning: false,
-        values: { teamId: 'team-new', userId: 'acc-1' },
-      },
       { op: 'tx-end' },
     ])
     expect(h.addSeniorToDropTeam).not.toHaveBeenCalled()
   })
 
-  it('SENIOR with no hrIds / accountant (null) -> only the creator is a member', async () => {
+  it('SENIOR with no hrIds -> only the creator is a member', async () => {
     const h = makeHarness({ created: senior })
-    await h.service.createUser(
-      baseInput({ role: 'SENIOR', teamMode: 'CREATE_NEW', accountantId: null }),
-    )
+    await h.service.createUser(baseInput({ role: 'SENIOR', teamMode: 'CREATE_NEW' }))
     const members = inserts(h.log, 'team_members')
     expect(members.map((m) => (m.values as { userId: string }).userId)).toEqual(['user-new'])
   })
@@ -651,11 +641,11 @@ describe('UsersService.createUser — team / project linkage (post-commit, plain
     expect(inserts(h.log, 'team_members')).toHaveLength(1)
   })
 
-  it.each(['HR', 'ACCOUNTANT', 'JUNIOR'] as const)(
-    'role %s never gets an auto-team even with hrIds / accountantId',
+  it.each(['HR', 'JUNIOR'] as const)(
+    'role %s never gets an auto-team even with hrIds',
     async (role) => {
       const h = makeHarness({ created: { ...CREATED, role } })
-      await h.service.createUser(baseInput({ role, hrIds: ['hr-1'], accountantId: 'acc-1' }))
+      await h.service.createUser(baseInput({ role, hrIds: ['hr-1'] }))
       expect(inserts(h.log, 'teams')).toHaveLength(0)
       expect(inserts(h.log, 'team_members')).toHaveLength(0)
       expect(h.addSeniorToDropTeam).not.toHaveBeenCalled()

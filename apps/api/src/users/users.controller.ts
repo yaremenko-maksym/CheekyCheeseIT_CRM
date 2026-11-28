@@ -127,7 +127,6 @@ export class UsersController {
       monthlySalary: dto.monthlySalary ?? null,
       ...(dto.salaryCurrency !== undefined && { salaryCurrency: dto.salaryCurrency }),
       hrIds: dto.hrIds ?? [],
-      accountantId: dto.accountantId ?? null,
       projectId: dto.projectId ?? null,
       // `paymentMethod` is required by createUserSchema — always defined here.
       paymentMethod: dto.paymentMethod,
@@ -177,7 +176,6 @@ export class UsersController {
       ...(dto.seniorSharePercent !== undefined && { seniorSharePercent: dto.seniorSharePercent }),
       monthlySalary: null,
       hrIds: dto.hrIds ?? [],
-      accountantId: dto.accountantId ?? null,
       projectId: dto.projectId ?? null,
       walletUsdtErc20: null,
       walletUsdtLabel: null,
@@ -229,7 +227,6 @@ export class UsersController {
         legalFullName: dto.legalFullName ?? null,
         registrationAddress: dto.registrationAddress ?? null,
         hrIds: dto.hrIds,
-        accountantId: dto.accountantId ?? null,
         telegramChannel: dto.telegramChannel ?? null,
       },
       currentUser,
@@ -263,7 +260,6 @@ export class UsersController {
       teamMode: dto.teamMode,
       ...(dto.dropTeamId !== undefined && { dropTeamId: dto.dropTeamId }),
       ...(dto.hrIds !== undefined && { hrIds: dto.hrIds }),
-      ...(dto.accountantId !== undefined && { accountantId: dto.accountantId }),
     })
   }
 

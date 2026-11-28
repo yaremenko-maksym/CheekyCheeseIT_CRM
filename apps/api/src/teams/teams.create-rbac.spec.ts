@@ -2,7 +2,7 @@
  * Unit tests for TeamsService.create — RBAC / role-validation / scoping
  *
  * SEC-02 (HIGH) + BIZ-09 (MED): teams.create was accepting arbitrary UUIDs as
- * seniorId / hrIds / accountantId without asserting their roles. An HR could
+ * seniorId / hrIds without asserting their roles. An HR could
  * supply a victim SENIOR as `seniorId` → that SENIOR becomes a member of the
  * HR's new team → `getHrSeniorIds(hrId)` now includes the victim → HR gains
  * scoped access to the victim-senior's projects/documents (BOLA).
@@ -65,16 +65,6 @@ const juniorUser: SessionUser = {
   role: 'JUNIOR',
   displayName: 'Junior',
   email: 'junior@test.spec',
-  avatarUrl: null,
-  seniorSharePercent: 26,
-  legalFullName: null,
-}
-
-const accUser: SessionUser = {
-  id: 'acc-uuid-00000-0001-0000-0000-000000000000',
-  role: 'ACCOUNTANT',
-  displayName: 'Accountant',
-  email: 'acc@test.spec',
   avatarUrl: null,
   seniorSharePercent: 26,
   legalFullName: null,
@@ -147,7 +137,7 @@ function makeDb({
     // After user lookups, it calls select().from(teamMembers).where(…) for
     // existing-senior membership check.
     // We need to know which call this is by order:
-    //   calls 0..N-1 = user lookups (one per seniorId/hrId/accountantId)
+    //   calls 0..N-1 = user lookups (one per seniorId/hrId)
     //   call N       = teamMembers lookup for dual-active senior check
     const userIds = Object.keys(userLookups)
     if (idx < userIds.length) {
@@ -209,13 +199,12 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
       userLookups: {
         [juniorUser.id]: makeDbUser(juniorUser.id, 'JUNIOR'), // seniorId → JUNIOR
         [hrUser.id]: makeDbUser(hrUser.id, 'HR'),
-        [accUser.id]: makeDbUser(accUser.id, 'ACCOUNTANT'),
       },
     })
     const service = makeService(db)
 
     await expect(
-      service.create('Team X', juniorUser.id, [hrUser.id], accUser.id, adminUser),
+      service.create('Team X', juniorUser.id, [hrUser.id], adminUser),
     ).rejects.toMatchObject({
       response: {
         code: 'TEAM_UNEXPECTED_USER_ROLE',
@@ -231,39 +220,17 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
       userLookups: {
         [seniorUser.id]: makeDbUser(seniorUser.id, 'SENIOR'), // seniorId → OK
         [seniorUser.id + '-2']: makeDbUser(seniorUser.id + '-2', 'SENIOR'), // hrId → SENIOR (wrong)
-        [accUser.id]: makeDbUser(accUser.id, 'ACCOUNTANT'),
       },
     })
     const service = makeService(db)
 
     await expect(
-      service.create('Team X', seniorUser.id, [seniorUser.id + '-2'], accUser.id, adminUser),
+      service.create('Team X', seniorUser.id, [seniorUser.id + '-2'], adminUser),
     ).rejects.toMatchObject({
       response: {
         code: 'TEAM_UNEXPECTED_USER_ROLE',
         statusCode: 400,
         params: { expectedRole: 'HR', actualRole: 'SENIOR' },
-      },
-    })
-  })
-
-  it('AC1c: throws BadRequestException when accountantId points to a non-ACCOUNTANT user', async () => {
-    const db = makeDb({
-      userLookups: {
-        [seniorUser.id]: makeDbUser(seniorUser.id, 'SENIOR'),
-        [hrUser.id]: makeDbUser(hrUser.id, 'HR'),
-        [juniorUser.id]: makeDbUser(juniorUser.id, 'JUNIOR'), // accountantId → JUNIOR (wrong)
-      },
-    })
-    const service = makeService(db)
-
-    await expect(
-      service.create('Team X', seniorUser.id, [hrUser.id], juniorUser.id, adminUser),
-    ).rejects.toMatchObject({
-      response: {
-        code: 'TEAM_UNEXPECTED_USER_ROLE',
-        statusCode: 400,
-        params: { expectedRole: 'ACCOUNTANT', actualRole: 'JUNIOR' },
       },
     })
   })
@@ -275,13 +242,13 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
     const db = makeDb()
     const service = makeService(db)
 
-    await expect(
-      service.create('Team X', seniorUser.id, [hrUser.id], accUser.id, seniorUser),
-    ).rejects.toThrow(ForbiddenException)
+    await expect(service.create('Team X', seniorUser.id, [hrUser.id], seniorUser)).rejects.toThrow(
+      ForbiddenException,
+    )
 
-    await expect(
-      service.create('Team X', seniorUser.id, [hrUser.id], accUser.id, hrUser),
-    ).rejects.toThrow(ForbiddenException)
+    await expect(service.create('Team X', seniorUser.id, [hrUser.id], hrUser)).rejects.toThrow(
+      ForbiddenException,
+    )
   })
 
   it('AC1e: HR self-scoping guard is superseded — HR gets 403 at ADMIN-only role gate', async () => {
@@ -290,9 +257,9 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
     const db = makeDb()
     const service = makeService(db)
 
-    await expect(
-      service.create('Team X', seniorUser.id, [hrUser.id], accUser.id, hrUser),
-    ).rejects.toThrow(ForbiddenException)
+    await expect(service.create('Team X', seniorUser.id, [hrUser.id], hrUser)).rejects.toThrow(
+      ForbiddenException,
+    )
   })
 
   it('AC1f: throws BadRequestException when senior is already in an active team (dual-active prevention)', async () => {
@@ -300,7 +267,6 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
       userLookups: {
         [seniorUser.id]: makeDbUser(seniorUser.id, 'SENIOR'),
         [hrUser.id]: makeDbUser(hrUser.id, 'HR'),
-        [accUser.id]: makeDbUser(accUser.id, 'ACCOUNTANT'),
       },
       // teamMembers lookup returns existing active membership for the senior
       activeMembers: [makeActiveMembership('existing-team-id', seniorUser.id)],
@@ -308,7 +274,7 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
     const service = makeService(db)
 
     await expect(
-      service.create('Team X', seniorUser.id, [hrUser.id], accUser.id, adminUser),
+      service.create('Team X', seniorUser.id, [hrUser.id], adminUser),
     ).rejects.toMatchObject({
       response: expect.objectContaining({
         code: 'TEAM_SENIOR_ALREADY_ON_ANOTHER_TEAM',
@@ -322,14 +288,13 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
       userLookups: {
         [seniorUser.id]: makeDbUser(seniorUser.id, 'SENIOR'),
         [hrUser.id]: makeDbUser(hrUser.id, 'HR'),
-        [accUser.id]: makeDbUser(accUser.id, 'ACCOUNTANT'),
       },
       activeMembers: [], // senior is free
     })
     const service = makeService(db)
 
     await expect(
-      service.create('Team X', seniorUser.id, [hrUser.id], accUser.id, adminUser),
+      service.create('Team X', seniorUser.id, [hrUser.id], adminUser),
     ).resolves.toBeDefined()
     // r5 4.6 S5 (CR-M-2): the new team's senior is marked dirty inside the create transaction.
     const [handle, ...rest] = vi.mocked(markSeniorDirty).mock.calls.at(-1)!
@@ -343,8 +308,8 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
     const db = makeDb()
     const service = makeService(db)
 
-    await expect(
-      service.create('Team X', seniorUser.id, [hrUser.id], accUser.id, hrUser),
-    ).rejects.toThrow(ForbiddenException)
+    await expect(service.create('Team X', seniorUser.id, [hrUser.id], hrUser)).rejects.toThrow(
+      ForbiddenException,
+    )
   })
 })

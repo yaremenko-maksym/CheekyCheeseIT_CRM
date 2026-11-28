@@ -37,7 +37,6 @@ export interface CreateUserInput {
   monthlySalary?: number | null
   salaryCurrency?: 'USDT' | 'USD' | 'EUR' | 'UAH'
   hrIds?: string[]
-  accountantId?: string | null
   projectId?: string | null
   paymentMethod?: 'USDT_ERC20' | 'BANK_UAH_FOP'
   walletUsdtErc20?: string | null
@@ -271,11 +270,7 @@ export class UserCreationService {
           .values({ name: `Команда ${data.displayName}` })
           .returning()
         if (team) {
-          const memberIds = [
-            created.id,
-            ...enrolledHrIds(data),
-            ...(data.accountantId ? [data.accountantId] : []),
-          ]
+          const memberIds = [created.id, ...enrolledHrIds(data)]
           // r5 4.6 S5: the memberships and the senior's roster dirty row commit together.
           await this.db.db.transaction(async (tx) => {
             for (const userId of memberIds) {
@@ -299,9 +294,8 @@ export class UserCreationService {
 
   /**
    * SR-M-1: who may be enrolled into a NEW senior's team.
-   * - Every enrolled HR (see `enrolledHrIds`) must be an existing user with role HR;
-   *   `accountantId` (when set) an existing user with role ACCOUNTANT. Universal:
-   *   ADMIN and HR alike.
+   * - Every enrolled HR (see `enrolledHrIds`) must be an existing user with role HR.
+   *   Universal: ADMIN and HR alike.
    * - HR actor only: `hrIds` may contain nobody but the acting HR (403 HR_TEAM_SELF_ONLY).
    *   ADMIN keeps free choice among valid-role users.
    */
@@ -309,7 +303,7 @@ export class UserCreationService {
     if (data.actorRole === 'HR' && (data.hrIds ?? []).some((id) => id !== data.actorId)) {
       throw apiError('HR_TEAM_SELF_ONLY', HttpStatus.FORBIDDEN)
     }
-    await assertTeamStaffRoles(this.db.db, enrolledHrIds(data), data.accountantId)
+    await assertTeamStaffRoles(this.db.db, enrolledHrIds(data))
   }
 }
 

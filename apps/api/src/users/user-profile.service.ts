@@ -66,8 +66,8 @@ export class UserProfileService {
 
     // task-648-fix-round-1 (QA-HIGH-1): gated on `fields.sharePending`, NOT
     // `fields.share` — the PENDING (unconfirmed) value is a narrower surface
-    // than the active one (task file: "только ADMIN и сам синьор"; ACCOUNTANT
-    // has `fields.share=true` for payroll need-to-know but must not learn a
+    // than the active one (task file: "only ADMIN and the senior themself"; a viewer
+    // with `fields.share=true` but not `fields.sharePending` must not learn a
     // change is even proposed). Only queried when that gate is open (avoids
     // the round-trip, and avoids leaking "something is pending" via
     // response-time side channel to a masked viewer).

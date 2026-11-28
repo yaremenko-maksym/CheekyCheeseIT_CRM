@@ -32,7 +32,6 @@ export interface CreateDropInput {
   /** Ukrainian registration address (ФОП) — optional; persisted when set. */
   registrationAddress?: string | null
   hrIds: string[]
-  accountantId?: string | null
   telegramChannel?: string | null
 }
 
@@ -132,7 +131,6 @@ export class DropCreationService {
       const team = await this.teamsService.createDropTeam(
         created.id,
         data.hrIds,
-        data.accountantId ?? null,
         data.telegramChannel ?? null,
         tx,
       )

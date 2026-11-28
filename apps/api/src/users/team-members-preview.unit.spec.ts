@@ -293,7 +293,7 @@ describe('getTeamMembersForUser — JUNIOR target', () => {
   })
 })
 
-describe.each(['HR', 'ACCOUNTANT'] as const)('getTeamMembersForUser — %s target', (role) => {
+describe.each(['HR'] as const)('getTeamMembersForUser — %s target', (role) => {
   it('walks own active teams -> SENIORs of those teams (active) -> same pipeline', async () => {
     const h = makeHarness([
       [target('u1', role)],
@@ -390,7 +390,7 @@ describe('getTeamMembersForUser — viewer-role masking (RBAC core)', () => {
     expect(out.map((r) => r.id)).toEqual(['hr-1', 's-2', 'acc-1'])
   })
 
-  it.each(['ADMIN', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] as const)(
+  it.each(['ADMIN', 'JUNIOR', 'HR', 'DROP'] as const)(
     '%s viewer: roster is returned unfiltered (JUNIOR rows kept, same order)',
     async (viewer) => {
       const h = makeHarness([[target('s1', 'SENIOR')], [], [], [], [], rows])
@@ -400,7 +400,7 @@ describe('getTeamMembersForUser — viewer-role masking (RBAC core)', () => {
     },
   )
 
-  it.each(['ADMIN', 'HR', 'ACCOUNTANT', 'JUNIOR', 'DROP'] as const)(
+  it.each(['ADMIN', 'HR', 'JUNIOR', 'DROP'] as const)(
     '%s viewer on a DROP target: unfiltered passthrough',
     async (viewer) => {
       const h = makeHarness([[target('d1', 'DROP')], [{ teamId: 't1' }], rows])

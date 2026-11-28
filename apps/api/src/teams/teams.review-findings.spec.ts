@@ -290,7 +290,7 @@ describe('TeamsService.create — HIGH-2: ADMIN-only (HR removed from create gat
     const { dbSvc } = makeCreateDb({ [SENIOR_ID]: 'SENIOR' })
     const service = makeCreateService(dbSvc)
 
-    await expect(service.create('My Team', SENIOR_ID, [HR_ID], null, hrUser)).rejects.toThrow(
+    await expect(service.create('My Team', SENIOR_ID, [HR_ID], hrUser)).rejects.toThrow(
       ForbiddenException,
     )
   })
@@ -303,9 +303,7 @@ describe('TeamsService.create — HIGH-2: ADMIN-only (HR removed from create gat
     const { dbSvc } = makeCreateDb(roles)
     const service = makeCreateService(dbSvc)
 
-    await expect(
-      service.create('My Team', SENIOR_ID, [HR_ID], null, adminUser),
-    ).resolves.toBeDefined()
+    await expect(service.create('My Team', SENIOR_ID, [HR_ID], adminUser)).resolves.toBeDefined()
   })
 })
 
@@ -335,7 +333,7 @@ describe('TeamsService.create — MED: no role oracle leakage to non-ADMIN calle
     }
     const service = makeCreateService(dbSvc)
 
-    await expect(service.create('T', SENIOR_ID, [HR_ID], null, hrUser)).rejects.toThrow(
+    await expect(service.create('T', SENIOR_ID, [HR_ID], hrUser)).rejects.toThrow(
       ForbiddenException,
     )
 

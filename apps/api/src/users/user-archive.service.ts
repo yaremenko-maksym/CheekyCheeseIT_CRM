@@ -136,7 +136,7 @@ export class UserArchiveService {
             tx,
           )
         }
-      } else if (user.role === 'HR' || user.role === 'ACCOUNTANT') {
+      } else if (user.role === 'HR') {
         // Set leftAt across all team memberships.
         const memberships = await tx
           .select({ id: teamMembers.id, teamId: teamMembers.teamId })
@@ -450,7 +450,7 @@ export class UserArchiveService {
       }
     }
 
-    if (user.role === 'HR' || user.role === 'ACCOUNTANT') {
+    if (user.role === 'HR') {
       const memberships = await this.db.db
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)

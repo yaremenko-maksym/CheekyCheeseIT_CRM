@@ -210,7 +210,7 @@ describe('TeamsService.createDropTeam', () => {
       teamMembers: [],
       projects: [],
     })
-    await expect(svc.createDropTeam('drop-1', [], 'acc-1', null)).rejects.toMatchObject({
+    await expect(svc.createDropTeam('drop-1', [], null)).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'HR_REQUIRED_MINIMUM_ONE', statusCode: 400 }),
     })
   })
@@ -226,7 +226,7 @@ describe('TeamsService.createDropTeam', () => {
       teamMembers: [],
       projects: [],
     })
-    await expect(svc.createDropTeam('sn-1', ['hr-1'], 'acc-1', null)).rejects.toMatchObject({
+    await expect(svc.createDropTeam('sn-1', ['hr-1'], null)).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 400 }),
     })
   })
@@ -246,7 +246,7 @@ describe('TeamsService.createDropTeam', () => {
         }),
       }),
     }))
-    await expect(svc.createDropTeam('drop-1', ['hr-1'], null, null)).rejects.toMatchObject({
+    await expect(svc.createDropTeam('drop-1', ['hr-1'], null)).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'DROP_NOT_FOUND', statusCode: 400 }),
     })
   })
@@ -290,7 +290,7 @@ describe('TeamsService.createDropTeam', () => {
       }),
     }))
 
-    const team = await svc.createDropTeam('drop-1', ['hr-1'], null, null)
+    const team = await svc.createDropTeam('drop-1', ['hr-1'], null)
 
     expect(team).toBeDefined()
     // Members = drop + hr only; the accountant is absent.

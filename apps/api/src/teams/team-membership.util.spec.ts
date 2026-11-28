@@ -386,22 +386,6 @@ describe('removeTeamMember', () => {
     expect(m.updates).toHaveLength(1)
   })
 
-  it('400 TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE when the last ACTIVE accountant is removed (other roles / left accountants do not count)', async () => {
-    const m = makeDeps({
-      team: team([
-        { userId: 'a1', role: 'ACCOUNTANT' },
-        { userId: 'a-left', role: 'ACCOUNTANT', leftAt: LEFT },
-        { userId: 'h1', role: 'HR' },
-        { userId: 'h2', role: 'HR' },
-        { userId: 'ghost', role: null },
-      ]),
-    })
-    await expect(removeTeamMember(m.deps, 'T1', 'a1', admin)).rejects.toMatchObject(
-      refusal(400, 'TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE'),
-    )
-    expect(m.transaction).not.toHaveBeenCalled()
-  })
-
   it('removes an accountant when a second ACTIVE accountant remains (user-less rows tolerated)', async () => {
     const m = makeDeps({
       team: team([

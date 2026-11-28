@@ -706,7 +706,6 @@ describe('TeamsService.getArchiveImpact', () => {
       [{ id: 'drop-1', displayName: 'Дроп Иван' }], // drop lookup
       [{ id: 'senior-9', displayName: 'Отцепляющийся Синьор' }], // senior lookup
       [{ userId: 'hr-1' }, { userId: 'hr-2' }], // HR count
-      [{ userId: 'acc-1' }], // ACCOUNTANT count
       [
         { id: 'proj-1', name: 'Drop Proj 1' },
         { id: 'proj-2', name: 'Drop Proj 2' },
@@ -774,7 +773,7 @@ describe('TeamsService.getArchiveImpact', () => {
       projectNames: ['Drop Proj 1', 'Drop Proj 2', 'Drop Proj 3'],
       seniorWillBeDetached: true,
       projectsCount: 3,
-      membersAffected: 3, // 2 HR + 1 ACCOUNTANT
+      membersAffected: 2, // 2 HR
     })
     expect(usersService.getArchiveImpact).toHaveBeenCalledWith('drop-1', adminUser)
     // The `.select({...})` projection actually asked for `name` — not just

@@ -168,8 +168,8 @@ describe('UserArchiveService.archive cascade', () => {
     expect(teamAudit.record).not.toHaveBeenCalled()
   })
 
-  it('HR/ACCOUNTANT: closes team memberships and audits each removed team', async () => {
-    for (const role of ['HR', 'ACCOUNTANT']) {
+  it('HR: closes team memberships and audits each removed team', async () => {
+    for (const role of ['HR']) {
       const { svc, updates, teamAudit, tx } = makeService([
         [user(role)],
         [
@@ -403,8 +403,8 @@ describe('UserArchiveService.getArchiveImpact', () => {
     })
   })
 
-  it('HR / ACCOUNTANT: teamsCount', async () => {
-    for (const role of ['HR', 'ACCOUNTANT']) {
+  it('HR: teamsCount', async () => {
+    for (const role of ['HR']) {
       const svc = makeImpact([[user(role)], PENDING, [{ teamId: 't1' }, { teamId: 't2' }]])
       const probe = svc.getArchiveImpact('u1', admin)
       await expect(probe).resolves.toEqual({
