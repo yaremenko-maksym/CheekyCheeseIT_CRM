@@ -515,8 +515,14 @@ const pillBox = (w, inner, label, tone = '0.34 0.05 85', close = false) =>
   close
     ? `<div class="row" style="${PILL_POS(w)};border:1px solid oklch(${tone});padding:0 4px 0 0"><div role="button" aria-label="${label}" class="row grow" style="gap:10px;height:100%;padding:0 4px 0 10px;min-width:0">${inner}</div><span class="iconbtn" role="button" aria-label="Закрити" style="color:var(--muted-fg)">${icon('x', { size: 18 })}</span></div>`
     : `<div role="button" aria-label="${label}" class="row" style="${PILL_POS(w)};gap:10px;padding:0 12px 0 10px;border:1px solid oklch(${tone})">${inner}</div>`
-const pillText = (a, b) =>
-  `<span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:13px;font-weight:600;white-space:nowrap">${a}</span><span class="t-cap muted">${b}</span></span>`
+// R4-15: the whole pill is ONE button; its trailing «Відкрити…» is the button's label, drawn in accent ink
+// (never muted meta), so the meta before it («62% ·», the time) stays muted and reads as status.
+const pillText = (a, b) => {
+  const parts = b.split(' · ')
+  const open = /^Відкрити/.test(parts.at(-1))
+  const meta = (open ? parts.slice(0, -1) : parts).join(' · ')
+  return `<span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:13px;font-weight:600;white-space:nowrap">${a}</span><span class="t-cap">${meta ? `<span class="muted">${meta}${open ? ' · ' : ''}</span>` : ''}${open ? `<span style="color:var(--primary);font-weight:600">${parts.at(-1)}</span>` : ''}</span></span>`
+}
 
 /**
  * One pill slot for every draft; it shows the highest state: unknown > failed > in flight > armed >
@@ -625,6 +631,14 @@ export const uploadPillFailed = (w, h) =>
   draftFab(financeTab(w, h, moneyPill(w, 'failed'), pinDrafts([DRAFT.failed])))
 export const uploadPillUnknown = (w, h) =>
   draftFab(financeTab(w, h, moneyPill(w, 'unknown'), pinDrafts([DRAFT.unknown])))
+
+/** R4-10: a success while a failed / unknown pill owns the slot never becomes a timed toast: it stacks as a
+ * second pill 8 px above, with the saved pill's own rule (stays until tapped or dismissed by its ✕ / a swipe). */
+export function savedOverFailedPill(w, h) {
+  const base = TABBAR_H + safeBottom(w) + 16
+  const saved = moneyPill(w, 'saved').replace(`bottom:${base}px`, `bottom:${base + PILL_H + 8}px`)
+  return draftFab(financeTab(w, h, moneyPill(w, 'failed') + saved, pinDrafts([DRAFT.failed])))
+}
 
 /** Toast + pill: the pill keeps the base slot, at most one toast stacks 8 px above it. */
 export function toastPillStack(w, h) {

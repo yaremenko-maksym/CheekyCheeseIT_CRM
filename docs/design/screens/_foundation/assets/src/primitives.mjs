@@ -9,6 +9,7 @@ import {
   sessionExpired,
   DRAFT,
   failureUnknownSimilar,
+  savedOverFailedPill,
 } from './money-form.mjs'
 import {
   sheetMedium,
@@ -181,6 +182,7 @@ export function frames() {
     M('upload-pill-multi-375', 375, 812, uploadPillMulti(375, 812)),
     M('upload-pill-inflight-375', 375, 812, uploadPillInflight(375, 812)),
     M('upload-pill-unknown-375', 375, 812, uploadPillUnknown(375, 812)),
+    M('upload-pill-saved-over-failed-375', 375, 812, savedOverFailedPill(375, 812)),
     M('drafts-two-375', 375, 812, draftsTwo(375, 812)),
     M('drafts-two-unresolved-375', 375, 812, draftsTwoUnresolved(375, 812)),
     M('drafts-four-collapsed-375', 375, 812, draftsFourCollapsed(375, 812)),

@@ -82,7 +82,7 @@ const OPEN = `<span class="btn sm" role="button" style="flex:none;height:36px;pa
 function chooserMenu({ drafts, pos, itemH, coarse = false, role = '' }) {
   const tone = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
   const item = (d) =>
-    `<div role="menuitem" tabindex="-1" class="row" aria-label="Відкрити чернетку −${d.amount} USD, ${d.state.replaceAll(' · ', ', ')}" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px"><span style="color:${tone[d.kind] || 'var(--muted-fg)'};display:grid">${icon('file-pen', { size: 18 })}</span><span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:14px;font-weight:600;white-space:nowrap">−${d.amount} USD</span><span class="muted num" style="font-size:${coarse ? 13 : 12}px;line-height:${coarse ? 18 : 16}px;overflow-wrap:anywhere">${d.state}</span></span><span class="t-cap muted">Відкрити</span></div>`
+    `<div role="menuitem" tabindex="-1" class="row" aria-label="Відкрити чернетку −${d.amount} USD, ${d.state.replaceAll(' · ', ', ')}" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px"><span style="color:${tone[d.kind] || 'var(--muted-fg)'};display:grid">${icon('file-pen', { size: 18 })}</span><span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:14px;font-weight:600;white-space:nowrap">−${d.amount} USD</span><span class="muted num" style="font-size:${coarse ? 13 : 12}px;line-height:${coarse ? 18 : 16}px;overflow-wrap:anywhere">${d.state}</span></span><span aria-hidden="true" style="flex:none;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:600;color:var(--primary);background:oklch(0.84 0.183 85.3 / 0.14)">Відкрити</span></div>`
   // At most 2 draft rows in any menu; from 3, the header's text button «Усі чернетки (N)» opens Фінанси (no extra row).
   const all =
     drafts.length > 2
@@ -104,7 +104,13 @@ function chooserMenu({ drafts, pos, itemH, coarse = false, role = '' }) {
 /** Desktop with one unknown draft: the pill bottom-right, a pinned row in the 40 px table, the header dot. */
 export function draftsDesktop(w, h, { chooser = false } = {}) {
   const pill = `<div role="button" aria-label="Результат невідомий: −${AMOUNT} USD, надіслано о\u00a0${SENT_AT}. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num" style="white-space:nowrap">−${AMOUNT} USD · ${SENT_AT}</span></span>${OPEN}</div>`
-  const row = `<tr><td colspan="6" style="padding:0;max-width:none;background:${WARN(7)};box-shadow:inset 2px 0 0 var(--warning)"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:var(--warning);display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">−${AMOUNT} USD</span><span class="grow muted num" style="white-space:nowrap;overflow:hidden;text-overflow:clip">Результат невідомий · ${SENT_AT} · Витрата</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку −${AMOUNT} USD, результат невідомий, надіслано о\u00a0${SENT_AT}" style="height:28px;font-size:13px;padding:0 12px;background:${WARN(18)};border-color:${WARN(45)}">Відкрити</button></div></td></tr>`
+  // R4-08: the pinned draft row keeps the table's column grid: the state in «Опис» with a tonal «Відкрити» text
+  // button, the type in «Тип», the amount in «Сума», and the fine-pointer «…» in the action slot (its menu:
+  // «Відкрити» · «Відкинути чернетку»). A click on the row opens the draft too; «…» is the only other way in.
+  const cell = (inner, extra = '') =>
+    `<td style="background:${WARN(7)};${extra}">${inner}</td>`
+  const row = (wide) =>
+    `<tr aria-label="Чернетка −${AMOUNT} USD, результат невідомий, надіслано о\u00a0${SENT_AT}">${cell(`<span class="row num" style="gap:6px;color:var(--warning)">${icon('file-pen', { size: 16 })}<span class="muted">${SENT_AT}</span></span>`, 'box-shadow:inset 2px 0 0 var(--warning)')}${cell(`<span class="row" style="gap:8px;min-width:0"><span class="trunc muted">Результат невідомий</span><button type="button" class="btn sm" aria-label="Відкрити чернетку −${AMOUNT} USD" style="flex:none;height:28px;padding:0 10px;font-size:13px;color:var(--primary);background:oklch(0.84 0.183 85.3 / 0.14);border:0">Відкрити</button></span>`)}${cell('<span class="muted">Витрата</span>')}${wide ? cell('<span class="muted">—</span>') : ''}${cell('')}${cell(`<span class="num" style="font-weight:600;white-space:nowrap;display:block;text-align:right">−${AMOUNT} USD</span>`)}<td class="kcell" style="background:${WARN(7)}"><button type="button" class="iconbtn" aria-haspopup="menu" aria-label="Дії: чернетка −${AMOUNT} USD" style="width:32px;height:32px;margin:auto">${icon('ellipsis', { size: 18 })}</button></td></tr>`
   const menu = chooser
     ? chooserMenu({ drafts: [DRAFT.unknown], pos: 'right:20px;top:52px', itemH: 40 })
     : ''
@@ -121,12 +127,13 @@ export function draftsDesktop(w, h, { chooser = false } = {}) {
         )}</div>`,
       }
     : {}
+  const html = desktop({ w, h, overlay: pill + menu, ...page })
   return (
-    desktop({ w, h, overlay: pill + menu, ...page })
+    html
       // The scroller pads by the stack height + 24 (52 + 24 + 24), so the pill never covers the last row.
       .replace('padding:20px 24px 24px;', 'padding:20px 24px 100px;')
       .replace('<tr aria-selected="true" style="background:var(--raised)">', '<tr>')
-      .replace('<tbody>', `<tbody>${row}`)
+      .replace('<tbody>', `<tbody>${row(/>Проєкт</.test(html))}`)
       .replace(
         '<span class="btn primary" style="height:36px',
         `<span class="btn primary" aria-label="Нова транзакція, 1 чернетка потребує уваги"${chooser ? ' aria-haspopup="menu" aria-expanded="true" aria-controls="ch-menu"' : ''} style="position:relative;height:36px`,

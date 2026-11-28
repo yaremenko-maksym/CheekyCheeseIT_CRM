@@ -95,6 +95,12 @@ const FAILED = () =>
 const deleteToast = () =>
   `<div class="toast" role="status" style="position:relative;left:auto;right:auto;bottom:auto;margin:8px 12px;flex:none;z-index:1;min-height:56px;overflow:hidden"><span style="color:var(--positive)">${icon('trash-2', { size: 18 })}</span><span class="grow">Сповіщення видалено</span><span class="btn ghost" role="button" style="color:var(--primary);height:44px;padding:0 10px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
 
+/** R4-09: the panel closed inside the 5 s window (Esc, back, outside press): the same Undo hands off to the
+ * shell toast slot with the time left; the bell count already shows the deletion. On a failed delete the row
+ * and the unread count come back and one alert announces «Не вдалося видалити сповіщення». */
+export const notificationsUndoClosed = (w, h) =>
+  toastUndo(w, h, { text: 'Сповіщення видалено', ic: 'trash-2' })
+
 export function notificationsSheet(w, h, { empty = false, state = '', undo = false } = {}) {
   const body = empty
     ? EMPTY()
