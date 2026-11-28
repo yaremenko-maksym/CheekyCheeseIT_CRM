@@ -8403,6 +8403,10 @@ msgstr "Could not change the drop"
 msgid "Наприклад: помилково створена транзакція"
 msgstr "E.g.: transaction created by mistake"
 
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
+msgid "Не задано — діє частка сеньйора за замовчуванням (40%, якщо не змінювали). Пересуньте повзунок, щоб задати частку для команди."
+msgstr "Not set — the senior’s default share applies (40% unless changed). Move the slider to set a team share."
+
 #. placeholder {0}: run.received ?? 0
 #. placeholder {1}: run.created ?? 0
 #. placeholder {2}: run.invalid ?? 0
@@ -14446,10 +14450,6 @@ msgstr "Add ({0})"
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Створити проєкт?"
 msgstr "Create the project?"
-
-#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
-msgid "Не задано — діє частка сеньйора за замовчуванням (26%, якщо не змінювали). Пересуньте повзунок, щоб задати частку для команди."
-msgstr "Not set — the senior’s default share applies (26% unless changed). Move the slider to set a team share."
 
 #: apps/web/app/components/user-profile/resume/ResumeConfirmStep.tsx
 msgid "Згенеровано"

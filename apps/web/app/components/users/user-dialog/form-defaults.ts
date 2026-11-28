@@ -9,6 +9,7 @@ import type {
 import { type Currency } from '@/components/ui/amount-currency-input'
 import { type Role } from '../constants'
 import { defaultPaymentMethod } from './validation'
+import { DEFAULT_SENIOR_SHARE_PERCENT } from '@/routes/_authenticated/finance/utils/company-share'
 
 /**
  * Single source of the UserDialog form default values. Used by BOTH the
@@ -60,7 +61,7 @@ export function buildUserDialogDefaults(
     phone: ((editingUser?.phone as PhoneValue | undefined) ?? '') as PhoneValue | '',
     techStack: (editingUser?.techStack ?? []) as string[],
     technicalRoles: (editingUser?.technicalRoles ?? []) as SeniorSelectableRole[],
-    seniorSharePercent: editingUser?.seniorSharePercent ?? 26,
+    seniorSharePercent: editingUser?.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT,
     monthlySalary: editingUser?.monthlySalary ?? '',
     salaryCurrency: ((editingUser?.salaryCurrency as Currency | undefined) ?? 'USD') as Currency,
     projectId: '' as string,

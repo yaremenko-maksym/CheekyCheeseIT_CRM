@@ -7,6 +7,7 @@ import {
   pendingShareAudience,
 } from '@/components/pending-share/cancel-pending-share'
 import { cn } from '@/lib/utils'
+import { DEFAULT_SENIOR_SHARE_PERCENT } from '@/routes/_authenticated/finance/utils/company-share'
 
 /**
  * Exported for tests only (same test-only export `ProjectEditFields` already
@@ -113,7 +114,7 @@ export function ProjectShareInfo({
   const { t } = useLingui()
   const overrideRaw = project.seniorSharePercentOverride
   const hasOverride = overrideRaw !== null && overrideRaw !== undefined
-  const fallback = project.seniorSharePercentDefault ?? 26
+  const fallback = project.seniorSharePercentDefault ?? DEFAULT_SENIOR_SHARE_PERCENT
   const effective = hasOverride ? overrideRaw : fallback
   const pending = project.pendingSeniorShare ?? null
   const audience = pendingShareAudience(viewerId, pending)

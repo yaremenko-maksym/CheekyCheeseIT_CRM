@@ -845,14 +845,14 @@ describe('createSeniorIncome — specifics', () => {
       expect(row['seniorSharePercentSource']).toBe('USER_DEFAULT')
     })
 
-    it('user default null → falls back to 26', async () => {
+    it('user default null → falls back to 40', async () => {
       expect(await shareOf({ user: { ...SENIOR_USER, seniorSharePercent: null } })).toEqual({
-        value: 26,
+        value: 40,
         source: 'USER_DEFAULT',
       })
     })
 
-    it('user default of 0 is kept (not replaced by 26)', async () => {
+    it('user default of 0 is kept (not replaced by 40)', async () => {
       expect(await shareOf({ user: { ...SENIOR_USER, seniorSharePercent: 0 } })).toEqual({
         value: 0,
         source: 'USER_DEFAULT',

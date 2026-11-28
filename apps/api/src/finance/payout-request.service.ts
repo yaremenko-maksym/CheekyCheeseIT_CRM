@@ -239,7 +239,8 @@ export class PayoutRequestService {
         // on the company account, then re-distributed to the senior on settle).
         const sharePercent = isDrop
           ? (tx.dropSharePercent ?? dropSharePercentFallback)
-          : (tx.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT)
+          : // The default applies only to legacy rows without a saved share.
+            (tx.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT)
         // company's share = 1 - keptShare/100; integer arithmetic on the
         // scaled amount avoids per-iteration float drift.
         const companyShareMinor = Math.round((amountMinor * (100 - sharePercent)) / 100)

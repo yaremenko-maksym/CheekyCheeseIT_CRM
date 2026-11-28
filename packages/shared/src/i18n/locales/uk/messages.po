@@ -8403,6 +8403,10 @@ msgstr "Не вдалося змінити дропа"
 msgid "Наприклад: помилково створена транзакція"
 msgstr "Наприклад: помилково створена транзакція"
 
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
+msgid "Не задано — діє частка сеньйора за замовчуванням (40%, якщо не змінювали). Пересуньте повзунок, щоб задати частку для команди."
+msgstr "Не задано — діє частка сеньйора за замовчуванням (40%, якщо не змінювали). Пересуньте повзунок, щоб задати частку для команди."
+
 #. placeholder {0}: run.received ?? 0
 #. placeholder {1}: run.created ?? 0
 #. placeholder {2}: run.invalid ?? 0
@@ -14446,10 +14450,6 @@ msgstr "Додати ({0})"
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Створити проєкт?"
 msgstr "Створити проєкт?"
-
-#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
-msgid "Не задано — діє частка сеньйора за замовчуванням (26%, якщо не змінювали). Пересуньте повзунок, щоб задати частку для команди."
-msgstr "Не задано — діє частка сеньйора за замовчуванням (26%, якщо не змінювали). Пересуньте повзунок, щоб задати частку для команди."
 
 #: apps/web/app/components/user-profile/resume/ResumeConfirmStep.tsx
 msgid "Згенеровано"

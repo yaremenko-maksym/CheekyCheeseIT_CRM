@@ -274,7 +274,7 @@ export async function settleObligationInTx(
       // seniorSharePercent/dropSharePercent snapshot. But getSeniorBalance /
       // getTotalEarned / getSeniorSummary use seniorSharePercent as a GROSS↔NET
       // discriminator on SENIOR_INCOME: non-null ⇒ treat amount as GROSS and
-      // multiply by share% (→ NET × 26% = a ~26× UNDER-count of the senior).
+      // multiply by share% (→ NET × share% = an UNDER-count of the senior).
       // Yesterday's settle-INSERTED SENIOR_INCOME left these null, so the amount
       // was used as-is (NET). We MUST null them to stay byte-identical and avoid
       // the double-application. (The drop side is safe today — computeDropAggregate

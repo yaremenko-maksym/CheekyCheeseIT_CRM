@@ -217,9 +217,9 @@ describe('HrCreateSeniorDialog rendering', () => {
     expect(screen.getByText('Telegram').querySelector('span')).toBeNull()
   })
 
-  it('defaults the senior share to 26', () => {
+  it('defaults the senior share to 40', () => {
     renderDialog()
-    expect(screen.getByTestId('share-value').textContent).toBe('26')
+    expect(screen.getByTestId('share-value').textContent).toBe('40')
     expect(screen.getByTestId('share-error').textContent).toBe('false')
   })
 })
@@ -431,7 +431,7 @@ describe('HrCreateSeniorDialog submit', () => {
     expect((screen.getByPlaceholderText('senior@cheekycheese.dev') as HTMLInputElement).value).toBe(
       '',
     )
-    expect(screen.getByTestId('share-value').textContent).toBe('26')
+    expect(screen.getByTestId('share-value').textContent).toBe('40')
   })
 
   it('REGRESSION: a pristine form (phone widget untouched, seeded "+380") submits without a phone', async () => {
@@ -465,7 +465,7 @@ describe('HrCreateSeniorDialog submit', () => {
     expect(payload.technicalRoles).toEqual(SENIOR_ROLES)
     expect('techStack' in payload).toBe(false)
     expect(payload.accountantId).toBeNull()
-    expect(payload.seniorSharePercent).toBe(26)
+    expect(payload.seniorSharePercent).toBe(40)
   })
 
   it('omits telegram when it is blank', async () => {
@@ -493,7 +493,7 @@ describe('HrCreateSeniorDialog submit', () => {
       role: 'SENIOR',
       phone: '+380501234567',
       technicalRoles: SENIOR_ROLES,
-      seniorSharePercent: 26,
+      seniorSharePercent: 40,
       hrIds: [HR_ID],
       accountantId: null,
     })

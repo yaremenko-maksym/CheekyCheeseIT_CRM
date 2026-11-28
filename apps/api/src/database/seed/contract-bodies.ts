@@ -20,7 +20,7 @@ export const CONTRACT_BODY: Record<string, string> = {
 
 - Форма оплати: {{preferredMethod}}
 - Реквізити: {{requisites}}
-- Частка доходу: 26% від суми проекту
+- Частка доходу: {{sharePercent}}% від суми проекту
 
 ## 3. Термін дії
 

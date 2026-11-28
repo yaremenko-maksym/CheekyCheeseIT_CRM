@@ -13,13 +13,14 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ROLE_VARIANT } from './constants'
+import { DEFAULT_SENIOR_SHARE_PERCENT } from '@/routes/_authenticated/finance/utils/company-share'
 
 /**
  * Drop role - phase 2 (AC3). Distribution breakdown panel for drop-projects.
  *
  * Renders the formula visualisation specified in §8.1 of
  * drop-role-and-finance-spec.md — example income $1000:
- *   Доля синьора 26%   $260
+ *   Доля синьора 40%   $400
  *   Доля дропа 5%      $50
  *   Партнёрам 50/50    $345 / $345
  *
@@ -34,7 +35,10 @@ export function ProjectDropDistribution({ project }: { project: ProjectDetailDto
   const { t } = useLingui()
   // Use $1000 as the canonical example. Numbers shown without currency
   // suffix to keep the formula abstract — actual amounts vary per income.
-  const seniorPct = project.seniorSharePercentOverride ?? project.seniorSharePercentDefault ?? 26
+  const seniorPct =
+    project.seniorSharePercentOverride ??
+    project.seniorSharePercentDefault ??
+    DEFAULT_SENIOR_SHARE_PERCENT
   // task-drop-share-override-and-receiver (Surface A). Override-aware: prefer
   // the backend-resolved effective % (override → user default → 5) over the
   // legacy read-time snapshot so a project-level override is reflected here too.

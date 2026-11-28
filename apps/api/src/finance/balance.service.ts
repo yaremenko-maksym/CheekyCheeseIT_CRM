@@ -268,7 +268,7 @@ export class BalanceService {
         //   seniorSharePercent NULL → row created by settleByCompany, which already
         //     writes the NET senior share directly; use amount as-is (no multiply).
         // Mirrors the authoritative getSeniorSummary pattern (transactions.service.ts)
-        // but guards NULL explicitly to avoid applying 26% to already-net rows.
+        // but guards NULL explicitly to avoid applying the share % to already-net rows.
         const share =
           tx.seniorSharePercent !== null ? converted * (tx.seniorSharePercent / 100) : converted
         platformIncomeScaled += Math.round(share * MONEY_SCALE)

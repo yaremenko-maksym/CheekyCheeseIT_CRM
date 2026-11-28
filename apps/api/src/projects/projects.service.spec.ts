@@ -592,10 +592,10 @@ describe('ProjectsService.update — DTO mapping', () => {
     expect((result as { seniorSharePercentDefault: number }).seniorSharePercentDefault).toBe(40)
   })
 
-  it('returns seniorSharePercentDefault = 26 fallback when senior is missing', async () => {
+  it('returns seniorSharePercentDefault = 40 fallback when senior is missing', async () => {
     const h = buildHarness({ senior: null })
     const result = await h.service.update('proj-1', { rate: 7000 }, adminUser)
-    expect((result as { seniorSharePercentDefault: number }).seniorSharePercentDefault).toBe(26)
+    expect((result as { seniorSharePercentDefault: number }).seniorSharePercentDefault).toBe(40)
   })
 
   it('returns seniorSharePercentOverride = null when no override is set', async () => {

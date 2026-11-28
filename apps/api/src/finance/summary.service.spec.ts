@@ -697,7 +697,7 @@ describe('SummaryService.getSeniorSummary — figures', () => {
           createdAt: new Date('2026-03-01T00:00:00Z'),
           projectId: 'p1',
         },
-        // null snapshot -> user default 40%
+        // null snapshot = company-settled, amount already NET: counts as 200
         {
           amount: '200',
           seniorSharePercent: null,
@@ -743,9 +743,9 @@ describe('SummaryService.getSeniorSummary — figures', () => {
     })
     const r = await svc.getSeniorSummary(user('SENIOR'))
 
-    // total = 300.15 + 80 + 125 + 10 + 20 + 0 ; thisMonth = 300.15 + 80 + 20
-    expect(r.seniorShareIncome.total).toBeCloseTo(535.15, 9)
-    expect(r.seniorShareIncome.thisMonth).toBeCloseTo(400.15, 9)
+    // total = 300.15 + 200 + 125 + 10 + 20 + 0 ; thisMonth = 300.15 + 200 + 20
+    expect(r.seniorShareIncome.total).toBeCloseTo(655.15, 9)
+    expect(r.seniorShareIncome.thisMonth).toBeCloseTo(520.15, 9)
     expect(r.seniorShareIncome.currency).toBe('USD')
     expect(r.earningsStats.lastMonthIncome).toBeCloseTo(125, 9)
 
@@ -760,7 +760,7 @@ describe('SummaryService.getSeniorSummary — figures', () => {
       '2026-02',
       '2026-03',
     ])
-    expect(hist.map((h) => Number(h.amount.toFixed(6)))).toEqual([0, 0, 0, 0, 0, 10, 125, 400.15])
+    expect(hist.map((h) => Number(h.amount.toFixed(6)))).toEqual([0, 0, 0, 0, 0, 10, 125, 520.15])
 
     expect(r.earningsStats.companyIncomeProgress).toEqual({ received: 2, total: 2 })
     expect(r.pendingPayouts).toEqual({ count: 3, amount: 30.5 })
@@ -813,7 +813,7 @@ describe('SummaryService.getSeniorSummary — figures', () => {
     expect(compileWhere(cap.salaryWhere).params).toContain('2026-01')
   })
 
-  it('share % falls back selfUser -> session user -> 26 default', async () => {
+  it('share % falls back selfUser -> session user -> 40 default', async () => {
     const project = { id: 'p1', name: 'A', companyName: 'C', seniorSharePercentOverride: null }
     const shareOf = async (selfUser: Row | undefined, sessionShare: number | undefined) => {
       const { svc } = makeDb({ selfUser, projects: [project] })
@@ -822,10 +822,10 @@ describe('SummaryService.getSeniorSummary — figures', () => {
     }
     expect(await shareOf({ seniorSharePercent: 40 }, 33)).toBe(40)
     expect(await shareOf(undefined, 33)).toBe(33)
-    expect(await shareOf(undefined, undefined)).toBe(26)
+    expect(await shareOf(undefined, undefined)).toBe(40)
   })
 
-  it('a null-snapshot income uses the resolved default share in its sum', async () => {
+  it('a null-snapshot income is already net: it counts as-is, never times the default share', async () => {
     freeze(MAR)
     const { svc } = makeDb({
       selfUser: undefined,
@@ -840,7 +840,7 @@ describe('SummaryService.getSeniorSummary — figures', () => {
       ],
     })
     const u = { ...user('SENIOR'), seniorSharePercent: 33 } as SessionUser
-    expect((await svc.getSeniorSummary(u)).seniorShareIncome.total).toBeCloseTo(33, 9)
+    expect((await svc.getSeniorSummary(u)).seniorShareIncome.total).toBeCloseTo(100, 9)
   })
 
   it('an income with a NULL txDate fails loud instead of being filed by createdAt (backlog 338)', async () => {

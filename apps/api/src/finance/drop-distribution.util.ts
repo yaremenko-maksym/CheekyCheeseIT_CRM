@@ -4,6 +4,7 @@ import { MONEY_SCALE, roundShareAmount } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { convertToBase, type BalanceCurrency } from './balance.service'
 import { DEFAULT_DROP_SHARE_PERCENT } from './drop-share-resolver'
+import { DEFAULT_SENIOR_SHARE_PERCENT } from './senior-share-resolver'
 import type { ExchangeRateResult } from './nbu-currency.service'
 
 // Pure drop-distribution math extracted VERBATIM from TransactionsService
@@ -11,11 +12,10 @@ import type { ExchangeRateResult } from './nbu-currency.service'
 
 /**
  * Default senior share percent when no per-user override is set (DB default 40).
- * Single source of truth — used in computeDropDistribution, getSeniorSummary,
- * and getSummary to avoid scattering the default literal across the service.
- * Re-exported from transactions.service.ts for existing importers.
+ * Defined in senior-share-resolver.ts (pure, no service imports); re-exported here and from
+ * transactions.service.ts for existing importers.
  */
-export const DEFAULT_SENIOR_SHARE_PERCENT = 40
+export { DEFAULT_SENIOR_SHARE_PERCENT }
 
 /**
  * Distribute a drop-project's incoming amount across senior, drop, and the

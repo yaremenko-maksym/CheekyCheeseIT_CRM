@@ -130,7 +130,7 @@ export class SeniorDropIncomeService {
     //     ↓  (null)
     //   exactly-one active team.seniorSharePercentOverride for this senior
     //     ↓  (null / ambiguous)
-    //   users.seniorSharePercent (fallback 26)
+    //   users.seniorSharePercent (fallback DEFAULT_SENIOR_SHARE_PERCENT)
     //
     // The legacy `projectFinanceSettings.seniorSharePercentOverride` mirror
     // is preserved for back-compat — the projects module keeps both columns

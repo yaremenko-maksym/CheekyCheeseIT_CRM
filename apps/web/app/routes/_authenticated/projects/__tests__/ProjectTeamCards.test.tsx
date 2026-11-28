@@ -110,11 +110,11 @@ describe('ProjectDropDistribution', () => {
     expect(screen.getByTestId('dist-partner-share')).toHaveTextContent('$300 / $300')
   })
 
-  it('falls back to the canonical 26% senior / 5% drop when the DTO carries neither', () => {
+  it('falls back to the canonical 40% senior / 5% drop when the DTO carries neither', () => {
     wrap(<ProjectDropDistribution project={project()} />)
-    expect(screen.getByTestId('dist-senior-share')).toHaveTextContent('$260')
+    expect(screen.getByTestId('dist-senior-share')).toHaveTextContent('$400')
     expect(screen.getByTestId('dist-drop-share')).toHaveTextContent('$50')
-    expect(screen.getByTestId('dist-partner-share')).toHaveTextContent('$345 / $345')
+    expect(screen.getByTestId('dist-partner-share')).toHaveTextContent('$275 / $275')
   })
 
   it('amounts are rounded to at most two decimals', () => {

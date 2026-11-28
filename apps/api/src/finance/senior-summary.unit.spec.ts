@@ -396,16 +396,42 @@ describe('getSeniorSummary — senior-share income math (AC1)', () => {
         { amount: '1000', seniorSharePercent: 30, txDate: thisMonth, createdAt: thisMonth },
         // share snapshot 25% last month: 800 * 0.25 = 200 (total only)
         { amount: '800', seniorSharePercent: 25, txDate: lastMonth, createdAt: lastMonth },
-        // null snapshot → falls back to user default 26%: 500 * 0.26 = 130 this month
-        { amount: '500', seniorSharePercent: null, txDate: thisMonth, createdAt: thisMonth },
+        // company-settled row: settle nulls the share (old value -> settledSharePercent) and
+        // writes the NET amount, so it counts as-is: 500, NOT 500 * the user default
+        {
+          amount: '500',
+          seniorSharePercent: null,
+          settledSharePercent: 30,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+        },
       ],
     })
     const r = await svc.getSeniorSummary(user('SENIOR'))
-    // total = 300 + 200 + 130 = 630
-    expect(r.seniorShareIncome.total).toBeCloseTo(630, 6)
-    // this month = 300 + 130 = 430
-    expect(r.seniorShareIncome.thisMonth).toBeCloseTo(430, 6)
+    // total = 300 + 200 + 500 = 1000
+    expect(r.seniorShareIncome.total).toBeCloseTo(1000, 6)
+    // this month = 300 + 500 = 800
+    expect(r.seniorShareIncome.thisMonth).toBeCloseTo(800, 6)
     expect(r.seniorShareIncome.currency).toBe('USD')
+  })
+
+  it('a null saved share is already net: the user default never multiplies it', async () => {
+    const svc = makeService({
+      selfUser: { seniorSharePercent: 40 },
+      paidIncome: [
+        {
+          amount: '120',
+          seniorSharePercent: null,
+          settledSharePercent: 40,
+          txDate: lastMonth,
+          createdAt: lastMonth,
+        },
+      ],
+    })
+    const r = await svc.getSeniorSummary(user('SENIOR'))
+    expect(r.seniorShareIncome.total).toBeCloseTo(120, 6)
+    expect(r.seniorShareIncome.thisMonth).toBe(0)
+    expect(r.earningsStats.lastMonthIncome).toBeCloseTo(120, 6)
   })
 
   it('refuses a NULL txDate instead of using createdAt for the month (backlog 338)', async () => {

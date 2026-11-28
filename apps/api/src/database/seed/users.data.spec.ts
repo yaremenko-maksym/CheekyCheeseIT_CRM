@@ -65,7 +65,7 @@ describe('SEED_USERS — the job-queue E2E users (Task 7.6a)', () => {
         role: 'SENIOR',
         telegram: '@taras_savchuk',
         phone: '+380671000028',
-        seniorSharePercent: 26,
+        seniorSharePercent: 40,
         paymentMethod: 'USDT_ERC20',
         walletUsdtErc20: '0x1aE0EA34a72D944a8C7603FfB3eC30a6669E454C',
         techStack: ['React', 'TypeScript', 'Node.js', 'GraphQL'],

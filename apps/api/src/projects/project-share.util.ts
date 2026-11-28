@@ -1,6 +1,6 @@
 import type { PendingSeniorShare } from '@crm/shared'
 import { DEFAULT_DROP_SHARE_PERCENT } from '../finance/drop-share-resolver'
-import { resolveSeniorShare } from '../finance/senior-share-resolver'
+import { DEFAULT_SENIOR_SHARE_PERCENT, resolveSeniorShare } from '../finance/senior-share-resolver'
 
 /**
  * Pure senior/drop share math (extracted verbatim from `ProjectsService.update`
@@ -12,7 +12,7 @@ import { resolveSeniorShare } from '../finance/senior-share-resolver'
 export function pickSeniorDefault(
   senior: { seniorSharePercent: number | null } | null | undefined,
 ): number {
-  return senior?.seniorSharePercent ?? 26
+  return senior?.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT
 }
 
 /** Effective drop default used for implicit-null detection in `update`. */

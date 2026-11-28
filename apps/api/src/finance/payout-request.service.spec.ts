@@ -188,11 +188,11 @@ describe('PayoutRequestService.createPayoutRequest', () => {
     })
   })
 
-  it('SENIOR without a snapshot falls back to the 26% default', async () => {
+  it('SENIOR without a snapshot falls back to the 40% default', async () => {
     const s = setup({ rows: [income({ seniorSharePercent: null })] })
     await s.svc.createPayoutRequest(['tx-1'], user('SENIOR'))
     expect(s.requestValues).toHaveBeenCalledWith(
-      expect.objectContaining({ incomeAmount: '1000.000000', payableAmount: '740.000000' }),
+      expect.objectContaining({ incomeAmount: '1000.000000', payableAmount: '600.000000' }),
     )
   })
 

@@ -192,7 +192,7 @@ export function ProjectOverviewTab({
                 // task-648-fix-round-3 (COPY-H-7): only when a proposal
                 // is live does this row carry a named button; only then
                 // does it need the full width. Without a proposal it is
-                // «26% (по умолчанию)» and the ordinary row is right.
+                // «40% (по умолчанию)» and the ordinary row is right.
                 stackOnMobile={!!project.pendingSeniorShare}
               >
                 <ProjectShareInfo

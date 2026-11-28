@@ -269,10 +269,10 @@ describe('mapProjectToDto', () => {
     expect(dto.dropId).toBeNull()
   })
 
-  it('no senior: seniorName is empty string, default share 26, no effective share', () => {
+  it('no senior: seniorName is empty string, default share 40, no effective share', () => {
     const dto = map(fixture({ senior: null, seniorSharePercentOverride: null }), 'ADMIN')
     expect(dto.seniorName).toBe('')
-    expect(dto.seniorSharePercentDefault).toBe(26)
+    expect(dto.seniorSharePercentDefault).toBe(40)
     expect(dto.effectiveSeniorSharePercent).toBeNull()
     expect(dto.effectiveSeniorShareSource).toBeNull()
   })

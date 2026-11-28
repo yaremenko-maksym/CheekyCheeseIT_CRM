@@ -23,6 +23,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
 import { type UnarchiveCascadeEntity } from '@/hooks/use-archive'
 import { ProjectCascadeUnarchiveModal } from './ProjectUnarchive'
+import { DEFAULT_SENIOR_SHARE_PERCENT } from '@/routes/_authenticated/finance/utils/company-share'
 
 export const Route = createFileRoute('/_authenticated/projects/$projectId')({
   component: ProjectDetailPage,
@@ -147,7 +148,9 @@ function ProjectDetailPage() {
               <PendingShareApprovalBanner
                 projectId={project.id}
                 currentPercent={
-                  project.seniorSharePercentOverride ?? project.seniorSharePercentDefault ?? 26
+                  project.seniorSharePercentOverride ??
+                  project.seniorSharePercentDefault ??
+                  DEFAULT_SENIOR_SHARE_PERCENT
                 }
                 pending={project.pendingSeniorShare}
               />

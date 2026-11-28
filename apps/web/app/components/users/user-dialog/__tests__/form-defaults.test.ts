@@ -13,7 +13,7 @@ const BLANK_COMMON = {
   phone: '',
   techStack: [],
   technicalRoles: [],
-  seniorSharePercent: 26,
+  seniorSharePercent: 40,
   monthlySalary: '',
   salaryCurrency: 'USD',
   projectId: '',

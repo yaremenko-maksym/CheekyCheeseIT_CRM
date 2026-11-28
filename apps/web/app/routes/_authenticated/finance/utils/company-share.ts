@@ -19,15 +19,15 @@ const MIXED_CURRENCY_PLACEHOLDER = msg`3+ валюти — точна сума �
  * of assuming `seniorSharePercent` like the old `PayoutDialog.tsx` did.
  *
  * Default share fallbacks mirror the backend:
- *   - SENIOR: `users.seniorSharePercent` default is 26 (see
- *     `packages/shared/src/schemas/users.ts`).
+ *   - SENIOR: `users.seniorSharePercent` DB default is 40 (see
+ *     `apps/api/src/finance/senior-share-resolver.ts`).
  *   - DROP: `DEFAULT_DROP_SHARE_PERCENT` = 5
  *     (`apps/api/src/finance/drop-share-resolver.ts`). The frontend
  *     `SessionUser` does not carry `dropSharePercent`, so a DROP caller falls
  *     back to this constant when a legacy row has no per-tx snapshot.
  */
 
-export const DEFAULT_SENIOR_SHARE_PERCENT = 26
+export const DEFAULT_SENIOR_SHARE_PERCENT = 40
 export const DEFAULT_DROP_SHARE_PERCENT_FALLBACK = 5
 
 /**

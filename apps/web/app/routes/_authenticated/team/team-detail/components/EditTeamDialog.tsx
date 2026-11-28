@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { ShareSlider } from '@/components/ui/share-slider'
+import { DEFAULT_SENIOR_SHARE_PERCENT } from '@/routes/_authenticated/finance/utils/company-share'
 
 // TanStack Form render props require many generics — same suppression as the
 // UserDialog sections (the form instance is owned by the team page root).
@@ -137,8 +138,10 @@ export function EditTeamDialog({
               {(field) => {
                 const raw = field.state.value
                 const hasOverride = raw.trim() !== ''
-                // Slider value: override if set, else 26 (global default).
-                const sliderValue = hasOverride ? Math.min(100, Math.max(0, Number(raw))) : 26
+                // Slider value: override if set, else the global default.
+                const sliderValue = hasOverride
+                  ? Math.min(100, Math.max(0, Number(raw)))
+                  : DEFAULT_SENIOR_SHARE_PERCENT
                 return (
                   <div className="grid gap-1.5">
                     <div className="flex items-center justify-between">
@@ -174,7 +177,7 @@ export function EditTeamDialog({
                         </Trans>
                       ) : (
                         <Trans>
-                          Не задано — діє частка сеньйора за замовчуванням (26%, якщо не змінювали).
+                          Не задано — діє частка сеньйора за замовчуванням (40%, якщо не змінювали).
                           Пересуньте повзунок, щоб задати частку для команди.
                         </Trans>
                       )}

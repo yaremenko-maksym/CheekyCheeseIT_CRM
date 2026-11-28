@@ -1,6 +1,6 @@
 import type { PendingSeniorShare, SessionUser } from '@crm/shared'
 import { resolveDropShare, DEFAULT_DROP_SHARE_PERCENT } from '../finance/drop-share-resolver'
-import { resolveSeniorShare } from '../finance/senior-share-resolver'
+import { DEFAULT_SENIOR_SHARE_PERCENT, resolveSeniorShare } from '../finance/senior-share-resolver'
 import type { Legend, Project, ProjectMember, User } from '../database/schema'
 import { canSeePendingSeniorShare } from './project-visibility.util'
 
@@ -186,10 +186,12 @@ export function mapProjectToDto(
     seniorSharePercentOverride: isJuniorViewer
       ? null
       : (project.seniorSharePercentOverride ?? null),
-    // Computed default for UI hints — falls back to 26 when senior is
+    // Computed default for UI hints — falls back to DEFAULT_SENIOR_SHARE_PERCENT when senior is
     // unreachable (e.g. soft-deleted) so the front-end never sees `null`.
     // Masked for JUNIOR (they should not see the default either).
-    seniorSharePercentDefault: isJuniorViewer ? 0 : (project.senior?.seniorSharePercent ?? 26),
+    seniorSharePercentDefault: isJuniorViewer
+      ? 0
+      : (project.senior?.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT),
     // task-team-senior-share-override. Pre-resolved effective share for
     // the project's senior. Masked for JUNIOR.
     effectiveSeniorSharePercent: isJuniorViewer ? null : effectiveSeniorSharePercent,

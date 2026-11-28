@@ -122,7 +122,7 @@ export function buildContractVariableMap(
   /**
    * sharePercent / companySharePercent — role-dependent split percentages.
    *
-   * SENIOR → uses seniorSharePercent (int 0-100, default 26).
+   * SENIOR → uses seniorSharePercent (int 0-100, default 40).
    * DROP   → uses dropSharePercent (int 0-100, default 5; nullable for other roles).
    * Other  → '' (empty string so frontend can detect "not applicable").
    *

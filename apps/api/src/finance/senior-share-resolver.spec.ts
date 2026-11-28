@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolveSeniorShare } from './senior-share-resolver'
+import { DEFAULT_SENIOR_SHARE_PERCENT, resolveSeniorShare } from './senior-share-resolver'
 
 /**
  * Unit tests for the senior-share resolver. The hierarchy is:
@@ -13,18 +13,18 @@ describe('resolveSeniorShare', () => {
   // ── Project override branch ─────────────────────────────────────────────
   it('returns project override when set, even if team override exists', () => {
     const result = resolveSeniorShare(
-      { seniorSharePercentOverride: 40 },
-      { seniorSharePercent: 26 },
+      { seniorSharePercentOverride: 45 },
+      { seniorSharePercent: 40 },
       [{ seniorSharePercentOverride: 18 }],
     )
-    expect(result.value).toBe(40)
+    expect(result.value).toBe(45)
     expect(result.source).toBe('PROJECT')
   })
 
   it('returns project override when set, with no teams provided', () => {
     const result = resolveSeniorShare(
       { seniorSharePercentOverride: 32 },
-      { seniorSharePercent: 26 },
+      { seniorSharePercent: 40 },
       [],
     )
     expect(result.value).toBe(32)
@@ -34,7 +34,7 @@ describe('resolveSeniorShare', () => {
   it('accepts 0 as a valid project override (not coerced to null)', () => {
     const result = resolveSeniorShare(
       { seniorSharePercentOverride: 0 },
-      { seniorSharePercent: 26 },
+      { seniorSharePercent: 40 },
       [{ seniorSharePercentOverride: 18 }],
     )
     expect(result.value).toBe(0)
@@ -45,7 +45,7 @@ describe('resolveSeniorShare', () => {
   it('returns team override when project override is null', () => {
     const result = resolveSeniorShare(
       { seniorSharePercentOverride: null },
-      { seniorSharePercent: 26 },
+      { seniorSharePercent: 40 },
       [{ seniorSharePercentOverride: 16 }],
     )
     expect(result.value).toBe(16)
@@ -55,7 +55,7 @@ describe('resolveSeniorShare', () => {
   it('returns team override when project override is undefined', () => {
     const result = resolveSeniorShare(
       { seniorSharePercentOverride: undefined },
-      { seniorSharePercent: 26 },
+      { seniorSharePercent: 40 },
       [{ seniorSharePercentOverride: 22 }],
     )
     expect(result.value).toBe(22)
@@ -65,10 +65,10 @@ describe('resolveSeniorShare', () => {
   it('skips team override when the only team row has null override', () => {
     const result = resolveSeniorShare(
       { seniorSharePercentOverride: null },
-      { seniorSharePercent: 26 },
+      { seniorSharePercent: 40 },
       [{ seniorSharePercentOverride: null }],
     )
-    expect(result.value).toBe(26)
+    expect(result.value).toBe(40)
     expect(result.source).toBe('USER_DEFAULT')
   })
 
@@ -76,10 +76,10 @@ describe('resolveSeniorShare', () => {
   it('falls back to USER_DEFAULT when two teams both carry an override', () => {
     const result = resolveSeniorShare(
       { seniorSharePercentOverride: null },
-      { seniorSharePercent: 26 },
+      { seniorSharePercent: 40 },
       [{ seniorSharePercentOverride: 16 }, { seniorSharePercentOverride: 18 }],
     )
-    expect(result.value).toBe(26)
+    expect(result.value).toBe(40)
     expect(result.source).toBe('USER_DEFAULT')
   })
 
@@ -88,7 +88,7 @@ describe('resolveSeniorShare', () => {
     // resolver treats this as unambiguous.
     const result = resolveSeniorShare(
       { seniorSharePercentOverride: null },
-      { seniorSharePercent: 26 },
+      { seniorSharePercent: 40 },
       [{ seniorSharePercentOverride: 14 }, { seniorSharePercentOverride: null }],
     )
     expect(result.value).toBe(14)
@@ -99,10 +99,10 @@ describe('resolveSeniorShare', () => {
   it('returns user default when neither project nor team has an override', () => {
     const result = resolveSeniorShare(
       { seniorSharePercentOverride: null },
-      { seniorSharePercent: 26 },
+      { seniorSharePercent: 40 },
       [],
     )
-    expect(result.value).toBe(26)
+    expect(result.value).toBe(40)
     expect(result.source).toBe('USER_DEFAULT')
   })
 
@@ -116,13 +116,36 @@ describe('resolveSeniorShare', () => {
     expect(result.source).toBe('USER_DEFAULT')
   })
 
-  it('falls back to 26 when senior.seniorSharePercent is null', () => {
+  it('falls back to the default 40 when senior.seniorSharePercent is null', () => {
     const result = resolveSeniorShare(
       { seniorSharePercentOverride: null },
       { seniorSharePercent: null },
       [],
     )
-    expect(result.value).toBe(26)
+    expect(result.value).toBe(40)
     expect(result.source).toBe('USER_DEFAULT')
+  })
+
+  // ── Default 40 (owner decision 2026-11-28) ──────────────────────────────
+  it('the default senior share is 40', () => {
+    expect(DEFAULT_SENIOR_SHARE_PERCENT).toBe(40)
+  })
+
+  it('a team value beats the 40 default', () => {
+    const result = resolveSeniorShare(
+      { seniorSharePercentOverride: null },
+      { seniorSharePercent: 40 },
+      [{ seniorSharePercentOverride: 30 }],
+    )
+    expect(result).toEqual({ value: 30, source: 'TEAM' })
+  })
+
+  it('a project value beats a team value over the 40 default', () => {
+    const result = resolveSeniorShare(
+      { seniorSharePercentOverride: 35 },
+      { seniorSharePercent: 40 },
+      [{ seniorSharePercentOverride: 30 }],
+    )
+    expect(result).toEqual({ value: 35, source: 'PROJECT' })
   })
 })

@@ -26,6 +26,7 @@ import { formatTxOrCreated } from '../../utils/tx-date'
 import { fmtAmount, STATUS_COLORS, STATUS_LABEL_MESSAGES } from '../../constants'
 import {
   buildPreviewRows,
+  DEFAULT_SENIOR_SHARE_PERCENT,
   groupByProject,
   isBundledIncomeTransaction,
   type ProjectIncomeGroup,
@@ -263,7 +264,7 @@ export function CompanySharePayoutModal({
 
   const projects = useMemo(() => groupByProject(validatedTxs), [validatedTxs])
 
-  const seniorDefault = user?.seniorSharePercent ?? 26
+  const seniorDefault = user?.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT
   const selectedTxs = validatedTxs.filter((tx) => selected.has(tx.id))
   const minPayoutDate = selectedTxs.reduce((latest, tx) => {
     const date = transactionDateKey(tx)

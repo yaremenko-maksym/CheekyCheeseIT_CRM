@@ -84,9 +84,9 @@ describe('computeDropDistribution (spec §8.1 — no partner split)', () => {
       { id: 'drop-1', dropSharePercent: null },
       { id: 'sn-1', seniorSharePercent: null },
     )
-    // Defaults: senior 26, drop 5 → same as spec example.
-    expect(result.seniorShare.amount).toBeCloseTo(260, 6)
-    expect(result.seniorShare.percent).toBe(26)
+    // Defaults: senior 40, drop 5.
+    expect(result.seniorShare.amount).toBeCloseTo(400, 6)
+    expect(result.seniorShare.percent).toBe(40)
     expect(result.dropShare.amount).toBeCloseTo(50, 6)
     expect(result.dropShare.percent).toBe(5)
   })

@@ -583,8 +583,8 @@ export class SummaryService {
     // Only PAID SENIOR_INCOME credited to self counts (same gate as
     // getTotalEarned SENIOR branch). The senior's NET share uses the snapshot
     // `seniorSharePercent` written at income-creation time (authoritative
-    // historical value, NOT recomputed). A null snapshot falls back to the
-    // user-level default so legacy rows still contribute.
+    // historical value, NOT recomputed). A null snapshot is a company-settled
+    // row whose amount is already NET, so it counts as-is.
     const paidIncomeRows = await this.db.db.query.transactions.findMany({
       where: and(
         eq(transactions.type, 'SENIOR_INCOME'),
@@ -611,8 +611,9 @@ export class SummaryService {
     for (const tx of paidIncomeRows) {
       const amt = parseFloat(tx.amount)
       if (!Number.isFinite(amt)) continue
-      const pct = tx.seniorSharePercent ?? seniorSharePercent
-      const share = amt * (pct / 100)
+      // A null saved share marks a company-settled row whose amount is already NET
+      // (pending-settlement-tx.util.ts); same rule as the ledger in balance.service.ts.
+      const share = tx.seniorSharePercent !== null ? amt * (tx.seniorSharePercent / 100) : amt
       incomeTotal += share
       // Per-month bucket for the sparkline (keyed by the income's business month).
       const key = transactionBusinessMonth(tx)

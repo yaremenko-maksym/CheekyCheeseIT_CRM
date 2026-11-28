@@ -19,8 +19,8 @@ describe('computeDropDistribution', () => {
     })
   })
 
-  it('defaults are 26 / 5 and applied when percents are null', () => {
-    expect(DEFAULT_SENIOR_SHARE_PERCENT).toBe(26)
+  it('defaults are 40 / 5 and applied when percents are null', () => {
+    expect(DEFAULT_SENIOR_SHARE_PERCENT).toBe(40)
     expect(DEFAULT_DROP_SHARE_PERCENT).toBe(5)
     const r = computeDropDistribution(
       1000,
@@ -28,7 +28,7 @@ describe('computeDropDistribution', () => {
       { id: 'd', dropSharePercent: null },
       { id: 's', seniorSharePercent: null },
     )
-    expect(r.seniorShare).toEqual({ amount: 260, percent: 26 })
+    expect(r.seniorShare).toEqual({ amount: 400, percent: 40 })
     expect(r.dropShare).toEqual({ amount: 50, percent: 5 })
   })
 
@@ -39,7 +39,7 @@ describe('computeDropDistribution', () => {
       { id: 'd', dropSharePercent: 10 },
       { id: 's', seniorSharePercent: null },
     )
-    expect(a.seniorShare.percent).toBe(26)
+    expect(a.seniorShare.percent).toBe(40)
     expect(a.dropShare.percent).toBe(10)
     const b = computeDropDistribution(
       100,

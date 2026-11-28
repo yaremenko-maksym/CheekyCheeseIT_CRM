@@ -1,7 +1,7 @@
 /**
  * Characterization tests for `FinanceSection` (SENIOR share | DROP share | salary)
  * after it moved out of `UserDialog.tsx` verbatim. SECURITY-SENSITIVE (finance):
- * pins the role gating (which fields each role sees), the share defaults (26 / 5),
+ * pins the role gating (which fields each role sees), the share defaults (40 / 5),
  * the 1-100 / 0-100 onBlur validators and the pending-share notice wiring through a
  * real TanStack form.
  */
@@ -136,10 +136,10 @@ describe('FinanceSection — SENIOR', () => {
     expect(screen.queryByText('Частка дропа (%)')).not.toBeInTheDocument()
   })
 
-  it('defaults the slider to 26 when the form value is unset, and shows a set value otherwise', () => {
+  it('defaults the slider to 40 when the form value is unset, and shows a set value otherwise', () => {
     const { unmount } = render(<Harness />)
-    expect(screen.getByRole('spinbutton')).toHaveValue(26)
-    expect(screen.getByRole('slider')).toHaveValue('26')
+    expect(screen.getByRole('spinbutton')).toHaveValue(40)
+    expect(screen.getByRole('slider')).toHaveValue('40')
     unmount()
     render(<Harness defaults={{ seniorSharePercent: 40 }} />)
     expect(screen.getByRole('spinbutton')).toHaveValue(40)

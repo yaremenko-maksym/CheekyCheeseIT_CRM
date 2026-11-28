@@ -37,6 +37,7 @@ import { RolesSection } from '@/components/users/user-dialog/RolesSection'
 import { seniorRolesError } from '@/components/users/user-dialog/validation'
 import { focusFirstInvalid } from '@/lib/focus-first-invalid'
 import { normalizeTelegram } from '@/components/users/constants'
+import { DEFAULT_SENIOR_SHARE_PERCENT } from '@/routes/_authenticated/finance/utils/company-share'
 
 type UserOption = {
   id: string
@@ -156,7 +157,7 @@ export function HrCreateSeniorDialog({
       telegram: '',
       phone: '' as PhoneValue | '',
       technicalRoles: [] as SeniorSelectableRole[],
-      seniorSharePercent: 26 as number,
+      seniorSharePercent: DEFAULT_SENIOR_SHARE_PERCENT as number,
     },
     onSubmit: async ({ value }) => {
       const payload: HrCreateSeniorDto = {
@@ -381,8 +382,8 @@ export function HrCreateSeniorDialog({
                 }}
               >
                 {(field) => {
-                  // ut-31: value is SENIOR's share (default 26 → 74% company / 26% senior).
-                  const val = field.state.value ?? 26
+                  // ut-31: value is SENIOR's share (default 40 → 60% company / 40% senior).
+                  const val = field.state.value ?? DEFAULT_SENIOR_SHARE_PERCENT
                   const err = field.state.meta.isTouched
                     ? (field.state.meta.errors[0] as string | undefined)
                     : undefined

@@ -15,10 +15,10 @@ describe('pickSeniorDefault', () => {
   it('keeps an explicit 0 (not coalesced)', () => {
     expect(pickSeniorDefault({ seniorSharePercent: 0 })).toBe(0)
   })
-  it('falls back to 26 for null percent, null or missing senior', () => {
-    expect(pickSeniorDefault({ seniorSharePercent: null })).toBe(26)
-    expect(pickSeniorDefault(null)).toBe(26)
-    expect(pickSeniorDefault(undefined)).toBe(26)
+  it('falls back to 40 for null percent, null or missing senior', () => {
+    expect(pickSeniorDefault({ seniorSharePercent: null })).toBe(40)
+    expect(pickSeniorDefault(null)).toBe(40)
+    expect(pickSeniorDefault(undefined)).toBe(40)
   })
 })
 

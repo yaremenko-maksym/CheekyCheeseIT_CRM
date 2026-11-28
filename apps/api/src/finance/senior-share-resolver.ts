@@ -1,5 +1,8 @@
 import type { SeniorSharePercentSource } from '@crm/shared'
 
+/** User-level default senior share (users.senior_share_percent DB default). */
+export const DEFAULT_SENIOR_SHARE_PERCENT = 40
+
 /**
  * Resolved senior share % with its provenance.
  *
@@ -26,7 +29,8 @@ export type ResolverProject = {
 /**
  * Senior-shaped input the resolver consults when no override applies.
  * `seniorSharePercent` is the user-level default (non-null in DB by virtue
- * of a NOT NULL + DEFAULT 26 column; falls back to 26 here defensively).
+ * of a NOT NULL + DEFAULT 40 column; falls back to
+ * DEFAULT_SENIOR_SHARE_PERCENT here defensively).
  */
 export type ResolverSenior = {
   seniorSharePercent: number | null | undefined
@@ -58,7 +62,7 @@ export type ResolverTeam = {
  *      applicable team (NULL skips → step 3). When two or more teams in
  *      `teams[]` carry a non-null override, the resolver treats the
  *      situation as ambiguous and skips to step 3.
- *   3. `senior.seniorSharePercent` (falls back to 26 when null).
+ *   3. `senior.seniorSharePercent` (falls back to DEFAULT_SENIOR_SHARE_PERCENT when null).
  *
  * The output is intentionally pure — no DB writes, no `await`. The resolver
  * is invoked once per income (createSeniorIncome / createDropIncome) and
@@ -95,9 +99,9 @@ export function resolveSeniorShare(
     }
   }
 
-  // 3) Fall back to the user-level default (or 26 if somehow null).
+  // 3) Fall back to the user-level default (or DEFAULT_SENIOR_SHARE_PERCENT if somehow null).
   return {
-    value: senior.seniorSharePercent ?? 26,
+    value: senior.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT,
     source: 'USER_DEFAULT',
   }
 }

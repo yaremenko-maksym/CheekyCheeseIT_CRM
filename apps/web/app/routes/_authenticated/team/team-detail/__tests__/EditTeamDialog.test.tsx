@@ -174,10 +174,10 @@ describe('EditTeamDialog field edits', () => {
 })
 
 describe('EditTeamDialog senior share override UI', () => {
-  it('shows the default 26 and the not-set hint with no reset button when empty', () => {
+  it('shows the default 40 and the not-set hint with no reset button when empty', () => {
     renderDialog()
     expect(screen.getByText('Частка сеньйора на рівні команди')).toBeTruthy()
-    expect((screen.getByTestId(OVERRIDE_INPUT) as HTMLInputElement).value).toBe('26')
+    expect((screen.getByTestId(OVERRIDE_INPUT) as HTMLInputElement).value).toBe('40')
     expect(screen.getByText(/Не задано — діє частка сеньйора за замовчуванням/)).toBeTruthy()
     expect(screen.queryByText(/Задано для команди/)).toBeNull()
     expect(screen.queryByTestId(OVERRIDE_RESET)).toBeNull()
@@ -196,7 +196,7 @@ describe('EditTeamDialog senior share override UI', () => {
   it('treats a whitespace-only value as no override', () => {
     renderDialog({ defaults: { seniorSharePercentOverride: '   ' } })
     expect(screen.queryByTestId(OVERRIDE_RESET)).toBeNull()
-    expect((screen.getByTestId(OVERRIDE_INPUT) as HTMLInputElement).value).toBe('26')
+    expect((screen.getByTestId(OVERRIDE_INPUT) as HTMLInputElement).value).toBe('40')
   })
 
   it('shows zero as a real override, not as unset', () => {
