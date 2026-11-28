@@ -30,13 +30,13 @@
  *   - RBAC: getSalaryMonthGapReport → ADMIN only, 403 for everyone
  *     else BEFORE any DB access (with the exact refusal message pinned, not
  *     just instanceof); backfillSalaryMonth → ADMIN ONLY (narrower —
- *     ACCOUNTANT is refused too, matching paySalary's ADMIN-only bar).
- *   - AC5 positive: HR/ACCOUNTANT with monthlySalary set and no row this
+ *     HR is refused too, matching paySalary's ADMIN-only bar).
+ *   - AC5 positive: HR with monthlySalary set and no row this
  *     month → appears in `missing`.
  *   - AC5 positive: JUNIOR on an active membership with a resolved salary
  *     (override or default) and no row → appears in `missing`, carrying
  *     projectId/projectName.
- *   - AC5 negative: HR/ACCOUNTANT with monthlySalary set but an EXISTING row
+ *   - AC5 negative: HR with monthlySalary set but an EXISTING row
  *     → excluded.
  *   - AC5 negative ("law says they shouldn't be there"): no monthlySalary
  *     configured → excluded. Archived JUNIOR → excluded. Non-eligible role on
@@ -66,7 +66,7 @@ function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): Sessio
 type AnyRow = Record<string, unknown>
 
 interface StubData {
-  // Already correctly SQL-scoped (active, non-archived HR/ACCOUNTANT) — the
+  // Already correctly SQL-scoped (active, non-archived HR) — the
   // resolver's OWN archival/role SQL filter is pinned separately in
   // salary-archived-receiver.unit.spec.ts (compiled WHERE inspection); this
   // stub tests the JS layer ON TOP of that (monthlySalary truthiness).
@@ -285,7 +285,7 @@ describe('getSalaryMonthGapReport — RBAC guard', () => {
     })
   }
 
-  it('refuses with the exact "ADMIN or ACCOUNTANT" message, not a generic one', async () => {
+  it('refuses with the exact "ADMIN" message, not a generic one', async () => {
     const throwingDb = { db: { query: { users: { findMany: () => [] } } } }
     const svc = makeTransactionsService({ db: throwingDb as never })
     await expect(svc.getSalaryMonthGapReport(user('SENIOR'), MONTH)).rejects.toThrow(
@@ -506,7 +506,7 @@ describe('backfillSalaryMonth — RBAC guard (ADMIN only, narrower than the repo
   it('refuses with the exact "requires ADMIN role" message, not a generic one', async () => {
     const throwingDb = { db: { query: { users: { findMany: () => [] } } } }
     const svc = makeTransactionsService({ db: throwingDb as never })
-    await expect(svc.backfillSalaryMonth(user('ACCOUNTANT'), MONTH)).rejects.toThrow(
+    await expect(svc.backfillSalaryMonth(user('HR'), MONTH)).rejects.toThrow(
       'Only an admin can fill in missed salary months',
     )
   })
@@ -991,8 +991,8 @@ describe('backfillSalaryMonth — re-invokes the idempotent cron insert, then re
   })
 
   // security-review round 3: the HIGH-1 audit tests above ALL use an
-  // HR/ACCOUNTANT persona — `createMonthlySalaries`'s audit call is
-  // DUPLICATED (once in the HR/ACCOUNTANT loop, once in the JUNIOR loop),
+  // HR persona — `createMonthlySalaries`'s audit call is
+  // DUPLICATED (once in the HR loop, once in the JUNIOR loop),
   // and nothing exercised the JUNIOR copy. A reviewer proved this by
   // mutation: `if (actor && inserted[0])` on the JUNIOR branch survives
   // being flipped to BOTH `true` (always audit) and `false` (never audit)
@@ -1024,10 +1024,10 @@ describe('backfillSalaryMonth — re-invokes the idempotent cron insert, then re
       actorId: CALLING_ADMIN.id,
       action: 'CREATE',
       metadata: { type: 'SALARY', amount: '900', currency: 'USD' },
-      // security-review round 3 (mutation gate): same as the HR/ACCOUNTANT
+      // security-review round 3 (mutation gate): same as the HR
       // test above — the JUNIOR branch has its OWN `.returning({id:
       // transactions.id})` call, a separate mutant Stryker generates
-      // independently of the HR/ACCOUNTANT one.
+      // independently of the HR one.
       targetId: 'fake-tx-1',
     })
   })
@@ -1082,7 +1082,7 @@ describe('backfillSalaryMonth — re-invokes the idempotent cron insert, then re
     )
     await svc.createMonthlySalaries(MONTH)
 
-    expect(insertedValues).toHaveLength(2) // 1 HR/ACCOUNTANT + 1 JUNIOR row
+    expect(insertedValues).toHaveLength(2) // 1 HR + 1 JUNIOR row
     expect(insertedValues[0]).toMatchObject({ createdBy: 'cron-arbitrary-admin' })
     expect(insertedValues[1]).toMatchObject({ createdBy: 'cron-arbitrary-admin' })
     expect(auditValues).toHaveLength(0)

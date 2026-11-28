@@ -64,7 +64,6 @@ function persona(role: SessionUser['role'], suffix: string): SessionUser {
 }
 
 const ADMIN = persona('ADMIN', '01')
-const ACCOUNTANT = persona('ACCOUNTANT', '02')
 const SENIOR = persona('SENIOR', '03')
 const JUNIOR = persona('JUNIOR', '04')
 const HR = persona('HR', '05')
@@ -150,7 +149,6 @@ describe('PATCH /api/transactions/drop-income/:id — @Roles guard layer (stub s
 
   const forbidden: Array<[string, SessionUser]> = [
     ['ADMIN', ADMIN],
-    ['ACCOUNTANT', ACCOUNTANT],
     ['SENIOR', SENIOR],
     ['JUNIOR', JUNIOR],
     ['HR', HR],

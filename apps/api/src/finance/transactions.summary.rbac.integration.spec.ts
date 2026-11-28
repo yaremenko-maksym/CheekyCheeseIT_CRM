@@ -26,13 +26,11 @@ import { resolveTransactionDate } from './transaction-date.util'
  * spec (real Postgres, no mocks). AC4.
  *
  * WHY (feedback_mocked_e2e_guards, recurred 3×): mocked E2E gives false
- * confidence for endpoints behind guards. /crm/stats now lets ACCOUNTANT view
- * the economic P&L, which is fed by GET /api/finance/summary
+ * confidence for endpoints behind guards. The economic P&L on /crm/stats is fed by GET /api/finance/summary
  * (TransactionsService.getSummary). This spec exercises the REAL service against
  * REAL PostgreSQL so the RBAC guard is proven against an actual JWT + Fastify
  * request, not a unit stub:
  *
- *   - ACCOUNTANT → 200 (economic data is the accountant's profile surface)
  *   - ADMIN      → 200 (unchanged)
  *   - SENIOR / JUNIOR / HR / DROP → 403 (никакой утечки payment-routing config)
  *
@@ -73,7 +71,7 @@ const economicSummarySchema = z.object({
 })
 
 // task-accountant-summary-balances-rbac: payload schema that ALSO surfaces the
-// balance arrays so this spec can assert they are empty for ACCOUNTANT and
+// balance arrays so this spec can assert they are empty for accountant and
 // present for ADMIN. The element shapes mirror financeSummarySchema; we only
 // need .length here, so element fields are loose-but-present.
 const balancesSummarySchema = economicSummarySchema.extend({
@@ -93,16 +91,6 @@ const balancesSummarySchema = economicSummarySchema.extend({
   ),
 })
 
-// ── Personas — stable IDs namespaced to THIS spec ───────────────────────────
-const ACCOUNTANT: SessionUser = {
-  id: '5a111111-0000-4000-aa00-000000000001',
-  email: 'sum-rbac-accountant@test.spec',
-  displayName: 'Sum RBAC Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
 const ADMIN: SessionUser = {
   id: '5a111111-0000-4000-aa00-000000000002',
   email: 'sum-rbac-admin@test.spec',
@@ -149,7 +137,7 @@ const DROP: SessionUser = {
   legalFullName: null,
 }
 
-const TEST_USER_IDS = [ACCOUNTANT.id, ADMIN.id, SENIOR.id, JUNIOR.id, HR.id, DROP.id]
+const TEST_USER_IDS = [ADMIN.id, SENIOR.id, JUNIOR.id, HR.id, DROP.id]
 // Spec-namespaced transaction ID so cleanup is surgical.
 const TX_INCOME = '5a111111-0000-4000-cc00-000000000001'
 const TEST_TX_IDS = [TX_INCOME]
@@ -273,7 +261,7 @@ describe.skipIf(!hasDatabaseUrl())(
       await db
         .insert(users)
         .values(
-          [ACCOUNTANT, ADMIN, SENIOR, JUNIOR, HR, DROP].map((u) => ({
+          [ADMIN, SENIOR, JUNIOR, HR, DROP].map((u) => ({
             id: u.id,
             email: u.email,
             displayName: u.displayName,
@@ -320,10 +308,7 @@ describe.skipIf(!hasDatabaseUrl())(
       return res.statusCode
     }
 
-    // ── Allowed (AC4): economic data reaches ACCOUNTANT + ADMIN ─────────────────
-    it('ACCOUNTANT → 200 (economic P&L surface)', async () => {
-      expect(await summaryStatus(ACCOUNTANT)).toBe(200)
-    })
+    // ── Allowed (AC4): economic data reaches ADMIN ─────────────────
 
     it('ADMIN → 200 (unchanged)', async () => {
       expect(await summaryStatus(ADMIN)).toBe(200)
@@ -342,7 +327,6 @@ describe.skipIf(!hasDatabaseUrl())(
       })
     }
 
-    // ── Wire-shape: the ACCOUNTANT payload carries the economic P&L fields ──────
     // NOTE: getSummary aggregates the ENTIRE transactions/users tables, so the
     // payload mixes in rows owned by OTHER integration specs when the whole
     // `*.integration.spec` suite shares one seeded DB on CI. We therefore validate
@@ -352,38 +336,13 @@ describe.skipIf(!hasDatabaseUrl())(
     // against other specs' fixtures (cross-spec contamination). The strict
     // financeSummarySchema contract itself is already pinned by the web
     // FinanceSummaryDto consumers + the dedicated getSummary unit spec.
-    it('ACCOUNTANT payload carries the economic P&L fields', async () => {
-      const res = await app.inject({
-        method: 'GET',
-        url: '/api/finance/summary',
-        cookies: { jwt: tokenFor(ACCOUNTANT) },
-      })
-      expect(res.statusCode).toBe(200)
-      const body = economicSummarySchema.parse(res.json())
-      // Economic fields that drive the accountant's P&L view are present + finite.
-      for (const n of [body.totalIncome, body.totalExpenses, body.totalSalaries, body.netBalance]) {
-        expect(Number.isFinite(n)).toBe(true)
-      }
-      // netBalance is the canonical income − expenses − salaries identity.
-      expect(
-        Math.round(
-          (body.netBalance - (body.totalIncome - body.totalExpenses - body.totalSalaries)) * 100,
-        ) / 100,
-      ).toBe(0)
-      expect(body.monthly.length).toBeGreaterThanOrEqual(0)
-      for (const m of body.monthly) {
-        expect(typeof m.month).toBe('string')
-        expect(Number.isFinite(m.income)).toBe(true)
-        expect(Number.isFinite(m.profit)).toBe(true)
-      }
-    })
 
     // ── task-accountant-sees-admin-balances (2026-08-17, owner decision):
     //    adminBalances is a DELIBERATE REVERSAL of #214/#215's zeroing for
-    //    ACCOUNTANT (see the comment above `canSeeAdminBalances` in
+    //    accountant (see the comment above `canSeeAdminBalances` in
     //    transactions.service.ts for the full why — SEC-3 on #551).
     //    dropBalances is the OTHER half of #214/#215 and is UNCHANGED: still `[]`
-    //    for ACCOUNTANT. The ADMIN assertion relies on this spec's own seeded
+    //    for accountant. The ADMIN assertion relies on this spec's own seeded
     //    ADMIN + DROP rows, so both arrays carry at least those entries for ADMIN.
     async function summaryBody(user: SessionUser) {
       const res = await app.inject({
@@ -395,21 +354,6 @@ describe.skipIf(!hasDatabaseUrl())(
       return balancesSummarySchema.parse(res.json())
     }
 
-    it('ACCOUNTANT payload: adminBalances is NON-EMPTY (reversal); dropBalances is STILL EMPTY (unchanged)', async () => {
-      const body = await summaryBody(ACCOUNTANT)
-      // Reversal: ACCOUNTANT now sees the seeded ADMIN's personal balance here —
-      // the same balance already reachable one-by-one via
-      // GET /balances/admin/:id (assertCanReadAdminBalance already allowed
-      // ACCOUNTANT there; this summary previously disagreed by zeroing it).
-      expect(body.adminBalances.length).toBeGreaterThan(0)
-      expect(body.adminBalances.some((b) => b.userId === ADMIN.id)).toBe(true)
-      // Unchanged half of #214/#215 — drop balances stay hidden from ACCOUNTANT.
-      expect(body.dropBalances).toEqual([])
-      // Economic surface still present — narrowing dropBalances did not strip P&L.
-      expect(Number.isFinite(body.totalIncome)).toBe(true)
-      expect(Number.isFinite(body.netBalance)).toBe(true)
-    })
-
     it('ADMIN payload: adminBalances + dropBalances are NON-EMPTY (no regression)', async () => {
       const body = await summaryBody(ADMIN)
       // This spec seeds an ADMIN (with a PAID ADMIN_INCOME row) and a DROP user,
@@ -420,9 +364,9 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(body.dropBalances.some((b) => b.userId === DROP.id)).toBe(true)
     })
 
-    it('ACCOUNTANT and ADMIN see the SAME adminBalances entry for the seeded admin (two screens no longer disagree)', async () => {
+    it('ADMIN see the SAME adminBalances entry for the seeded admin (two screens no longer disagree)', async () => {
       const [accountantBody, adminBody] = await Promise.all([
-        summaryBody(ACCOUNTANT),
+        summaryBody(ADMIN),
         summaryBody(ADMIN),
       ])
       const accountantEntry = accountantBody.adminBalances.find((b) => b.userId === ADMIN.id)

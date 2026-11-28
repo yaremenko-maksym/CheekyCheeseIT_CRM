@@ -22,7 +22,6 @@ import { makeTransactionsService } from './__test-helpers__/make-transactions-se
 
 const ADMIN_ID = 'aaaa0000-0000-4000-8000-00000000a001'
 const REAL_ADMIN_ID = 'aaaa0000-0000-4000-8000-00000000a002'
-const ACCOUNTANT_ID = 'aaaa0000-0000-4000-8000-00000000a003'
 const SENIOR_ID = 'aaaa0000-0000-4000-8000-00000000a004'
 const TX_ID = 'bbbb0000-0000-4000-8000-00000000b001'
 
@@ -46,16 +45,6 @@ const IMPERSONATED_ADMIN_USER: SessionUser = {
   avatarDocumentId: null,
   seniorSharePercent: 26,
   impersonatorId: REAL_ADMIN_ID,
-}
-
-const ACCOUNTANT_USER: SessionUser = {
-  id: ACCOUNTANT_ID,
-  role: 'ACCOUNTANT',
-  displayName: 'Accountant',
-  email: 'accountant@test.spec',
-  avatarUrl: null,
-  avatarDocumentId: null,
-  seniorSharePercent: 26,
 }
 
 const SENIOR_USER: SessionUser = {
@@ -179,15 +168,6 @@ describe('adminDeleteTransaction — RBAC + mandatory reason', () => {
       ForbiddenException,
     )
     expect(mocks.findFirstMock).not.toHaveBeenCalled()
-  })
-
-  it('rejects ACCOUNTANT — delete is ADMIN-only (visibility ≠ delete rights)', async () => {
-    const mocks = makeDb({ txRow: makeTxRow() })
-    const svc = makeService(mocks)
-
-    await expect(
-      svc.adminDeleteTransaction(TX_ID, 'valid reason', ACCOUNTANT_USER),
-    ).rejects.toThrow(ForbiddenException)
   })
 
   it('rejects a blank reason with BadRequestException, DB never queried', async () => {
@@ -340,16 +320,6 @@ describe('adminDeleteTransaction — soft-delete mechanics + journal (AC1, AC5)'
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('restoreTransaction — RBAC + mandatory reason (AC6)', () => {
-  it('rejects a non-ADMIN caller (ACCOUNTANT can see, not restore)', async () => {
-    const mocks = makeDb({ txRow: makeTxRow({ deletedAt: new Date() }) })
-    const svc = makeService(mocks)
-
-    await expect(svc.restoreTransaction(TX_ID, 'valid reason', ACCOUNTANT_USER)).rejects.toThrow(
-      ForbiddenException,
-    )
-    expect(mocks.findFirstMock).not.toHaveBeenCalled()
-  })
-
   it('rejects a blank reason with BadRequestException', async () => {
     const mocks = makeDb({ txRow: makeTxRow({ deletedAt: new Date() }) })
     const svc = makeService(mocks)

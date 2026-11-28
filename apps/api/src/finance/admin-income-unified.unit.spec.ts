@@ -35,7 +35,6 @@ const ADMIN: SessionUser = {
   avatarUrl: null,
   seniorSharePercent: 0,
 }
-const ACCOUNTANT: SessionUser = { ...ADMIN, id: 'accountant-caller', role: 'ACCOUNTANT' }
 
 const PROJECT_ID = 'project-1'
 const OTHER_ADMIN_ID = 'other-admin-1'
@@ -66,7 +65,7 @@ function makeProjectRow(overrides: Record<string, unknown> = {}) {
 
 interface MockState {
   projectRow: ReturnType<typeof makeProjectRow> | undefined
-  // `users.findFirst` is called AT MOST twice per request (ACCOUNTANT's
+  // `users.findFirst` is called AT MOST twice per request (ADMIN's
   // owner lookup, OR ADMIN's specific-receiver lookup — never both in the
   // same call) — a plain shift-queue, same convention as the sibling
   // `usdt-income-idempotency.unit.spec.ts` mock.

@@ -9,18 +9,17 @@
  * gaps behind guards, recurred 3×).
  *
  * WHAT it covers:
- *   AC2  Every non-ADMIN/ACCOUNTANT role gets a 404 (NotFoundException) — not
+ *   AC2  Every non-ADMIN role gets a 404 (NotFoundException) — not
  *        403 — on a deleted transaction, both via `findAll` (absent from the
  *        list) and via a direct `findOne` by id. Tested for BOTH the row's
  *        OWNER (SENIOR — would otherwise be a normal 200) and a NON-owner
  *        (JUNIOR — would otherwise be a normal 403), proving the "existence
  *        oracle" gate applies uniformly regardless of what the response would
  *        have been had the row not been deleted.
- *   AC3  ADMIN/ACCOUNTANT: the deleted row is absent from `findAll` by
+ *   AC3  ADMIN: the deleted row is absent from `findAll` by
  *        DEFAULT; appears only with the explicit `includeDeleted: true`
- *        filter. `findOne` by id works for ADMIN/ACCOUNTANT regardless of the
+ *        filter. `findOne` by id works for ADMIN regardless of the
  *        list toggle (the toggle only governs the LIST).
- *   AC6  restoreTransaction: ACCOUNTANT gets 403 (visibility ≠ restore
  *        rights); ADMIN succeeds and the row reappears in the default list.
  *
  * DB-SKIP-GUARD:
@@ -35,7 +34,6 @@
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { inArray } from 'drizzle-orm'
-import { ForbiddenException } from '@nestjs/common'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
@@ -57,15 +55,6 @@ const ADMIN_1: SessionUser = {
   displayName: 'SD Admin',
   avatarUrl: null,
   role: 'ADMIN',
-  seniorSharePercent: 26,
-  legalFullName: null,
-}
-const ACCOUNTANT_1: SessionUser = {
-  id: 'add50000-0000-4000-aa00-000000000002',
-  email: 'sd-accountant@test.spec',
-  displayName: 'SD Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
   seniorSharePercent: 26,
   legalFullName: null,
 }
@@ -116,14 +105,9 @@ const HR_STRANGER: SessionUser = {
   legalFullName: null,
 }
 
-const ALL_USER_IDS = [
-  ADMIN_1,
-  ACCOUNTANT_1,
-  SENIOR_OWNER,
-  JUNIOR_STRANGER,
-  DROP_STRANGER,
-  HR_STRANGER,
-].map((u) => u.id)
+const ALL_USER_IDS = [ADMIN_1, SENIOR_OWNER, JUNIOR_STRANGER, DROP_STRANGER, HR_STRANGER].map(
+  (u) => u.id,
+)
 
 // ---------------------------------------------------------------------------
 // Transaction ids — namespace add50001-*
@@ -161,14 +145,7 @@ describe.skipIf(!hasDatabaseUrl())(
       Object.assign(dbSvc, { pool: _pool, db })
       svc = makeTransactionsService({ db: dbSvc })
 
-      for (const u of [
-        ADMIN_1,
-        ACCOUNTANT_1,
-        SENIOR_OWNER,
-        JUNIOR_STRANGER,
-        DROP_STRANGER,
-        HR_STRANGER,
-      ]) {
+      for (const u of [ADMIN_1, SENIOR_OWNER, JUNIOR_STRANGER, DROP_STRANGER, HR_STRANGER]) {
         await db
           .insert(users)
           .values({
@@ -296,7 +273,7 @@ describe.skipIf(!hasDatabaseUrl())(
       })
     })
 
-    // ── AC3: ADMIN/ACCOUNTANT — hidden by default, shown via explicit toggle ──
+    // ── AC3: ADMIN — hidden by default, shown via explicit toggle ──
 
     it('AC3 — ADMIN: findAll excludes the deleted row by DEFAULT', async () => {
       const rows = await svc.findAll(ADMIN_1)
@@ -314,14 +291,6 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(rows.find((t) => t.id === TX_ACTIVE_ID)).toBeDefined()
     })
 
-    it('AC3 — ACCOUNTANT: findAll excludes by default, includes with the toggle', async () => {
-      const defaultRows = await svc.findAll(ACCOUNTANT_1)
-      expect(defaultRows.find((t) => t.id === TX_DELETED_ID)).toBeUndefined()
-
-      const withDeleted = await svc.findAll(ACCOUNTANT_1, { includeDeleted: true })
-      expect(withDeleted.find((t) => t.id === TX_DELETED_ID)).toBeDefined()
-    })
-
     it('AC3 — a non-privileged caller passing includeDeleted=true is silently ignored', async () => {
       // SENIOR/JUNIOR/HR/DROP can never widen the query even if they somehow
       // send the query param — the deleted row must stay excluded.
@@ -329,20 +298,12 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(rows.find((t) => t.id === TX_DELETED_ID)).toBeUndefined()
     })
 
-    it('ADMIN/ACCOUNTANT: findOne by id works regardless of the list toggle', async () => {
+    it('ADMIN: findOne by id works regardless of the list toggle', async () => {
       const adminRow = await svc.findOne(TX_DELETED_ID, ADMIN_1)
       expect(adminRow.deletedAt).not.toBeNull()
-      const acctRow = await svc.findOne(TX_DELETED_ID, ACCOUNTANT_1)
-      expect(acctRow.deletedAt).not.toBeNull()
     })
 
     // ── AC6: restore — ADMIN only ─────────────────────────────────────────────
-
-    it('AC6 — ACCOUNTANT cannot restore (403) — visibility ≠ restore rights', async () => {
-      await expect(
-        svc.restoreTransaction(TX_DELETED_ID, 'accountant tries to restore', ACCOUNTANT_1),
-      ).rejects.toThrow(ForbiddenException)
-    })
 
     it('AC6 — ADMIN restores; the row reappears in the default list for every role', async () => {
       await svc.restoreTransaction(TX_DELETED_ID, 'восстановлено после проверки', ADMIN_1)

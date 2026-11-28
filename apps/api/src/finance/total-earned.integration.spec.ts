@@ -30,7 +30,7 @@ import { resolveTransactionDate } from './transaction-date.util'
  * confidence for endpoints behind guards. This spec exercises the REAL
  * BalanceService.getTotalEarned against REAL PostgreSQL through a Fastify
  * request + JWT so:
- *   - the RBAC guard (ADMIN/ACCOUNTANT → 200, everyone else → 403) is enforced
+ *   - the RBAC guard (ADMIN → 200, everyone else → 403) is enforced
  *     against an actual JWT request, not a unit stub, and
  *   - the PAID-aggregation runs over real rows (proving the per-role SQL path).
  *
@@ -50,16 +50,6 @@ import { resolveTransactionDate } from './transaction-date.util'
 
 const JWT_SECRET = 'total-earned-integration-secret-len-32!'
 
-// ── Personas — stable IDs namespaced to THIS spec ───────────────────────────
-const ACCOUNTANT: SessionUser = {
-  id: 'fe111111-0000-4000-aa00-000000000001',
-  email: 'te-accountant@test.spec',
-  displayName: 'TE Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
 const ADMIN: SessionUser = {
   id: 'fe111111-0000-4000-aa00-000000000002',
   email: 'te-admin@test.spec',
@@ -137,7 +127,7 @@ const TX_DROP_INCOME_PENDING = 'fe111111-0000-4000-cc00-000000000009' // DROP_IN
 // GamingTec-style comp. This one IS still counted (its income would otherwise be lost).
 const TX_DROP_INCOME_DIRECT = 'fe111111-0000-4000-cc00-00000000000a' // DROP_INCOME PAID 400 senderId=admin → COUNTED
 
-const TEST_USER_IDS = [ACCOUNTANT.id, ADMIN.id, SENIOR.id, JUNIOR.id, HR.id, DROP.id]
+const TEST_USER_IDS = [ADMIN.id, SENIOR.id, JUNIOR.id, HR.id, DROP.id]
 const TEST_TX_IDS = [
   TX_JUNIOR_SALARY_PAID,
   TX_JUNIOR_SALARY_PAID_2,
@@ -289,7 +279,7 @@ describe.skipIf(!hasDatabaseUrl())(
       await db
         .insert(users)
         .values(
-          [ACCOUNTANT, ADMIN, SENIOR, JUNIOR, HR, DROP].map((u) => ({
+          [ADMIN, SENIOR, JUNIOR, HR, DROP].map((u) => ({
             id: u.id,
             email: u.email,
             displayName: u.displayName,
@@ -497,11 +487,6 @@ describe.skipIf(!hasDatabaseUrl())(
       })
     }
 
-    it('RBAC: ACCOUNTANT → 200', async () => {
-      const res = await earnedFor(ACCOUNTANT, JUNIOR.id)
-      expect(res.statusCode).toBe(200)
-    })
-
     it('RBAC: ADMIN → 200', async () => {
       const res = await earnedFor(ADMIN, JUNIOR.id)
       expect(res.statusCode).toBe(200)
@@ -509,7 +494,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
     // ── Schema shape (AC) ───────────────────────────────────────────────────────
     it('returns a schema-valid TotalEarnedDto', async () => {
-      const res = await earnedFor(ACCOUNTANT, JUNIOR.id)
+      const res = await earnedFor(ADMIN, JUNIOR.id)
       const parsed: TotalEarnedDto = totalEarnedSchema.parse(res.json())
       expect(parsed.userId).toBe(JUNIOR.id)
       expect(parsed.role).toBe('JUNIOR')
@@ -525,7 +510,7 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('HR totalEarned = sum of PAID SALARY', async () => {
-      const body = totalEarnedSchema.parse((await earnedFor(ACCOUNTANT, HR.id)).json())
+      const body = totalEarnedSchema.parse((await earnedFor(ADMIN, HR.id)).json())
       expect(Math.round(body.totalEarned * 100) / 100).toBe(2000)
     })
 
@@ -537,7 +522,7 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('DROP totalEarned = PAID PAYOUT_DROP + DIRECT DROP_INCOME (excludes gross + PENDING) (#2)', async () => {
-      const body = totalEarnedSchema.parse((await earnedFor(ACCOUNTANT, DROP.id)).json())
+      const body = totalEarnedSchema.parse((await earnedFor(ADMIN, DROP.id)).json())
       // 1500 PAYOUT_DROP + 400 DIRECT DROP_INCOME (senderId set). The 250 GROSS
       // DROP_INCOME (senderId=null) is excluded by #2 (its slice IS the PAYOUT_DROP),
       // and the 999 PENDING is excluded. Total = 1900.
@@ -574,7 +559,7 @@ describe.skipIf(!hasDatabaseUrl())(
     // unit-level)", which exercises the SAME `computeDropAggregate` branch
     // through a mocked query result (no DB, no CHECK to route around).
     it.skip('DROP self-referential PAYOUT_DROP (senderId===receiverId===drop) nets to zero (C-1)', async () => {
-      const body = totalEarnedSchema.parse((await earnedFor(ACCOUNTANT, DROP.id)).json())
+      const body = totalEarnedSchema.parse((await earnedFor(ADMIN, DROP.id)).json())
       expect(Math.round((body.breakdown['payout'] ?? 0) * 100) / 100).toBe(1500)
       expect(Math.round(body.totalEarned * 100) / 100).toBe(1900)
     })

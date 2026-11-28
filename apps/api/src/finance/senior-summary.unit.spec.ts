@@ -10,7 +10,7 @@
  * (real Fastify + JwtAuthGuard + RolesGuard + real crm_qa).
  *
  * What stays here (DB-independent, fast):
- *   - RBAC (AC2): JUNIOR / HR / ACCOUNTANT / DROP → ForbiddenException, thrown
+ *   - RBAC (AC2): JUNIOR / HR / DROP → ForbiddenException, thrown
  *     BEFORE any DB access; SENIOR / ADMIN → resolve.
  *   - Senior-share math (AC1): seniorShareIncome = Σ amount * sharePercent/100
  *     over PAID SENIOR_INCOME, split total vs this-month by txDate ?? createdAt.
@@ -572,7 +572,7 @@ describe('getSeniorSummary — mySalaryState / mySalaryStatus mapping', () => {
 
   // task-salary-month-gap-and-status security-review MED-3: `getSeniorSummary`
   // is reached ONLY by SENIOR/ADMIN (the RBAC gate at the top of the method),
-  // and the monthly cron NEVER processes either role (only HR/ACCOUNTANT/
+  // and the monthly cron NEVER processes either role (only HR/
   // JUNIOR are cron-eligible — see CRON_ELIGIBLE_SALARY_ROLES). A SENIOR with
   // `monthlySalary` configured and no row yet must NOT read as
   // AWAITING_CREATION (that would falsely imply an automatic accrual is

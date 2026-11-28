@@ -34,7 +34,6 @@ function user(role: SessionUser['role'], id: string, extra: Partial<SessionUser>
   } as SessionUser
 }
 const ADMIN = user('ADMIN', 'admin-actor')
-const ACCOUNTANT = user('ACCOUNTANT', 'accountant-1')
 const SENIOR = user('SENIOR', 'senior-1')
 const HR = user('HR', 'hr-1')
 

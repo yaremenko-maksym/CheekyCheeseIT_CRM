@@ -58,14 +58,6 @@ const ADMIN: SessionUser = {
   displayName: 'SSO Admin',
   role: 'ADMIN',
 }
-const ACCOUNTANT: SessionUser = {
-  ...SENIOR,
-  id: `${PREFIX}-bb00-000000000003`,
-  email: 'sso-accountant@test.spec',
-  displayName: 'SSO Accountant',
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-}
 const DROP: SessionUser = {
   ...SENIOR,
   id: `${PREFIX}-bb00-000000000004`,
@@ -74,7 +66,7 @@ const DROP: SessionUser = {
   role: 'DROP',
 }
 
-const ALL_USERS = [SENIOR, ADMIN, ACCOUNTANT, DROP]
+const ALL_USERS = [SENIOR, ADMIN, DROP]
 const ALL_USER_IDS = ALL_USERS.map((u) => u.id)
 const PROJECT_ID = `${PREFIX}-dd00-000000000001`
 const ACCOUNT_ID = `${PREFIX}-cc00-000000000001`
@@ -358,7 +350,7 @@ describe.skipIf(!hasDatabaseUrl())(
     it('COMPANY_ACCOUNT → company debited by senior share; SENIOR_INCOME(COMPANY_ACCOUNT, USDT, no sender)', async () => {
       const before = await gateBalance()
 
-      const result = await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      const result = await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
         fundingSource: 'COMPANY_ACCOUNT',
         currency: 'USDT',
         ...EXPLORER_RECEIPT,
@@ -380,7 +372,7 @@ describe.skipIf(!hasDatabaseUrl())(
     it('ADMIN_PERSONAL → senderId=payer, NO company marker, company balance UNCHANGED', async () => {
       const before = await gateBalance()
 
-      const result = await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      const result = await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN.id,
         currency: 'USD',
@@ -411,7 +403,7 @@ describe.skipIf(!hasDatabaseUrl())(
     it('ADMIN_PERSONAL with NO currency in the payload → defaults to USDT; single-row flip preserved (#379)', async () => {
       const before = await gateBalance()
 
-      const result = await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      const result = await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN.id,
         // No `currency` field — defaults to obligation.currency (USDT), so the
@@ -455,17 +447,13 @@ describe.skipIf(!hasDatabaseUrl())(
       await seedPendingDropIou()
       const before = await gateBalance()
 
-      const result = await settleSvc.settleByCompanySourceTransaction(
-        DROP_SOURCE_TX_ID,
-        ACCOUNTANT,
-        {
-          fundingSource: 'ADMIN_PERSONAL',
-          payerAdminId: ADMIN.id,
-          // No `currency` field — defaults to obligation.currency (USDT), so the
-          // mandatory-receipt rule requires an EXPLORER link.
-          ...EXPLORER_RECEIPT,
-        },
-      )
+      const result = await settleSvc.settleByCompanySourceTransaction(DROP_SOURCE_TX_ID, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN.id,
+        // No `currency` field — defaults to obligation.currency (USDT), so the
+        // mandatory-receipt rule requires an EXPLORER link.
+        ...EXPLORER_RECEIPT,
+      })
       expect(result.obligation.status).toBe('PAID')
 
       const row = await dbSvc.db.query.transactions.findFirst({
@@ -495,7 +483,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
     it('ADMIN_PERSONAL with a non-ADMIN payer → 400, nothing booked', async () => {
       await expect(
-        settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+        settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
           fundingSource: 'ADMIN_PERSONAL',
           payerAdminId: SENIOR.id, // SENIOR, not ADMIN
           currency: 'USD',
@@ -505,13 +493,13 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     it('idempotent: a repeated settle of the same source tx → 404, exactly one SENIOR_INCOME', async () => {
-      await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
         fundingSource: 'COMPANY_ACCOUNT',
         currency: 'USDT',
         ...EXPLORER_RECEIPT,
       })
       await expect(
-        settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+        settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ADMIN, {
           fundingSource: 'COMPANY_ACCOUNT',
           currency: 'USDT',
           ...EXPLORER_RECEIPT,

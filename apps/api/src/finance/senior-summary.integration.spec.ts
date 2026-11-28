@@ -111,15 +111,6 @@ const HR: SessionUser = {
   seniorSharePercent: 0,
   legalFullName: null,
 }
-const ACCOUNTANT: SessionUser = {
-  id: 'c0000000-0000-4000-aa00-000000000006',
-  email: 'sr-sum-accountant@test.spec',
-  displayName: 'SR Sum Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
 const DROP: SessionUser = {
   id: 'c0000000-0000-4000-aa00-000000000007',
   email: 'sr-sum-drop@test.spec',
@@ -149,7 +140,7 @@ const PR_A_PENDING_2 = 'c0000000-0000-4000-dd00-000000000002' // A: PENDING paya
 const PR_A_PAID = 'c0000000-0000-4000-dd00-000000000003' // A: PAID → excluded
 const PR_B_PENDING = 'c0000000-0000-4000-dd00-000000000004' // B: PENDING → must NOT count for A
 
-const TEST_USER_IDS = [ADMIN.id, SENIOR_A.id, SENIOR_B.id, JUNIOR.id, HR.id, ACCOUNTANT.id, DROP.id]
+const TEST_USER_IDS = [ADMIN.id, SENIOR_A.id, SENIOR_B.id, JUNIOR.id, HR.id, ADMIN.id, DROP.id]
 const TEST_PROJECT_IDS = [PROJ_A1, PROJ_A2, PROJ_A_ARCHIVED, PROJ_B1]
 const TEST_TX_IDS = [
   TX_A_INCOME_PAID_1,
@@ -316,7 +307,7 @@ describe.skipIf(!hasDatabaseUrl())(
       await db
         .insert(users)
         .values(
-          [ADMIN, SENIOR_A, SENIOR_B, JUNIOR, HR, ACCOUNTANT, DROP].map((u) => ({
+          [ADMIN, SENIOR_A, SENIOR_B, JUNIOR, HR, DROP].map((u) => ({
             id: u.id,
             email: u.email,
             displayName: u.displayName,
@@ -515,7 +506,6 @@ describe.skipIf(!hasDatabaseUrl())(
     const forbidden: Array<[string, SessionUser]> = [
       ['JUNIOR', JUNIOR],
       ['HR', HR],
-      ['ACCOUNTANT', ACCOUNTANT],
       ['DROP', DROP],
     ]
     for (const [label, persona] of forbidden) {
@@ -736,10 +726,10 @@ describe.skipIf(!hasDatabaseUrl())(
     // RolesGuard is a NO-OP for `getSummary`, so the ONLY thing standing
     // between a forbidden role and the handler was `TransactionsService
     // .getSummary`'s own ForbiddenException — one deleted `if` away from wide
-    // open. `@Roles('ADMIN', 'ACCOUNTANT')` was added there as a second,
+    // open. `@Roles('ADMIN')` was added there as a second,
     // independent layer, and it is SAFE precisely because it changes nothing
     // observable: the role set matches `getSummary`'s own service-side check
-    // exactly (`role !== 'ADMIN' && role !== 'ACCOUNTANT'` →
+    // exactly (`role !== 'ADMIN' && role !== 'accountant'` →
     // ForbiddenException), RolesGuard has no role hierarchy, so a caller who
     // passed the service check before passes the guard now and vice versa —
     // only the NUMBER of layers changed, not who gets in. The original pin's
@@ -752,13 +742,13 @@ describe.skipIf(!hasDatabaseUrl())(
     // removed @Roles from getSummary — restore it, do not "fix" this test
     // back to `toBeUndefined()` (see transactions.controller.ts's own comment
     // above `getSummary` before touching either side).
-    it('getSummary now ships @Roles(ADMIN, ACCOUNTANT) too; exchange-rate stays open (service-side RBAC unchanged there)', () => {
+    it('getSummary now ships @Roles(ADMIN) too; exchange-rate stays open (service-side RBAC unchanged there)', () => {
       expect(
         reflector.get<string[] | undefined>(
           ROLES_KEY,
           FinanceSummaryController.prototype.getSummary,
         ),
-      ).toEqual(['ADMIN', 'ACCOUNTANT'])
+      ).toEqual(['ADMIN'])
       // exchange-rate is semi-public (NBU rates, no per-user data) and was NOT
       // touched by item 121 — the class-level guard must stay inert for it.
       expect(

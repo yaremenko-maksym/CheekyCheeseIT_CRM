@@ -4,7 +4,7 @@
  * predicate and the two throws; this one proves the OUTCOME against actual
  * PostgreSQL, where the `where` clause is executed rather than inspected:
  *
- *   1. one cron run → the ACTIVE HR/ACCOUNTANT get a PENDING salary and the
+ *   1. one cron run → the ACTIVE HR get a PENDING salary and the
  *      ARCHIVED ones get NO row at all (the defect: they got one every month,
  *      because archiving neither zeroes `monthlySalary` nor changes the role);
  *   2. `createSalary` refuses an archived receiver;
@@ -201,8 +201,8 @@ describe.skipIf(!hasDatabaseUrl())('salary — archived receiver barrier (E-1, r
       {
         id: ARCHIVED_ACCT_ID,
         email: 'wave1-acct-archived@test.spec',
-        displayName: 'Wave1 Accountant archived',
-        role: 'ACCOUNTANT',
+        displayName: 'Wave1 HR archived (2)',
+        role: 'HR',
         monthlySalary: '2000',
         archivedAt: new Date('2026-02-28T00:00:00.000Z'),
         googleId: `test-google-${ARCHIVED_ACCT_ID}`,

@@ -46,7 +46,6 @@ const ADMIN: SessionUser = {
   seniorSharePercent: 0,
 }
 const IMPERSONATED: SessionUser = { ...ADMIN, id: 'target', impersonatorId: 'real-admin' }
-const ACCOUNTANT: SessionUser = { ...ADMIN, id: 'acc', role: 'ACCOUNTANT' }
 const SENIOR: SessionUser = { ...ADMIN, id: 'sen', role: 'SENIOR' }
 
 const TX_DATE = new Date('2026-10-01T10:00:00.000Z')
@@ -290,7 +289,7 @@ const company = {
 
 describe('SalaryPaymentService.paySalary — gates and refusals', () => {
   it('refuses every non-ADMIN role before reading the db', async () => {
-    for (const user of [ACCOUNTANT, SENIOR]) {
+    for (const user of [SENIOR]) {
       const h = make()
       await expect(h.svc.paySalary(SALARY_ID, personal, user)).rejects.toBeInstanceOf(
         ForbiddenException,
@@ -834,7 +833,7 @@ describe('SalaryPaymentService.paySalary — COMPANY_ACCOUNT flip', () => {
 describe('SalaryPaymentService.backfillSalaryMonth', () => {
   it('refuses non-ADMIN callers with the backfill-specific code, running nothing', async () => {
     const h = make()
-    await expect(h.svc.backfillSalaryMonth(ACCOUNTANT, '2026-10')).rejects.toMatchObject({
+    await expect(h.svc.backfillSalaryMonth(SENIOR, '2026-10')).rejects.toMatchObject({
       response: { code: 'FINANCE_SALARY_MONTH_BACKFILL_FORBIDDEN' },
       status: 403,
     })
@@ -945,10 +944,10 @@ describe('SalaryPaymentService.createMonthlySalaries', () => {
 
   it('attributes to the real operator when an actor is passed (and never looks up an admin)', async () => {
     const h = make({ hr, insertedSalaryIds: ['sal-1'] })
-    await h.svc.createMonthlySalaries('2026-10', ACCOUNTANT)
+    await h.svc.createMonthlySalaries('2026-10', ADMIN)
     expect(h.usersFindFirst).not.toHaveBeenCalled()
-    expect(h.inserts[0]!.row).toMatchObject({ initializedBy: ACCOUNTANT.id })
-    expect(h.inserts[1]!.row).toMatchObject({ createdBy: ACCOUNTANT.id })
+    expect(h.inserts[0]!.row).toMatchObject({ initializedBy: ADMIN.id })
+    expect(h.inserts[1]!.row).toMatchObject({ createdBy: ADMIN.id })
 
     const imp = make({ hr, insertedSalaryIds: ['sal-1'] })
     await imp.svc.createMonthlySalaries('2026-10', IMPERSONATED)

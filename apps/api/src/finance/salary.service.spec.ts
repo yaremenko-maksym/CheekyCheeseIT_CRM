@@ -203,7 +203,6 @@ describe('SalaryService.resolveSalaryMonthGap', () => {
       employees: [
         { id: 'hr-1', email: 'a', displayName: 'A', role: 'HR', monthlySalary: '100.00' },
         { id: 'hr-2', email: 'b', displayName: 'B', role: 'HR', monthlySalary: '200.50' },
-        { id: 'ac-1', email: 'c', displayName: 'C', role: 'ACCOUNTANT', monthlySalary: '300.00' },
       ],
       members: [
         {

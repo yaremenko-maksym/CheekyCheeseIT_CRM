@@ -53,7 +53,6 @@ function user(
 const SENIOR = user('user-senior', 'SENIOR')
 const DROP = user('user-drop', 'DROP')
 const ADMIN = user('user-admin', 'ADMIN')
-const ACCOUNTANT = user('user-accountant', 'ACCOUNTANT')
 const HR = user('user-hr', 'HR')
 
 const EXPLORER_URL_A = `https://etherscan.io/tx/0x${'a'.repeat(64)}`

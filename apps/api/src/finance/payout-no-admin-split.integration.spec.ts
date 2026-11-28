@@ -466,7 +466,7 @@ describe.skipIf(!hasDatabaseUrl())(
       // task-drop-share-pending-parity (2026-07-27): the DROP's distribution
       // slice is booked as a PENDING_PAYMENT DROP_PENDING_PAYOUT COMPANY debt
       // (income * dropSharePercent/100 = 1000 * 5% = 50), NOT an instant PAID
-      // PAYOUT_DROP — it requires an ADMIN/ACCOUNTANT settle-with-receipt (see
+      // PAYOUT_DROP — it requires an ADMIN settle-with-receipt (see
       // drop-payout-company-account.integration.spec.ts for the settle flow).
       const dropRows = await rowsByType(requestId, 'DROP_PENDING_PAYOUT')
       expect(dropRows).toHaveLength(1)

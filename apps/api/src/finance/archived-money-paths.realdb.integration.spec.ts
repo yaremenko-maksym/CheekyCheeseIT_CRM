@@ -386,10 +386,8 @@ describe.skipIf(!hasDatabaseUrl())('archived user — money-out vs settlement (r
       // The asymmetry is deliberate: the sender side of a transfer is a
       // departed partner returning what they still hold — the settlement half.
       // Only the RECEIVER side places NEW company money with someone who has
-      // left. Booked by an ACCOUNTANT, the one caller allowed to name a sender.
+      // left. Booked by the archived ADMIN itself: an ADMIN always sends from self.
       await archive(ADMIN_A_ID)
-      const accountant: SessionUser = { ...ADMIN_A, role: 'ACCOUNTANT', id: SENIOR_ID }
-      await dbSvc.db.update(users).set({ role: 'ACCOUNTANT' }).where(eq(users.id, SENIOR_ID))
 
       const created = await txSvc.createAdminTransfer(
         {
@@ -398,7 +396,7 @@ describe.skipIf(!hasDatabaseUrl())('archived user — money-out vs settlement (r
           amount: 50,
           receiptExternalUrl: `${EXPLORER_RECEIPT}trback`,
         },
-        accountant,
+        ADMIN_A,
       )
       expect(created.type).toBe('ADMIN_TRANSFER')
     })

@@ -120,7 +120,7 @@ function q(overrides: Partial<DropIncomesQuery> = {}): DropIncomesQuery {
   return dropIncomesQuerySchema.parse(overrides)
 }
 
-const forbiddenRoles: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'ADMIN']
+const forbiddenRoles: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'ADMIN']
 
 // ── getDropSelfIncomes ───────────────────────────────────────────────────────
 

@@ -25,15 +25,6 @@ const adminUser: SessionUser = {
   avatarDocumentId: null,
   seniorSharePercent: 26,
 }
-const accountantUser: SessionUser = {
-  id: 'accountant-1',
-  role: 'ACCOUNTANT',
-  displayName: 'Accountant',
-  email: 'ac@x.com',
-  avatarUrl: null,
-  avatarDocumentId: null,
-  seniorSharePercent: 26,
-}
 const seniorA: SessionUser = {
   id: 'senior-a',
   role: 'SENIOR',
@@ -145,7 +136,7 @@ describe('assertCanReadAdminBalance', () => {
   // SEC-13: Phase 4-B "any admin" behaviour reverted. ADMIN is scoped to own
   // balance only — reading a partner's breakdown is a data-leak. The /stats
   // page ONLY passes viewer.id as targetAdminId, so ADMIN sees only their own
-  // share on that page (ACCOUNTANT unrestricted and sees both partners).
+  // share on that page.
   it("ADMIN cannot read another admin's balance → ForbiddenException", () => {
     expect(() => svc.assertCanReadAdminBalance(adminUser, 'other-admin')).toThrow(
       "Only that admin or an accountant can see an admin's balance",

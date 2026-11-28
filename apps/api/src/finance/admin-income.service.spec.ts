@@ -45,7 +45,6 @@ const ADMIN: SessionUser = {
   avatarUrl: null,
   seniorSharePercent: 0,
 }
-const ACCOUNTANT: SessionUser = { ...ADMIN, id: 'accountant-caller', role: 'ACCOUNTANT' }
 const JUNIOR: SessionUser = { ...ADMIN, id: 'junior-caller', role: 'JUNIOR' }
 
 const PROJECT_ID = 'project-1'
@@ -162,7 +161,7 @@ beforeEach(() => {
 })
 
 describe('AdminIncomeService.createAdminIncome', () => {
-  it('rejects any role other than ADMIN / ACCOUNTANT before touching the db', async () => {
+  it('rejects any role other than ADMIN before touching the db', async () => {
     const h = make()
     await expect(
       h.svc.createAdminIncome(
@@ -508,7 +507,7 @@ describe('AdminIncomeService.declareUsdtProjectIncome', () => {
 
   it('non-ADMIN → 403 before the replay lookup', async () => {
     const h = make()
-    await expect(h.svc.declareUsdtProjectIncome(base, ACCOUNTANT)).rejects.toBeInstanceOf(
+    await expect(h.svc.declareUsdtProjectIncome(base, JUNIOR)).rejects.toBeInstanceOf(
       ForbiddenException,
     )
     expect(h.txFindFirst).not.toHaveBeenCalled()

@@ -45,7 +45,6 @@ const ADMIN: SessionUser = {
   seniorSharePercent: 0,
   legalFullName: null,
 }
-const JUNIOR: SessionUser = { ...SENIOR, id: 'j-1', role: 'JUNIOR' }
 
 // A configurable fake DatabaseService.db. Each test wires only the methods it
 // needs; unimplemented paths throw so an unexpected call is visible.
@@ -199,14 +198,6 @@ describe('CompanyAccountService.getAccount — balance derivation (AC6)', () => 
     const svc = makeService(db)
     const acc = await svc.getAccount(ADMIN)
     expect(acc.balance).toBe(650)
-  })
-
-  it('ACCOUNTANT may read; non-privileged role → 403', async () => {
-    const db = makeDb({ select: selectReturning(['0', '0', '0', '0', '0', '0']) })
-    const svc = makeService(db)
-    await expect(svc.getAccount(JUNIOR)).rejects.toMatchObject({
-      response: { code: 'FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN', statusCode: 403 },
-    })
   })
 })
 
@@ -1083,7 +1074,7 @@ describe('CompanyAccountService.updateRequisites (ADMIN only)', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SR-809-L-3 / owner decision D-2 — "ADMIN/ACCOUNTANT may go beyond the 31-day
+// SR-809-L-3 / owner decision D-2 — "ADMIN may go beyond the 31-day
 // limit ONLY with a mandatory reason written to the audit log".
 //
 // The reason was being collected and validated by the policy and then dropped:

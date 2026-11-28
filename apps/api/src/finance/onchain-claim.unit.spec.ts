@@ -47,7 +47,6 @@ const ADMIN: SessionUser = {
   avatarUrl: null,
   seniorSharePercent: 0,
 }
-const ACCOUNTANT: SessionUser = { ...ADMIN, id: 'acc-actor', role: 'ACCOUNTANT' }
 const SENIOR: SessionUser = { ...ADMIN, id: 'senior-actor', role: 'SENIOR' }
 const JUNIOR: SessionUser = { ...ADMIN, id: 'junior-actor', role: 'JUNIOR' }
 const HR: SessionUser = { ...ADMIN, id: 'hr-actor', role: 'HR' }

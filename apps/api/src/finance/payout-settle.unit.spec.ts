@@ -61,7 +61,6 @@ const SENIOR = user('SENIOR', 'senior-1')
 const OTHER_SENIOR = user('SENIOR', 'senior-2')
 const DROP = user('DROP', 'drop-1')
 const ADMIN = user('ADMIN', 'admin-1')
-const ACCOUNTANT = user('ACCOUNTANT', 'acc-1')
 const JUNIOR = user('JUNIOR', 'junior-1')
 const HR = user('HR', 'hr-1')
 

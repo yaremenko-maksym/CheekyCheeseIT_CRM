@@ -83,15 +83,6 @@ const ADMIN: SessionUser = {
   seniorSharePercent: 26,
   legalFullName: null,
 }
-const ACCOUNTANT: SessionUser = {
-  id: 'f1000000-0000-4000-aa00-000000000002',
-  email: 'sal-gap-accountant@test.spec',
-  displayName: 'Sal Gap Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
 const SENIOR: SessionUser = {
   id: 'f1000000-0000-4000-aa00-000000000003',
   email: 'sal-gap-senior@test.spec',
@@ -180,7 +171,7 @@ const HR_AUDIT_PROOF: SessionUser = {
 
 const TEST_USER_IDS = [
   ADMIN.id,
-  ACCOUNTANT.id,
+  ADMIN.id,
   SENIOR.id,
   HR_MISSING.id,
   HR_COVERED.id,
@@ -354,8 +345,7 @@ describe.skipIf(!hasDatabaseUrl())(
         .values(
           [
             { ...ADMIN, monthlySalary: null },
-            { ...ACCOUNTANT, monthlySalary: null },
-            { ...SENIOR, monthlySalary: '5000' }, // configured, but NOT cron-eligible (not HR/ACCOUNTANT/JUNIOR)
+            { ...SENIOR, monthlySalary: '5000' }, // configured, but NOT cron-eligible (not HR/JUNIOR)
             { ...HR_MISSING, monthlySalary: '1500' },
             { ...HR_COVERED, monthlySalary: '1600' },
             { ...HR_UNCONFIGURED, monthlySalary: null },
@@ -469,7 +459,7 @@ describe.skipIf(!hasDatabaseUrl())(
       return jwt.sign(user)
     }
 
-    // ── RBAC: report (ADMIN + ACCOUNTANT) ───────────────────────────────────
+    // ── RBAC: report (ADMIN) ───────────────────────────────────
     const forbiddenForReport: Array<[string, SessionUser]> = [
       ['SENIOR', SENIOR],
       ['HR', HR_MISSING],
@@ -495,15 +485,6 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(res.statusCode).toBe(200)
     })
 
-    it('RBAC report: ACCOUNTANT → 200', async () => {
-      const res = await app.inject({
-        method: 'GET',
-        url: `/api/finance/salary-month-gap?month=${TARGET_MONTH}`,
-        cookies: { jwt: tokenFor(ACCOUNTANT) },
-      })
-      expect(res.statusCode).toBe(200)
-    })
-
     // ── GET /salary-parts (SR-795-M-1, owner decision D-3) ─────────────────
     //
     // The read the create dialog makes before an operator submits. Half of why
@@ -518,11 +499,11 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(res.statusCode).toBe(403)
     })
 
-    it('RBAC parts: ACCOUNTANT → 200 (the pair that may create a salary may also look)', async () => {
+    it('RBAC parts: ADMIN → 200 (the pair that may create a salary may also look)', async () => {
       const res = await app.inject({
         method: 'GET',
         url: `/api/finance/salary-parts?receiverId=${HR_COVERED.id}&month=${TARGET_MONTH}`,
-        cookies: { jwt: tokenFor(ACCOUNTANT) },
+        cookies: { jwt: tokenFor(ADMIN) },
       })
       expect(res.statusCode).toBe(200)
     })
@@ -562,15 +543,6 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     // ── RBAC: backfill (ADMIN only — narrower than the report) ─────────────
-    it('RBAC backfill: ACCOUNTANT → 403 (can see the gap, cannot close it)', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/finance/salary-month-backfill',
-        cookies: { jwt: tokenFor(ACCOUNTANT) },
-        payload: { month: TARGET_MONTH },
-      })
-      expect(res.statusCode).toBe(403)
-    })
 
     it('RBAC backfill: SENIOR → 403', async () => {
       const res = await app.inject({
@@ -585,7 +557,7 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── AC5 correctness — real DB, real nonDeletedTransactions view ────────
     //
     // NOTE: `crm_qa` is a SHARED scratch database — many other specs seed
-    // their own HR/ACCOUNTANT/JUNIOR fixtures that persist across test files.
+    // their own HR/JUNIOR fixtures that persist across test files.
     // The gap report is deliberately company-wide (never receiver-scoped —
     // that's the whole point of E-5), so asserting the FULL `missing` array
     // equals exactly this spec's 2 personas would be flaky by construction:
@@ -761,20 +733,20 @@ describe.skipIf(!hasDatabaseUrl())(
 describe('salary-month-gap — SHIPPING route carries the RBAC gate (production controller)', () => {
   const reflector = new Reflector()
 
-  it('getSalaryMonthGap handler ships @Roles(ADMIN, ACCOUNTANT)', () => {
+  it('getSalaryMonthGap handler ships @Roles(ADMIN)', () => {
     const roles = reflector.get<string[]>(
       ROLES_KEY,
       FinanceSummaryController.prototype.getSalaryMonthGap,
     )
-    expect(roles).toEqual(['ADMIN', 'ACCOUNTANT'])
+    expect(roles).toEqual(['ADMIN'])
   })
 
-  it('getSalaryParts handler ships @Roles(ADMIN, ACCOUNTANT) — SR-795-M-1', () => {
+  it('getSalaryParts handler ships @Roles(ADMIN) — SR-795-M-1', () => {
     const roles = reflector.get<string[]>(
       ROLES_KEY,
       FinanceSummaryController.prototype.getSalaryParts,
     )
-    expect(roles).toEqual(['ADMIN', 'ACCOUNTANT'])
+    expect(roles).toEqual(['ADMIN'])
   })
 
   it('backfillSalaryMonth handler ships @Roles(ADMIN) — narrower than the report', () => {

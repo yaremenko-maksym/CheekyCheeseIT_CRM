@@ -1,11 +1,11 @@
 /**
- * task-finance-fix-wave1 / E-1 — an ARCHIVED (dismissed) HR or ACCOUNTANT must
+ * task-finance-fix-wave1 / E-1 — an ARCHIVED (dismissed) HR must
  * not be given a salary, neither by the cron nor by hand, and a salary row that
  * already points at an archived receiver must not be payable.
  *
  * WHY (the defect these tests pin):
  *   `createMonthlySalaries` selected employees by ROLE ALONE
- *   (`or(eq(users.role,'HR'), eq(users.role,'ACCOUNTANT'))`) with no
+ *   (`or(eq(users.role,'HR'), eq(users.role,'accountant'))`) with no
  *   `archivedAt` filter, and `UsersService.archive` neither zeroes
  *   `monthlySalary` nor changes the role — so every month a dismissed employee
  *   got a fresh PENDING salary, and the finance page does not hide it: paying it
@@ -159,7 +159,7 @@ describe('createMonthlySalaries — MED-1: an archived JUNIOR gets no salary eit
       db: {
         query: {
           users: {
-            findMany: vi.fn().mockResolvedValue([]), // no HR/ACCOUNTANT in this fixture
+            findMany: vi.fn().mockResolvedValue([]), // no HR in this fixture
             findFirst: vi.fn().mockResolvedValue({ id: 'admin-1', role: 'ADMIN' }),
           },
           projectMembers: { findMany: vi.fn().mockResolvedValue(members) },

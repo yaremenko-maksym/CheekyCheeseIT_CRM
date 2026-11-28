@@ -49,15 +49,15 @@ import { resolveTransactionDate } from './transaction-date.util'
  *
  * Covered routes (representative of each new @Roles group):
  *   #3 TransactionsController
- *     POST /transactions/expense          ADMIN/ACCOUNTANT only → SENIOR/JUNIOR/HR/DROP 403
- *     POST /transactions/admin-income     ADMIN/ACCOUNTANT only → SENIOR 403
+ *     POST /transactions/expense          ADMIN only → SENIOR/JUNIOR/HR/DROP 403
+ *     POST /transactions/admin-income     ADMIN only → SENIOR 403
  *     POST /transactions/senior-income    SENIOR only           → ADMIN/HR 403
  *     POST  /transactions/drop-income      DROP only             → ADMIN 403
  *     PATCH /transactions/drop-income/:id ownership-gated       → non-DROP 403, non-owner 403
- *     DELETE /transactions/:id            ADMIN only            → ACCOUNTANT 403
+ *     DELETE /transactions/:id            ADMIN only
  *   #2 PendingSettlementController
- *     GET  /pending-settlements/company   ADMIN/ACCOUNTANT only → SENIOR/JUNIOR 403
- *     GET  /pending-settlements/senior    ADMIN/ACCOUNTANT/SENIOR → JUNIOR/HR/DROP 403
+ *     GET  /pending-settlements/company   ADMIN only → SENIOR/JUNIOR 403
+ *     GET  /pending-settlements/senior    ADMIN/SENIOR → JUNIOR/HR/DROP 403
  *
  * Run against a scratch DB (NEVER the live crm_db):
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa \
@@ -74,13 +74,6 @@ const ADMIN: SessionUser = {
   role: 'ADMIN',
   seniorSharePercent: 0,
   legalFullName: null,
-}
-const ACCOUNTANT: SessionUser = {
-  ...ADMIN,
-  id: 'fc550000-0000-4000-aa00-000000000002',
-  email: 'fcg-acct@test.spec',
-  displayName: 'FCG Acct',
-  role: 'ACCOUNTANT',
 }
 const SENIOR: SessionUser = {
   ...ADMIN,
@@ -112,7 +105,7 @@ const DROP: SessionUser = {
   role: 'DROP',
 }
 
-const ALL = [ADMIN, ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]
+const ALL = [ADMIN, SENIOR, JUNIOR, HR, DROP]
 const TEST_USER_IDS = ALL.map((u) => u.id)
 
 const fakeNbu: Pick<NbuCurrencyService, 'getRates'> = {
@@ -299,7 +292,7 @@ describe.skipIf(!hasDatabaseUrl())(
       const expensePayload = { amount: 10, currency: 'USDT', category: 'X' }
 
       for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
-        it(`POST /transactions/expense — ${persona.role} → 403 (ADMIN/ACCOUNTANT only)`, async () => {
+        it(`POST /transactions/expense — ${persona.role} → 403 (ADMIN only)`, async () => {
           expect(await post(persona, '/api/transactions/expense', expensePayload)).toBe(403)
         })
       }
@@ -386,19 +379,14 @@ describe.skipIf(!hasDatabaseUrl())(
         })
       })
 
-      it('DELETE /transactions/:id — ACCOUNTANT → 403 (ADMIN only)', async () => {
-        expect(
-          await del(ACCOUNTANT, '/api/transactions/00000000-0000-4000-8000-000000000000'),
-        ).toBe(403)
+      it('DELETE /transactions/:id — ADMIN → 403 (ADMIN only)', async () => {
+        expect(await del(ADMIN, '/api/transactions/00000000-0000-4000-8000-000000000000')).toBe(403)
       })
 
       // Authorized roles pass the GUARD (they may still hit a 4xx in the handler for
       // missing data, but NOT 403 — proving the guard let them through).
       it('POST /transactions/expense — ADMIN passes the guard (not 403)', async () => {
         expect(await post(ADMIN, '/api/transactions/expense', expensePayload)).not.toBe(403)
-      })
-      it('POST /transactions/expense — ACCOUNTANT passes the guard (not 403)', async () => {
-        expect(await post(ACCOUNTANT, '/api/transactions/expense', expensePayload)).not.toBe(403)
       })
     })
 
@@ -412,7 +400,7 @@ describe.skipIf(!hasDatabaseUrl())(
     describe('GET /transactions/:id/edit-preview @Roles guard', () => {
       const url = '/api/transactions/00000000-0000-4000-8000-000000000000/edit-preview?amount=100'
 
-      for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
+      for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
         it(`${persona.role} → 403 (ADMIN only)`, async () => {
           expect(await get(persona, url)).toBe(403)
         })
@@ -448,7 +436,7 @@ describe.skipIf(!hasDatabaseUrl())(
       const url = '/api/transactions/00000000-0000-4000-8000-000000000000/admin-edit'
       const body = { amount: 48867, cascadeVersion: 'v' }
 
-      for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
+      for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
         it(`${persona.role} → 403 (ADMIN only)`, async () => {
           expect(await patch(persona, url, body)).toBe(403)
         })
@@ -487,15 +475,6 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(JSON.parse(res.payload).code).toBe('FINANCE_TX_HASH_PARAM_REQUIRED')
       })
 
-      it('?txHash=a&txHash=b — ACCOUNTANT → 400 too (guard is role-independent)', async () => {
-        const res = await app.inject({
-          method: 'GET',
-          url: '/api/transactions/onchain-hash?txHash=a&txHash=b',
-          cookies: { jwt: tokenFor(ACCOUNTANT) },
-        })
-        expect(res.statusCode).toBe(400)
-      })
-
       it('a single txHash param passes the duplicate-param guard and reaches the service (200, unclaimed hash)', async () => {
         const res = await app.inject({
           method: 'GET',
@@ -526,25 +505,25 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── #2 PendingSettlementController @Roles guards ────────────────────────────
     describe('#2 PendingSettlementController @Roles guards', () => {
       for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
-        it(`GET /pending-settlements/company — ${persona.role} → 403 (ADMIN/ACCOUNTANT only)`, async () => {
+        it(`GET /pending-settlements/company — ${persona.role} → 403 (ADMIN only)`, async () => {
           // SENIOR is allowed on /senior but NOT /company → 403.
           expect(await get(persona, '/api/pending-settlements/company')).toBe(403)
         })
       }
 
-      for (const persona of [ADMIN, ACCOUNTANT]) {
+      for (const persona of [ADMIN]) {
         it(`GET /pending-settlements/company — ${persona.role} passes the guard (not 403)`, async () => {
           expect(await get(persona, '/api/pending-settlements/company')).not.toBe(403)
         })
       }
 
       for (const persona of [JUNIOR, HR, DROP]) {
-        it(`GET /pending-settlements/senior — ${persona.role} → 403 (ADMIN/ACCOUNTANT/SENIOR only)`, async () => {
+        it(`GET /pending-settlements/senior — ${persona.role} → 403 (ADMIN/SENIOR only)`, async () => {
           expect(await get(persona, '/api/pending-settlements/senior')).toBe(403)
         })
       }
 
-      for (const persona of [ADMIN, ACCOUNTANT, SENIOR]) {
+      for (const persona of [ADMIN, SENIOR]) {
         it(`GET /pending-settlements/senior — ${persona.role} passes the guard (not 403)`, async () => {
           expect(await get(persona, '/api/pending-settlements/senior')).not.toBe(403)
         })

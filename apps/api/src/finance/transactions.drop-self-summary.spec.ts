@@ -5,7 +5,7 @@
  * Coverage:
  *
  *  RBAC (self-only):
- *   1. Every non-DROP role (SENIOR / JUNIOR / HR / ACCOUNTANT / ADMIN) → 403.
+ *   1. Every non-DROP role (SENIOR / JUNIOR / HR / ADMIN) → 403.
  *   2. DROP → resolves with the four-field DTO.
  *   3. DROP whose user row is missing → 404 (defensive).
  *
@@ -178,7 +178,7 @@ function obligation(
 // ── RBAC ─────────────────────────────────────────────────────────────────────
 
 describe('getDropSelfSummary — RBAC (self-only)', () => {
-  const forbiddenRoles: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'ADMIN']
+  const forbiddenRoles: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'ADMIN']
 
   for (const role of forbiddenRoles) {
     it(`throws ForbiddenException for role ${role}`, async () => {

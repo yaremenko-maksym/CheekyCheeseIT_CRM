@@ -70,7 +70,7 @@ describe('getTransactionAuditLog — actorName', () => {
     expect(log.map((e) => e.actorName)).toEqual(['Real Admin', null])
   })
 
-  it.each(['ACCOUNTANT', 'SENIOR', 'JUNIOR', 'HR', 'DROP'] as const)(
+  it.each(['SENIOR', 'JUNIOR', 'HR', 'DROP'] as const)(
     '%s is refused before any read (ADMIN-only journal)',
     async (role) => {
       const svc = makeService([{ actorId: null, actorName: null }])
