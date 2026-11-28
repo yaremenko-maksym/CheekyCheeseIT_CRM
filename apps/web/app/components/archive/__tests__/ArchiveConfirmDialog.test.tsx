@@ -207,11 +207,11 @@ describe('ArchiveConfirmDialog — renderImpactText: team (SENIOR default vs DRO
     expect(text).toContain('від’єднається')
     // `{' '}` boundaries: "дроп" -> dropName, block1 -> block2.
     expect(text).toContain('дроп Dmytro Drop')
-    expect(text).toContain('стосується. Активний сеньйор')
+    expect(text).toContain('впливає. Активний сеньйор')
     // MUT-1 (fix-round 2): the `</Trans>{' '}<Trans>` boundary itself,
     // right after block1's closing ").").
     expect(text).toContain('). 1 HR у команді залишається активним учасником')
-    expect(text).toContain('архівація його не стосується')
+    expect(text).toContain('на архівацію це не впливає')
   })
 
   it('DROP team: seniorWillBeDetached=false renders the "немає" branch, not the detach sentence', async () => {

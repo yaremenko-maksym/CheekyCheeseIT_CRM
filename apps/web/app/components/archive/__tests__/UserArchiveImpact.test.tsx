@@ -151,7 +151,7 @@ describe('UserArchiveImpact', () => {
     )
     const block = screen.getByTestId('archive-warning-senior')
     const text = (block.textContent ?? '').replace(/\s+/g, ' ').trim()
-    expect(text).toContain('його профіль залишається активним, оплату він отримує як і раніше.')
+    expect(text).toContain('профіль залишається активним, оплата надходить як і раніше.')
   })
 
   it('SENIOR with a team: plural agreement when total affected HR and juniors is 21 (CR-M-1 exact singular only on =1)', async () => {
