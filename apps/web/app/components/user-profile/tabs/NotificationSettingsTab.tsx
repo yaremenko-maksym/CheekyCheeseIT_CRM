@@ -116,7 +116,7 @@ export function groupPreferences(
   // one row an HR proposer would need to turn these emails off. Composition
   // still comes from the backend (it may send the admin-only types to any
   // role by mistake) — the UI is the second, independent line of defense
-  // and never renders the group for a role outside {ADMIN, HR, ACCOUNTANT}
+  // and never renders the group for a role outside {ADMIN, HR}
   // regardless (SR-L-6, fix-round 4: the set widened again after SR-M-4
   // below — this comment now matches `CAN_SEE_ADMIN_GROUP_ROLES`, the
   // single source of truth for who sees this group).
@@ -664,25 +664,12 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
 // Root
 // ---------------------------------------------------------------------------
 
-// SR-M-4 (security-review, fix-round 3, PR #675): SR-M-3 widened the gate
-// from ADMIN alone to {ADMIN, HR} on the theory that a project's PROPOSER —
-// the actual `proposedByUserId` recipient of APPROVAL_CONFIRMED/
-// APPROVAL_REJECTED — is whoever created it, and only ADMIN/HR can
-// (`projects.service.ts` `create()`: `role !== 'ADMIN' && role !== 'HR' →
-// Forbidden`). But creating a project is not the only way to become the
-// proposer of a row in this group: `update()` lets ACCOUNTANT send a
-// finance-scoped `seniorSharePercentOverride`-only patch (`hasOnlyOverride`
-// guard, `role !== 'ADMIN' && role !== 'HR' && !(role === 'ACCOUNTANT' &&
-// hasOnlyOverride)` → Forbidden — i.e. ACCOUNTANT IS admitted for that one
-// field), which routes through `proposeSeniorShareChange(...)` and writes
-// `proposedByUserId: <the ACCOUNTANT>`. The confirming SENIOR is a
-// different user, so the early "same person, no notification" exit in
-// `approvals.service.ts` does not apply — the ACCOUNTANT genuinely receives
-// both types, including their email copies, with no row on this tab to
-// turn them off. The set below is the FULL {ADMIN, HR, ACCOUNTANT} — every
-// role `projects.service.ts` lets propose a row this group covers, not
-// just the project-creation path.
-const CAN_SEE_ADMIN_GROUP_ROLES = new Set(['ADMIN', 'HR', 'ACCOUNTANT'])
+// SR-M-4 (security-review, fix-round 3, PR #675): the admin group is shown to
+// every role `projects.service.ts` lets propose a row this group covers — the
+// actual `proposedByUserId` recipient of APPROVAL_CONFIRMED / APPROVAL_REJECTED.
+// After the accountant role was retired (manager-role plan PR 1b) only ADMIN and
+// HR can propose (`create()` and the share-override patch of `update()`).
+const CAN_SEE_ADMIN_GROUP_ROLES = new Set(['ADMIN', 'HR'])
 
 export function NotificationSettingsTab() {
   const { user: viewer } = useAuth()

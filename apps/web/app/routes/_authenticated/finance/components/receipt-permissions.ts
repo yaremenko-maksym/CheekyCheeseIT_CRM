@@ -10,10 +10,10 @@
  * authorization.
  *
  * Rules (pm-brief §6 / task-receipts-frontend RBAC table):
- *   - ADMIN / ACCOUNTANT — may attach/replace on ANY transaction, any status.
+ *   - ADMIN — may attach/replace on ANY transaction, any status.
  *   - The author (`tx.createdBy === currentUserId`) — may attach when there is
  *     no receipt yet (any status), and may replace while status !== 'PAID'.
- *     Once PAID, only ADMIN/ACCOUNTANT may replace an author's receipt.
+ *     Once PAID, only ADMIN may replace an author's receipt.
  *   - Everyone else — no attach/replace.
  */
 import type { TransactionDto } from '@crm/shared'

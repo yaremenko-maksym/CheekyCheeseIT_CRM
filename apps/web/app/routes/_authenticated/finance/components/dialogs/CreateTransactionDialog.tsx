@@ -99,7 +99,7 @@ export function CreateTransactionDialog({
   // admin set while ADMIN additionally gets DIVIDEND.
   // task-admin-income-unified: the former separate `USDT_INCOME` type is gone
   // (see the DialogTxType comment) — ADMIN_INCOME is now the only admin-income
-  // entry for both ADMIN and ACCOUNTANT; the USDT route inside it is further
+  // entry for both ADMIN; the USDT route inside it is further
   // gated to ADMIN-only by `isSelectedProjectUsdt`'s project pool below
   // (declareUsdtProjectIncome stays ADMIN-only server-side, unchanged).
   const availableTypes: DialogTxType[] = isAdmin
@@ -220,7 +220,7 @@ export function CreateTransactionDialog({
 
   // Company account balance — needed for DIVIDEND (ADMIN-only) to display
   // available USDT and gate the amount, AND for the funding-source selector
-  // (ADMIN/ACCOUNTANT) to show a live balance hint when COMPANY_ACCOUNT chosen.
+  // (ADMIN) to show a live balance hint when COMPANY_ACCOUNT chosen.
   const { data: companyAccount } = useQuery({
     queryKey: ['company-account'],
     queryFn: companyAccountApi.getAccount,

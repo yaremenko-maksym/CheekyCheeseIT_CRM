@@ -38,7 +38,7 @@ import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptIn
 
 /**
  * task-senior-settle-owner: pay a senior IOU (SENIOR_PENDING_PAYOUT row) using
- * the SAME funding selection as a SALARY. ADMIN/ACCOUNTANT opens this from the
+ * the SAME funding selection as a SALARY. ADMIN opens this from the
  * row «Выплатить» button and chooses which account funds the payout (the shared
  * company account vs an admin partner's personal account).
  *
@@ -88,7 +88,7 @@ import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptIn
  * the company never held. The server is the authority (see the HIGH-1/MED-B
  * guard in pending-settlement.service.ts's settleByCompany — it rejects this
  * with a 400 regardless of what the UI does); this dialog mirrors that
- * decision so an ADMIN/ACCOUNTANT never even reaches the rejected request:
+ * decision so an ADMIN never even reaches the rejected request:
  * for such a row the «Счёт компании» option is disabled and the default
  * account is empty (forces an explicit ADMIN-partner pick, not a guessed
  * one). A drop obligation booked by declareUsdtProjectIncome
@@ -96,7 +96,7 @@ import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptIn
  * non-cascade, not as a guarantee the company account holds the money (a
  * declaration can also route to a specific admin's personal wallet; see the
  * column comment in schema.ts, corrected round 5). Which pot actually pays
- * is the ADMIN/ACCOUNTANT's own funding-source choice below.
+ * is the ADMIN's own funding-source choice below.
  *
  * MED-1 (round 4): reads `tx.dropCascadeOrigin` — the SAME marker
  * `settleByCompany` authoritatively reads — NOT `tx.payoutRequestId`. The two

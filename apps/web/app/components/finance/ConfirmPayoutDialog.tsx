@@ -66,7 +66,7 @@ import { displayCounterpartyLabel } from '@/routes/_authenticated/finance/compon
 
 // Hard-coded list of admin partners. Backend re-validates the recipient is an
 // active ADMIN, so we don't need a /users fetch here (DROP/SENIOR can't reach
-// /users at all, and this dialog is ADMIN/ACCOUNTANT-only anyway). IDs come
+// /users at all, and this dialog is ADMIN-only anyway). IDs come
 // from `@crm/shared` to keep them in sync with seed + backend constants.
 const ADMIN_OPTIONS = [
   { id: MAKSYM_ID, name: 'Maksym Yaremenko' },

@@ -134,28 +134,6 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
     )
   }
 
-  if (impact.role === 'ACCOUNTANT') {
-    return (
-      <>
-        <Trans>
-          В архів піде профіль <Name>{entityName}</Name>; його буде прибрано з{' '}
-          <strong>
-            <Plural
-              value={impact.teamsCount ?? 0}
-              one="# команди"
-              few="# команд"
-              many="# команд"
-              other="# команди"
-            />
-          </strong>{' '}
-          (роль бухгалтера). Самі команди залишаться активними. Вхід у CRM для цього акаунта буде
-          закрито.
-        </Trans>{' '}
-        <Trans>Профіль можна відновити з архіву.</Trans>
-      </>
-    )
-  }
-
   if (impact.role === 'JUNIOR') {
     return (
       <>
@@ -177,7 +155,7 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
     )
   }
 
-  // ADMIN — the only remaining member of the role union.
+  // ADMIN (and a stored retired role, which holds no team or project after PR 1b).
   return (
     <>
       <Trans>

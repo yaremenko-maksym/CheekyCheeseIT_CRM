@@ -60,7 +60,7 @@ export function StatsPage() {
   // ACCOUNTANT joins ADMIN as a viewer on /stats. Both see the economic part
   // (P&L + charts + monthly breakdown) AND the company + partner balances card
   // (owner decision 2026-10-12). The server already backs this: `getSummary`
-  // returns `adminBalances` to ADMIN + ACCOUNTANT (`canSeeAdminBalances`), and
+  // returns `adminBalances` to ADMIN (`canSeeAdminBalances`), and
   // GET /company-account is `@Roles('ADMIN', 'ACCOUNTANT')`. Only the HR/Команда/
   // Проєкти placeholders stay ADMIN-only (`isAdmin`). Other roles are bounced to
   // the dashboard at / (defense-in-depth over the route-access guard).
@@ -93,7 +93,7 @@ export function StatsPage() {
     >
       <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
         <div className="space-y-8">
-          {/* ── Finance section (economic — ADMIN + ACCOUNTANT) ── */}
+          {/* ── Finance section (economic — ADMIN) ── */}
           <section className="space-y-4" data-testid="stats-finance-section">
             <div className="flex items-center gap-2">
               <DollarSign className="h-4 w-4 text-muted-foreground" />
@@ -203,7 +203,7 @@ export function StatsPage() {
             ) : null}
           </section>
 
-          {/* ── Income compliance «Контроль приходів» (ADMIN + ACCOUNTANT) ──
+          {/* ── Income compliance «Контроль приходів» (ADMIN) ──
           Company-wide tracker of which income receivers have registered a
           counted income per active project this month. Placed after the main
           financial KPIs so the key P&L numbers are seen first. */}

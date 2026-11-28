@@ -18,13 +18,13 @@ import { financeApi } from '../../finance/api'
 
 // ── Income compliance «Контроль приходов» (task-income-compliance) ────────────
 //
-// ADMIN + ACCOUNTANT see this on /stats: a company-wide list of income
+// ADMIN see this on /stats: a company-wide list of income
 // receivers (seniors + admin-as-senior + drops with active projects) with an
 // «X/N приходов за месяц» progress bar and an expand drawer of the projects
 // WITHOUT a counted (VALIDATED|PAID) income. Laggards (least coverage) on top.
 // Fed by GET /api/finance/income-compliance — an RBAC-gated aggregate, so this
 // section never renders for a non-privileged viewer (the whole /stats route
-// is already ADMIN/ACCOUNTANT-only). NOT in the persist allow-list (financial
+// is already ADMIN-only). NOT in the persist allow-list (financial
 // data is never written to disk — the query is volatile by default).
 
 /**

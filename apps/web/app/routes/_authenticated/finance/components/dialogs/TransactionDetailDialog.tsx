@@ -612,7 +612,7 @@ function TransactionInfoBlock({
   rates: ExchangeRates | undefined
   isLoading: boolean
   detailReady: boolean
-  /** ADMIN/ACCOUNTANT — the audience for the internal payment-fact triplet. */
+  /** ADMIN — the audience for the internal payment-fact triplet. */
   privileged: boolean
 }) {
   // Prop kept as `t` at the call sites (unchanged) — renamed to `tx` on
@@ -687,7 +687,7 @@ function TransactionInfoBlock({
           operator who hits the `PAYMENT_FACT_RECORDED` refusal («по цьому рядку
           вже зафіксовано факт платежу») had no way to see the fact they were being
           refused over. A refusal whose cause is invisible is worse than the
-          refusal itself. ADMIN/ACCOUNTANT only: an internal accounting detail,
+          refusal itself. ADMIN only: an internal accounting detail,
           the same audience as the other audit fields in this dialog.
 
           SR-L-2 (security-review): this is a RENDER gate, not RBAC. The triplet

@@ -51,7 +51,7 @@ export const STATUS_TAB_LABEL_MESSAGES = {
  * RBAC visibility per spec table «Видимость табов по ролям».
  * Maps Role → set of categories that role may see in the dropdown.
  * INVOICE is exposed to all roles except HR — the backend scopes the list
- * to "own invoices" for non-ADMIN/ACCOUNTANT (where ownerId == viewer.id),
+ * to "own invoices" for non-ADMIN (where ownerId == viewer.id),
  * and HR is never an invoice owner, so the tab would always be empty for HR.
  */
 export const TAB_VISIBILITY: Record<Role, DocumentCategory[]> = {
