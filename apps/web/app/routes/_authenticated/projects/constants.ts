@@ -198,7 +198,6 @@ export const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' |
   SENIOR: 'senior',
   JUNIOR: 'junior',
   HR: 'hr',
-  ACCOUNTANT: 'accountant',
 }
 
 /**

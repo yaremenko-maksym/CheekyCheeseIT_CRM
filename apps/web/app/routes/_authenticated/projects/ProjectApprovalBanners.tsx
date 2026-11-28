@@ -26,7 +26,7 @@ import { Textarea } from '@/components/ui/textarea'
  * task-pending-share (position 5, design spec §4.3/§8.3). Shown ONLY to the
  * person the pending proposal is actually waiting on (the affected SENIOR —
  * `pendingSeniorShare.approverId === viewerId`). Everyone else who can see
- * the share (ADMIN/ACCOUNTANT/the senior's own view) already gets the
+ * the share (ADMIN/the senior's own view) already gets the
  * informational badge from `ProjectShareInfo` above; this banner is the
  * ACTIONABLE surface, deliberately separate from that read-only indicator.
  */

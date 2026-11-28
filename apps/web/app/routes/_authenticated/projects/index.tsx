@@ -50,7 +50,7 @@ import { useCreateProjectForm } from './use-create-project-form'
 /**
  * Drop role - phase 1 (AC7): wraps `useActiveTeam` and short-circuits for
  * non-SENIOR viewers so the page never accidentally hides cards for
- * ADMIN/HR/ACCOUNTANT/JUNIOR. The underlying query always runs (same hook
+ * ADMIN/HR/JUNIOR. The underlying query always runs (same hook
  * order across renders).
  */
 function useTeamlessSeniorGate(isSenior: boolean) {
@@ -104,7 +104,7 @@ type UserOption = {
 function ProjectsPage() {
   const { t } = useLingui()
   const locale = useLocale()
-  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'JUNIOR'])
+  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'JUNIOR'])
   const { user } = useAuth()
   const search = Route.useSearch()
   const navigate = useNavigate()
@@ -120,13 +120,9 @@ function ProjectsPage() {
   const canManage = user?.role === 'ADMIN' || user?.role === 'HR'
   const canCreate = user?.role === 'ADMIN' || user?.role === 'HR'
   const isAdmin = user?.role === 'ADMIN'
-  const isAccountant = user?.role === 'ACCOUNTANT'
   // task-drop-share-override-and-receiver (Surface C). Field-scoped RBAC for
   // the "Тип оплаты" Select — same rule as the edit form's `canEditOverride`.
-  // ACCOUNTANT never actually reaches this create form (canCreate excludes
-  // them), kept symmetric with the edit-form gate per the design spec so the
-  // two forms read identically.
-  const canEditPaymentType = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
+  const canEditPaymentType = user?.role === 'ADMIN'
   const isSenior = user?.role === 'SENIOR'
 
   // task-project-status-filter-ui (design spec §2 table). ADMIN gets all
@@ -249,7 +245,7 @@ function ProjectsPage() {
   const { data: allUsers } = useQuery({
     queryKey: ['users'],
     queryFn: () => api.get<UserOption[]>('/users').then((r) => r.data),
-    enabled: canManage || isAccountant,
+    enabled: canManage,
   })
 
   const seniorUsers = allUsers?.filter((u) => u.role === 'SENIOR') ?? []
@@ -292,7 +288,7 @@ function ProjectsPage() {
           (p.techStack ?? '').toLowerCase().includes(q),
       )
     }
-    if ((isAdmin || isAccountant) && seniorFilter !== 'ALL') {
+    if (isAdmin && seniorFilter !== 'ALL') {
       list = list.filter((p) => p.seniorId === seniorFilter)
     }
     list.sort((a, b) => {
@@ -314,7 +310,7 @@ function ProjectsPage() {
       return 0
     })
     return list
-  }, [projects, searchQuery, seniorFilter, isAdmin, isAccountant, sortKey, sortDir])
+  }, [projects, searchQuery, seniorFilter, isAdmin, sortKey, sortDir])
 
   // Rules of Hooks: moved here — after every hook above — instead of
   // between `useSearch` and the ~14 hooks that follow it (useState/
@@ -563,7 +559,7 @@ function ProjectsPage() {
             />
           </div>
 
-          {(isAdmin || isAccountant) && ownerUsers.length > 0 && (
+          {isAdmin && ownerUsers.length > 0 && (
             <Select value={seniorFilter} onValueChange={setSeniorFilter}>
               <SelectTrigger className="w-44" data-testid="projects-senior-filter">
                 <SelectValue placeholder={t`Усі відповідальні`} />

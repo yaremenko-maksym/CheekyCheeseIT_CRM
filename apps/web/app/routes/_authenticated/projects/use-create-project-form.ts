@@ -70,7 +70,7 @@ export function useCreateProjectForm({
         teamSize: value.teamSize.trim() || null,
         benefits: value.benefits.trim() || null,
         // task-drop-share-override-and-receiver (Surface C). Field-scoped RBAC —
-        // backend throws ForbiddenException for non-ADMIN/ACCOUNTANT if this key
+        // backend throws ForbiddenException for non-ADMIN if this key
         // is present at all. HR (who CAN reach this create form via `canCreate`)
         // never sends it — the Select stays disabled at the backend default.
         ...(canEditPaymentType ? { paymentType: value.paymentType } : {}),

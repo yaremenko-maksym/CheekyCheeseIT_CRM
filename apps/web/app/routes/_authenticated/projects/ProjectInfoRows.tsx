@@ -96,7 +96,7 @@ export function ProjectShareInfo({
   testId?: string
   badgeTestId?: string
   /**
-   * task-648-fix-round-2 (UX-H-3(r2)). ADMIN/ACCOUNTANT — the same pair the
+   * task-648-fix-round-2 (UX-H-3(r2)). ADMIN — the same role the
    * propose gate uses (`canEditOverride` at the page level) — get the
    * withdraw control next to the indicator. Defaults to `false` so a caller
    * that forgets it renders the read-only widget it always did, rather than

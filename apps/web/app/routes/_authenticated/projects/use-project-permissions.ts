@@ -12,12 +12,12 @@ import type { ProjectDetailDto, SessionUser } from '@crm/shared'
 export interface ProjectPermissions {
   isAdmin: boolean
   canManage: boolean
-  /** ACCOUNTANT can also open the edit dialog (field-scoped RBAC on the backend). */
+  /** ADMIN/HR open the edit dialog (field-scoped RBAC on the backend). */
   canOpenEdit: boolean
   canRemoveMembers: boolean
   /**
    * HR and JUNIOR do not see project finance (backend emits rate/currency/share
-   * as null for them). ADMIN/ACCOUNTANT/SENIOR see everything (SENIOR read-only).
+   * as null for them). ADMIN/SENIOR see everything (SENIOR read-only).
    */
   canSeeProjectFinance: boolean
   canEditOverride: boolean
@@ -33,10 +33,10 @@ export function useProjectPermissions(
 ): ProjectPermissions {
   const isAdmin = user?.role === 'ADMIN'
   const canManage = user?.role === 'ADMIN' || user?.role === 'HR'
-  const canOpenEdit = canManage || user?.role === 'ACCOUNTANT'
+  const canOpenEdit = canManage
   const canRemoveMembers = isAdmin
   const canSeeProjectFinance = user?.role !== 'HR' && user?.role !== 'JUNIOR'
-  const canEditOverride = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
+  const canEditOverride = isAdmin
   // Hoisted so the nullish-project guard is evaluated once; every optional chain
   // below is observable by a test (no mutation suppression needed).
   const dropId = project?.dropId
