@@ -3,7 +3,16 @@
 // primary in a bottom bar above the keyboard / home indicator. Never a top-right «Готово».
 // The primary is always enabled (except while its own request is in flight): a tap validates,
 // focuses the first invalid field and shows inline errors. Sample data is invented.
-import { fileName, icon, phone, safeBottom, systemBar, segmented, currencyPill, field } from './base.mjs'
+import {
+  fileName,
+  icon,
+  phone,
+  safeBottom,
+  systemBar,
+  segmented,
+  currencyPill,
+  field,
+} from './base.mjs'
 import { tabScreen, financeBody, topBar, txnRow, TABBAR_H, FLOAT_RIGHT } from './mobile.mjs'
 import { sheet, safeTop, closeBtn, quickAddRows } from './mobile-overlays.mjs'
 

@@ -254,7 +254,9 @@ export function shortcuts({ role = 'ADMIN', coarse = false } = {}) {
   ${col('Загальні', [row('Палітра команд', ['⌘ / Ctrl', 'K']), row('Пошук на сторінці', ['/']), row('Клавіатурні скорочення', ['?']), row('Закрити панель або діалог', ['Esc']), row('Згорнути бічну панель', ['[']), row('Зберегти форму', ['⌘ / Ctrl', '↵']), row('Скасувати останню дію', ['⌘ / Ctrl', 'Z'])])}
   ${col(
     'Перехід',
-    CHORDS.filter(([d]) => allowed(role).includes(d)).map(([d, k]) => row(DEST[d].label, ['G', 'потім', k])),
+    CHORDS.filter(([d]) => allowed(role).includes(d)).map(([d, k]) =>
+      row(DEST[d].label, ['G', 'потім', k]),
+    ),
   )}
   ${col('Списки', [row('Наступний рядок', ['J']), row('Попередній рядок', ['K']), row('Відкрити рядок', ['↵']), row('Створити', ['C']), row('Фільтр', ['F']), row('Змінити етап картки', ['M'])])}</div></div>`
 }

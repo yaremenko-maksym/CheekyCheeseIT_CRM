@@ -214,9 +214,21 @@ export function frames() {
     )
     // R4-05: both overlays under a coarse pointer (iPad landscape); R4-06: the sheet of a teamless SENIOR.
     const touch = { w: 1180, h: 820, touch: true }
-    out.push(D('desktop-cmdk-touch-1180', 1180, 820, desktop({ ...touch, overlay: cmdk({ coarse: true }) })))
     out.push(
-      D('desktop-shortcuts-touch-1180', 1180, 820, desktop({ ...touch, overlay: shortcuts({ coarse: true }) })),
+      D(
+        'desktop-cmdk-touch-1180',
+        1180,
+        820,
+        desktop({ ...touch, overlay: cmdk({ coarse: true }) }),
+      ),
+    )
+    out.push(
+      D(
+        'desktop-shortcuts-touch-1180',
+        1180,
+        820,
+        desktop({ ...touch, overlay: shortcuts({ coarse: true }) }),
+      ),
     )
     out.push(
       D(

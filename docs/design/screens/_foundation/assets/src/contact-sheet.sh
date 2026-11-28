@@ -38,6 +38,8 @@ sheet() {
   [ "$(size "$out")" -le 409600 ] || magick "$out" -resize 89% -dither None -colors 64 -define png:compression-level=9 "PNG8:$out"
   # The phone sheet past ~55 frames: one more 90% step at 48 colours (about 72% of the original).
   [ "$(size "$out")" -le 409600 ] || magick "$out" -resize 90% -dither None -colors 48 -define png:compression-level=9 "PNG8:$out"
+  # r5: the wide primitives sheet past ~55 frames needs one more 90% / 48-colour step.
+  [ "$(size "$out")" -le 409600 ] || magick "$out" -resize 90% -dither None -colors 48 -define png:compression-level=9 "PNG8:$out"
   echo "$out $(($(size "$out") / 1024)) KB from $(($# - 4)) frames"
 }
 rm -f "$dir"/_contact-sheet*.png

@@ -104,7 +104,8 @@ const cover = (t) => {
 const shape = (cell) => {
   const parts = cell.split(/\s·\s/)
   const alts = parts.map(
-    (p) => new Set(p.split(/\s\/\s/).map((a) => a.replace(/\s\((one|few|many|other)\)$/, '#'))).size,
+    (p) =>
+      new Set(p.split(/\s\/\s/).map((a) => a.replace(/\s\((one|few|many|other)\)$/, '#'))).size,
   )
   const ph = [...new Set([...cell.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]))].sort().join(',')
   return { n: parts.length, alts: alts.join(','), ph }
@@ -164,11 +165,13 @@ function blocks() {
     if (taken.has(b)) continue
     taken.add(b)
     // Child blocks are read on their own: take only this block's inline text.
-    const text = b.matches('[data-file]') ? b.textContent : [...b.childNodes]
-      .map((n) =>
-        n.nodeType === 3 ? n.textContent : n.nodeType === 1 && inline(n) ? n.textContent : '\n',
-      )
-      .join('')
+    const text = b.matches('[data-file]')
+      ? b.textContent
+      : [...b.childNodes]
+          .map((n) =>
+            n.nodeType === 3 ? n.textContent : n.nodeType === 1 && inline(n) ? n.textContent : '\n',
+          )
+          .join('')
     out.push(text)
   }
   return out
@@ -238,4 +241,13 @@ console.log(
     `  uk <-> en: rows without en ${emptyEn.length} · unpaired rows ${unpaired.length} · duplicate ids ${dupId.length}`,
 )
 process.exitCode =
-  missing.size || noEnDrawn.size || emptyEn.length || unpaired.length || dupId.length || unused.length || !rows.length || !nTokens ? 1 : 0
+  missing.size ||
+  noEnDrawn.size ||
+  emptyEn.length ||
+  unpaired.length ||
+  dupId.length ||
+  unused.length ||
+  !rows.length ||
+  !nTokens
+    ? 1
+    : 0

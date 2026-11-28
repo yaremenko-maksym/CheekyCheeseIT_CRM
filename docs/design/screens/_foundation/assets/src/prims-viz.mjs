@@ -131,8 +131,7 @@ export function draftsDesktop(w, h, { chooser = false } = {}) {
   // R4-08: the pinned draft row keeps the table's column grid: the state in «Опис» with a tonal «Відкрити» text
   // button, the type in «Тип», the amount in «Сума», and the fine-pointer «…» in the action slot (its menu:
   // «Відкрити» · «Відкинути чернетку»). A click on the row opens the draft too; «…» is the only other way in.
-  const cell = (inner, extra = '') =>
-    `<td style="background:${WARN(7)};${extra}">${inner}</td>`
+  const cell = (inner, extra = '') => `<td style="background:${WARN(7)};${extra}">${inner}</td>`
   const row = (wide) =>
     `<tr aria-label="Чернетка −${AMOUNT} USD, результат невідомий, надіслано о\u00a0${SENT_AT}">${cell(`<span class="row num" style="gap:6px;color:var(--warning)">${icon('file-pen', { size: 16 })}<span class="muted">${SENT_AT}</span></span>`, 'box-shadow:inset 2px 0 0 var(--warning)')}${cell(`<span class="row" style="gap:8px;min-width:0"><span class="trunc muted">Результат невідомий</span><button type="button" class="btn sm" aria-label="Відкрити чернетку −${AMOUNT} USD" style="flex:none;height:28px;padding:0 10px;font-size:13px;color:var(--primary);background:oklch(0.84 0.183 85.3 / 0.14);border:0">Відкрити</button></span>`)}${cell('<span class="muted">Витрата</span>')}${wide ? cell('<span class="muted">—</span>') : ''}${cell('')}${cell(`<span class="num" style="font-weight:600;white-space:nowrap;display:block;text-align:right">−${AMOUNT} USD</span>`)}<td class="kcell" style="background:${WARN(7)}"><button type="button" class="iconbtn" aria-haspopup="menu" aria-label="Дії: чернетка −${AMOUNT} USD" style="width:32px;height:32px;margin:auto">${icon('ellipsis', { size: 18 })}</button></td></tr>`
   const menu = chooser
@@ -621,7 +620,11 @@ export function transitions() {
   const deskPanel = (s, modal) =>
     box(
       `<div class="grow" style="position:relative;padding-top:8px"><div style="margin-right:${!modal && s ? 120 : 0}px">${lines(7)}</div>${modal ? `<div style="position:absolute;inset:0 -22px 0 -22px;background:${s ? 'var(--scrim)' : 'transparent'}"></div>` : ''}<div style="position:absolute;top:0;bottom:0;right:0;width:120px;transform:translateX(${s ? 0 : 100}%);background:var(--popover);border-left:1px solid var(--border)"></div></div>`,
-      s ? (modal ? '280 мс · scrim · фокус у панелі' : '280 мс · без scrim · таблиця звужується') : '0 мс',
+      s
+        ? modal
+          ? '280 мс · scrim · фокус у панелі'
+          : '280 мс · без scrim · таблиця звужується'
+        : '0 мс',
     )
   // R3-11: dialog and popover enter / exit, the same scrim token as every overlay.
   const dlgBox = (s) =>
@@ -645,7 +648,7 @@ export function transitions() {
   ${rowOf('Одна панель: список → деталі', '640–899 · той самий push, що на телефоні (280 мс); рейка нерухома', [tab1(0), tab1(1)])}
   ${rowOf('Бічна панель', 'translateX 100%→0 280 мс + scrim 0→60% (--scrim) 200 мс · закриття 150 мс, як аркуш · рейка під scrim', [tabPanel(0), tabPanel(1)])}
   <h2>Діалог і поповер (усі класи ≥ 640)</h2>
-  ${rowOf('Бічна панель на комп’ютері', '1024–1439: як на планшеті, модальна, над --scrim · ≥ 1440: немодальна, без scrim, основна колонка звужується · закриття 150 мс', [deskPanel(0, true), deskPanel(1, true), deskPanel(1, false)])}
+  ${rowOf('Бічна панель на комп’ютері', '1024–1439: як на планшеті, модальна, над --scrim · ≥ 1440: немодальна, без scrim, основна колонка звужується · закриття 150 мс', [deskPanel(1, true), deskPanel(1, false)])}
   ${rowOf('Діалог (alertdialog, «Нові записи»)', 'scrim 0→60% + opacity 0→1, scale 0.96→1 · 200 мс · закриття: opacity 1→0 · 150 мс, scale без змін', [dlgBox(0), dlgBox(1)])}
   ${rowOf('Поповер і меню', 'opacity 0→1 + translateY 4 px→0 від якоря · 200 мс · закриття: opacity · 150 мс, без зсуву', [popBox(0), popBox(1)])}
   <div class="t-foot muted" style="width:100%">prefers-reduced-motion: усі зсуви й масштаб (аркуш, панель, діалог, поповер, push) замінено на crossfade 120 мс; scrim теж лише crossfade; пружини вимкнено. Десктоп: зміна маршруту — crossfade вмісту 150 мс, бічна панель і заголовок нерухомі.</div></div>`

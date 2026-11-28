@@ -96,7 +96,9 @@ function probe(coarse) {
       const r = el.getBoundingClientRect()
       const b = sc.getBoundingClientRect()
       if (r.top < b.top - 1 || r.bottom > b.bottom + 1 || r.bottom > floor + 1 || r.top < 0)
-        out.reach.push(`"${el.getAttribute('data-dest')}" unreachable (${Math.round(r.top)}–${Math.round(r.bottom)}, box ${Math.round(b.top)}–${Math.round(b.bottom)}, floor ${Math.round(floor)})`)
+        out.reach.push(
+          `"${el.getAttribute('data-dest')}" unreachable (${Math.round(r.top)}–${Math.round(r.bottom)}, box ${Math.round(b.top)}–${Math.round(b.bottom)}, floor ${Math.round(floor)})`,
+        )
     }
     sc.scrollTop = keep
   }
@@ -221,7 +223,18 @@ function probe(coarse) {
 
 const frames = mod.frames().filter((f) => !filter || f.name.includes(filter))
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH })
-const totals = { overflow: 0, clip: 0, clipy: 0, pct: 0, never: 0, fab: 0, target: 0, input: 0, reach: 0, scrim: 0 }
+const totals = {
+  overflow: 0,
+  clip: 0,
+  clipy: 0,
+  pct: 0,
+  never: 0,
+  fab: 0,
+  target: 0,
+  input: 0,
+  reach: 0,
+  scrim: 0,
+}
 let examinedAll = 0
 for (const f of frames) {
   const page = await browser.newPage({ viewport: { width: f.w, height: f.h } })
