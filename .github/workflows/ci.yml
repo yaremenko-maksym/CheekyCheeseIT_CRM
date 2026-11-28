@@ -1833,7 +1833,7 @@ jobs:
             # is consistently one of the shorter E2E shards (misc/team-users
             # are the longest), so the ~19 extra (fast, mocked) tests here are
             # unlikely to make it the new critical-path leg.
-            files: tests/finance.spec.ts tests/finance-senior-flow.spec.ts tests/company-share-cta.spec.ts tests/finance-funding-source.spec.ts tests/finance-senior-payment-flow.spec.ts tests/finance-smoke-regressions.spec.ts tests/accountant-dashboard.spec.ts tests/phase8-payout-company.spec.ts tests/finance-admin-edit-tx-date.spec.ts
+            files: tests/finance.spec.ts tests/finance-senior-flow.spec.ts tests/company-share-cta.spec.ts tests/finance-funding-source.spec.ts tests/finance-senior-payment-flow.spec.ts tests/finance-smoke-regressions.spec.ts tests/phase8-payout-company.spec.ts tests/finance-admin-edit-tx-date.spec.ts
           - name: misc
             # Heaviest shard by file count and wall time: test step ~4:28, job ~7:25
             # of the 22-minute job timeout on a push run on main (gh run 44584768393,
