@@ -146,7 +146,7 @@ describe('UsersAccessService.getViewPermissions', () => {
   it('SELF — HR sees own tabs without contract (contract only for ADMIN-viewing-others and DROP self)', async () => {
     const hr = makeUser({ id: 'hr-id', role: 'HR' })
     const p = await service.getViewPermissions(hr, hr)
-    // Negative-regression guard: 'contract' tab must not appear on HR/SENIOR/JUNIOR/ACCOUNTANT self views.
+    // Negative-regression guard: 'contract' tab must not appear on HR/SENIOR/JUNIOR self views.
     // ADMIN viewing others gets contract tab; DROP self also gets contract tab (UT finding 3a).
     expect(p.tabs).not.toContain('contract')
   })
@@ -289,11 +289,9 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.share).toBe(false)
   })
 
-  // task-accountant-self-no-finance-tab: ACCOUNTANT self-view is now trimmed to
-  // [overview, requisites] — 'finance' removed (page-not-tab model: /crm/finance).
-  // SENIOR-self and HR-self keep the full surface unchanged
-  // (projects/team/finance still included for those roles).
-  it('SELF — SENIOR/HR keep projects/team (allow-list change is JUNIOR and ACCOUNTANT only)', async () => {
+  // SENIOR-self and HR-self keep the full surface
+  // (projects/team/finance included for those roles).
+  it('SELF — SENIOR/HR keep projects/team/finance', async () => {
     for (const role of ['SENIOR', 'HR'] as const) {
       const u = makeUser({ id: `${role}-id`, role })
       const p = await service.getViewPermissions(u, u)
@@ -303,33 +301,15 @@ describe('UsersAccessService.getViewPermissions', () => {
     }
   })
 
-  // ── task-accountant-self-no-finance-tab (AC1): ACCOUNTANT self-view allow-list ──
-  it('SELF — ACCOUNTANT sees exactly [overview, requisites] (no finance/projects/team/documents)', async () => {
-    const accountant = makeUser({ id: 'acc-self', role: 'ACCOUNTANT' })
-    const p = await service.getViewPermissions(accountant, accountant)
-    expect(p.tabs).toEqual(['overview', 'requisites'])
-    expect(p.tabs).not.toContain('finance')
-    expect(p.tabs).not.toContain('projects')
-    expect(p.tabs).not.toContain('team')
-    expect(p.tabs).not.toContain('documents')
-    expect(p.tabs).toContain('overview')
-    expect(p.tabs).toContain('requisites')
+  // Allowlist, not fall-through: a self-viewing role with no branch gets no tab
+  // (it used to fall into the SENIOR/HR surface).
+  it('SELF — a role without a branch gets zero tabs', async () => {
+    const u = makeUser({ id: 'x-self', role: 'X' as User['role'] })
+    const p = await service.getViewPermissions(u, u)
+    expect(p.tabs).toEqual([])
   })
 
-  // ── task-accountant-self-view-tabs (AC2): ACCOUNTANT viewing ANOTHER user unchanged ──
-  it('ACCOUNTANT viewing another user — tabs include projects/team/documents (other-view unchanged)', async () => {
-    const viewer = makeUser({ id: 'acc1', role: 'ACCOUNTANT' })
-    const target = makeUser({ id: 'sr1', role: 'SENIOR' })
-    const p = await service.getViewPermissions(viewer, target)
-    expect(p.tabs).toContain('overview')
-    expect(p.tabs).toContain('finance')
-    expect(p.tabs).toContain('projects')
-    expect(p.tabs).toContain('team')
-    expect(p.tabs).toContain('requisites')
-    expect(p.tabs).toContain('documents')
-  })
-
-  // ── task-accountant-self-view-tabs (AC3): regression guards — SENIOR/HR-self unchanged ──
+  // ── regression guards — SENIOR/HR-self unchanged ──
   it('SELF — SENIOR keeps full tab surface (projects/team/documents/finance) — regression guard', async () => {
     const senior = makeUser({ id: 'sr-self', role: 'SENIOR' })
     const p = await service.getViewPermissions(senior, senior)
@@ -347,23 +327,6 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).toContain('team')
     expect(p.tabs).toContain('documents')
     expect(p.tabs).toContain('finance')
-  })
-
-  // ── ACCOUNTANT self — fields unchanged (tab removal does not affect field visibility) ──
-  it('ACCOUNTANT self — fields.requisites and fields.salary are true (own PII still accessible)', async () => {
-    const accountant = makeUser({ id: 'acc-self', role: 'ACCOUNTANT' })
-    const p = await service.getViewPermissions(accountant, accountant)
-    expect(p.fields.requisites).toBe(true)
-    // ACCOUNTANT is a salary role (monthlySalary surface)
-    expect(p.fields.salary).toBe(true)
-    // ACCOUNTANT is not a share role
-    expect(p.fields.share).toBe(false)
-    // Owner sees own contacts, FOP PII, legal name
-    expect(p.fields.realContacts).toBe(true)
-    expect(p.fields.fopPii).toBe(true)
-    expect(p.fields.legalName).toBe(true)
-    // No admin note on self
-    expect(p.fields.adminNote).toBe(false)
   })
 
   // task-drop-profile-rbac-r2 (Finding A): DROP self-view is now an EXPLICIT
@@ -594,42 +557,6 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.adminNote).toBe(false)
   })
 
-  it('ACCOUNTANT viewing another — fopPii false, adminNote false, realContacts true', async () => {
-    const viewer = makeUser({ id: 'acc1', role: 'ACCOUNTANT' })
-    const target = makeUser({ id: 'sr1', role: 'SENIOR' })
-    const p = await service.getViewPermissions(viewer, target)
-    expect(p.fields.fopPii).toBe(false)
-    expect(p.fields.adminNote).toBe(false)
-    expect(p.fields.realContacts).toBe(true)
-    // SR-M-7 (security-review PR #623 round 2, MED): personalContact (SR-M-4)
-    // only had its POSITIVE berth fixed — ADMIN / self returning true. Nothing
-    // pinned the negative one, so a future `fields.personalContact = true`
-    // slipped into this branch (the exact regression SR-M-4 exists to
-    // prevent) would pass the whole suite silently. ACCOUNTANT is never one
-    // of the two allowed viewers (ADMIN, self) — see the isAccountant branch
-    // in users-access.service.ts, which never touches this flag.
-    expect(p.fields.personalContact).toBeFalsy()
-  })
-
-  // ── Pre-deploy MEDIUM: ACCOUNTANT must not see another ADMIN's payout wallet ──
-  it('ACCOUNTANT viewing a non-ADMIN — requisites visible, wallet NOT excluded', async () => {
-    const viewer = makeUser({ id: 'acc1', role: 'ACCOUNTANT' })
-    const target = makeUser({ id: 'sr1', role: 'SENIOR' })
-    const p = await service.getViewPermissions(viewer, target)
-    expect(p.fields.requisites).toBe(true)
-    // Non-ADMIN target: the accountant keeps full payroll requisites access.
-    expect(p.fields.requisitesExcludeWallet).toBe(false)
-  })
-
-  it('ACCOUNTANT viewing an ADMIN — requisites surface kept but wallet EXCLUDED', async () => {
-    const viewer = makeUser({ id: 'acc1', role: 'ACCOUNTANT' })
-    const target = makeUser({ id: 'admin1', role: 'ADMIN' })
-    const p = await service.getViewPermissions(viewer, target)
-    expect(p.fields.requisites).toBe(true)
-    // ADMIN target: payout wallet/IBAN masked — admins are not on payroll.
-    expect(p.fields.requisitesExcludeWallet).toBe(true)
-  })
-
   it('HR viewing SENIOR in own team — fopPii false, adminNote false, realContacts true', async () => {
     ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
       .fn()
@@ -640,7 +567,7 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.fopPii).toBe(false)
     expect(p.fields.adminNote).toBe(false)
     expect(p.fields.realContacts).toBe(true)
-    // SR-M-7 — see the ACCOUNTANT test above for the full reasoning. HR is
+    // SR-M-7 — personalContact is a separate gate from realContacts. HR is
     // deliberately barred from ever SETTING personalEmail (UsersController.
     // createUser forces it null for an HR actor); nothing enforced the READ
     // side until now.
@@ -751,27 +678,13 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).toEqual([])
   })
 
-  // ── task-hr-rbac-teammate-access §2 — HR viewing an ACCOUNTANT / HR teammate ──
-  // New teammate-access surface: HR in the same team can open an ACCOUNTANT or
+  // ── task-hr-rbac-teammate-access §2 — HR viewing an HR teammate ──
+  // New teammate-access surface: HR in the same team can open
   // another HR's profile, but the tab surface is trimmed to overview + team ONLY
   // (no projects/interviews — those are senior/project surfaces), and every
   // financial / requisites / PII flag stays false (masked in buildProfileView).
   // The isHrInTargetTeam DB-helper is mocked true here (membership proven by the
   // dedicated isHrInTargetTeam unit block + the real-DB integration spec).
-
-  it('HR viewing ACCOUNTANT teammate (in team) — tabs are exactly [overview, team]', async () => {
-    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
-      .fn()
-      .mockResolvedValue(true)
-    const viewer = makeUser({ id: 'hr1', role: 'HR' })
-    const target = makeUser({ id: 'acc1', role: 'ACCOUNTANT' })
-    const p = await service.getViewPermissions(viewer, target)
-    expect(p.tabs).toEqual(['overview', 'team'])
-    expect(p.tabs).not.toContain('projects')
-    expect(p.tabs).not.toContain('interviews')
-    expect(p.tabs).not.toContain('finance')
-    expect(p.tabs).not.toContain('requisites')
-  })
 
   it('HR viewing another HR teammate (in team) — tabs are exactly [overview, team]', async () => {
     ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
@@ -783,35 +696,6 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).toEqual(['overview', 'team'])
     expect(p.tabs).not.toContain('projects')
     expect(p.tabs).not.toContain('interviews')
-  })
-
-  it('HR viewing ACCOUNTANT teammate — financial/PII flags all masked, contacts visible', async () => {
-    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
-      .fn()
-      .mockResolvedValue(true)
-    const viewer = makeUser({ id: 'hr1', role: 'HR' })
-    const target = makeUser({ id: 'acc1', role: 'ACCOUNTANT' })
-    const p = await service.getViewPermissions(viewer, target)
-    // Finance / requisites / PII stay false → null in buildProfileView (no new leak)
-    expect(p.fields.salary).toBeFalsy()
-    expect(p.fields.share).toBeFalsy()
-    expect(p.fields.requisites).toBeFalsy()
-    expect(p.fields.fopPii).toBeFalsy()
-    expect(p.fields.legalName).toBeFalsy()
-    expect(p.fields.adminNote).toBeFalsy()
-    expect(p.fields.legend).toBeFalsy()
-    expect(p.fields.projectCredentials).toBeFalsy()
-    expect(p.fields.editCredentials).toBeFalsy()
-    // Contacts of a teammate ARE visible (same as the SENIOR HR path)
-    expect(p.fields.realContacts).toBe(true)
-    expect(p.fields.techStack).toBe(true)
-    expect(p.fields.registrationDate).toBe(true)
-    // SR-M-7 — realContacts and personalContact are deliberately SEPARATE
-    // gates (SR-M-4): a teammate's ordinary email is visible, their personal
-    // address is not.
-    expect(p.fields.personalContact).toBeFalsy()
-    // HR has no mutating actions on anyone
-    expect(p.actions).toEqual([])
   })
 
   it('HR viewing another HR teammate — financial/PII flags masked, contacts visible', async () => {
@@ -826,20 +710,11 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.fopPii).toBeFalsy()
     expect(p.fields.legalName).toBeFalsy()
     expect(p.fields.realContacts).toBe(true)
-    // SR-M-7 — same separate-gate reasoning as the ACCOUNTANT-teammate case above.
+    // SR-M-7 — personalContact is a separate gate from realContacts.
     expect(p.fields.personalContact).toBeFalsy()
   })
 
   // Out-of-team: helper returns false → HR gets zero tabs → 403 at route level.
-  it('HR viewing ACCOUNTANT NOT in team — zero tabs → 403', async () => {
-    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
-      .fn()
-      .mockResolvedValue(false)
-    const viewer = makeUser({ id: 'hr1', role: 'HR' })
-    const target = makeUser({ id: 'acc1', role: 'ACCOUNTANT' })
-    const p = await service.getViewPermissions(viewer, target)
-    expect(p.tabs).toEqual([])
-  })
 
   it('HR viewing HR NOT in team — zero tabs → 403', async () => {
     ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
@@ -885,14 +760,6 @@ describe('UsersAccessService.getViewPermissions', () => {
     const p = await service.getViewPermissions(viewer, target)
     expect(p.tabs).not.toContain('resume')
     expect(p.tabs).toHaveLength(0)
-  })
-
-  it('ACCOUNTANT viewing a SENIOR gets the usual tabs but NOT resume', async () => {
-    const viewer = makeUser({ id: 'acc-id', role: 'ACCOUNTANT' })
-    const target = makeUser({ id: 'sr-id', role: 'SENIOR' })
-    const p = await service.getViewPermissions(viewer, target)
-    expect(p.tabs).toContain('overview')
-    expect(p.tabs).not.toContain('resume')
   })
 
   it('HR viewing a SENIOR OUTSIDE their team still gets zero tabs (resume must not widen the card)', async () => {
@@ -1041,32 +908,6 @@ describe('UsersAccessService.isHrInTargetTeam (all role branches)', () => {
     const ok = await callHelper(svc, 'hr1', makeUser({ id: 'sr1', role: 'SENIOR' }))
     expect(ok).toBe(false)
     // Short-circuits after the first query (no second membership lookup).
-    expect(selectCalls()).toBe(1)
-  })
-
-  // ── ACCOUNTANT (new branch) ──
-  it('ACCOUNTANT in a shared team → true', async () => {
-    const { svc } = buildServiceWithQueue([
-      [{ teamId: 't1' }], // hrMemberships
-      [{ teamId: 't1' }], // accountant in those teams
-    ])
-    const ok = await callHelper(svc, 'hr1', makeUser({ id: 'acc1', role: 'ACCOUNTANT' }))
-    expect(ok).toBe(true)
-  })
-
-  it('ACCOUNTANT in a different team → false', async () => {
-    const { svc } = buildServiceWithQueue([
-      [{ teamId: 't1' }], // hrMemberships
-      [], // accountant not in HR's teams
-    ])
-    const ok = await callHelper(svc, 'hr1', makeUser({ id: 'acc1', role: 'ACCOUNTANT' }))
-    expect(ok).toBe(false)
-  })
-
-  it('ACCOUNTANT but HR has no team memberships → false (short-circuit)', async () => {
-    const { svc, selectCalls } = buildServiceWithQueue([[]])
-    const ok = await callHelper(svc, 'hr1', makeUser({ id: 'acc1', role: 'ACCOUNTANT' }))
-    expect(ok).toBe(false)
     expect(selectCalls()).toBe(1)
   })
 
@@ -1220,23 +1061,6 @@ describe('UsersAccessService.isHrInTargetTeam (all role branches)', () => {
       [], // targetInTeams — empty because target's row has leftAt set (DB filters it)
     ])
     const ok = await callHelper(svc, 'hr1', makeUser({ id: 'sr1', role: 'SENIOR' }))
-    expect(ok).toBe(false)
-  })
-
-  it('ACCOUNTANT: HR has only a past membership → false (over-grant blocked)', async () => {
-    const { svc } = buildServiceWithQueue([
-      [], // hrMemberships empty (leftAt-filtered)
-    ])
-    const ok = await callHelper(svc, 'hr1', makeUser({ id: 'acc1', role: 'ACCOUNTANT' }))
-    expect(ok).toBe(false)
-  })
-
-  it('ACCOUNTANT: HR active, target has only past membership → false (over-grant blocked)', async () => {
-    const { svc } = buildServiceWithQueue([
-      [{ teamId: 't1' }], // hrMemberships — HR is active
-      [], // targetInTeams — empty because target's leftAt is set
-    ])
-    const ok = await callHelper(svc, 'hr1', makeUser({ id: 'acc1', role: 'ACCOUNTANT' }))
     expect(ok).toBe(false)
   })
 
