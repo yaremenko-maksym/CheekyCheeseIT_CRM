@@ -114,8 +114,10 @@ export function quickAddSheet(role, w, h) {
 }
 
 // R3-25: `value` draws the trailing amount blocks; a row without a value (a notification) draws none.
+// R4-17: slots follow the loaded row anatomy (§12.0): title + meta on the left, ONE trailing value (the amount
+// alone, no second line), the «…» slot only where the loaded row has one (touch).
 function skRow(menu = false, value = true) {
-  return `<div class="lrow two" style="--inset:64px"><div class="sk" style="width:36px;height:36px;border-radius:10px"></div><div class="grow col" style="gap:8px"><div class="sk" style="height:14px;width:62%"></div><div class="sk" style="height:11px;width:40%"></div></div>${value ? '<div class="col" style="gap:8px;align-items:flex-end"><div class="sk" style="height:14px;width:72px"></div><div class="sk" style="height:10px;width:36px"></div></div>' : ''}${menu ? '<div class="sk" aria-hidden="true" style="width:24px;height:24px;border-radius:12px;flex:none;margin-right:10px"></div>' : ''}</div>`
+  return `<div class="lrow two" style="--inset:64px"><div class="sk" style="width:36px;height:36px;border-radius:10px"></div><div class="grow col" style="gap:8px"><div class="sk" style="height:14px;width:62%"></div><div class="sk" style="height:11px;width:40%"></div></div>${value ? '<div class="sk" style="height:14px;width:72px;flex:none;align-self:flex-start;margin-top:3px"></div>' : ''}${menu ? '<div class="sk" aria-hidden="true" style="width:24px;height:24px;border-radius:12px;flex:none;margin-right:10px"></div>' : ''}</div>`
 }
 export function skeletonList(n = 4) {
   return `<div class="sechead"><div class="sk" style="height:11px;width:70px"></div></div><div class="group" aria-hidden="true">${skRow().repeat(n)}</div>`
@@ -193,7 +195,7 @@ export function errorScreen(w, h) {
 
 export function offlineBanner() {
   return `<div role="status" class="row" style="gap:8px;margin:0 12px 4px;padding:8px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font-size:14px;line-height:18px">
-  <span style="color:var(--warning)">${icon('wifi-off', { size: 16 })}</span><span class="grow">Немає з’єднання. Показано останні завантажені дані; збереження не пройде, введене залишиться у формі.</span></div>`
+  <span style="color:var(--warning)">${icon('wifi-off', { size: 16 })}</span><span class="grow">Немає з’єднання. Показано останні завантажені дані. Зараз зберегти зміни не вдасться. Введені дані залишаться у формі.</span></div>`
 }
 
 /** After «Не зараз» on the session alert: persistent, in the offline-banner slot; background requests pause. */
@@ -203,7 +205,8 @@ export function sessionBanner() {
 }
 
 export function impersonationBanner() {
-  return `<div role="status" style="margin:0 12px 4px;padding:8px 12px;border-radius:12px;background:var(--yellow-subtle);border:1px solid oklch(0.34 0.07 85);font-size:14px;line-height:18px">
+  // R4-30: no bottom padding: the 44 px return row already leaves ~13 px under its text (no ~20 px dead band).
+  return `<div role="status" style="margin:0 12px 4px;padding:8px 12px 0;border-radius:12px;background:var(--yellow-subtle);border:1px solid oklch(0.34 0.07 85);font-size:14px;line-height:18px">
   <div class="row" style="gap:8px;color:var(--primary)">${icon('triangle-alert', { size: 16 })}<span class="grow">Ви увійшли як <b>«Оксана Бойко»</b> (HR)</span></div>
   <div class="row" role="button" style="gap:6px;height:44px;color:var(--fg);font-weight:600;padding-left:24px">${icon('undo-2', { size: 15 })}Повернутися до свого профілю</div></div>`
 }

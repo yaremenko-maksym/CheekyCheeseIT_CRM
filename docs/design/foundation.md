@@ -270,8 +270,8 @@ background, never body text on a yellow background other than `--primary-foregro
 | Job                                       | Mobile                                              | Tablet                                    | Desktop                                        |
 | ----------------------------------------- | --------------------------------------------------- | ----------------------------------------- | ---------------------------------------------- |
 | Short form, filters, pickers (≤ 4 fields) | Medium **detent sheet** (≈ 54% height)              | Medium sheet / popover                    | Popover or side panel                          |
-| Long form, edit                           | Large sheet (Скасувати left, primary in bottom bar) | Side panel 400 px                         | Side panel 420 (480 at ≥ 1440)                 |
-| Destructive confirm                       | **Action sheet** from the bottom                    | Centred alert dialog                      | Centred alert dialog 420, focus on «Скасувати» |
+| Long form, edit                           | Large sheet (Скасувати left, primary in bottom bar) | Side panel (width: primitives-v2 §2)      | Side panel (width: primitives-v2 §2)           |
+| Destructive confirm                       | **Action sheet** from the bottom                    | Centred alert dialog                      | Centred alert dialog (width and focus: primitives-v2 §12 «Every alert dialog») |
 | Detail                                    | Pushed screen                                       | Pushed page 640–899, second pane from 900 | Side panel (preview) or page                   |
 | Navigation overflow                       | More sheet                                          | Rail popover                              | Sidebar (always visible)                       |
 
@@ -327,11 +327,11 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
 | 375   | mobile  | the reference phone (iPhone 13 mini / SE 3 layout width; 812 tall frame)                            |
 | 768   | tablet  | rail + one pane with push (two panes from 900); touch heights (48 inputs, 44)                       |
 | 1024  | desktop | sidebar 248 (or collapsed 64) + dense table; the narrowest desktop                                  |
-| 1440  | desktop | wide table columns appear (≥ 1280); side panel 480; content `max-w` caps                            |
+| 1440  | desktop | wide table columns appear (≥ 1280); the side panel turns non-modal (width: primitives-v2 §2); content `max-w` caps                            |
 
 - **Wide screens (1920 and up, F0-06).** The page content is capped at **1280 px and left-aligned**
   next to the sidebar; the space to its right stays empty background, never a stretched table. The
-  ≥ 1440 non-modal side panel (480) sits in the flex row at the right edge of the window and the main
+  ≥ 1440 non-modal side panel (width: primitives-v2 §2) sits in the flex row at the right edge of the window and the main
   area gives up its width: on 1920 with the panel open, main is 1920 − 248 − 480 = 1192 px and the table
   fills it beside the panel, never under it (`primitives-v2/sheet-panel-1920`). The row being edited
   keeps the selection cue (inset yellow edge + `--raised`).
@@ -375,7 +375,7 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
     carries the duplicate risk.
     «Перевірити список» is the filled primary of a locked unknown draft (the form is read-only) and opens
     the **check sheet** «Нові записи», which replaces the form sheet (the form stays in memory and returns when it closes; primitives-v2 §12 Dismissal), refetched on open.
-    It names what to look for («Шукаємо: −1 250,50 USD · Витрата · без опису · надіслано 14:32»; the line carries the sent description («без опису» when it is empty), the project when one is set and the business date when it is not today, so the user can compare the field a «схожа» tag names. Row titles in the check sheet follow the one row rule, primitives-v2 §12.0: one line, an ellipsis, the full text in the accessible name) and lists **only
+    It names what to look for («Шукаємо: −1 250,50 USD · Витрата · без опису · надіслано 14:32»; the line carries the sent description («без опису» when it is empty), the project when one is set and the business date when it is not today, so the user can compare the field a «схожа» tag names. Row titles in the check sheet follow the one row rule, primitives-v2 §12.0 «Title») and lists **only
     the current user's own rows created from `t − 5 хв`, newest created first** (sub-header «Лише ваші
     записи з 14:27»: ADMIN and ACCOUNTANT see every row, so a
     colleague's equal amount, a salary for example, must never read as «збіг»), without the list's

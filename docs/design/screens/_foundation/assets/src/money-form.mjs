@@ -3,7 +3,7 @@
 // primary in a bottom bar above the keyboard / home indicator. Never a top-right «Готово».
 // The primary is always enabled (except while its own request is in flight): a tap validates,
 // focuses the first invalid field and shows inline errors. Sample data is invented.
-import { icon, phone, safeBottom, systemBar, segmented, currencyPill, field } from './base.mjs'
+import { fileName, icon, phone, safeBottom, systemBar, segmented, currencyPill, field } from './base.mjs'
 import { tabScreen, financeBody, topBar, txnRow, TABBAR_H, FLOAT_RIGHT } from './mobile.mjs'
 import { sheet, safeTop, closeBtn, quickAddRows } from './mobile-overlays.mjs'
 
@@ -50,13 +50,13 @@ export function receiptCard(state = 'uploading', { narrow = false, cur = 'USD' }
   if (usdt && state === 'empty') return linkField({ usdt: true })
   if (usdt && (state === 'uploading' || state === 'done'))
     return `<div role="group" aria-label="Чек" aria-describedby="rf-e" class="col" style="gap:10px;padding:6px 10px 12px;border-radius:14px;background:var(--card);border:1.5px solid var(--destructive)">
-    <div class="row" style="gap:10px">${thumb()}<div class="grow col" style="gap:2px;min-width:0"><div class="t-sub trunc" style="font-weight:600">receipt-office-nov.jpg</div><div class="t-foot muted num">Файл · 220 КБ</div></div></div>
+    <div class="row" style="gap:10px">${thumb()}<div class="grow col" style="gap:2px;min-width:0">${fileName('receipt-office-nov.jpg')}<div class="t-foot muted num">Файл · 220 КБ</div></div></div>
     <div class="hint err" id="rf-e">${icon('circle-alert', { size: 15 })}<span>${USDT_ERR}</span></div>
     <div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn secondary" style="flex:1 1 auto">${icon('link', { size: 18 })}Замінити посиланням</button><button type="button" class="btn ghost" style="color:var(--destructive)">${icon('trash-2', { size: 18 })}Видалити чек</button></div></div>`
   // The upload failed: the card stays with its error and two exits. An armed draft becomes `failed`.
   if (state === 'failed')
     return `<div role="group" aria-label="Чек" aria-describedby="rf-f" class="col" style="gap:10px;padding:6px 10px 12px;border-radius:14px;background:var(--card);border:1.5px solid var(--destructive)">
-    <div class="row" style="gap:10px">${thumb()}<div class="grow col" style="gap:2px;min-width:0"><div class="t-sub trunc" style="font-weight:600">receipt-office-nov.jpg</div><div class="t-foot muted num">Не завантажено · 220 КБ</div></div></div>
+    <div class="row" style="gap:10px">${thumb()}<div class="grow col" style="gap:2px;min-width:0">${fileName('receipt-office-nov.jpg')}<div class="t-foot muted num">Не завантажено · 220 КБ</div></div></div>
     <div class="hint err" id="rf-f">${icon('circle-alert', { size: 15 })}<span>Чек не завантажився: з’єднання перервалося</span></div>
     <div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn secondary" style="flex:1 1 auto">${icon('rotate-cw', { size: 18 })}Повторити</button><button type="button" class="btn secondary" style="flex:1 1 auto">${icon('refresh-cw', { size: 18 })}Замінити</button></div></div>`
   if (state === 'empty')
@@ -83,7 +83,7 @@ export function receiptCard(state = 'uploading', { narrow = false, cur = 'USD' }
     : '<button type="button" class="btn sm secondary">Замінити</button>'
   return `<div class="row" style="gap:6px;padding:6px 4px 6px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)">
     <div style="position:relative;width:44px;height:44px;flex:none">${thumb()}${over}</div>
-    <div class="grow col" style="gap:2px;min-width:0;margin-left:4px"><div class="t-sub trunc" style="font-weight:600">${title}</div><div class="t-foot muted num" aria-hidden="${up}">${status}</div></div>
+    <div class="grow col" style="gap:2px;min-width:0;margin-left:4px">${up ? fileName(title) : `<div class="t-sub trunc" style="font-weight:600">${title}</div>`}<div class="t-foot muted num" aria-hidden="${up}">${status}</div></div>
     ${replace}<button type="button" class="iconbtn" aria-label="Видалити чек" style="color:var(--muted-fg)">${icon('x', { size: 18 })}</button></div>`
 }
 

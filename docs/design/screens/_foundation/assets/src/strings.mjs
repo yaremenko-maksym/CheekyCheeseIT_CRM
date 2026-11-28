@@ -1,5 +1,11 @@
 // Council r4 (R3-18): every visible string in a frame must have a uk + en row in primitives-v2 §12 Strings.
-// Usage: node strings.mjs <shell|primitives> [frame-name-filter]   (same env as measure.mjs)
+// r5 (R4-11): both directions and the uk <-> en pairing, by the table's stable `ID` column:
+//   frame -> table  every rendered string is covered by a row (as before) whose en cell is filled;
+//   table -> frame  every uk token of a row is drawn in some frame, unless the row's Kind is `interaction`
+//                   (an announcement, an accessible name, a state no frame draws) — only with set `all`;
+//   uk <-> en       per row: the same number of « · » parts and « / » alternatives (plural tags collapsed)
+//                   and the same {placeholders}.
+// Usage: node strings.mjs <shell|primitives|all> [frame-name-filter]   (same env as measure.mjs)
 // Reads the uk and en columns of the §12 Strings table, renders each frame, collects every visible text block
 // (drawn OS chrome and [data-note] captions exempt), splits it on « · », drops pure numbers / amounts / times /
 // dates, and drops fixture data (FIXTURE below: names, descriptions, projects — record data, not product copy).
@@ -14,7 +20,8 @@ import { FIXTURE, NOTE } from './strings-fixtures.mjs'
 const here = dirname(fileURLToPath(import.meta.url))
 const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href)
 const [set, filter] = process.argv.slice(2)
-const mod = await import(pathToFileURL(join(here, `${set}.mjs`)).href)
+const sets = set === 'all' ? ['shell', 'primitives'] : [set]
+const mods = await Promise.all(sets.map((x) => import(pathToFileURL(join(here, `${x}.mjs`)).href)))
 
 const norm = (s) => s.replace(/[  ]/g, ' ').replace(/\s+/g, ' ').trim()
 // « · » separates strings; a trailing «·» (a wrapped meta line) is dropped.
@@ -39,7 +46,10 @@ const rows = md
       .slice(1, -1)
       .map((c) => c.trim()),
   )
+  // ID | Where | uk | en | Kind  ->  [uk, en, id, kind]  (uk / en keep their old indexes 1 / 2 below)
+  .map(([id, , uk, en, kind]) => [id.replace(/`/g, ''), uk, en, kind])
 const emptyEn = rows.filter((r) => r[1] && !r[2])
+const dupId = rows.filter((r, i) => rows.findIndex((q) => q[0] === r[0]) !== i)
 // A numeric placeholder matches a number, an amount with its code, a time, a date or a percentage only,
 // so «{n} хв» never covers a word; every other placeholder ({name}, {title}, {query}…) matches any text.
 const NUMERIC = new Set([
@@ -55,25 +65,56 @@ const NUMERIC = new Set([
   'left',
 ])
 const NUM_PART = '[−+]?[\\d .,:%]+(?: ?(?:USD|USDT|UAH|EUR|МБ|с))?'
-const exact = new Set()
-const wild = []
-for (const [, uk] of rows)
+const exact = new Map() // token -> row ids
+const wild = [] // [regexp, row id]
+const tokensOf = new Map() // row id -> its uk tokens
+for (const [id, uk] of rows)
   for (const raw of uk.split(/\s·\s/)) {
     for (const alt of raw.split(/\s\/\s/)) {
       const t = norm(alt.replace(/\s\((one|few|many|other)\)$/, ''))
       if (!t) continue
+      if (!tokensOf.has(id)) tokensOf.set(id, [])
+      tokensOf.get(id).push(t)
       if (t.includes('{'))
-        wild.push(
+        wild.push([
           new RegExp(
             `^${t
               .replace(/[.*+?^$()[\]\\|]/g, '\\$&')
               .replace(/\{([^}]+)\}/g, (_, p) => (NUMERIC.has(p) ? NUM_PART : '.+?'))}$`,
           ),
-        )
-      else exact.add(t)
+          id,
+          t,
+        ])
+      else exact.set(t, [...(exact.get(t) || []), id])
     }
   }
-const covered = (t) => exact.has(t) || wild.some((re) => re.test(t))
+const used = new Set() // `${id}\u0000${token}` drawn somewhere
+// Returns the covering row ids (empty = not covered) and records which table tokens were drawn.
+const cover = (t) => {
+  const ids = [...(exact.get(t) || [])]
+  for (const id of ids) used.add(`${id}\u0000${t}`)
+  for (const [re, id, tok] of wild)
+    if (re.test(t)) {
+      ids.push(id)
+      used.add(`${id}\u0000${tok}`)
+    }
+  return ids
+}
+// uk <-> en pairing: parts, alternatives (plural tags collapsed) and placeholders per row.
+const shape = (cell) => {
+  const parts = cell.split(/\s·\s/)
+  const alts = parts.map(
+    (p) => new Set(p.split(/\s\/\s/).map((a) => a.replace(/\s\((one|few|many|other)\)$/, '#'))).size,
+  )
+  const ph = [...new Set([...cell.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]))].sort().join(',')
+  return { n: parts.length, alts: alts.join(','), ph }
+}
+const unpaired = rows.filter(([, uk, en]) => {
+  if (!uk || !en) return false
+  const a = shape(uk)
+  const b = shape(en)
+  return a.n !== b.n || a.ph !== b.ph
+})
 
 // ---- data that is not copy -------------------------------------------------------------------------------
 const NUM =
@@ -118,12 +159,12 @@ function blocks() {
   for (const el of document.querySelectorAll('body *')) {
     if (el.closest(OS) || !vis(el) || !own(el) || /^(STYLE|SCRIPT|SVG)$/i.test(el.tagName)) continue
     // The text block is the nearest ancestor-or-self that is not inline, so «Збережеться <span>−1 250,50 USD</span> …» is one string.
-    let b = el
+    let b = el.closest('[data-file]') || el // R4-16: a middle-ellipsized file name is one string
     while (b.parentElement && inline(b) && b.parentElement !== document.body) b = b.parentElement
     if (taken.has(b)) continue
     taken.add(b)
     // Child blocks are read on their own: take only this block's inline text.
-    const text = [...b.childNodes]
+    const text = b.matches('[data-file]') ? b.textContent : [...b.childNodes]
       .map((n) =>
         n.nodeType === 3 ? n.textContent : n.nodeType === 1 && inline(n) ? n.textContent : '\n',
       )
@@ -135,11 +176,12 @@ function blocks() {
 
 // A diagram of scaled-down screens with motion annotations, not UI at 1:1 (as in measure.mjs).
 const DIAGRAM = new Set(['transition-storyboard'])
-const frames = mod
-  .frames()
+const frames = mods
+  .flatMap((m) => m.frames())
   .filter((f) => (!filter || f.name.includes(filter)) && !DIAGRAM.has(f.name))
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH })
 const missing = new Map()
+const noEnDrawn = new Set()
 let nBlocks = 0
 let nTokens = 0
 for (const f of frames) {
@@ -150,7 +192,15 @@ for (const f of frames) {
     for (const line of b.split('\n'))
       for (const t of split(line)) {
         nTokens++
-        if (isData(t) || covered(t)) continue
+        if (isData(t)) {
+          cover(t) // a drawn value («62%») still marks its table token as used
+          continue
+        }
+        const ids = cover(t)
+        if (ids.length) {
+          if (!ids.some((id) => rows.find((r) => r[0] === id)?.[2])) noEnDrawn.add(t)
+          continue
+        }
         if (!missing.has(t)) missing.set(t, new Set())
         missing.get(t).add(f.name)
       }
@@ -162,8 +212,30 @@ for (const [t, fs] of [...missing].sort((a, b) => a[0].localeCompare(b[0], 'uk')
   console.log(
     `missing  «${t}»  ${[...fs].slice(0, 3).join(', ')}${fs.size > 3 ? ` +${fs.size - 3}` : ''}`,
   )
-for (const r of emptyEn) console.log(`no en    «${r[1]}»`)
+for (const r of emptyEn) console.log(`no en    ${r[0]} «${r[1]}»`)
+for (const t of noEnDrawn) console.log(`drawn, no en  «${t}»`)
+for (const r of unpaired) console.log(`unpaired ${r[0]}  uk «${r[1]}»  en «${r[2]}»`)
+for (const r of dupId) console.log(`dup id   ${r[0]}`)
+// table -> frame: only meaningful over every frame of both sets.
+const full = set === 'all' && !filter
+const interaction = rows.filter((r) => r[3] === 'interaction')
+const unused = full
+  ? rows.filter(
+      ([id, , , kind]) =>
+        kind !== 'interaction' &&
+        (tokensOf.get(id) || []).some((t) => !used.has(`${id}\u0000${t}`)),
+    )
+  : []
+for (const [id, uk] of unused) {
+  const miss = tokensOf.get(id).filter((t) => !used.has(`${id}\u0000${t}`))
+  console.log(`unused   ${id}  «${miss.join('» «')}»`)
+}
+const nTok = [...tokensOf.values()].reduce((n, v) => n + v.length, 0)
 console.log(
-  `strings: ${frames.length} frames · ${nBlocks} text blocks · ${nTokens} strings read · table ${rows.length} rows, ${exact.size + wild.length} tokens · missing ${missing.size} · rows without en ${emptyEn.length}`,
+  `strings ${set}: ${frames.length} frames · ${nBlocks} text blocks · ${nTokens} strings read · table ${rows.length} rows, ${nTok} tokens\n` +
+    `  frame -> table: missing ${missing.size} · drawn without en ${noEnDrawn.size}\n` +
+    `  table -> frame: ${full ? `rows with an undrawn token ${unused.length} · interaction-only rows ${interaction.length}` : 'n/a (run with set all, no filter)'}\n` +
+    `  uk <-> en: rows without en ${emptyEn.length} · unpaired rows ${unpaired.length} · duplicate ids ${dupId.length}`,
 )
-process.exitCode = missing.size || emptyEn.length || !rows.length || !nTokens ? 1 : 0
+process.exitCode =
+  missing.size || noEnDrawn.size || emptyEn.length || unpaired.length || dupId.length || unused.length || !rows.length || !nTokens ? 1 : 0

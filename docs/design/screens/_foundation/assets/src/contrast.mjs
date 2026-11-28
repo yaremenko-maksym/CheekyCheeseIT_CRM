@@ -77,6 +77,11 @@ const PAIRS = [
     'var(--card)',
     3,
   ],
+  // R4-18: the disclosure chevron is a graphical object (3:1) on every surface a list row sits on.
+  ['--chevron on --bg', 'var(--chevron)', 'var(--bg)', 3],
+  ['--chevron on --card', 'var(--chevron)', 'var(--card)', 3],
+  ['--chevron on --popover', 'var(--chevron)', 'var(--popover)', 3],
+  ['--chevron on --surface', 'var(--chevron)', 'var(--surface)', 3],
   ['--destructive text on --bg', 'var(--destructive)', 'var(--bg)', 4.5],
   ['--destructive text on --surface', 'var(--destructive)', 'var(--surface)', 4.5],
   ['--destructive text on --raised', 'var(--destructive)', 'var(--raised)', 4.5],

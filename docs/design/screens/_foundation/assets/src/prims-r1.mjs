@@ -184,7 +184,8 @@ export const datepickerTouchDesktop = (w, h) =>
     w,
     h,
     touch: true,
-    overlay: `${formPanel(480, { modal: true, fine: false })}${datePop(`top:330px;left:${w - 480 + 20}px`, 44)}`,
+    // R4-25: 1024–1439 is 420 under either pointer (primitives-v2 §2 Side panel width).
+    overlay: `${formPanel(420, { modal: true, fine: false })}${datePop(`top:330px;left:${w - 420 + 20}px`, 44)}`,
   })
 
 // ---------- Banner stack (F0-15): impersonation pinned first, then newest first; two shown, the rest folded ----------

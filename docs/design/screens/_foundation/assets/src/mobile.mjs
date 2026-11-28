@@ -190,9 +190,9 @@ const CLAMP2 =
 export function txnRow(x, { compact = false, menu = false } = {}) {
   // match: every sent field equal and created after the send by server time (full highlight + «збіг»);
   // tag: a muted label that never highlights («схожа», «раніше»); isNew: created after the send («нова» only)
-  // a tag that names a difference («схожа · інший опис») takes its own line, so the title never truncates
-  // The meta line spans the row under the title and the amount, time first: «14:20 · Витрата · Проєкт «Альфа»».
-  const tagLine = x.tag && x.tag.includes(' · ')
+  // R4-23: every tag leads the meta line, as «збіг» does: «схожа · інший опис · 14:33 · …» (the meta wraps to
+  // two lines at most), never a third line of its own. Otherwise the meta is time first: «14:20 · Витрата · …».
+  const tagLine = false
   const warn = x.warn ? ';color:var(--warning);font-weight:600' : ''
   const mark = x.pending
     ? '<span class="pill warn" style="display:inline-flex;vertical-align:middle;height:18px;font-size:11px;margin-right:6px">Очікує</span>'

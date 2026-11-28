@@ -1,6 +1,6 @@
 // Primitives v2, part 2: ResponsiveSheet on tablet/desktop, toasts, upload indicator, skeletons,
 // chart theme, pull-to-refresh, page-transition storyboard.
-import { icon, phone, safeBottom, segmented } from './base.mjs'
+import { fileName, icon, phone, safeBottom, segmented } from './base.mjs'
 import {
   tabScreen,
   interviewsBody,
@@ -341,7 +341,7 @@ const ring = (pct, size = 36) => {
 export function uploadStates(w, h) {
   const thumb = `<div style="width:44px;height:52px;border-radius:8px;background:linear-gradient(160deg,oklch(0.86 0 0),oklch(0.7 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px;flex:none"></div>`
   const row = (title, sub, trail, subStyle = '') =>
-    `<div class="lrow two" style="--inset:72px">${thumb}<div class="grow col" style="gap:2px;min-width:0"><div class="t-body clamp2" style="font-weight:500">${title}</div><div class="t-foot num" style="overflow-wrap:anywhere;${subStyle || 'color:var(--muted-fg)'}">${sub}</div></div>${trail}</div>`
+    `<div class="lrow two" style="--inset:72px">${thumb}<div class="grow col" style="gap:2px;min-width:0">${/\.\w{3,4}$/.test(title) ? fileName(title, 't-body', 'font-weight:500') : `<div class="t-body clamp2" style="font-weight:500">${title}</div>`}<div class="t-foot num" style="overflow-wrap:anywhere;${subStyle || 'color:var(--muted-fg)'}">${sub}</div></div>${trail}</div>`
   const inner = `${topBar({ back: true, title: 'Чеки', bell: false, search: false })}<div class="content">
   <div class="sechead"><span class="t-over">Стани завантаження</span></div><div class="group">
   ${row('receipt-office.jpg', 'Завантаження · 62% · 0,9 з 1,4 МБ', `<span class="row" style="gap:6px">${ring(62)}<span class="iconbtn" aria-label="Скасувати завантаження">${icon('x', { size: 18 })}</span></span>`)}
@@ -365,10 +365,11 @@ export function skeletonMobile(w, h) {
 }
 
 export function skeletonTable() {
-  // The same columns and widths as tableRows() (F0-37), so the first paint does not reflow.
+  // The same columns and widths as tableRows() (F0-37), so the first paint does not reflow. R4-17: the fine-pointer
+  // «…» slot is empty (the loaded row shows «…» only on hover / focus), so the skeleton draws nothing there.
   const C = TABLE_COLS
   const row = (i) =>
-    `<div class="row" style="height:40px;padding:0 16px;gap:16px;border-bottom:1px solid var(--separator)"><div style="width:${C.d}px"><div class="sk" style="width:40px;height:11px"></div></div><div class="grow"><div class="sk" style="width:${[56, 40, 66, 46, 52, 34, 60, 44][i % 8]}%;height:12px"></div></div><div style="width:${C.ty}px"><div class="sk" style="width:60px;height:11px"></div></div><div style="width:${C.rc}px;display:grid;place-items:center">${i % 3 ? '' : '<div class="sk" style="width:14px;height:14px;border-radius:4px"></div>'}</div><div style="width:${C.a}px;display:flex;justify-content:flex-end"><div class="sk" style="width:90px;height:12px"></div></div><div style="width:${C.k}px;flex:none;display:grid;place-items:center;margin-right:-16px"><div class="sk" style="width:24px;height:24px;border-radius:12px"></div></div></div>`
+    `<div class="row" style="height:40px;padding:0 16px;gap:16px;border-bottom:1px solid var(--separator)"><div style="width:${C.d}px"><div class="sk" style="width:40px;height:11px"></div></div><div class="grow"><div class="sk" style="width:${[56, 40, 66, 46, 52, 34, 60, 44][i % 8]}%;height:12px"></div></div><div style="width:${C.ty}px"><div class="sk" style="width:60px;height:11px"></div></div><div style="width:${C.rc}px;display:grid;place-items:center">${i % 3 ? '' : '<div class="sk" style="width:14px;height:14px;border-radius:4px"></div>'}</div><div style="width:${C.a}px;display:flex;justify-content:flex-end"><div class="sk" style="width:90px;height:12px"></div></div><div style="width:${C.k}px;flex:none;margin-right:-16px"></div></div>`
   return `<div style="padding:24px;background:var(--bg);width:960px" role="status" aria-label="Завантаження транзакцій"><div style="margin-bottom:14px">${deskToolbar({ mainW: 912, count: '<span class="sk" style="display:block;width:96px;height:12px"></span>' })}</div>
   <div style="border:1px solid var(--border);border-radius:14px;background:var(--card);overflow:hidden"><div class="row" style="height:36px;padding:0 16px;gap:16px;font-size:12px;font-weight:600;color:var(--muted-fg);border-bottom:1px solid var(--border)"><span style="width:${C.d}px">Дата</span><span class="grow">Опис</span><span style="width:${C.ty}px">Тип</span><span style="width:${C.rc}px;text-align:center">Чек</span><span style="width:${C.a}px;text-align:right">Сума</span><span style="width:${C.k}px;margin-right:-16px;flex:none"><span class="sr">Дії</span></span></div>${Array.from({ length: 8 }, (_, i) => row(i)).join('')}</div></div>`
 }
@@ -589,6 +590,13 @@ export function transitions() {
       `${rail}<div class="grow" style="position:relative;padding-top:8px">${lines(7)}<div style="position:absolute;inset:0 -22px 0 -22px;background:${s ? 'var(--scrim)' : 'transparent'}"></div><div style="position:absolute;top:0;bottom:0;right:0;width:120px;transform:translateX(${s ? 0 : 100}%);background:var(--popover);border-left:1px solid var(--border)"></div></div>`,
       s ? '280 мс · фокус у панелі' : '0 мс',
     )
+  // R4-26: the desktop side panel. 1024–1439 modal: the tablet motion over the --scrim. ≥ 1440 non-modal: no
+  // scrim; the panel slides in at the right edge and the main column narrows to make room, in the same 280 ms.
+  const deskPanel = (s, modal) =>
+    box(
+      `<div class="grow" style="position:relative;padding-top:8px"><div style="margin-right:${!modal && s ? 120 : 0}px">${lines(7)}</div>${modal ? `<div style="position:absolute;inset:0 -22px 0 -22px;background:${s ? 'var(--scrim)' : 'transparent'}"></div>` : ''}<div style="position:absolute;top:0;bottom:0;right:0;width:120px;transform:translateX(${s ? 0 : 100}%);background:var(--popover);border-left:1px solid var(--border)"></div></div>`,
+      s ? (modal ? '280 мс · scrim · фокус у панелі' : '280 мс · без scrim · таблиця звужується') : '0 мс',
+    )
   // R3-11: dialog and popover enter / exit, the same scrim token as every overlay.
   const dlgBox = (s) =>
     box(
@@ -611,6 +619,7 @@ export function transitions() {
   ${rowOf('Одна панель: список → деталі', '640–899 · той самий push, що на телефоні (280 мс); рейка нерухома', [tab1(0), tab1(1)])}
   ${rowOf('Бічна панель', 'translateX 100%→0 280 мс + scrim 0→60% (--scrim) 200 мс · закриття 150 мс, як аркуш · рейка під scrim', [tabPanel(0), tabPanel(1)])}
   <h2>Діалог і поповер (усі класи ≥ 640)</h2>
+  ${rowOf('Бічна панель на комп’ютері', '1024–1439: як на планшеті, модальна, над --scrim · ≥ 1440: немодальна, без scrim, основна колонка звужується · закриття 150 мс', [deskPanel(0, true), deskPanel(1, true), deskPanel(1, false)])}
   ${rowOf('Діалог (alertdialog, «Нові записи»)', 'scrim 0→60% + opacity 0→1, scale 0.96→1 · 200 мс · закриття: opacity 1→0 · 150 мс, scale без змін', [dlgBox(0), dlgBox(1)])}
   ${rowOf('Поповер і меню', 'opacity 0→1 + translateY 4 px→0 від якоря · 200 мс · закриття: opacity · 150 мс, без зсуву', [popBox(0), popBox(1)])}
   <div class="t-foot muted" style="width:100%">prefers-reduced-motion: усі зсуви й масштаб (аркуш, панель, діалог, поповер, push) замінено на crossfade 120 мс; scrim теж лише crossfade; пружини вимкнено. Десктоп: зміна маршруту — crossfade вмісту 150 мс, бічна панель і заголовок нерухомі.</div></div>`

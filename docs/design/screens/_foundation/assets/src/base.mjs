@@ -57,7 +57,7 @@ export const CSS = `
 :root{
   --bg:oklch(0.08 0 0); --card:oklch(0.12 0 0); --popover:oklch(0.13 0 0);
   --surface:oklch(0.16 0.006 85); --raised:oklch(0.19 0.012 85); --secondary:oklch(0.2 0 0);
-  --fg:oklch(0.97 0 0); --muted-fg:oklch(0.64 0 0);
+  --fg:oklch(0.97 0 0); --muted-fg:oklch(0.64 0 0);--chevron:oklch(0.56 0 0);
   --border:oklch(0.22 0.004 85); --separator:oklch(0.2 0.004 85); --input-border:oklch(0.52 0.006 85);
   --primary:oklch(0.84 0.183 85.3); --primary-fg:oklch(0.08 0 0);
   --yellow-muted:oklch(0.72 0.13 85.3); --yellow-subtle:oklch(0.22 0.04 85.3);
@@ -131,7 +131,7 @@ html,body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-
 .lrow .lead{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:var(--surface);color:var(--fg);flex:none}
 .lrow .lead.av{border-radius:18px;background:var(--yellow-subtle);color:var(--primary);font-size:13px;font-weight:600}
 .lrow .trail{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:none}
-.lrow .chev{color:oklch(0.45 0 0);flex:none}
+.lrow .chev{color:var(--chevron);flex:none}
 .amount{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-0.01em}
 .pill{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:11px;font-size:12px;font-weight:500;background:var(--surface);color:var(--fg);border:1px solid var(--border);white-space:nowrap}
 .pill.y{background:var(--yellow-subtle);color:var(--primary);border-color:oklch(0.32 0.06 85)}
@@ -253,3 +253,11 @@ export const segmented = (opts, on = 0, { fit = false, size = 14 } = {}) =>
 
 export const currencyPill = (c = 'USD') =>
   `<span class="pill" role="button" aria-label="Валюта: ${c}" style="height:44px;padding:0 14px;border-radius:22px;font-size:15px;font-weight:600">${c} ${icon('chevron-down', { size: 15 })}</span>`
+
+// R4-16: a file name truncates in the MIDDLE: the head ellipsizes, the last 4 characters of the base name and
+// the extension never do («receipt-offi…-nov.jpg»); the full name is the accessible name and the tooltip.
+export function fileName(name, cls = 't-sub', style = 'font-weight:600') {
+  const dot = name.lastIndexOf('.')
+  const cut = Math.max(0, (dot > 0 ? dot : name.length) - 4)
+  return `<div class="${cls}" data-file title="${name}" aria-label="${name}" style="display:flex;min-width:0;white-space:nowrap;${style}"><span aria-hidden="true" style="overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto">${name.slice(0, cut)}</span><span aria-hidden="true" style="flex:none">${name.slice(cut)}</span></div>`
+}
