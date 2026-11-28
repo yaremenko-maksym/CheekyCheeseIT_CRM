@@ -4,7 +4,7 @@ size() { wc -c < "$1" | tr -d ' '; }
 # Builds the contact sheets of a frame set in ../<set>-v2/ (labelled tiles, each quantised ≤ ~400 KB):
 #   _contact-sheet.png         phones (-320 / -375), 6 per row
 #   _contact-sheet-wide.png    tablet, desktop and board frames, 3 per row at 620 px
-#   _contact-sheet-detail.png  chart-desktop and transition-storyboard at native size (dense frames)
+#   _contact-sheet-detail.png  chart-desktop (-selected) and transition-storyboard at native size (dense frames)
 # Usage: ./contact-sheet.sh shell|primitives
 set -euo pipefail
 set_name="$1"
@@ -17,7 +17,7 @@ detail=()
 while IFS= read -r f; do
   case "$(basename "$f" .png)" in
     *-320 | *-375) phones+=("$f") ;;
-    chart-desktop | transition-storyboard) detail+=("$f") ;;
+    chart-desktop | chart-desktop-selected | transition-storyboard) detail+=("$f") ;;
     *) wide+=("$f") ;;
   esac
 done < <(find "$dir" -maxdepth 1 -name '*.png' ! -name '_contact-sheet*.png' | sort)
