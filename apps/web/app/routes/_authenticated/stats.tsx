@@ -204,32 +204,30 @@ export function StatsPage() {
           <IncomeComplianceSection />
 
           {/* Future sections placeholder (HR/Команда/Проєкти analytics). */}
-          {isAdmin && (
-            <section className="space-y-4" data-testid="stats-placeholders-section">
-              <div className="flex items-center gap-2">
-                <HelpCircle className="h-4 w-4 text-muted-foreground/40" />
-                <h2 className="text-sm font-semibold text-muted-foreground/40 uppercase tracking-wider">
-                  <Trans>Інші розділи</Trans>
-                </h2>
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {(
-                  [
-                    t`HR — воронка співбесід`,
-                    t`Команда — активність`,
-                    t`Проєкти — завантаженість`,
-                  ] as const
-                ).map((label) => (
-                  <div
-                    key={label}
-                    className="rounded-xl border border-dashed border-border/50 p-6 text-center text-sm text-muted-foreground/40"
-                  >
-                    {label}
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+          <section className="space-y-4" data-testid="stats-placeholders-section">
+            <div className="flex items-center gap-2">
+              <HelpCircle className="h-4 w-4 text-muted-foreground/40" />
+              <h2 className="text-sm font-semibold text-muted-foreground/40 uppercase tracking-wider">
+                <Trans>Інші розділи</Trans>
+              </h2>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {(
+                [
+                  t`HR — воронка співбесід`,
+                  t`Команда — активність`,
+                  t`Проєкти — завантаженість`,
+                ] as const
+              ).map((label) => (
+                <div
+                  key={label}
+                  className="rounded-xl border border-dashed border-border/50 p-6 text-center text-sm text-muted-foreground/40"
+                >
+                  {label}
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
       </div>
     </div>

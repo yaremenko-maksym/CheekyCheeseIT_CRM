@@ -195,7 +195,7 @@ export function CompanySharePayoutModal({
   const qc = useQueryClient()
   const { user } = useAuth()
   const locale = useLocale()
-  const canManualConfirm = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
+  const canManualConfirm = user?.role === 'ADMIN'
 
   const [step, setStep] = useState<Step>('select')
   const [selected, setSelected] = useState<Set<string>>(() => new Set(preselectedTxIds ?? []))

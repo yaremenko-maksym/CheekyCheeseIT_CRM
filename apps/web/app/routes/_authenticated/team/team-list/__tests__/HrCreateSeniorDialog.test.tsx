@@ -7,7 +7,6 @@
  */
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Profiler } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
@@ -82,28 +81,8 @@ const mockedPost = vi.mocked(api.post)
 const schemaSpy = vi.mocked(hrCreateSeniorSchema.safeParse)
 
 const HR_ID = '11111111-1111-4111-8111-111111111111'
-const ACC_A = '22222222-2222-4222-8222-222222222222'
-const ACC_B = '44444444-4444-4444-8444-444444444444'
-const ACCOUNTANT_A = {
-  id: ACC_A,
-  displayName: 'Anna Accountant',
-  email: 'a@x.dev',
-  role: 'ACCOUNTANT',
-  avatarUrl: null,
-  avatarDocumentId: null,
-}
-const ACCOUNTANT_B = { ...ACCOUNTANT_A, id: ACC_B, displayName: 'Boris Accountant' }
-const SENIOR = {
-  ...ACCOUNTANT_A,
-  id: '33333333-3333-4333-8333-333333333333',
-  displayName: 'Sam Senior',
-  role: 'SENIOR',
-}
 
-function renderDialog(
-  opts: { open?: boolean; users?: unknown[]; onClose?: () => void; hrUserId?: string } = {},
-) {
-  mockedGet.mockResolvedValue({ data: opts.users ?? [] } as never)
+function renderDialog(opts: { open?: boolean; onClose?: () => void; hrUserId?: string } = {}) {
   const onClose = opts.onClose ?? vi.fn()
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -167,9 +146,9 @@ describe('HrCreateSeniorDialog rendering', () => {
     expect(mockedGet).not.toHaveBeenCalled()
   })
 
-  it('loads the user list from /users when open', async () => {
+  it('does not load the user list when open (there is no accountant picker)', () => {
     renderDialog()
-    await waitFor(() => expect(mockedGet).toHaveBeenCalledWith('/users'))
+    expect(mockedGet).not.toHaveBeenCalled()
   })
 
   it('renders title, descriptions, fields, the HR auto block and the footer', () => {
@@ -205,7 +184,7 @@ describe('HrCreateSeniorDialog rendering', () => {
     expect(screen.getByText('HR')).toBeTruthy()
     expect(screen.getByText('Ви')).toBeTruthy()
     expect(screen.getByText('авто')).toBeTruthy()
-    expect(screen.getByText('Бухгалтер')).toBeTruthy()
+    expect(screen.queryByText('Бухгалтер')).toBeNull()
     expect(screen.getByRole('button', { name: 'Скасувати' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Створити' })).toBeTruthy()
   })
@@ -221,64 +200,6 @@ describe('HrCreateSeniorDialog rendering', () => {
     renderDialog()
     expect(screen.getByTestId('share-value').textContent).toBe('26')
     expect(screen.getByTestId('share-error').textContent).toBe('false')
-  })
-})
-
-describe('HrCreateSeniorDialog accountant selection', () => {
-  it('shows the empty hint when there are no accountants', async () => {
-    renderDialog({ users: [SENIOR] })
-    expect(
-      await screen.findByText('Бухгалтерів ще немає — зверніться до адміністратора'),
-    ).toBeTruthy()
-    expect(screen.queryByText(SENIOR.displayName)).toBeNull()
-  })
-
-  it('shows a single accountant as auto and submits their id', async () => {
-    const user = userEvent.setup()
-    renderDialog({ users: [SENIOR, ACCOUNTANT_A] })
-    expect(await screen.findByText('Anna Accountant')).toBeTruthy()
-    expect(screen.getAllByText('авто')).toHaveLength(2)
-    expect(screen.queryByText('Sam Senior')).toBeNull()
-    mockedPost.mockResolvedValue({ data: {} } as never)
-    await fillRequired(user)
-    await user.click(screen.getByRole('button', { name: 'Створити' }))
-    await waitFor(() => expect(mockedPost).toHaveBeenCalledTimes(1))
-    expect(mockedPost.mock.calls[0]?.[1]).toMatchObject({ accountantId: ACC_A })
-  })
-
-  it('offers a select for several accountants and submits null until one is picked', async () => {
-    const user = userEvent.setup()
-    renderDialog({ users: [ACCOUNTANT_A, ACCOUNTANT_B] })
-    const trigger = await screen.findByRole('combobox')
-    expect(trigger.textContent).toContain('— оберіть бухгалтера —')
-    expect(screen.queryByText('Бухгалтерів ще немає — зверніться до адміністратора')).toBeNull()
-    mockedPost.mockResolvedValue({ data: {} } as never)
-    await fillRequired(user)
-    await user.click(screen.getByRole('button', { name: 'Створити' }))
-    await waitFor(() => expect(mockedPost).toHaveBeenCalledTimes(1))
-    expect(mockedPost.mock.calls[0]?.[1]).toMatchObject({ accountantId: null })
-  })
-
-  it('submits the accountant chosen from the select', async () => {
-    const user = userEvent.setup()
-    renderDialog({ users: [ACCOUNTANT_A, ACCOUNTANT_B] })
-    const trigger = await screen.findByRole('combobox')
-    await user.click(trigger)
-    await user.click(await screen.findByRole('option', { name: 'Boris Accountant' }))
-    expect(screen.getByRole('combobox').textContent).toContain('Boris Accountant')
-    mockedPost.mockResolvedValue({ data: {} } as never)
-    await fillRequired(user)
-    await user.click(screen.getByRole('button', { name: 'Створити' }))
-    await waitFor(() => expect(mockedPost).toHaveBeenCalledTimes(1))
-    expect(mockedPost.mock.calls[0]?.[1]).toMatchObject({ accountantId: ACC_B })
-  })
-
-  it('re-derives the auto accountant each time the dialog reopens', async () => {
-    const view = renderDialog({ users: [ACCOUNTANT_A] })
-    expect(await screen.findByText('Anna Accountant')).toBeTruthy()
-    view.rerenderWith(false)
-    view.rerenderWith(true)
-    expect(await screen.findByText('Anna Accountant')).toBeTruthy()
   })
 })
 
@@ -399,8 +320,7 @@ describe('HrCreateSeniorDialog field validation on blur', () => {
 describe('HrCreateSeniorDialog submit', () => {
   it('posts the normalized payload and, on success, toasts, invalidates, closes and resets', async () => {
     const user = userEvent.setup()
-    const view = renderDialog({ users: [ACCOUNTANT_A] })
-    await screen.findByText('Anna Accountant')
+    const view = renderDialog()
     await fillRequired(user)
     await user.type(screen.getByPlaceholderText('@username'), '  senior_tg ')
     await addRoles(user, 'FRONTEND_ENGINEER')
@@ -420,7 +340,6 @@ describe('HrCreateSeniorDialog submit', () => {
       technicalRoles: ['BACKEND_ENGINEER', 'FRONTEND_ENGINEER', 'QA_ENGINEER'],
       seniorSharePercent: 40,
       hrIds: [HR_ID],
-      accountantId: ACC_A,
     })
     await waitFor(() => expect(view.onClose).toHaveBeenCalledTimes(1))
     expect(toast.success).toHaveBeenCalledWith('Сеньйора створено, команду сформовано')
@@ -464,7 +383,7 @@ describe('HrCreateSeniorDialog submit', () => {
     expect(payload.phone).toBeUndefined()
     expect(payload.technicalRoles).toEqual(SENIOR_ROLES)
     expect('techStack' in payload).toBe(false)
-    expect(payload.accountantId).toBeNull()
+    expect('accountantId' in payload).toBe(false)
     expect(payload.seniorSharePercent).toBe(26)
   })
 
@@ -495,7 +414,6 @@ describe('HrCreateSeniorDialog submit', () => {
       technicalRoles: SENIOR_ROLES,
       seniorSharePercent: 26,
       hrIds: [HR_ID],
-      accountantId: null,
     })
     await waitFor(() => expect(view.onClose).toHaveBeenCalledTimes(1))
     expect(toast.success).toHaveBeenCalledWith('Сеньйора створено, команду сформовано')
@@ -564,7 +482,7 @@ describe('HrCreateSeniorDialog submit', () => {
 describe('HrCreateSeniorDialog closing', () => {
   it('cancel resets the form and calls onClose', async () => {
     const user = userEvent.setup()
-    const view = renderDialog({ users: [ACCOUNTANT_A, ACCOUNTANT_B] })
+    const view = renderDialog()
     await fillRequired(user)
     await user.click(screen.getByRole('button', { name: 'Скасувати' }))
     expect(view.onClose).toHaveBeenCalledTimes(1)
@@ -584,26 +502,9 @@ describe('HrCreateSeniorDialog closing', () => {
       '',
     )
   })
-
-  it('clears a chosen accountant on cancel', async () => {
-    const user = userEvent.setup()
-    const view = renderDialog({ users: [ACCOUNTANT_A, ACCOUNTANT_B] })
-    await user.click(await screen.findByRole('combobox'))
-    await user.click(await screen.findByRole('option', { name: 'Anna Accountant' }))
-    expect(screen.getByRole('combobox').textContent).toContain('Anna Accountant')
-    await user.click(screen.getByRole('button', { name: 'Скасувати' }))
-    expect(view.onClose).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('combobox').textContent).toContain('— оберіть бухгалтера —')
-  })
 })
 
 describe('HrCreateSeniorDialog data wiring and trimming', () => {
-  it('caches the loaded users under the shared ["users"] query key', async () => {
-    const view = renderDialog({ users: [ACCOUNTANT_A] })
-    await screen.findByText('Anna Accountant')
-    expect(view.qc.getQueryData(['users'])).toEqual([ACCOUNTANT_A])
-  })
-
   it('trims the email for validation and for the payload', async () => {
     const user = userEvent.setup()
     renderDialog()
@@ -667,26 +568,6 @@ describe('HrCreateSeniorDialog data wiring and trimming', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
     expect(toast.error).toHaveBeenCalledWith('Перевірте заповнені поля')
     expect(mockedPost).not.toHaveBeenCalled()
-  })
-})
-
-describe('HrCreateSeniorDialog while closed', () => {
-  it('does not touch its state while closed, even with the users already cached', () => {
-    const qc = new QueryClient()
-    qc.setQueryData(['users'], [ACCOUNTANT_A])
-    const onRender = vi.fn()
-    render(
-      <I18nTestProvider>
-        <QueryClientProvider client={qc}>
-          <Profiler id="dialog" onRender={onRender}>
-            <HrCreateSeniorDialog open={false} onClose={vi.fn()} hrUserId={HR_ID} />
-          </Profiler>
-        </QueryClientProvider>
-      </I18nTestProvider>,
-    )
-    // Mount plus the query observer settling is 2 commits; an effect that seeds state while
-    // closed would add more (4 with the open-gate removed).
-    expect(onRender).toHaveBeenCalledTimes(2)
   })
 })
 

@@ -90,8 +90,8 @@ export const financeApi = {
   validateTransaction: (id: string, data: ValidateTransactionDto) =>
     api.patch<TransactionDto>(`/transactions/${id}/validate`, data).then((r) => r.data),
 
-  // Drop role - phase 3 (manual payout confirmation, spec §8.4). ADMIN /
-  // ACCOUNTANT confirm that an off-platform PAYOUT actually arrived to one of
+  // Drop role - phase 3 (manual payout confirmation, spec §8.4). ADMIN
+  // confirms that an off-platform PAYOUT actually arrived to one of
   // the admin partners. Backend atomically flips PAYOUT → PAID and inserts a
   // PAYOUT_CONFIRMED row crediting the chosen admin.
   confirmPayout: (id: string, data: ConfirmPayoutDto) =>

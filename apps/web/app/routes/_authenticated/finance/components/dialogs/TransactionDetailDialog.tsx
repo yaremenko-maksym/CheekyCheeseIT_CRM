@@ -484,7 +484,7 @@ export function TransactionDetailDialog({
         row,
         user?.id,
         // Stryker disable next-line StringLiteral: canAttachReceipt only compares
-        // role against the literals 'ADMIN'/'ACCOUNTANT' — any other string
+        // role against the literal 'ADMIN' — any other string
         // (the '' fallback or the mutant's "Stryker was here!") is equally
         // non-matching, so no test can observe a difference between them.
         user?.role ?? '',
@@ -494,7 +494,7 @@ export function TransactionDetailDialog({
       // dialog is closed and unmounted.
       false
   // Same audience the server already uses for the audit fields on this DTO.
-  const privileged = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
+  const privileged = user?.role === 'ADMIN'
 
   return (
     <>

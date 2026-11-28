@@ -1,22 +1,21 @@
 /**
  * stats.test.tsx — role-split rendering for /stats.
  *
- * The page is shared by ADMIN and ACCOUNTANT. After task-income-compliance:
+ * The page is ADMIN-only. It renders:
  *
- *   ECONOMIC (both ADMIN + ACCOUNTANT): finance KPIs (income / expenses /
- *     salaries / Net), secondary KPIs, the monthly chart — i.e. the P&L.
+ *   ECONOMIC: finance KPIs (income / expenses / salaries / Net), secondary
+ *     KPIs, the monthly chart — i.e. the P&L.
  *
- *   «КОНТРОЛЬ ПРИХОДОВ» (both ADMIN + ACCOUNTANT): the income-compliance section
- *     (X/N progress per receiver + expand of projects without a counted income).
+ *   «КОНТРОЛЬ ПРИХОДОВ»: the income-compliance section (X/N progress per
+ *     receiver + expand of projects without a counted income).
  *     The ParticipantsBalancesSection (employee/partner balances) was REMOVED.
  *
- *   COMPANY + PARTNER BALANCES card (both ADMIN + ACCOUNTANT).
+ *   COMPANY + PARTNER BALANCES card.
  *
- *   ADMIN-ONLY: the «Другие разделы» HR/Команда/Проекты placeholders.
+ *   The «Другие разделы» HR/Команда/Проекты placeholders.
  *
- * This pins: both roles see the economic + income-compliance sections; the old
- * participants-balances section is gone for everyone; ADMIN still sees the
- * placeholders (no regression), ACCOUNTANT does not; both see the balances card.
+ * This pins: ADMIN sees every section above; the old participants-balances
+ * section is gone; every other role renders nothing.
  *
  * Heavy dependencies (router file-route, query client, recharts, finance api)
  * are mocked so the component renders in isolation.
@@ -245,8 +244,8 @@ beforeEach(() => {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('StatsPage — economic data (both roles)', () => {
-  it.each<SessionUser['role']>(['ADMIN', 'ACCOUNTANT'])(
+describe('StatsPage — economic data', () => {
+  it.each<SessionUser['role']>(['ADMIN'])(
     '%s sees the economic finance section + core KPIs',
     async (role) => {
       setup(role)
@@ -262,17 +261,14 @@ describe('StatsPage — economic data (both roles)', () => {
   )
 
   // Phase 8 v2: company USDT account balance moved from the Финансы page card to
-  // this KPI strip — both ADMIN and ACCOUNTANT must see it.
-  it.each<SessionUser['role']>(['ADMIN', 'ACCOUNTANT'])(
-    '%s sees the company-account balance KPI',
-    (role) => {
-      setup(role)
-      const kpi = screen.getByTestId('stats-company-account-balance')
-      expect(kpi).toBeInTheDocument()
-      expect(kpi).toHaveTextContent('4,200.00 USDT')
-      expect(screen.getByText('Рахунок компанії · USDT')).toBeInTheDocument()
-    },
-  )
+  // this KPI strip — ADMIN must see it.
+  it.each<SessionUser['role']>(['ADMIN'])('%s sees the company-account balance KPI', (role) => {
+    setup(role)
+    const kpi = screen.getByTestId('stats-company-account-balance')
+    expect(kpi).toBeInTheDocument()
+    expect(kpi).toHaveTextContent('4,200.00 USDT')
+    expect(screen.getByText('Рахунок компанії · USDT')).toBeInTheDocument()
+  })
 
   // task-i18n-stage3d-pr4 (mutation gate). The primary-KPI `hint` tooltips
   // were never asserted at all -- a StringLiteral mutant on any of them
@@ -393,8 +389,8 @@ describe('StatsPage — economic data (both roles)', () => {
   })
 })
 
-describe('StatsPage — income-compliance «Контроль приходов» (both roles)', () => {
-  it.each<SessionUser['role']>(['ADMIN', 'ACCOUNTANT'])(
+describe('StatsPage — income-compliance «Контроль приходов»', () => {
+  it.each<SessionUser['role']>(['ADMIN'])(
     '%s sees the income-compliance section + receivers + KPI strip',
     (role) => {
       setup(role)
@@ -844,34 +840,8 @@ describe('StatsPage — income-compliance «Контроль приходов» 
   })
 })
 
-describe('StatsPage — ACCOUNTANT economic-only (no admin-only surface)', () => {
-  it('renders the accountant variant root, NOT the admin root', () => {
-    setup('ACCOUNTANT')
-    expect(screen.getByTestId('stats-page-accountant')).toBeInTheDocument()
-    expect(screen.queryByTestId('stats-page-admin')).not.toBeInTheDocument()
-  })
-
-  it('renders the company balance AND the partner balances for ACCOUNTANT', () => {
-    setup('ACCOUNTANT')
-    expect(screen.getByTestId('stats-company-account-balance')).toHaveTextContent('4,200')
-    expect(screen.getByText('Баланси партнерів')).toBeInTheDocument()
-    const partners = screen.getByTestId('stats-partner-balances')
-    expect(partners).toHaveTextContent('Admin One')
-    expect(partners).toHaveTextContent('$4,000.00')
-    expect(partners).toHaveTextContent('Admin Two')
-    expect(screen.getByText('Разом', { exact: false })).toHaveTextContent('Разом: $5,000')
-  })
-
-  it('does NOT render the HR/Команда/Проекты placeholders', () => {
-    setup('ACCOUNTANT')
-    expect(screen.queryByTestId('stats-placeholders-section')).not.toBeInTheDocument()
-    expect(screen.queryByText('Інші розділи')).not.toBeInTheDocument()
-    expect(screen.queryByText('HR — воронка співбесід')).not.toBeInTheDocument()
-  })
-})
-
 describe('StatsPage — partner section with no admin balances', () => {
-  it.each<SessionUser['role']>(['ADMIN', 'ACCOUNTANT'])(
+  it.each<SessionUser['role']>(['ADMIN'])(
     '%s sees the company balance but no partner section when adminBalances is empty',
     (role) => {
       setup(role, { adminBalances: [] })
@@ -882,7 +852,7 @@ describe('StatsPage — partner section with no admin balances', () => {
   )
 
   it('lists partners by balance, richest first, regardless of input order', () => {
-    setup('ACCOUNTANT', {
+    setup('ADMIN', {
       adminBalances: [
         { userId: 'a-low', displayName: 'Low Admin', balance: 100 },
         { userId: 'a-high', displayName: 'High Admin', balance: 900 },
@@ -896,7 +866,7 @@ describe('StatsPage — partner section with no admin balances', () => {
   })
 
   it('a single admin balance renders the partner list without a settlement transfer', () => {
-    setup('ACCOUNTANT', {
+    setup('ADMIN', {
       adminBalances: [{ userId: 'admin-1', displayName: 'Admin One', balance: 4000 }],
     })
     expect(screen.getByTestId('stats-partner-balances')).toHaveTextContent('Admin One')
@@ -908,7 +878,6 @@ describe('StatsPage — ADMIN full surface (no regression)', () => {
   it('renders the admin variant root', () => {
     setup('ADMIN')
     expect(screen.getByTestId('stats-page-admin')).toBeInTheDocument()
-    expect(screen.queryByTestId('stats-page-accountant')).not.toBeInTheDocument()
   })
 
   it('renders the partner-balances settlement card', () => {
@@ -933,7 +902,7 @@ describe('StatsPage — ADMIN full surface (no regression)', () => {
   })
 })
 
-// backlog #132: `useMemo` used to sit AFTER `if (!user || !isPrivilegedViewer)
+// backlog #132: `useMemo` used to sit AFTER `if (!user || !isAdmin)
 // return null` — a hook declared past an early-return guard. `useAuth()`
 // genuinely starts as `{ user: null, isLoading: true }` on the real page's
 // FIRST render (the /auth/me query hasn't resolved yet) and later re-renders
@@ -971,24 +940,11 @@ describe('StatsPage — Rules of Hooks (backlog #132 regression)', () => {
     expect(screen.getByTestId('stats-page-admin')).toBeInTheDocument()
   })
 
-  it('does not throw when auth resolves loading→ACCOUNTANT across renders of the same instance', () => {
-    useAuthMock.mockReturnValue({ user: null, isLoading: true })
-    mockLoadingQueries()
-    const { rerender } = render(<StatsPage />)
-
-    useAuthMock.mockReturnValue({ user: makeUser('ACCOUNTANT'), isLoading: false })
-    mockResolvedQueries()
-
-    expect(() => rerender(<StatsPage />)).not.toThrow()
-    expect(screen.getByTestId('stats-page-accountant')).toBeInTheDocument()
-  })
-
-  // The guard is `!user || !isPrivilegedViewer` — the two cases below hit it
+  // The guard is `!user || !isAdmin` — the two cases below hit it
   // with exactly ONE side true each, which is what distinguishes `||` from
-  // `&&`. Under `&&` a signed-in non-privileged viewer (JUNIOR/SENIOR/HR)
+  // `&&`. Under `&&` a signed-in non-admin viewer (JUNIOR/SENIOR/HR/DROP)
   // would fall through the guard and render the finance page — the exact
-  // leak this early return exists to prevent. Both roots are asserted absent
-  // because ADMIN and ACCOUNTANT render different testids.
+  // leak this early return exists to prevent.
   it.each(['JUNIOR', 'SENIOR', 'HR', 'DROP'] as const)(
     'renders nothing for a signed-in non-privileged viewer (%s)',
     (role) => {
@@ -998,7 +954,6 @@ describe('StatsPage — Rules of Hooks (backlog #132 regression)', () => {
       render(<StatsPage />)
 
       expect(screen.queryByTestId('stats-page-admin')).not.toBeInTheDocument()
-      expect(screen.queryByTestId('stats-page-accountant')).not.toBeInTheDocument()
       // The company + partner balances card must not leak to any other role.
       expect(screen.queryByTestId('stats-company-partners-card')).not.toBeInTheDocument()
       expect(screen.queryByText('Баланси партнерів')).not.toBeInTheDocument()
@@ -1012,7 +967,6 @@ describe('StatsPage — Rules of Hooks (backlog #132 regression)', () => {
     render(<StatsPage />)
 
     expect(screen.queryByTestId('stats-page-admin')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('stats-page-accountant')).not.toBeInTheDocument()
   })
 })
 

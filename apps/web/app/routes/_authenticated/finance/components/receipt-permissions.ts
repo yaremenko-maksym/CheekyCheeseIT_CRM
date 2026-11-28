@@ -23,7 +23,7 @@ export function canAttachReceipt(
   currentUserId: string | null | undefined,
   role: string,
 ): boolean {
-  const isPrivileged = role === 'ADMIN' || role === 'ACCOUNTANT'
+  const isPrivileged = role === 'ADMIN'
   const hasReceipt = !!(tx.receiptDocumentId || tx.receiptExternalUrl)
   const isAuthor = !!currentUserId && tx.createdBy === currentUserId
   return isPrivileged || (isAuthor && (!hasReceipt || tx.status !== 'PAID'))

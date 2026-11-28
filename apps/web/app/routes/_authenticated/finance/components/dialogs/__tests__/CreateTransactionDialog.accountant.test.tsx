@@ -1,11 +1,8 @@
 /**
- * task-accountant-create-transaction — CreateTransactionDialog role-parity test.
- *
- * Pins the frontend AC: an ACCOUNTANT sees the SAME create-transaction type set
- * as an ADMIN (ADMIN_INCOME / EXPENSE / SALARY / ADMIN_TRANSFER), while a role
- * that should not reach the admin set (SENIOR) renders only its own type. This
- * locks the `isAdminSet = isAdmin || isAccountant` widening so a future edit
- * cannot silently drop the accountant back to an empty/foreign type list.
+ * CreateTransactionDialog — the per-role type set, type-card copy, validate()
+ * error copy, expense category chips and footer copy. An ADMIN sees the admin
+ * set (ADMIN_INCOME / EXPENSE / SALARY / ADMIN_TRANSFER, plus DIVIDEND), while a
+ * role that should not reach the admin set (SENIOR) renders only its own type.
  *
  * Strategy mirrors UserDialog.create-wizard.test.tsx: mock auth/axios/router and
  * use the real query/mutation hooks (with a mocked queryClient) so the component
@@ -50,7 +47,7 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
 // ── Component under test (imported AFTER mocks) ─────────────────────────────
 import { CreateTransactionDialog } from '../CreateTransactionDialog'
 
-// The full set an ADMIN can create — ACCOUNTANT must match it exactly.
+// The full set an ADMIN can create (DIVIDEND is pinned separately below).
 const ADMIN_SET_TESTIDS = [
   'create-transaction-type-admin_income',
   'create-transaction-type-expense',
@@ -62,21 +59,10 @@ function renderDialog() {
   return render(<CreateTransactionDialog open onClose={() => {}} />, { wrapper: I18nTestProvider })
 }
 
-describe('CreateTransactionDialog — ACCOUNTANT/ADMIN type parity', () => {
+describe('CreateTransactionDialog — admin type set', () => {
   beforeEach(async () => {
     await loadCatalog('uk')
     currentRole = 'ADMIN'
-  })
-
-  it('ACCOUNTANT sees the SAME type set as ADMIN', () => {
-    currentRole = 'ACCOUNTANT'
-    renderDialog()
-    for (const id of ADMIN_SET_TESTIDS) {
-      expect(screen.getByTestId(id)).toBeInTheDocument()
-    }
-    // And NOT the senior/drop income-only cards.
-    expect(screen.queryByTestId('create-transaction-type-senior_income')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('create-transaction-type-drop_income')).not.toBeInTheDocument()
   })
 
   it('ADMIN sees the full admin set (regression baseline)', () => {
@@ -98,8 +84,7 @@ describe('CreateTransactionDialog — ACCOUNTANT/ADMIN type parity', () => {
 })
 
 // task-payout-company-ui WS3 — DIVIDEND option is ADMIN-only. Dividends are
-// withdrawn by an ADMIN partner; the ACCOUNTANT (despite admin-parity on the
-// other types) must NOT see the dividend withdrawal here.
+// withdrawn by an ADMIN partner.
 describe('CreateTransactionDialog — DIVIDEND option (ADMIN-only, WS3)', () => {
   beforeEach(() => {
     currentRole = 'ADMIN'
@@ -109,12 +94,6 @@ describe('CreateTransactionDialog — DIVIDEND option (ADMIN-only, WS3)', () => 
     currentRole = 'ADMIN'
     renderDialog()
     expect(screen.getByTestId('create-transaction-type-dividend')).toBeInTheDocument()
-  })
-
-  it('ACCOUNTANT does NOT see the DIVIDEND type option', () => {
-    currentRole = 'ACCOUNTANT'
-    renderDialog()
-    expect(screen.queryByTestId('create-transaction-type-dividend')).not.toBeInTheDocument()
   })
 
   it('SENIOR does NOT see the DIVIDEND type option', () => {

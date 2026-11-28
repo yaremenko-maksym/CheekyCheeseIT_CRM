@@ -50,7 +50,7 @@ export function PayoutDetailDialog({
 }) {
   const { t } = useLingui()
   const { user } = useAuth()
-  const canManualConfirm = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
+  const canManualConfirm = user?.role === 'ADMIN'
 
   function handleClose() {
     state.resetLocal()

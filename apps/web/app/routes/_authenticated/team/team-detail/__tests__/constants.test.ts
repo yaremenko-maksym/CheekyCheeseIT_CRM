@@ -8,7 +8,6 @@ describe('ROLE_VARIANT', () => {
       SENIOR: 'senior',
       JUNIOR: 'junior',
       HR: 'hr',
-      ACCOUNTANT: 'accountant',
       DROP: 'drop',
     })
   })
