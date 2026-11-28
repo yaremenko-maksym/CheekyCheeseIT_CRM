@@ -14,7 +14,7 @@
 | Existing parts | `components/crm/nav-sidebar.tsx`, `components/crm/StickyPageHeader.tsx`, notifications bell, impersonation banner, `ui/command.tsx`, `ui/sheet.tsx` |
 | Roles          | ADMIN · SENIOR · SENIOR without a team · JUNIOR · HR · ACCOUNTANT · DROP                                                                            |
 | design-gate    | **degraded** — Playwright renders of HTML prototypes (`assets/src/`), Claude Design not driven                                                      |
-| Status         | `approved` (2026-11-12, owner, at 9d1a2348f; mockup-gate council passed at the 9.0 gate of that date)                                               |
+| Status         | `captured` (council r8 passed 2026-11-28, owner approval pending (PR #1520); the 2026-11-12 owner approval at 9d1a2348f is superseded)              |
 | Sample data    | invented (names, amounts, counts)                                                                                                                   |
 | Contact sheets | `assets/shell-v2/_contact-sheet.png` (phones) · `assets/shell-v2/_contact-sheet-wide.png` (tablet / desktop)                                        |
 
@@ -229,8 +229,8 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   or upload error, and it is rare because the session slides (foundation §11 Wave 1 AC). The app goes to
   sign-in directly only when no draft exists in any state (armed, in flight, failed or unknown) and no form is
   dirty. Otherwise, on any tab, sheet open or closed, the alert «Сесія завершилася. Увійдіть знову, щоб
-  продовжити.» shows «Увійти знову» and «Не зараз», and its body names each loss: the dirty form and its
-  receipt, each draft by amount, and an unknown draft by its sent time without «втрачено» («Чернетка −86,40 USD, надіслана о 14:32: введене не збережеться, позначка лишиться…»), because its marker survives the sign-in. With a loss named,
+  продовжити.» shows «Увійти знову» and «Не зараз», and its body says what happens to each item, one line each, and never says «втрачено» (owner
+  decision D-1: the typed data is kept on this device and comes back after sign-in; the lines are in foundation §11, row «Session expired», strings `session-alert-money-form.1`, `session-alert.3` and `money-save-and-drafts-r4.1`). When the body names anything,
   the initial focus is on «Не зараз». It waits for an in-flight create. Draft markers survive the sign-in,
   and «Увійти знову» turns `armed` ones into `failed` (foundation §11). After «Не зараз» the app pauses polls and background refetches, and the persistent banner «Сесія завершилася · Увійти знову» takes the offline-banner slot under the top bar (`session-banner-375`); only a user-started request brings the alert back. While the banner shows, opening a create or edit form («+», `C`, an edit action) or the banner's «Увійти знову» runs the loss check first: a named loss brings the alert back, no loss goes straight to sign-in. **Banner stack (F0-15):** the banners share one slot under the top bar (phone), under the pane header
   (tablet) and above the toolbar (desktop): impersonation is pinned first, then «Сесія завершилася» (it never folds), then the newest of the rest;
