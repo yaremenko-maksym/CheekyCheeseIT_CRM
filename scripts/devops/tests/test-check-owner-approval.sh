@@ -262,13 +262,31 @@ case_red gfree apps/web/app/lib/gf.ts modified "const k = 'x'; const v = someGlo
 case_red gfree2 apps/web/app/lib/gf2.ts modified "const o = {}, k = 'x'; const v = (o || other).a[k]" \
   "receiver not provably local" "(local || free).a[k] -> refused"
 src glocal "import { rows } from './rows'
-export function pick(items: string[], i: number, props: { m: Record<string, number> }, key: string) {
+export function pick(i: number, key: string) {
   const map = new Map<string, number>()
-  return [items[i], props.m[key], rows[i], rows[0], (rows ?? [])[1], map.get(key)]
+  const cells = rows[0]
+  return [rows[i], rows[0], (rows ?? [])[1], rows[i][0], cells[key], map.get(key)]
 }"
 mk glocal apps/web/app/components/gl.tsx modified
-assert_green "non-literal keys on parameters / imports, numeric keys anywhere are NOT triggers" \
+assert_green "non-literal keys on imports / locals, numeric keys anywhere are NOT triggers" \
   --contains "[not-required]" -- run glocal
+# Addendum 7b: a computed-key chain triggers whatever the receiver; a parameter / loop / catch
+# binding is never local.
+case_red chain1 apps/web/app/lib/ch1.ts modified "const k = 'con' + 'structor'; function f(o: any) { o[k][k]('1')() }" \
+  "(computed-key chain)" "function f(o) { o[k][k]() } -> refused"
+case_red chain2 apps/web/app/lib/ch2.ts modified "const k = 'con' + 'structor'; for (const s of ['']) s[k][k]('1')()" \
+  "(computed-key chain)" "for (const s of ['']) s[k][k]() -> refused"
+case_red chain3 apps/web/app/lib/ch3.ts modified "const k = 'con' + 'structor'; const s = String(); s[k][k]('1')()" \
+  "(computed-key chain)" "const s = String(); s[k][k]() -> refused"
+case_red chain4 apps/web/app/lib/ch4.ts modified "import { rows } from './rows'
+export const cell = (i: number, j: number) => rows[i][j]" \
+  "(computed-key chain)" "rows[i][j] with non-literal keys -> refused (fail closed)"
+case_red param1 apps/web/app/lib/pa1.ts modified "export const pick = (props: { m: Record<string, number> }, key: string) => props.m[key]" \
+  "receiver not provably local" "a parameter receiver is not local -> refused"
+case_red catch1 apps/web/app/lib/ca1.ts modified "const k = 'x'; try { f() } catch (e) { e[k] }" \
+  "receiver not provably local" "a catch binding is not local -> refused"
+case_red forin1 apps/web/app/lib/fi1.ts modified "const k = 'x'; for (const a in obj) a[k]" \
+  "receiver not provably local" "a for-in binding is not local -> refused"
 src galiasok "const top = 10
 const parent = getParent()
 const h = window.location.href

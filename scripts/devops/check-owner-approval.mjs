@@ -423,14 +423,36 @@ export function scanCode(filename, content, aliases) {
   // `this`, a literal, or a name declared in this file. A free name (`Math[k]`, `top[k]`) is not.
   // shortcut: declarations are collected file-wide, not per scope — a name declared anywhere in
   // the file counts as local; upgrade to a scope walk if a shadowing bypass is ever shown.
+  // Addendum 7b: a parameter, a for-of / for-in variable and a catch variable take a value the file
+  // does not show, so they are never local (also when destructured).
+  const unseenBinding = (node) => {
+    let p = node
+    while (
+      p.parent &&
+      (T.isBindingElement(p.parent) ||
+        T.isObjectBindingPattern(p.parent) ||
+        T.isArrayBindingPattern(p.parent))
+    )
+      p = p.parent
+    if (T.isBindingElement(node) && T.isParameter(p.parent)) return true
+    if (T.isParameter(node)) return true
+    const decl = T.isVariableDeclaration(p) ? p : p.parent
+    if (!decl || !T.isVariableDeclaration(decl)) return false
+    if (T.isCatchClause(decl.parent)) return true
+    const list = decl.parent
+    return (
+      T.isVariableDeclarationList(list) &&
+      (T.isForOfStatement(list.parent) || T.isForInStatement(list.parent))
+    )
+  }
   const declared = new Set(['arguments', 'undefined'])
   const collect = (node) => {
     const name = node.name
     if (
       name &&
       T.isIdentifier(name) &&
+      !((T.isVariableDeclaration(node) || T.isBindingElement(node)) && unseenBinding(node)) &&
       (T.isVariableDeclaration(node) ||
-        T.isParameter(node) ||
         T.isBindingElement(node) ||
         T.isFunctionDeclaration(node) ||
         T.isFunctionExpression(node) ||
@@ -554,6 +576,11 @@ export function scanCode(filename, content, aliases) {
       detail: `${sf.parseDiagnostics.length} syntax error(s)`,
     })
 
+  // An element access whose key is neither a string nor a numeric literal.
+  const computedKey = (n) =>
+    T.isElementAccessExpression(n) &&
+    !literal(n.argumentExpression) &&
+    !T.isNumericLiteral(unwrap(n.argumentExpression))
   const visit = (node) => {
     if ((T.isImportDeclaration(node) || T.isExportDeclaration(node)) && node.moduleSpecifier) {
       if (literal(node.moduleSpecifier)) spec(node, node.moduleSpecifier.text)
@@ -618,6 +645,9 @@ export function scanCode(filename, content, aliases) {
         push('loader-alias', node, `${obj.getText(sf)}['${key}']`)
       } else if (key !== null && GLOBAL_PROPS.has(key) && passedAsValue(node)) {
         push('loader-alias', node, `\`${node.getText(sf)}\` (global object) passed as a value`)
+      } else if (key === null && !numeric && computedKey(unwrap(obj))) {
+        // Addendum 7b: `x[k][k]` reaches `constructor.constructor` whatever `x` is — fail closed.
+        push('loader-alias', node, `${obj.getText(sf)}[<non-literal>] (computed-key chain)`)
       } else if (key === null && !numeric && !isLocalReceiver(obj)) {
         push(
           'loader-alias',
