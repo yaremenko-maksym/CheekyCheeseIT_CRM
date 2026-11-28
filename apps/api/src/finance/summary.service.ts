@@ -254,20 +254,27 @@ export class SummaryService {
       if (!tx.txDate) throw new Error(`getSummary: transaction ${tx.id} has a NULL tx_date`)
       return formatTransactionBusinessDate(tx.txDate).replace(/-/g, '')
     }
-    const dayRows = paid.filter(needsRate)
+    const dayRows = paid.filter(needsRate).map((tx) => [tx, rowDay(tx)] as const)
     const dayRates =
       dayRows.length === 0
         ? new Map<string, ExchangeRateResult>()
-        : await this.nbuCurrency.getRatesForDays(dayRows.map(rowDay))
-    const rateOf = (tx: TxWithRelations): ExchangeRateResult =>
-      needsRate(tx) ? (dayRates.get(rowDay(tx)) ?? rates) : rates
+        : await this.nbuCurrency.getRatesForDays(dayRows.map(([, day]) => day))
+    // Resolved once per row: the admin loop below reads it for every admin.
+    const rowRates = new Map<TxWithRelations, ExchangeRateResult>(
+      dayRows.map(([tx, day]) => [tx, dayRates.get(day) ?? rates]),
+    )
     const toBaseAtRowDay = (tx: TxWithRelations): number =>
-      convertToBase(parseFloat(tx.amount), tx.currency as BalanceCurrency, 'USD', rateOf(tx))
+      convertToBase(
+        parseFloat(tx.amount),
+        tx.currency as BalanceCurrency,
+        'USD',
+        rowRates.get(tx) ?? rates,
+      )
 
     const adminBalances = admins.map((admin) => {
       const isOwn = (tx: TxWithRelations): boolean =>
         tx.receiverId === admin.id || tx.senderId === admin.id
-      const stale = paid.some((tx) => isOwn(tx) && needsRate(tx) && rateOf(tx).stale === true)
+      const stale = paid.some((tx) => isOwn(tx) && rowRates.get(tx)?.stale === true)
       const receivedScaled = paid
         .filter(
           (tx) =>
