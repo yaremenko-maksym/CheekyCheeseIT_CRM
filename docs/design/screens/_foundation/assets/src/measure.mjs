@@ -27,6 +27,9 @@
 //   hit      — r7 (R6-29): a `data-hit="44"` control is measured by its extended hit box (44 × 44 around its centre,
 //              or its own box when larger): that box must stay inside the viewport and must not overlap another
 //              control's box (the extension is real only where nothing else claims the same point).
+//              r8 (R7-11): a neighbour with `data-hit="44"` is compared by its extended box too (both hit boxes), so
+//              two extensions that overlap between separated visuals fail. Proof: `node measure.mjs fixtures` must
+//              report `hit 1` on `fixture-hit-overlap` (fixtures.mjs; never part of shell / primitives).
 //   panel    — r7 (R6-14): a full-height side panel (`aside[role=dialog]`) at the right edge is 400 px at 640–1023,
 //              420 at 1024–1439 and 480 at ≥ 1440 (primitives-v2 §2 Side panel).
 //   float    — r7 (R6-20): at >= 640 no interactive control (a row, its «…», a button) is painted under the floating
@@ -358,10 +361,14 @@ function probe(coarse) {
         out.hit.push(`${name(el)} hit box leaves the viewport`)
       for (const o of all) {
         if (o === el || o.contains(el) || el.contains(o)) continue
-        const r = o.getBoundingClientRect()
-        const w = Math.min(e.r, r.right) - Math.max(e.l, r.left)
-        const hh = Math.min(e.b, r.bottom) - Math.max(e.t, r.top)
-        if (w > 1 && hh > 1) out.hit.push(`${name(el)} hit box overlaps ${name(o)}`)
+        // r8 (R7-11): both boxes are hit boxes. A neighbour that declares `data-hit="44"` is compared by its own
+        // extended box, so two extensions that overlap between separated visuals are caught; each pair reports once.
+        const ox = o.getAttribute('data-hit') === '44'
+        if (ox && ext.indexOf(o) < ext.indexOf(el)) continue
+        const b = ox ? boxOf(o) : (({ left: l, right: r, top: t, bottom: bb }) => ({ l, r, t, b: bb }))(o.getBoundingClientRect())
+        const w = Math.min(e.r, b.r) - Math.max(e.l, b.l)
+        const hh = Math.min(e.b, b.b) - Math.max(e.t, b.t)
+        if (w > 1 && hh > 1) out.hit.push(`${name(el)} hit box overlaps ${name(o)}${ox ? ' hit box' : ''}`)
       }
     }
   }

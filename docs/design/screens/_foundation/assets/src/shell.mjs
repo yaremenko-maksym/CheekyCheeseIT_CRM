@@ -20,6 +20,7 @@ import {
   notificationsTablet,
   notificationsTabletUndo,
   notificationsUndoClosed,
+  notificationsUndoSecond,
 } from './notif-board.mjs'
 import { railHrTablet, cmdkEmpty } from './prims-r1.mjs'
 
@@ -263,6 +264,7 @@ export function frames() {
     M('notifications-undo-375', 375, 812, notificationsSheet(375, 812, { undo: true })),
     M('notifications-undo-batch-375', 375, 812, notificationsSheet(375, 812, { undo: 2 })),
     M('notifications-undo-closed-375', 375, 812, notificationsUndoClosed(375, 812)),
+    M('notifications-undo-second-375', 375, 812, notificationsUndoSecond(375, 812)),
     M('notifications-error-375', 375, 812, notificationsSheet(375, 812, { state: 'error' })),
     D('notifications-768', 768, 1024, notificationsTablet(768, 1024)),
     D('notifications-undo-768', 768, 1024, notificationsTabletUndo(768, 1024)),

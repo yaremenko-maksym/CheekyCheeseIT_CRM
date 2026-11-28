@@ -1,6 +1,8 @@
 // Notifications panel (shell-v2 §2 / §4) and the Board primitive (primitives-v2 §3). Invented sample data.
 import { icon, safeBottom } from './base.mjs'
 import {
+  TABBAR_H,
+  FLOAT_RIGHT,
   tabScreen,
   financeBody,
   interviewsBody,
@@ -365,4 +367,22 @@ export function boardHireConfirm(w, h) {
     overlay,
     showFab: false,
   })
+}
+
+/** R7-04 (shell-v2 Notifications «Undo collisions», the one rule): a second undoable action never takes an Undo away.
+ * The notification batch («Видалено 2 сповіщення», handed off to the shell slot, 2 s left) keeps the base toast and its
+ * own timer; the board move stacks its toast 8 px above (newest on top, a full 5 s). Each «Скасувати» undoes its own
+ * action. */
+export function notificationsUndoSecond(w, h) {
+  const base = TABBAR_H + safeBottom(w) + 16 + (w < 360 ? 64 : 0)
+  const html = boardUndo(w, h)
+  const at = `bottom:${base}px;min-height:56px`
+  if (!html.includes(at)) throw new Error('notifications-undo-second: toast slot not found')
+  const top = html
+    .replace(at, `bottom:${base + 64}px;min-height:56px`)
+    .replace('width:62%', 'width:96%')
+  const i = top.indexOf('<div class="toast"')
+  const right = w < 360 ? 'right:12px' : `right:${FLOAT_RIGHT}px`
+  const batch = `<div class="toast" role="status" style="${right};${at};overflow:hidden"><span style="color:var(--positive)">${icon('trash-2', { size: 18 })}</span><span class="grow" style="line-height:20px">Видалено 2 сповіщення</span><span class="btn ghost" style="color:var(--primary);height:44px;padding:0 10px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:38%;background:var(--primary);opacity:0.7"></i></div>`
+  return top.slice(0, i) + batch + top.slice(i)
 }

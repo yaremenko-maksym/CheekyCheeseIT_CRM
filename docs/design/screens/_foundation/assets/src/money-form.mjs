@@ -692,14 +692,60 @@ export const savedOverFailedPill = (w, h) => savedOverPill(w, h, 'failed')
 /** R6-02: two creates succeeded while a failed draft holds the slot. The newest result (−320,00 USD) sits above the
  * draft pill and carries «Ще 1»: the earlier unacknowledged success (−75,00 USD) is queued, never replaced. */
 export const SAVED_EARLIER = '75,00'
-export function savedQueuePill(w, h) {
+export function savedQueuePill(w, h, extra = '') {
   const base = TABBAR_H + safeBottom(w) + 16
   const saved = moneyPill(w, 'saved', { amount: SAVED_OTHER, more: 1 }).replace(
     `bottom:${base}px`,
     `bottom:${base + PILL_H + 8}px`,
   )
-  return draftFab(financeTab(w, h, moneyPill(w, 'failed') + saved, pinDrafts([DRAFT.failed])))
+  return draftFab(
+    financeTab(w, h, moneyPill(w, 'failed') + saved + extra, pinDrafts([DRAFT.failed])),
+  )
 }
+/** R7-01 (foundation §11 «Results chooser», the one rule): «Ще {n}» opens «Результати збереження», one row per
+ * unacknowledged write ID, newest first: the two successes (−320,00 USD the shown pill, −75,00 USD queued) and the
+ * failed draft. A saved row: «Відкрити» + a 44 px ✕ that dismisses that result only. A draft row: «Відкрити» only
+ * (a draft is discarded inside the draft). Phone: a content-sized modal sheet; >= 640: a non-modal popover anchored
+ * above the pill stack (chooserPopover in prims-r3.mjs). */
+export const SAVED_AT = '14:41'
+export const EARLIER_AT = '14:38'
+const RESULTS = [
+  { amount: SAVED_OTHER, at: SAVED_AT, state: 'Збережено', ok: true },
+  { amount: SAVED_EARLIER, at: EARLIER_AT, state: 'Збережено', ok: true },
+  { amount: AMOUNT, at: SENT_AT, state: 'Не збережено', ok: false },
+]
+export function chooserRows({ touch = true } = {}) {
+  const b = touch ? 44 : 32
+  return RESULTS.map((r) => {
+    const ic = r.ok
+      ? `<span style="color:var(--positive);display:grid">${icon('circle-check', { size: 22 })}</span>`
+      : `<span style="color:var(--destructive);display:grid">${icon('circle-alert', { size: 22 })}</span>`
+    const meta = `${r.state} · ${r.at}`
+    // the failed draft's «Відкрити» takes the pinned row's destructive tint (foundation §11 Pinned rows)
+    const tint = r.ok
+      ? ''
+      : 'background:color-mix(in oklch, var(--destructive) 18%, transparent);border-color:color-mix(in oklch, var(--destructive) 45%, transparent);'
+    const x = r.ok
+      ? `<button type="button" class="iconbtn" aria-label="Прибрати результат −${r.amount} USD" style="flex:none;width:${b}px;height:${b}px;color:var(--muted-fg)">${icon('x', { size: 16 })}</button>`
+      : `<span aria-hidden="true" style="flex:none;width:${b}px"></span>`
+    return `<li class="row" style="gap:10px;min-height:${touch ? 60 : 52}px;padding:0 8px 0 16px;border-top:1px solid var(--border)">${ic}<span class="grow col" style="gap:2px;min-width:0"><span class="num" style="font-size:15px;font-weight:600;white-space:nowrap">−${NB(r.amount)} USD</span><span class="t-cap muted num">${meta}</span></span><button type="button" class="btn sm secondary" aria-label="Відкрити: −${r.amount} USD, ${r.at}" style="flex:none;height:${b}px;padding:0 12px;${tint}">Відкрити</button>${x}</li>`
+  }).join('')
+}
+export function resultsChooser(w, h) {
+  const body = `<ul role="list" aria-label="Результати збереження" style="list-style:none;margin:0;padding:0 0 ${8 + safeBottom(w)}px">${chooserRows()}</ul>`
+  const ch = sheet({
+    w,
+    h,
+    title: 'Результати збереження',
+    trail: closeBtn,
+    body,
+  })
+  return savedQueuePill(w, h, ch).replace(
+    'aria-haspopup="dialog" aria-label="Ще 1',
+    'aria-haspopup="dialog" aria-expanded="true" aria-label="Ще 1',
+  )
+}
+
 
 /** Toast + pill: the pill keeps the base slot, at most one toast stacks 8 px above it. */
 export function toastPillStack(w, h) {

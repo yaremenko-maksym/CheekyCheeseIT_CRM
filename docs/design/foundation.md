@@ -490,11 +490,27 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
     newest saved result above it (two pills at most); every other unacknowledged result is counted by **one
     persistent 44 px button «Ще {n}»** on the newest saved pill (`upload-pill-saved-queue-375`,
     `upload-pill-saved-queue-768`). It never times out, survives scroll, tab changes and further writes, and opens
-    the chooser «Результати збереження»: one row per write ID, newest first, each with its signed amount, time,
-    state and «Відкрити»; a 44 px ✕ per saved row dismisses that one only. Dismissing the shown saved pill
+    the chooser «Результати збереження» (the next rule). Dismissing the shown saved pill
     promotes the next queued saved result into it. Draft results (failed, unknown) stay pinned rows and are never
     queued out of the list. The queue lives in memory for the tab; a page kill is the marker's job (Page kill row).
     shell-v2 and primitives-v2 point here and do not restate it.
+  - **Results chooser «Результати збереження» (R7-01, the one rule).** **Content:** one row per unacknowledged
+    write ID, newest first, the two shown pills' results included: icon, the signed amount alone on line 1, «Збережено
+    · 14:41» / «Не збережено · 14:32» on line 2, a tonal «Відкрити» (a failed draft's takes the pinned row's
+    destructive tint), and on a saved row only a 44 px ✕ «Прибрати результат −75,00 USD» that dismisses that result.
+    A draft row has no ✕: a draft is discarded inside the draft. **Container:** phone (< 640) a content-sized modal
+    sheet with the grabber, the title and ✕ «Закрити» (`results-chooser-375`); ≥ 640 a **non-modal popover** anchored
+    above the pill stack, right edge on the pills' edge, 360 wide, no scrim (`results-chooser-768`). The popover is
+    chosen over a wide dialog because the user compares the rows with the pinned rows and the list it leaves visible,
+    as the bell's popover does. **Dismissal:** Esc, system Back, an outside press, ✕ «Закрити», a drag down (phone)
+    or «Ще {n}» again close it; closing acknowledges nothing. **Focus:** on open, the first row's «Відкрити» (no
+    ring on touch); the sheet traps focus, the popover does not (Tab past its last control closes it). On close focus
+    returns to «Ще {n}»; when «Ще {n}» is gone, to the shown saved pill, else to the draft pill, else the page
+    heading. **A row's «Відкрити»** closes the chooser and opens the record (a saved result is then acknowledged)
+    or the draft (it stays until resolved). **✕ on a row** removes that row in place; focus moves to the next row's
+    «Відкрити», else the previous one's. **Last row:** when ✕ removes the last saved row, the chooser closes (a draft
+    row alone is already carried by its pill and its pinned row) and focus goes to the draft pill, else the page
+    heading. `aria-expanded` on «Ще {n}» follows the chooser.
   - **Pinned rows.** Фінанси pins a row for every draft that is not saved (armed, in flight, failed,
     unknown), ordered by the slot precedence, each with its state line and one 44 px tonal «Відкрити»
     (`drafts-two-375.png`: one failed and one armed). A lower state the pill does not show is never

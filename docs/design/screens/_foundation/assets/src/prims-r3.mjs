@@ -12,6 +12,7 @@ import {
   pinnedRows,
   SAVED_OTHER,
   SENT_AT,
+  chooserRows,
 } from './money-form.mjs'
 import { tablet } from './tablet.mjs'
 
@@ -132,17 +133,27 @@ export const clearStack = (html, px) =>
     `aria-label="Транзакції" class="col" style="overflow:hidden;padding-bottom:${px}px;`,
   )
 /** R6-02: two unacknowledged successes + a failed draft at >= 640: the newest saved pill carries «Ще 1». */
-export const savedQueueTablet = (w, h) =>
+export const savedQueueTablet = (w, h, extra = '') =>
   clearStack(
     tablet({
       w,
       h,
-      overlay: widePill('failed', true) + widePill('saved', true, 24 + 52 + 8, 1),
+      overlay: widePill('failed', true) + widePill('saved', true, 24 + 52 + 8, 1) + extra,
     }).replace(
       '<div class="sechead"><span class="t-over">Сьогодні</span></div>',
       `${pinnedRows([DRAFT.failed])}<div class="sechead"><span class="t-over">Сьогодні</span></div>`,
     ),
     24 + 52 + 8 + 52 + 24,
+  )
+/** R7-01 at >= 640: the chooser is a non-modal popover (`role="dialog"`, no scrim) anchored above the pill stack, its
+ * right edge on the pills' edge, 360 wide, so the pinned rows and the list stay visible beside it. Esc, an outside
+ * press, ✕ «Закрити» or «Ще {n}» again close it; focus returns to «Ще {n}» (foundation §11 «Results chooser»). */
+const chooserPopover = (touch, bottom) =>
+  `<div role="dialog" aria-modal="false" aria-labelledby="rc-t" style="position:absolute;right:24px;bottom:${bottom}px;z-index:60;width:360px;border-radius:16px;background:var(--popover);border:1px solid var(--border);box-shadow:0 16px 40px oklch(0 0 0 / 0.55);overflow:hidden"><div class="row" style="height:52px;padding:0 6px 0 16px"><h2 id="rc-t" class="grow" style="margin:0;font-size:15px;font-weight:600">Результати збереження</h2><button type="button" class="iconbtn" aria-label="Закрити" style="width:${touch ? 44 : 32}px;height:${touch ? 44 : 32}px;color:var(--muted-fg)">${icon('x', { size: 16 })}</button></div><ul role="list" aria-label="Результати збереження" style="list-style:none;margin:0;padding:0 0 6px">${chooserRows({ touch })}</ul></div>`
+export const resultsChooserTablet = (w, h) =>
+  savedQueueTablet(w, h, chooserPopover(true, 24 + 52 + 8 + 52 + 8)).replace(
+    'aria-haspopup="dialog" aria-label="Ще 1',
+    'aria-haspopup="dialog" aria-expanded="true" aria-label="Ще 1',
   )
 /** R5-08: a create success while a failed draft owns the corner at >= 640: the saved pill stacks 8 px above, with
  * its own amount (another transaction); the failed pill keeps the slot (precedence), its row stays pinned. */

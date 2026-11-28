@@ -360,7 +360,7 @@ coarse pointer and 36–40 px under a fine one. At 320 the subject wraps to two 
 never shrinks (`toast-undo-320`). On tablet and desktop there is one corner for
 everything that floats: bottom-right, 24 px from both edges, 420 wide (`toast-undo-768`, with a 44 px
 action; `toast-undo-1440`, with a 40 px action). When the upload pill is there too, toasts stack above
-it in the same corner. While a pill or toast shows, the tablet and desktop scrollers get bottom padding equal to the stack height + 24, so the corner never covers the last row (`drafts-desktop-1440`); with a side panel open the corner moves left of the panel.
+it in the same corner. **Two live undos never share one toast:** a second undoable action stacks its own toast above the first, and neither loses its window (one rule: shell-v2 §2 Notifications «Undo collisions»). While a pill or toast shows, the tablet and desktop scrollers get bottom padding equal to the stack height + 24, so the corner never covers the last row (`drafts-desktop-1440`); with a side panel open the corner moves left of the panel.
 
 **Save error** — for money creates the error is an **inline `role="alert"` above the form**, never a
 floating toast over a field, and the values stay in the form. **No auto-retry**, ever. Two cases that
@@ -451,7 +451,7 @@ its own; `upload-pill-multi-375`); «+2 чеки» counts only uploads that belo
 failed or unknown «2 потребують перевірки» / «Відкрити», which opens Фінанси at the pinned rows, and the
 dock button carries the count (`drafts-two-unresolved-375`). A save that completes under any draft
 pill stacks as a saved pill above it and earlier unacknowledged results queue behind its «Ще {n}» (one rule:
-foundation §11 «Money results queue»; `upload-pill-saved-queue-375`, `-768`); the draft pill keeps its own state. Фінанси pins a row per unsaved draft by the slot precedence (§12 Drafts and money rows) (`drafts-two-375`: one failed and one armed; the failed one wins the pill). Without a money draft the
+foundation §11 «Money results queue»; `upload-pill-saved-queue-375`, `-768`), which opens the chooser «Результати збереження» (container, dismissal, focus and the last row: foundation §11 «Results chooser»; `results-chooser-375`, `-768`); the draft pill keeps its own state. Фінанси pins a row per unsaved draft by the slot precedence (§12 Drafts and money rows) (`drafts-two-375`: one failed and one armed; the failed one wins the pill). Without a money draft the
 slot holds the plain upload pill. **Toast + pill** (`toast-pill-stack-375`): the pill keeps the base slot (left 12,
 right inset 80, left of the FAB; full width above the dock on Фінанси, D-8); a toast stacks 8 px above it; at most one toast at a time. A toast
 timer pauses while the page is hidden.
