@@ -563,8 +563,19 @@ export function transitions() {
     )
   const tabPanel = (s) =>
     box(
-      `${rail}<div class="grow" style="position:relative;padding-top:8px">${lines(7)}<div style="position:absolute;inset:0 -22px 0 -22px;background:oklch(0 0 0 / ${s ? 0.4 : 0})"></div><div style="position:absolute;top:0;bottom:0;right:0;width:120px;transform:translateX(${s ? 0 : 100}%);background:var(--popover);border-left:1px solid var(--border)"></div></div>`,
+      `${rail}<div class="grow" style="position:relative;padding-top:8px">${lines(7)}<div style="position:absolute;inset:0 -22px 0 -22px;background:${s ? 'var(--scrim)' : 'transparent'}"></div><div style="position:absolute;top:0;bottom:0;right:0;width:120px;transform:translateX(${s ? 0 : 100}%);background:var(--popover);border-left:1px solid var(--border)"></div></div>`,
       s ? '280 мс · фокус у панелі' : '0 мс',
+    )
+  // R3-11: dialog and popover enter / exit, the same scrim token as every overlay.
+  const dlgBox = (s) =>
+    box(
+      `${rail}<div class="grow" style="position:relative;padding-top:8px">${lines(7)}<div style="position:absolute;inset:0 -22px 0 -22px;background:${s ? 'var(--scrim)' : 'transparent'}"></div><div style="position:absolute;left:50%;top:50%;width:120px;height:64px;transform:translate(-50%,-50%) scale(${s ? 1 : 0.96});opacity:${s ? 1 : 0};border-radius:8px;background:var(--popover);border:1px solid var(--border)"></div></div>`,
+      s ? '200 мс · фокус на кнопці відповіді' : '0 мс',
+    )
+  const popBox = (s) =>
+    box(
+      `${rail}<div class="grow" style="position:relative;padding-top:8px">${lines(7, 2)}<div style="position:absolute;right:10px;top:${s ? 66 : 70}px;width:90px;height:60px;opacity:${s ? 1 : 0};border-radius:8px;background:var(--popover);border:1px solid var(--border)"></div></div>`,
+      s ? '200 мс · фокус на першому пункті' : '0 мс · дотик по «…»',
     )
   return `<div class="board" style="width:900px;gap:28px">
   <h2>Переходи між сторінками · мобільні</h2>
@@ -575,8 +586,11 @@ export function transitions() {
   <h2>Планшет (640–1023)</h2>
   ${rowOf('Дві панелі: вибір рядка', '≥ 900 · деталі — crossfade 150 мс, список і рейка нерухомі · фокус на заголовок деталей', [tab2('list'), tab2('detail')])}
   ${rowOf('Одна панель: список → деталі', '640–899 · той самий push, що на телефоні (280 мс); рейка нерухома', [tab1(0), tab1(1)])}
-  ${rowOf('Бічна панель', 'translateX 100%→0 280 мс + scrim 0→40% · закриття 200 мс · рейка під scrim', [tabPanel(0), tabPanel(1)])}
-  <div class="t-foot muted" style="width:100%">prefers-reduced-motion: усі зсуви замінено на crossfade 120 мс; пружини вимкнено. Десктоп: зміна маршруту — crossfade вмісту 150 мс, бічна панель і заголовок нерухомі.</div></div>`
+  ${rowOf('Бічна панель', 'translateX 100%→0 280 мс + scrim 0→60% (--scrim) 200 мс · закриття 150 мс, як аркуш · рейка під scrim', [tabPanel(0), tabPanel(1)])}
+  <h2>Діалог і поповер (усі класи ≥ 640)</h2>
+  ${rowOf('Діалог (alertdialog, «Нові записи»)', 'scrim 0→60% + opacity 0→1, scale 0.96→1 · 200 мс · закриття: opacity 1→0 · 150 мс, scale без змін', [dlgBox(0), dlgBox(1)])}
+  ${rowOf('Поповер і меню', 'opacity 0→1 + translateY 4 px→0 від якоря · 200 мс · закриття: opacity · 150 мс, без зсуву', [popBox(0), popBox(1)])}
+  <div class="t-foot muted" style="width:100%">prefers-reduced-motion: усі зсуви й масштаб (аркуш, панель, діалог, поповер, push) замінено на crossfade 120 мс; scrim теж лише crossfade; пружини вимкнено. Десктоп: зміна маршруту — crossfade вмісту 150 мс, бічна панель і заголовок нерухомі.</div></div>`
 }
 
 /** List footer: the next page loading (3 skeleton rows) and failing (an inline retry; the loaded rows stay). */

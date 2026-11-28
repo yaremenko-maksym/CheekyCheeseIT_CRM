@@ -227,7 +227,7 @@ function peopleDesk({ top = '', ...o }) {
     active: '/interviews',
     crumb: ['Робота', 'Співбесіди'],
     cta: 'Нова співбесіда',
-    content: `${top}${deskToolbar({ touch: o.touch, ph: 'Пошук співбесід', count: '', filters: ['Етап', 'Дата'] })}<div class="grow" style="min-height:0;overflow:hidden;margin:0 -16px">${peopleList({ menu: true })}</div>`,
+    content: `${top}${deskToolbar({ touch: o.touch, ph: 'Пошук співбесід', count: '', filters: ['Етап', 'Дата'] })}<div class="grow" style="min-height:0;overflow:hidden;margin:0 -16px">${peopleList({ menu: true, fine: !o.touch, hover: o.hover ?? -1 })}</div>`,
   })
 }
 export const bannerStackDesktop = (w, h) =>

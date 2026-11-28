@@ -80,7 +80,7 @@ const amt = (a) => {
   const i = a.lastIndexOf(' ')
   return `<span style="display:inline-flex;justify-content:flex-end"><span>${a.slice(0, i)}</span><span style="width:38px;text-align:left;padding-left:6px">${a.slice(i + 1)}</span></span>`
 }
-function table(contentW, { skeleton = false, headOnly = false, rows = ROWS } = {}) {
+function table(contentW, { skeleton = false, headOnly = false, rows = ROWS, touch = false } = {}) {
   // ≥ 1032 px of main (a 1280 viewport with the 248 sidebar) fits «Проєкт»; below, it rides in «Опис» as muted text.
   const wide = contentW >= 1032
   const head = ['Дата', 'Опис', 'Тип', ...(wide ? ['Проєкт'] : []), 'Чек', 'Сума']
@@ -98,7 +98,7 @@ function table(contentW, { skeleton = false, headOnly = false, rows = ROWS } = {
     const rows = Array.from(
       { length: 16 },
       (_, i) =>
-        `<tr>${head.map((h) => bar(h, i)).join('')}<td class="kcell"><div class="sk" style="width:24px;height:24px;border-radius:12px;margin:auto"></div></td></tr>`,
+        `<tr>${head.map((h) => bar(h, i)).join('')}<td class="kcell">${touch ? '<div class="sk" style="width:24px;height:24px;border-radius:12px;margin:auto"></div>' : ''}</td></tr>`,
     ).join('')
     return `<table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:14px">${colgroup(head)}<thead><tr>${th}</tr></thead><tbody>${rows}</tbody></table>`
   }
@@ -191,7 +191,7 @@ export function desktop({
     ${
       content ||
       (skeleton
-        ? `<div role="status" aria-label="Завантаження транзакцій" class="col grow" style="gap:14px;min-height:0">${deskToolbar({ touch, mainW, count: '<span class="sk" style="display:block;width:96px;height:12px"></span>' })}<div class="grow" aria-hidden="true" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)">${table(mainW, { skeleton: true })}</div></div>`
+        ? `<div role="status" aria-label="Завантаження транзакцій" class="col grow" style="gap:14px;min-height:0">${deskToolbar({ touch, mainW, count: '<span class="sk" style="display:block;width:96px;height:12px"></span>' })}<div class="grow" aria-hidden="true" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)">${table(mainW, { skeleton: true, touch })}</div></div>`
         : `${deskToolbar({ touch, mainW, count, openFilter })}
     <div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)">${table(mainW, { rows })}</div>`)
     }</div></main>`

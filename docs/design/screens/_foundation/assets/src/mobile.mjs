@@ -240,13 +240,14 @@ export const PEOPLE = [
   ['АБ', 'Анна Бондар', 'Технічна', '13.11 · 10:30', 'y'],
 ]
 
-export function peopleList({ menu = false, omit = '' } = {}) {
+// R3-08: `fine` (pointer: fine) reserves the «…» slot but draws the button only on the `hover` row (hover / focus / selected).
+export function peopleList({ menu = false, omit = '', fine = false, hover = -1 } = {}) {
   return `<div class="sechead"><span class="t-over">Цього тижня</span></div><div class="group">${PEOPLE.filter(
     ([, n]) => n !== omit,
   )
     .map(
-      ([i, n, s, p, k]) =>
-        `<div class="lrow two" style="--inset:64px"><div class="lead av">${i}</div><div class="grow col" style="gap:2px"><div class="t-body clamp2" style="font-weight:500">${n}</div><div class="t-foot muted" style="overflow-wrap:anywhere">${s}<span class="nw-only"> · ${p}</span></div></div><span class="pill wide-only ${k}">${p}</span>${menu ? `<button type="button" class="iconbtn" aria-haspopup="menu" aria-label="Дії: ${n}" style="margin-right:-8px;flex:none">${icon('ellipsis', { size: 22 })}</button>` : icon('chevron-right', { size: 18, cls: 'chev' })}</div>`,
+      ([i, n, s, p, k], idx) =>
+        `<div class="lrow two" style="--inset:64px"><div class="lead av">${i}</div><div class="grow col" style="gap:2px"><div class="t-body clamp2" style="font-weight:500">${n}</div><div class="t-foot muted" style="overflow-wrap:anywhere">${s}<span class="nw-only"> · ${p}</span></div></div><span class="pill wide-only ${k}">${p}</span>${menu ? `<button type="button" class="iconbtn" aria-haspopup="menu" aria-label="Дії: ${n}" style="margin-right:-8px;flex:none${fine && idx !== hover ? ';visibility:hidden' : ''}">${icon('ellipsis', { size: 22 })}</button>` : icon('chevron-right', { size: 18, cls: 'chev' })}</div>`,
     )
     .join('')}</div>`
 }

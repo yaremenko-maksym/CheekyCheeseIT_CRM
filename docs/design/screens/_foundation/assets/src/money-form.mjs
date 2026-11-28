@@ -362,7 +362,10 @@ export const NEW_ROWS = [
     isNew: true,
   },
 ]
-/** Same type, currency and amount, another description, an earlier row: «схожа · інший опис», muted, never a «збіг». */
+/**
+ * R3-07: same type, currency and amount, but created before the send (14:29 < 14:32 − 5 s): the time test comes
+ * first, so it reads «раніше», never «схожа» and never «збіг» (primitives-v2 §5, the one definition).
+ */
 export const SIMILAR_ROW = {
   t: 'Обладнання · ноутбук',
   s: 'Витрата · 11.11.2026',
@@ -370,7 +373,7 @@ export const SIMILAR_ROW = {
   time: '14:29',
   ic: 'receipt',
   neg: true,
-  tag: 'схожа · інший опис',
+  tag: 'раніше',
 }
 
 /** Equal amount, created after the send, but the payload differs (the server trimmed the description): a warning «схожа». */
