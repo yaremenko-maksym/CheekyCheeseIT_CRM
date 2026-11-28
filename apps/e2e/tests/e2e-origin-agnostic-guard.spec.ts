@@ -42,8 +42,8 @@
  *   4. An origin *derived* from `PLAYWRIGHT_BASE_URL` with a hardcoded
  *      fallback (`const _webOrigin = process.env['PLAYWRIGHT_BASE_URL'] ||
  *      'http://localhost:3000'`, then wrapped a level deeper into
- *      `` const API_BASE = `${_webOrigin}/api` `` — accountant-dashboard.spec.ts,
- *      drop-routing-hub.spec.ts) — DIFFERENT lines, two hops deep.
+ *      `` const API_BASE = `${_webOrigin}/api` `` — a since-deleted role-hub
+ *      spec, drop-routing-hub.spec.ts) — DIFFERENT lines, two hops deep.
  *
  * Line-matching cannot be patched into catching 2–4 with a wider regex: the
  * declaration and the call site are two separate statements, sometimes two
@@ -354,7 +354,7 @@ test('example', async ({ page }) => {
     })
 
     test('kind 4 — origin derived from PLAYWRIGHT_BASE_URL, wrapped a level deep', () => {
-      // Mirrors accountant-dashboard.spec.ts / drop-routing-hub.spec.ts's
+      // Mirrors a since-deleted role-hub spec / drop-routing-hub.spec.ts's
       // actual historical bug: `API_BASE` re-wraps `_webOrigin` instead of
       // embedding the literal itself — the transitive resolve() in pass 2
       // is what this shape specifically exercises.

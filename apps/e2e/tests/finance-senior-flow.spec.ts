@@ -4,9 +4,9 @@
  * 1.  SENIOR регистрирует приход (SENIOR_INCOME → PENDING)
  *     ВАЖНО: SENIOR_INCOME ТРЕБУЕТ чек (receiptDocumentId или receiptExternalUrl) — мутация в CreateTransactionDialog
  *     бросает `RECEIPT_REQUIRED` (zod-error catalog, fix-round 1) если URL пустой.
- * 2a. ACCOUNTANT отклоняет транзакцию (→ REJECTED)
+ * 2a. ADMIN отклоняет транзакцию (→ REJECTED)
  * 2b. SENIOR видит причину отклонения и исправляет (→ PENDING снова)
- * 3.  ACCOUNTANT принимает транзакцию (→ VALIDATED)
+ * 3.  ADMIN принимает транзакцию (→ VALIDATED)
  * 4.  SENIOR создаёт запрос выплаты (payout-request → PENDING)
  * 5.  SENIOR оплачивает выплату с TX hash (payout-request → PAID)
  */
@@ -268,12 +268,12 @@ test.describe('SENIOR INCOME — шаг 1: регистрация прихода
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ШАГ 2а: ACCOUNTANT/ADMIN отклоняет транзакцию
+// ШАГ 2а: ADMIN отклоняет транзакцию
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe('SENIOR INCOME — шаг 2а: отклонение транзакции', () => {
-  test('ACCOUNTANT видит PENDING транзакцию с кнопкой "Проверить"', async ({ page }) => {
-    await mockAuthAs(page, USERS.accountant)
+  test('ADMIN видит PENDING транзакцию с кнопкой "Проверить"', async ({ page }) => {
+    await mockAuthAs(page, USERS.admin)
     const tx = makeTx()
     await setupTransactionMocks(page, tx)
     await page.goto('/finance')
@@ -283,8 +283,8 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
     await expect(page.getByTestId(`tx-row-validate-${tx.id}`)).toBeVisible()
   })
 
-  test('ACCOUNTANT открывает диалог валидации — видит детали транзакции', async ({ page }) => {
-    await mockAuthAs(page, USERS.accountant)
+  test('ADMIN открывает диалог валидации — видит детали транзакции', async ({ page }) => {
+    await mockAuthAs(page, USERS.admin)
     const tx = makeTx()
     await setupTransactionMocks(page, tx)
     await page.goto('/finance')
@@ -301,8 +301,8 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
     await expect(dlg).toContainText(PROJECT_NAME)
   })
 
-  test('ACCOUNTANT не может нажать "Отклонить" без причины', async ({ page }) => {
-    await mockAuthAs(page, USERS.accountant)
+  test('ADMIN не может нажать "Отклонить" без причины', async ({ page }) => {
+    await mockAuthAs(page, USERS.admin)
     const tx = makeTx()
     await setupTransactionMocks(page, tx)
     await page.goto('/finance')
@@ -311,8 +311,8 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
     await expect(page.getByTestId('validate-transaction-reject')).toBeDisabled()
   })
 
-  test('ACCOUNTANT вводит причину — кнопка "Отклонить" разблокируется', async ({ page }) => {
-    await mockAuthAs(page, USERS.accountant)
+  test('ADMIN вводит причину — кнопка "Отклонить" разблокируется', async ({ page }) => {
+    await mockAuthAs(page, USERS.admin)
     const tx = makeTx()
     await setupTransactionMocks(page, tx)
     await page.goto('/finance')
@@ -327,8 +327,8 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
     await expect(page.getByTestId('validate-transaction-reject')).not.toBeDisabled()
   })
 
-  test('ACCOUNTANT отклоняет транзакцию — диалог закрывается', async ({ page }) => {
-    await mockAuthAs(page, USERS.accountant)
+  test('ADMIN отклоняет транзакцию — диалог закрывается', async ({ page }) => {
+    await mockAuthAs(page, USERS.admin)
 
     const pendingTx = makeTx()
     const rejectedTx = makeTx({ status: 'REJECTED', rejectionReason: 'Чек нечитаем' })
@@ -440,16 +440,16 @@ test.describe('SENIOR INCOME — шаг 2б: исправление отклон
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ШАГ 3: ACCOUNTANT принимает транзакцию (повторная валидация)
+// ШАГ 3: ADMIN принимает транзакцию (повторная валидация)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe('SENIOR INCOME — шаг 3: повторная валидация (принятие)', () => {
-  test('ACCOUNTANT принимает транзакцию — диалог закрывается', async ({ page }) => {
-    await mockAuthAs(page, USERS.accountant)
+  test('ADMIN принимает транзакцию — диалог закрывается', async ({ page }) => {
+    await mockAuthAs(page, USERS.admin)
 
     const validatedTx = makeTx({
       status: 'VALIDATED',
-      validatedBy: USERS.accountant.id,
+      validatedBy: USERS.admin.id,
       validatedAt: '2026-05-02T10:00:00.000Z',
     })
     await page.route(new RegExp(`${API_RE}/transactions/([^/?]+)/validate$`), (r) =>
@@ -477,7 +477,7 @@ test.describe('SENIOR INCOME — шаг 3: повторная валидация
   test('После принятия SENIOR видит auto-created «Выплата» с кнопкой «Оплатить»', async ({
     asSenior,
   }) => {
-    // New flow (task-payout-auto-on-validate): ACCOUNTANT validate atomically
+    // New flow (task-payout-auto-on-validate): ADMIN validate atomically
     // moves SENIOR_INCOME → PENDING_PAYMENT and inserts the «Выплата» PAYOUT
     // row carrying the inline «Оплатить» pill.
     const incomeAfterValidate = makeTx({
@@ -509,9 +509,7 @@ test.describe('SENIOR INCOME — шаг 3: повторная валидация
     await expect(asSenior.getByTestId('header-payout-button')).not.toBeVisible()
   })
 
-  test('SENIOR не видит кнопку "Проверить" — это только для ACCOUNTANT/ADMIN', async ({
-    asSenior,
-  }) => {
+  test('SENIOR не видит кнопку "Проверить" — это только для ADMIN', async ({ asSenior }) => {
     const validatedTx = makeTx({ status: 'PENDING', receiverId: USERS.senior.id })
     await setupTransactionMocks(asSenior, validatedTx)
     await asSenior.goto('/finance')
@@ -523,13 +521,13 @@ test.describe('SENIOR INCOME — шаг 3: повторная валидация
 // ═══════════════════════════════════════════════════════════════════════════════
 // ШАГ 4 (новый флоу): «Выплата» (PAYOUT row) auto-creates при validate
 //
-// task-payout-auto-on-validate removed batch PayoutDialog. ACCOUNTANT click
+// task-payout-auto-on-validate removed batch PayoutDialog. ADMIN click
 // «Подтвердить» now atomically creates the PAYOUT row server-side, the
 // SENIOR sees it directly in the table with an inline «Оплатить» pill.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe('SENIOR INCOME — шаг 4: «Выплата» появляется после validate', () => {
-  test('SENIOR видит «Выплата» row с кнопкой «Оплатить» сразу после ACCOUNTANT validate', async ({
+  test('SENIOR видит «Выплата» row с кнопкой «Оплатить» сразу после ADMIN validate', async ({
     asSenior,
   }) => {
     const incomeAfterValidate = makeTx({
@@ -687,7 +685,7 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты (PayoutDe
 //
 // PR #56 backend gate: validateTransaction(tx_id) is a no-op on a row that
 // is no longer PENDING. From the UI side we assert the consequence — once
-// VALIDATED, the ACCOUNTANT no longer sees a «Проверить» button on that row
+// VALIDATED, the ADMIN no longer sees a «Проверить» button on that row
 // and cannot trigger a second auto-payout creation.
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -695,10 +693,10 @@ test.describe('SENIOR INCOME — A2: validate idempotency (PR #56)', () => {
   test('VALIDATED row has no «Проверить» button (cannot re-validate, no duplicate payout)', async ({
     page,
   }) => {
-    await mockAuthAs(page, USERS.accountant)
+    await mockAuthAs(page, USERS.admin)
     const validatedTx = makeTx({
       status: 'VALIDATED',
-      validatedBy: USERS.accountant.id,
+      validatedBy: USERS.admin.id,
       validatedAt: '2026-05-02T10:00:00.000Z',
     })
     await setupTransactionMocks(page, validatedTx)
@@ -711,11 +709,11 @@ test.describe('SENIOR INCOME — A2: validate idempotency (PR #56)', () => {
   test('PENDING_PAYMENT income row has no «Проверить» (already past validate gate)', async ({
     page,
   }) => {
-    await mockAuthAs(page, USERS.accountant)
+    await mockAuthAs(page, USERS.admin)
     const pendingPaymentTx = makeTx({
       status: 'PENDING_PAYMENT',
       payoutRequestId: 'flow-payout-1',
-      validatedBy: USERS.accountant.id,
+      validatedBy: USERS.admin.id,
       validatedAt: '2026-05-02T10:00:00.000Z',
     })
     await setupTransactionMocks(page, pendingPaymentTx)
@@ -856,16 +854,16 @@ test.describe('SENIOR INCOME — D: transactions sorted by txDate DESC (same-day
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe('SENIOR INCOME — полный сквозной флоу', () => {
-  test('SENIOR создаёт → ACCOUNTANT отклоняет → SENIOR исправляет → ACCOUNTANT принимает → SENIOR выплачивает', async ({
+  test('SENIOR создаёт → ADMIN отклоняет → SENIOR исправляет → ADMIN принимает → SENIOR выплачивает', async ({
     browser,
   }) => {
     const seniorCtx = await browser.newContext()
-    const accountantCtx = await browser.newContext()
+    const adminCtx = await browser.newContext()
     const seniorPage = await seniorCtx.newPage()
-    const accountantPage = await accountantCtx.newPage()
+    const adminPage = await adminCtx.newPage()
 
     await mockAuthAs(seniorPage, USERS.senior)
-    await mockAuthAs(accountantPage, USERS.accountant)
+    await mockAuthAs(adminPage, USERS.admin)
 
     // === ШАГ 1: SENIOR создаёт транзакцию ===
     const pendingTx = makeTx({ receiptExternalUrl: 'https://drive.google.com/receipt.pdf' })
@@ -917,14 +915,14 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     await expect(createDialog).not.toBeVisible()
     await expect(seniorPage.getByTestId('tx-status-badge-pending').first()).toBeVisible()
 
-    // === ШАГ 2а: ACCOUNTANT отклоняет ===
+    // === ШАГ 2а: ADMIN отклоняет ===
     const rejectedTx = makeTx({
       status: 'REJECTED',
       rejectionReason: 'Нет чека',
       receiptExternalUrl: 'https://drive.google.com/receipt.pdf',
     })
 
-    await accountantPage.route(
+    await adminPage.route(
       new RegExp(`${API_RE}/transactions/([^/?]+)/(validate|pay|admin-edit)$`),
       (r) =>
         r.fulfill({
@@ -933,26 +931,26 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
           body: JSON.stringify(rejectedTx),
         }),
     )
-    await accountantPage.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
+    await adminPage.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify([pendingTx]),
       }),
     )
-    await accountantPage.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
+    await adminPage.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
     )
 
-    await accountantPage.goto('/finance')
-    await expect(accountantPage.getByTestId('tx-status-badge-pending').first()).toBeVisible()
-    await accountantPage.getByTestId(`tx-row-validate-${pendingTx.id}`).click()
+    await adminPage.goto('/finance')
+    await expect(adminPage.getByTestId('tx-status-badge-pending').first()).toBeVisible()
+    await adminPage.getByTestId(`tx-row-validate-${pendingTx.id}`).click()
     const uk = await loadMessages('uk')
-    await accountantPage
+    await adminPage
       .getByPlaceholder(assertInCatalog(uk, 'Вкажіть причину у разі відмови…'))
       .fill('Нет чека')
-    await accountantPage.getByTestId('validate-transaction-reject').click()
-    await expect(accountantPage.getByTestId('validate-transaction-dialog')).not.toBeVisible()
+    await adminPage.getByTestId('validate-transaction-reject').click()
+    await expect(adminPage.getByTestId('validate-transaction-dialog')).not.toBeVisible()
 
     // === ШАГ 2б: SENIOR исправляет ===
     const correctedTx = makeTx({
@@ -986,14 +984,14 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     await seniorPage.getByTestId('edit-senior-income-resubmit').click()
     await expect(seniorPage.getByRole('dialog')).not.toBeVisible()
 
-    // === ШАГ 3: ACCOUNTANT принимает ===
+    // === ШАГ 3: ADMIN принимает ===
     const validatedTx = makeTx({
       status: 'VALIDATED',
-      validatedBy: USERS.accountant.id,
+      validatedBy: USERS.admin.id,
       receiptExternalUrl: 'https://drive.google.com/new-receipt.pdf',
     })
 
-    await accountantPage.route(
+    await adminPage.route(
       new RegExp(`${API_RE}/transactions/([^/?]+)/(validate|pay|admin-edit)$`),
       (r) =>
         r.fulfill({
@@ -1002,7 +1000,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
           body: JSON.stringify(validatedTx),
         }),
     )
-    await accountantPage.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
+    await adminPage.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1010,15 +1008,15 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
       }),
     )
 
-    await accountantPage.goto('/finance')
-    await accountantPage.getByTestId(`tx-row-validate-${correctedTx.id}`).click()
-    await accountantPage.getByTestId('validate-transaction-confirm').click()
-    await accountantPage.getByTestId('validate-confirm-ok').click()
-    await expect(accountantPage.getByTestId('validate-transaction-dialog')).not.toBeVisible()
+    await adminPage.goto('/finance')
+    await adminPage.getByTestId(`tx-row-validate-${correctedTx.id}`).click()
+    await adminPage.getByTestId('validate-transaction-confirm').click()
+    await adminPage.getByTestId('validate-confirm-ok').click()
+    await expect(adminPage.getByTestId('validate-transaction-dialog')).not.toBeVisible()
 
     // === ШАГ 4 + 5: «Выплата» auto-created server-side; SENIOR оплачивает ===
     // task-payout-auto-on-validate collapsed old steps 4 (PayoutDialog) and 5
-    // (PayoutDetailDialog) into one. ACCOUNTANT's earlier «Подтвердить»
+    // (PayoutDetailDialog) into one. ADMIN's earlier «Подтвердить»
     // would atomically insert the PAYOUT row, so the SENIOR now arrives at
     // /finance and sees the «Выплата» row directly.
     const pendingPaymentIncome = {
@@ -1088,6 +1086,6 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     await expect(detailDialog).not.toBeVisible()
 
     await seniorCtx.close()
-    await accountantCtx.close()
+    await adminCtx.close()
   })
 })

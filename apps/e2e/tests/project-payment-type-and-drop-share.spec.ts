@@ -6,7 +6,7 @@
  * Mocked-fixture coverage of the project-edit-form surfaces added by this PR:
  *
  *   Flow 3 — «Тип оплаты» field-scoped RBAC (Surface C):
- *     - ADMIN/ACCOUNTANT: editable enum Select (`project-payment-type-trigger`).
+ *     - ADMIN: editable enum Select (`project-payment-type-trigger`).
  *     - SENIOR: the edit dialog is unreachable at all (`canOpenEdit` never
  *       includes SENIOR — pre-existing, unrelated to this PR) — sees the
  *       value read-only via the Overview «Детали проекта» InfoRow instead.
@@ -25,7 +25,7 @@
  * These specs check the RENDERED UI (Select disabled state / field presence
  * / distribution math), not the backend guard.
  */
-import { test, expect, USERS, PROJECTS, mockAuthAs } from './fixtures'
+import { test, expect, USERS, PROJECTS } from './fixtures'
 
 type ProjectOverrides = Partial<(typeof PROJECTS)[number]> & {
   dropId?: string | null
@@ -121,16 +121,6 @@ test.describe('«Тип оплаты» field-scoped RBAC — project edit (Flow 
     const req = await patchReq
     const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
     expect(body.paymentType).toBe('USDT')
-  })
-
-  test('ACCOUNTANT sees an ENABLED paymentType Select too', async ({ asAccountant: page }) => {
-    await mockProjectDetail(page, { paymentType: 'FOP' })
-    await page.goto(`/projects/${PROJECTS[0]!.id}`)
-
-    await page.getByTestId('project-edit-button').click()
-    const trigger = page.getByTestId('project-payment-type-trigger')
-    await expect(trigger).toBeVisible()
-    await expect(trigger).toBeEnabled()
   })
 
   test('SENIOR cannot open the edit dialog at all — sees the value read-only on Overview', async ({

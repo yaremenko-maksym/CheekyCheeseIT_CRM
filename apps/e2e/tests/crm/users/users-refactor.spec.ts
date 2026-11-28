@@ -8,7 +8,7 @@ import { loadMessages, assertInCatalog } from '../../../fixtures/catalog'
  *  - Whole row clickable to profile; edit/archive icons stopPropagation
  *  - Sort headers use ChevronUp/Down with active color
  *  - Sectioned dialogs (Identity / Contacts / Profession / Finance / Team)
- *  - Edit SENIOR symmetric: HR multiselect + Accountant editable
+ *  - Create / Edit SENIOR: HR multiselect, no retired-role picker
  *  - Edit JUNIOR shows read-only projects + link to /projects
  *  - ArchiveConfirmDialog with role-specific warnings + name confirmation
  *  - Toggle «Показать архивных» with URL state
@@ -166,9 +166,7 @@ test.describe('Users page refactor (PR 2)', () => {
       await expect(page.getByTestId('email-change-warning')).toBeVisible()
     })
 
-    test('Create SENIOR shows HR multiselect + Accountant chip (ut-16)', async ({
-      asAdmin: page,
-    }) => {
+    test('Create SENIOR shows the HR multiselect (ut-16)', async ({ asAdmin: page }) => {
       const uk = await loadMessages('uk')
       await page.goto('/users')
       // Let the list settle first: a click/Enter on «Добавить» before the page has finished
@@ -181,32 +179,15 @@ test.describe('Users page refactor (PR 2)', () => {
       await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
       // ut-16: container test-id preserved for both Create and Edit.
       await expect(page.getByTestId('user-dialog-hr-multiselect')).toBeVisible()
-      // Accountant block — chip when single, popover trigger when multi.
-      const chip = page.getByTestId('user-dialog-accountant-chip')
-      const trigger = page.getByTestId('user-dialog-accountant-trigger')
-      await expect((await chip.count()) + (await trigger.count())).toBeGreaterThan(0)
     })
 
-    test('Edit SENIOR keeps HR + Accountant editable (symmetric)', async ({ asAdmin: page }) => {
+    test('Edit SENIOR keeps HR editable', async ({ asAdmin: page }) => {
       await page.goto('/users')
       await page.getByTestId(`user-row-edit-${USERS.senior.id}`).click()
       await expect(page.getByTestId('user-dialog-hr-multiselect')).toBeVisible()
-      const chip = page.getByTestId('user-dialog-accountant-chip')
-      const trigger = page.getByTestId('user-dialog-accountant-trigger')
-      // The multiselect container renders unconditionally; the chip/trigger
-      // only mount once GET /users (allUsers, `enabled: open`) resolves and
-      // `accountantUsers` is derived — a second render pass after the one
-      // that mounts the multiselect. `.count()` is a single DOM snapshot with
-      // no auto-wait, so it can read 0/0 in the gap between those two commits
-      // (observed CI-flaky, unrelated to this PR's diff — neither this
-      // component nor the /team|/users mocks were touched here). `.poll`
-      // retries the same snapshot until the second commit lands.
-      await expect
-        .poll(async () => (await chip.count()) + (await trigger.count()))
-        .toBeGreaterThan(0)
     })
 
-    test('Edit SENIOR PATCH includes hrIds + accountantId', async ({ asAdmin: page }) => {
+    test('Edit SENIOR PATCH includes hrIds and omits accountantId', async ({ asAdmin: page }) => {
       await page.goto('/users')
       await page.getByTestId(`user-row-edit-${USERS.senior.id}`).click()
       // Wait for HR multiselect to load (depends on team data)
@@ -219,7 +200,7 @@ test.describe('Users page refactor (PR 2)', () => {
       const req = await patchReq
       const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
       expect(body).toHaveProperty('hrIds')
-      expect(body).toHaveProperty('accountantId')
+      expect(body).not.toHaveProperty('accountantId')
     })
 
     test('Edit JUNIOR shows read-only projects + manage link', async ({ asAdmin: page }) => {

@@ -10,7 +10,7 @@
  *   6. View toggle switches to grid and back to list.
  */
 
-import { test, expect, USERS, mockAuthAs, API_RE } from './fixtures'
+import { test, expect, USERS, API_RE } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 let uk: Record<string, string>
@@ -28,14 +28,6 @@ test.describe('Sidebar — audit-log link removed', () => {
     await page.waitForLoadState('networkidle')
     // Any link whose text is «Аудит-журнал» must not be in the DOM.
     // Locale-independent: the removed page is routed at /audit*, whatever the label's language.
-    await expect(page.locator('a[href*="audit"]')).toHaveCount(0)
-    await expect(page.getByRole('link', { name: /аудит|audit|аудіт/i })).toHaveCount(0)
-  })
-
-  test('ACCOUNTANT sidebar has no "Аудит-журнал" link', async ({ page }) => {
-    await mockAuthAs(page, USERS.accountant)
-    await page.goto('/')
-    await page.waitForLoadState('networkidle')
     await expect(page.locator('a[href*="audit"]')).toHaveCount(0)
     await expect(page.getByRole('link', { name: /аудит|audit|аудіт/i })).toHaveCount(0)
   })

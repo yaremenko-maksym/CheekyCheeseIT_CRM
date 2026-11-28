@@ -49,18 +49,17 @@ import type { Locator, Page } from '@playwright/test'
 
 /**
  * Fill the minimum required fields for DROP submit: email, name, USDT
- * requisites, AND an explicit HR + accountant selection.
+ * requisites, AND an explicit HR selection.
  *
  * Fixture-gap fix (task-drop-share-slider-shard, follow-up to PR #376 MED-1):
- * `createDropSchema`/`UserDialog.onSubmit` requires `hrIds.length >= 1` and a
- * truthy `accountantId` before the POST fires (see `UserDialog.tsx` — the
- * `hrIds.length === 0` / `!accountantId` guards `return` early with a toast,
+ * `createDropSchema`/`UserDialog.onSubmit` requires `hrIds.length >= 1`
+ * before the POST fires (see `UserDialog.tsx` — the `hrIds.length === 0`
+ * guard `return`s early with a toast,
  * so the mocked `/users/drops` POST never happens and `waitForRequest` below
- * would time out). `UserDialog` auto-selects HR/accountant ONLY when the
- * dataset has exactly one of each (`hrUsers.length === 1` /
- * `accountantUsers.length === 1`) — with 2+ HRs (e.g. a `crm_qa`-style
+ * would time out). `UserDialog` auto-selects the HR ONLY when the
+ * dataset has exactly one (`hrUsers.length === 1`) — with 2+ HRs (e.g. a `crm_qa`-style
  * dataset that accumulated more users than the single-HR CI seed) nothing is
- * pre-selected and the picker ("Добавить HR" / "Выбрать бухгалтера") stays
+ * pre-selected and the picker ("Добавить HR") stays
  * open instead. We wait for each section to finish loading (GET /users
  * resolved) and, if the "add" trigger is still showing — i.e. nothing was
  * auto-selected/locked — explicitly pick the first available option. This is
@@ -71,12 +70,12 @@ import type { Locator, Page } from '@playwright/test'
  * not dialog-scoped (playwright-patterns skill — Radix async-select pattern).
  *
  * `legalFullName` is also required for CREATE-mode contract-eligible roles
- * (SENIOR/HR/JUNIOR/ACCOUNTANT/DROP — see the `legalFullName` field's
+ * (SENIOR/HR/JUNIOR/DROP — see the `legalFullName` field's
  * `onSubmit` validator in `UserDialog.tsx`, A3-3 AC6/bug#2): without it,
  * `form.handleSubmit()` fails validation and returns before ever calling our
  * `onSubmit` — no toast, no network call, dialog stays open. This is the
  * actual reason the mocked POST never fired; filling it is required for ANY
- * dataset, same as the HR/accountant selection above.
+ * dataset, same as the HR selection above.
  */
 async function fillBaseDropFields(
   page: Page,
@@ -97,17 +96,6 @@ async function fillBaseDropFields(
   if ((await hrAddTrigger.count()) > 0) {
     await hrAddTrigger.click()
     await page.locator('[data-testid^="user-dialog-hr-option-"]').first().click()
-  }
-
-  // Accountant — either the locked chip (single-accountant auto-select) or
-  // the picker trigger (2+ accountants, nothing pre-selected) renders once
-  // data loads; wait for whichever shows up, then pick one if still needed.
-  const accountantChip = dialog.getByTestId('user-dialog-accountant-chip')
-  const accountantTrigger = dialog.getByTestId('user-dialog-accountant-trigger')
-  await expect(accountantChip.or(accountantTrigger)).toBeVisible()
-  if ((await accountantTrigger.count()) > 0) {
-    await accountantTrigger.click()
-    await page.locator('[data-testid^="user-dialog-accountant-option-"]').first().click()
   }
 }
 

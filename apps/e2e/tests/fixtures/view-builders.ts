@@ -108,9 +108,9 @@ export function buildSelfView(user: MockUser): object {
   //   it in their own profile (UT finding 3a, drop-phase3-frontend round 2).
   //   Updated 2026-06-13 (PR #198 drop-phase3-frontend).
   //
-  // Everyone else (SENIOR, HR, ACCOUNTANT, ADMIN):
+  // Everyone else (SENIOR, HR, ADMIN):
   //   overview / projects / team / requisites / documents
-  //   + finance for SENIOR / HR / ACCOUNTANT.
+  //   + finance for SENIOR / HR.
   let tabs: string[]
   if (user.role === 'JUNIOR') {
     // Explicit allow-list — no documents, no finance, no projects, no team.
@@ -121,7 +121,7 @@ export function buildSelfView(user: MockUser): object {
     tabs = ['overview', 'finance', 'team', 'requisites', 'documents', 'contract']
   } else {
     tabs = ['overview', 'projects', 'team', 'requisites', 'documents']
-    if (user.role === 'SENIOR' || user.role === 'HR' || user.role === 'ACCOUNTANT') {
+    if (user.role === 'SENIOR' || user.role === 'HR') {
       tabs.push('finance')
     }
     // task-resume-base §4: a SENIOR maintains their OWN resume, so their
@@ -129,7 +129,7 @@ export function buildSelfView(user: MockUser): object {
     if (user.role === 'SENIOR') tabs.push('resume')
   }
 
-  const isSalaryRole = user.role === 'JUNIOR' || user.role === 'HR' || user.role === 'ACCOUNTANT'
+  const isSalaryRole = user.role === 'JUNIOR' || user.role === 'HR'
   const isShareRole = user.role === 'SENIOR' || user.role === 'ADMIN' || user.role === 'DROP'
 
   return {

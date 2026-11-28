@@ -10,7 +10,7 @@
  * then logs in as a seed JUNIOR via dev-login and hits the direct URL.
  *
  * Acceptance: page does NOT render the team's member grid (no leak of
- * drop / HR / accountant identities to an unrelated junior).
+ * drop / HR identities to an unrelated junior).
  */
 
 import { test, expect } from './fixtures'

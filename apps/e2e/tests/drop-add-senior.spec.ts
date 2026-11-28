@@ -9,8 +9,8 @@
  * Coverage:
  *   - RadioGroup picker exposes both options
  *   - JOIN_DROP_TEAM option lists vacant drop-teams (no active senior)
- *   - Picking a drop-team hides the HR / Accountant chip pickers (HR
- *     and accountant are inherited from the chosen team)
+ *   - Picking a drop-team hides the HR chip picker (the HR is
+ *     inherited from the chosen team)
  *   - Submit posts `teamMode: 'JOIN_DROP_TEAM'` + `dropTeamId: <id>`
  *     and omits hrIds when joining (per UserDialog onSubmit)
  *   - HR validation toast is suppressed when joining a drop-team
@@ -116,7 +116,7 @@ test.describe('Drop add-senior flow — AC2', () => {
     await expect(dialog.getByTestId('user-dialog-team-mode-join-drop')).toBeDisabled()
   })
 
-  test('selecting JOIN_DROP_TEAM swaps HR/accountant pickers for the drop-team dropdown', async ({
+  test('selecting JOIN_DROP_TEAM swaps the HR picker for the drop-team dropdown', async ({
     asAdmin: page,
   }) => {
     const uk = await loadMessages('uk')
@@ -145,7 +145,7 @@ test.describe('Drop add-senior flow — AC2', () => {
     asAdmin: page,
   }) => {
     // Verifies the UI contract for AC2: opening the create-senior dialog +
-    // switching the team-mode radio swaps the HR/Accountant chip pickers
+    // switching the team-mode radio swaps the HR chip picker
     // for a drop-team <Select> that lists vacant drop-teams from the
     // `/teams` response. The actual POST body shape is covered by
     // backend unit tests (UserDialog onSubmit branch is small).

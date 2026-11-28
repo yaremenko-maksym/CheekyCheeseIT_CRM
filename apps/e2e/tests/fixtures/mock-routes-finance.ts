@@ -23,7 +23,7 @@ export async function mockFinanceRoutes(page: Page, user: MockUser) {
   await page.route(new RegExp(`${API_RE}/payout-requests/([^/?]+)/pay$`), (r) =>
     jsonOk(r, { id: r.request().url().split('/').at(-2), status: 'PAID' }),
   )
-  // Phase 8 v2 (PR #253, AC3) — manual-confirm endpoint (ADMIN/ACCOUNTANT only).
+  // Phase 8 v2 (PR #253, AC3) — manual-confirm endpoint (ADMIN only).
   // Must be registered BEFORE the generic /payout-requests/:id$ route so PATCH
   // requests to /manual-confirm don't accidentally fall through to the generic
   // id-handler (LIFO: last-registered wins). Default: 200 success with method echo.
@@ -60,17 +60,6 @@ export async function mockFinanceRoutes(page: Page, user: MockUser) {
         debtUsd: '0.00',
         debtDirection: 'SETTLED',
       },
-    }),
-  )
-  // ACCOUNTANT Sprint 1 — accountant финансовый хаб KPI snapshot. Default
-  // non-zero values so AccountantDashboard renders the loaded state. Tests that
-  // need other figures register their own handler AFTER mockAuthAs (LIFO).
-  await page.route(new RegExp(`${API_RE}/finance/accountant-summary(\\?.*)?$`), (r) =>
-    jsonOk(r, {
-      pendingValidation: { count: 4, amount: 15000 },
-      validatedThisMonth: { count: 2, amount: 3500 },
-      paidThisMonth: { amount: 12000 },
-      recipientCount: 5,
     }),
   )
   // ADMIN dashboard «центр действий» — KPI snapshot + active-transactions feed
@@ -250,7 +239,7 @@ export async function mockFinanceRoutes(page: Page, user: MockUser) {
   )
 
   // Phase 8 — Company USDT account. CompanyAccountCard mounts on /finance
-  // for ADMIN/ACCOUNTANT and fires GET /api/company-account unconditionally
+  // for ADMIN and fires GET /api/company-account unconditionally
   // (no `enabled` guard). Without this mock the request hits the real backend →
   // 401 → axios interceptor → /login redirect, OR the pending network request
   // prevents `networkidle` / `waitForLoadState('domcontentloaded')` from settling →

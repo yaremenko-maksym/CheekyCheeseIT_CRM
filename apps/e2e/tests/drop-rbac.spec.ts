@@ -234,7 +234,7 @@ test.describe('Drop RBAC visibility — AC8 (phase 3 update)', () => {
   test('back-button IS visible for ADMIN on /team/$teamId', async ({ asAdmin: page }) => {
     // ADMIN is NOT in the hidden-roles list → back-button is rendered.
     // This is a regression guard: if someone accidentally broadens the hide condition,
-    // ADMIN (and HR/ACCOUNTANT) would lose the «back» affordance.
+    // ADMIN (and HR) would lose the «back» affordance.
     // Use direct goto with the fixture team id (TEAMS[0].id = 'team-1-id') to avoid
     // clicking the card which has a z-20 overlay div that intercepts pointer events.
     await page.goto('/team/team-1-id')

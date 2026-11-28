@@ -47,7 +47,7 @@ async function createSeniorViaDialog(page: Page): Promise<Record<string, unknown
   await expect(page.getByRole('dialog').getByText('Команда', { exact: true })).toBeVisible()
 
   // A3-3: legalFullName is required for all contract-eligible roles (SENIOR,
-  // JUNIOR, HR, ACCOUNTANT). Without it the superRefine check in
+  // JUNIOR, HR). Without it the superRefine check in
   // createUserSchema fails client-side and the wizard blocks advance.
   await page.getByTestId('user-dialog-legal-full-name').fill('Сеніор Тестовий Іванович')
 
@@ -537,7 +537,7 @@ test.describe('Users management page', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // SENIOR creation flow — team assignment (hrIds + accountantId)
+  // SENIOR creation flow — team assignment (hrIds)
   // ---------------------------------------------------------------------------
 
   test.describe('Create SENIOR — team assignment', () => {
@@ -549,25 +549,18 @@ test.describe('Users management page', () => {
       expect((body.hrIds as string[]).length).toBeGreaterThan(0)
     })
 
-    test('ADMIN: POST includes accountantId when accountant auto-selected', async ({
+    test('ADMIN: POST omits accountantId (the accountant role is retired)', async ({
       asAdmin: page,
     }) => {
       await page.goto('/users')
       const body = await createSeniorViaDialog(page)
-      expect(body.accountantId).toBeTruthy()
-      expect(typeof body.accountantId).toBe('string')
+      expect(body).not.toHaveProperty('accountantId')
     })
 
     test('ADMIN: POST contains correct hrId from fixtures', async ({ asAdmin: page }) => {
       await page.goto('/users')
       const body = await createSeniorViaDialog(page)
       expect(body.hrIds as string[]).toContain(USERS.hr.id)
-    })
-
-    test('ADMIN: POST contains correct accountantId from fixtures', async ({ asAdmin: page }) => {
-      await page.goto('/users')
-      const body = await createSeniorViaDialog(page)
-      expect(body.accountantId).toBe(USERS.accountant.id)
     })
 
     test('ADMIN: Фінанси and Команда sections visible for SENIOR role', async ({
@@ -584,7 +577,8 @@ test.describe('Users management page', () => {
       await expect(dialog.getByText(assertInCatalog(uk, 'Фінанси'), { exact: true })).toBeVisible()
       await expect(dialog.getByText('Команда', { exact: true })).toBeVisible()
       await expect(dialog.locator('label').filter({ hasText: 'HR' }).first()).toBeVisible()
-      await expect(dialog.getByText('Бухгалтер')).toBeVisible()
+      // The retired «Бухгалтер» picker is gone from the team section.
+      await expect(dialog.getByText('Бухгалтер')).toHaveCount(0)
     })
 
     test('ADMIN: HR chip pre-selected when only one HR exists (ut-16)', async ({

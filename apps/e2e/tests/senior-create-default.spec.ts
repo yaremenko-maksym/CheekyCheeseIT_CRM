@@ -3,7 +3,7 @@
  *
  * AC3 asserts that the legacy «Создать свою команду» path remains intact:
  * an ADMIN-driven SENIOR creation defaults to `teamMode='CREATE_NEW'`, the
- * HR/Accountant chips auto-select (single-fixture case) and the dialog
+ * HR chip auto-selects (single-fixture case) and the dialog
  * submits a normal CreateUserDto without `teamMode` / `dropTeamId`.
  *
  * This is the regression-safety net for AC2/AC9 — if we ever lose the
@@ -132,10 +132,9 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
       displayName: 'Default Senior',
       role: 'SENIOR',
     })
-    // hrIds / accountantId are populated from the auto-selected chip.
+    // hrIds is populated from the auto-selected chip.
     expect(Array.isArray(body.hrIds)).toBe(true)
     expect(body.hrIds as string[]).toContain(USERS.hr.id)
-    expect(body.accountantId).toBe(USERS.accountant.id)
     // Legacy flow → teamMode field is intentionally omitted.
     expect(body.teamMode).toBeUndefined()
     expect(body.dropTeamId).toBeUndefined()

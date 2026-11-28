@@ -30,7 +30,6 @@ test.describe('A. HR dashboard dispatch', () => {
     await expect(page.getByTestId('hr-dashboard-hub')).toBeVisible({ timeout: 8_000 })
 
     // Other role hubs must NOT appear for HR.
-    await expect(page.getByTestId('accountant-dashboard-hub')).toHaveCount(0)
     await expect(page.getByTestId('drop-dashboard-hub')).toHaveCount(0)
   })
 })

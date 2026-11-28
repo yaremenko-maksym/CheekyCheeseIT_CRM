@@ -6,7 +6,7 @@
  *
  * Round-3 UI (PR #39 round 2 — task-fix-pr39-ui-round2):
  *   - Checkbox «Использовать переопределение» + кнопка «Сбросить» удалены.
- *   - <ShareSlider> всегда виден для ADMIN/ACCOUNTANT/SENIOR; disabled для
+ *   - <ShareSlider> всегда виден для ADMIN/SENIOR; disabled для
  *     SENIOR; полностью скрыт для HR (DOM не содержит секцию).
  *   - Implicit null: если slider value === senior's default, backend пишет
  *     `null` в projects.* и в project_finance_settings.*.
@@ -17,7 +17,6 @@
  *   A) ADMIN can edit → PATCH opens a proposal → pending badge appears
  *      (task-pending-share, position 5 — the active value does NOT move).
  *   B) HR не видит секцию ShareSlider в edit-форме (DOM целиком отсутствует).
- *   C) ACCOUNTANT может редактировать → proposal open → pending badge.
  *   D) Snapshot honored: SENIOR_INCOME row показывает Доля% из tx snapshot.
  *   E) PayoutDialog preview читает snapshot ("Ваша доля 30%", "К оплате 70%").
  *   F) Boundary 0 / 100 (ADMIN) → proposal opens, active value untouched.
@@ -46,16 +45,7 @@
  *
  * All scenarios run against the mocked /api/* responses defined in fixtures.ts.
  */
-import {
-  test,
-  expect,
-  USERS,
-  PROJECTS,
-  mockAuthAs,
-  API_GLOB,
-  API_RE,
-  buildAdminViewingUser,
-} from './fixtures'
+import { test, expect, USERS, PROJECTS, API_GLOB, API_RE, buildAdminViewingUser } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // Pin the BROWSER language. Without it Playwright's Chromium reports `en-US`
@@ -373,40 +363,6 @@ test.describe('per-project SENIOR share override', () => {
       const req = await patchReq
       const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
       expect('seniorSharePercentOverride' in body).toBe(false)
-    })
-  })
-
-  test.describe('Scenario C — ACCOUNTANT can edit override', () => {
-    test('ACCOUNTANT opens edit, sets override = 35, saves → opens a proposal (task-pending-share)', async ({
-      page,
-    }) => {
-      await mockAuthAs(page, USERS.accountant)
-      await mockProjectDetail(page, { seniorSharePercentOverride: null })
-
-      await page.goto(`/projects/${PROJECTS[0]!.id}`)
-      await page.getByTestId('project-edit-button').click()
-
-      // Слайдер виден всегда, без toggle.
-      await expect(page.getByTestId('project-edit-senior-share-section')).toBeVisible()
-      const input = page.getByTestId('project-edit-senior-share-override')
-      await expect(input).toBeEnabled()
-      await input.fill('35')
-
-      const patchReq = page.waitForRequest(
-        (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
-      )
-      await page.getByRole('button', { name: 'Зберегти' }).click()
-      const req = await patchReq
-      const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
-      expect(body['seniorSharePercentOverride']).toBe(35)
-
-      // Active value unchanged; the ACCOUNTANT sees the same pending
-      // indicator an ADMIN would (both are gated on `fields.share`, not role).
-      await expect(page.getByTestId('project-senior-share')).toContainText('(за замовчуванням)')
-      await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
-      const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
-      await expect(pendingBadge).toBeVisible()
-      await expect(pendingBadge).toContainText('35%')
     })
   })
 
@@ -820,7 +776,7 @@ test.describe('per-project SENIOR share override', () => {
               contentType: 'application/json',
               body: JSON.stringify({
                 statusCode: 403,
-                message: 'Only ADMIN or ACCOUNTANT can change senior share percent override',
+                message: 'Only ADMIN can change senior share percent override',
                 error: 'Forbidden',
               }),
             })
@@ -934,7 +890,7 @@ test.describe('per-project SENIOR share override', () => {
     })
   })
 
-  test.describe('Scenario Q — ADMIN/SENIOR/ACCOUNTANT всё ещё видят финансовые элементы (regression)', () => {
+  test.describe('Scenario Q — ADMIN/SENIOR всё ещё видят финансовые элементы (regression)', () => {
     test('ADMIN на /projects/:id видит табу «Финансы» + info-row', async ({ asAdmin: page }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
 
@@ -951,21 +907,6 @@ test.describe('per-project SENIOR share override', () => {
       await expect(page.getByRole('tab', { name: 'Фінанси' })).toBeVisible()
       await expect(page.getByTestId('project-senior-share')).toBeVisible()
       await expect(page.getByTestId('project-senior-share')).toContainText('30%')
-    })
-
-    test('ACCOUNTANT на /projects/:id видит табу «Финансы» + info-row + ShareSlider editable', async ({
-      page,
-    }) => {
-      await mockAuthAs(page, USERS.accountant)
-      await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
-
-      await page.goto(`/projects/${PROJECTS[0]!.id}`)
-      await expect(page.getByRole('tab', { name: 'Фінанси' })).toBeVisible()
-      await expect(page.getByTestId('project-senior-share')).toBeVisible()
-
-      await page.getByTestId('project-edit-button').click()
-      await expect(page.getByTestId('project-edit-senior-share-section')).toBeVisible()
-      await expect(page.getByTestId('project-edit-senior-share-override')).toBeEnabled()
     })
   })
 })

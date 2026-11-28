@@ -9,9 +9,8 @@
  * Dashboard consolidation: the role-dispatch dashboard now lives ONLY at the
  * CRM root `/` (index.tsx); the separate `/dashboard` route and the old
  * generic candidates/vacancies placeholder were removed. ADMIN/SENIOR see the
- * generic dashboard; HR sees HRDashboard; DROP/ACCOUNTANT/JUNIOR have their own
- * surfaces and are excluded here (DROP/JUNIOR redirect off /crm; ACCOUNTANT hub
- * is covered by accountant-dashboard.spec).
+ * generic dashboard; HR sees HRDashboard; DROP/JUNIOR have their own
+ * surfaces and are excluded here (DROP/JUNIOR redirect off /crm).
  *
  * task-i18n-stage3a (Task 1) — file name/docstring kept for history
  * (task-e2e-fragile-points-audit), but the ASSERTIONS below no longer check

@@ -2,7 +2,7 @@
  * admin-templates.spec.ts — Phase 6C E2E tests
  *
  * Coverage (AC 6C-8):
- * 1. ADMIN opens /admin/contracts → sees 5 role cards,
+ * 1. ADMIN opens /admin/contracts → sees 4 role cards,
  *    clicks SENIOR editor, opens the PDF preview, publishes new version → toast shown
  * 2. ADMIN publishes new ToS version → onboarding-status invalidated
  *    (soft-notify banner visible for an onboarded user)
@@ -39,12 +39,6 @@ const ALL_CONTRACT_TEMPLATES = [
   { ...CONTRACT_TEMPLATE_SENIOR, id: 'tpl-hr-1', targetRole: 'HR', version: 1 },
   { ...CONTRACT_TEMPLATE_SENIOR, id: 'tpl-junior-1', targetRole: 'JUNIOR', version: 1 },
   { ...CONTRACT_TEMPLATE_SENIOR, id: 'tpl-drop-1', targetRole: 'DROP', version: 1 },
-  {
-    ...CONTRACT_TEMPLATE_SENIOR,
-    id: 'tpl-accountant-1',
-    targetRole: 'ACCOUNTANT',
-    version: 1,
-  },
 ]
 
 const TOS_VERSION = {
@@ -124,13 +118,13 @@ const test = base.extend<LocalFixtures>({
 // AC 6C-8 — Scenario 1: ADMIN edits SENIOR contract + publishes
 // ---------------------------------------------------------------------------
 
-test('ADMIN sees 5 role cards, edits SENIOR contract, publishes new version', async ({
+test('ADMIN sees 4 role cards, edits SENIOR contract, publishes new version', async ({
   asAdmin: page,
 }) => {
   await page.goto('/admin/contracts')
 
-  // All 5 role cards should render
-  for (const role of ['hr', 'senior', 'junior', 'drop', 'accountant']) {
+  // All 4 role cards should render
+  for (const role of ['hr', 'senior', 'junior', 'drop']) {
     await expect(page.getByTestId(`contract-template-card-${role}`)).toBeVisible()
   }
 

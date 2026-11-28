@@ -3,18 +3,18 @@
  *
  * AC coverage:
  *  AC2 — SENIOR sees payout dialog with company wallet address (copyable) + txHash input
- *  AC3 — Manual-confirm section (payout-detail-manual-section) visible ADMIN/ACCOUNTANT,
+ *  AC3 — Manual-confirm section (payout-detail-manual-section) visible ADMIN only,
  *         hidden for SENIOR / DROP / JUNIOR / HR
  *  AC4 — DIVIDEND option in CreateTransactionDialog visible ADMIN-only,
- *         not present for SENIOR / ACCOUNTANT
+ *         not present for SENIOR
  *  AC5 — Company balance KPI (stats-company-account-balance) visible on /stats
- *         for ADMIN + ACCOUNTANT
+ *         for ADMIN
  *
  * All tests use Playwright route mocks — no real backend required.
  * Route pattern: glob **\/api for string routes, \\\/api for RegExp routes.
  */
 
-import { test, expect, USERS, mockAuthAs, API_GLOB, API_RE } from './fixtures'
+import { test, expect, USERS, API_GLOB, API_RE } from './fixtures'
 import type { Page, Route } from '@playwright/test'
 
 function jsonOk(route: Route, body: unknown, status = 200) {
@@ -93,7 +93,7 @@ async function mockPayoutDetailRoutes(page: Page, payout = makePayoutRequest()) 
     if (r.request().method() !== 'POST') return r.fallback()
     return jsonOk(r, { ...payout, status: 'PAID', txHash: '0xdeadbeef123' })
   })
-  // POST /manual-confirm — ADMIN/ACCOUNTANT only
+  // POST /manual-confirm — ADMIN only
   await page.route(new RegExp(`${API_RE}/payout-requests/([^/?]+)/manual-confirm$`), (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     return jsonOk(r, { ...payout, status: 'PAID', method: 'CASH' })
@@ -191,14 +191,14 @@ test.describe('AC2 — PayoutDetailDialog: company wallet address for SENIOR', (
 // AC3 — Manual payout confirmation RBAC
 // ---------------------------------------------------------------------------
 //
-// Manual confirmation (CASH / ADMIN_USDT / COMPANY_ACCOUNT) is reached by ADMIN /
-// ACCOUNTANT through the «confirm payout» button on the PAYOUT row (ConfirmPayoutDialog,
+// Manual confirmation (CASH / ADMIN_USDT / COMPANY_ACCOUNT) is reached by ADMIN
+// through the «confirm payout» button on the PAYOUT row (ConfirmPayoutDialog,
 // click-through covered below). The inline «Оплатити» pill that opens PayoutDetailDialog
 // is SENIOR-only on /finance, so the dialog's own manual section is no longer reachable
-// from the UI for ADMIN/ACCOUNTANT — that component-level behaviour is pinned by
+// from the UI for ADMIN — that component-level behaviour is pinned by
 // PayoutDetailDialog.test.tsx; here we assert the reachable RBAC surface.
 
-test.describe('AC3 — Manual payout confirmation: ADMIN / ACCOUNTANT only', () => {
+test.describe('AC3 — Manual payout confirmation: ADMIN only', () => {
   test('ADMIN sees the confirm-payout button on a PENDING_PAYMENT PAYOUT row', async ({
     asAdmin,
   }) => {
@@ -206,15 +206,6 @@ test.describe('AC3 — Manual payout confirmation: ADMIN / ACCOUNTANT only', () 
 
     await asAdmin.goto('/finance')
     await expect(asAdmin.getByTestId(`confirm-payout-button-${PAYOUT_TX_ID}`)).toBeVisible()
-  })
-
-  test('ACCOUNTANT sees the confirm-payout button on a PENDING_PAYMENT PAYOUT row', async ({
-    asAccountant,
-  }) => {
-    await mockPayoutDetailRoutes(asAccountant)
-
-    await asAccountant.goto('/finance')
-    await expect(asAccountant.getByTestId(`confirm-payout-button-${PAYOUT_TX_ID}`)).toBeVisible()
   })
 
   test('SENIOR does NOT see the manual-confirm section in the payout dialog (own payout)', async ({
@@ -321,19 +312,6 @@ test.describe('AC4 — DIVIDEND transaction type: ADMIN-only', () => {
     await expect(dialog).toBeVisible()
     await expect(dialog.getByTestId('create-transaction-type-dividend')).not.toBeVisible()
   })
-
-  test('ACCOUNTANT does NOT see DIVIDEND option in CreateTransactionDialog', async ({
-    asAccountant,
-  }) => {
-    await mockFinanceListRoutes(asAccountant)
-
-    await asAccountant.goto('/finance')
-    await asAccountant.getByTestId('finance-create-transaction-button').click()
-
-    const dialog = asAccountant.getByTestId('create-transaction-dialog')
-    await expect(dialog).toBeVisible()
-    await expect(dialog.getByTestId('create-transaction-type-dividend')).not.toBeVisible()
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -350,7 +328,7 @@ test.describe('AC4 — DIVIDEND transaction type: ADMIN-only', () => {
 //   confirm-payout-submit          — submit button
 //
 // TransactionRow renders confirm-payout-button-${tx.id} when:
-//   (isAdmin || isAccountant) && tx.type === 'PAYOUT' && tx.status === 'PENDING_PAYMENT'
+//   isAdmin && tx.type === 'PAYOUT' && tx.status === 'PENDING_PAYMENT'
 //
 // API routing (ConfirmPayoutDialog.tsx):
 //   COMPANY_ACCOUNT → POST /api/payout-requests/:payoutRequestId/manual-confirm
@@ -388,7 +366,7 @@ function makeConfirmPayoutTx(overrides: object = {}) {
 
 /**
  * Register finance page routes with a single PAYOUT/PENDING_PAYMENT tx so
- * confirm-payout-button renders for ADMIN/ACCOUNTANT.
+ * confirm-payout-button renders for ADMIN.
  * Must be called AFTER mockAuthAs() (LIFO ordering).
  */
 async function mockConfirmPayoutPageRoutes(page: Page, tx = makeConfirmPayoutTx()) {
@@ -459,44 +437,6 @@ test.describe('Deferred #3 — ConfirmPayoutDialog: COMPANY_ACCOUNT click-throug
     // Verify the correct endpoint was called with the correct payoutRequestId
     expect(manualConfirmCalled).toBe(true)
     expect(capturedPayoutRequestId).toBe(CONFIRM_PR_ID)
-  })
-
-  test('ACCOUNTANT: COMPANY_ACCOUNT method — same UX as ADMIN (hint visible, admin-select hidden)', async ({
-    asAccountant,
-  }) => {
-    let manualConfirmCalled = false
-
-    await asAccountant.route(
-      new RegExp(`${API_RE}/payout-requests/([^/?]+)/manual-confirm$`),
-      (r) => {
-        if (r.request().method() !== 'POST') return r.fallback()
-        manualConfirmCalled = true
-        return jsonOk(r, {
-          id: CONFIRM_PR_ID,
-          status: 'PAID',
-          method: 'COMPANY_ACCOUNT',
-          txHash: null,
-        })
-      },
-    )
-
-    await mockConfirmPayoutPageRoutes(asAccountant)
-    await asAccountant.goto('/finance')
-    await expect(asAccountant.getByTestId('finance-page')).toBeVisible()
-
-    await asAccountant.getByTestId(`confirm-payout-button-${CONFIRM_TX_ID}`).click()
-
-    const dialog = asAccountant.getByTestId('confirm-payout-dialog')
-    await expect(dialog).toBeVisible()
-
-    await dialog.getByTestId('confirm-payout-method-company_account').click()
-    await expect(dialog.getByTestId('confirm-payout-company-account-hint')).toBeVisible()
-    await expect(dialog.getByTestId('confirm-payout-admin-select')).not.toBeVisible()
-    await expect(dialog.getByTestId('confirm-payout-submit')).not.toBeDisabled()
-
-    await dialog.getByTestId('confirm-payout-submit').click()
-    await expect(dialog).not.toBeVisible()
-    expect(manualConfirmCalled).toBe(true)
   })
 
   test('ADMIN: default CRYPTO method — admin-select IS visible, no company-account hint', async ({
@@ -605,7 +545,7 @@ test.describe('AC5 — Company balance KPI on /stats', () => {
     await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) => jsonOk(r, []))
     await page.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) => jsonOk(r, []))
     await page.route(`${API_GLOB}/users`, (r) => jsonOk(r, []))
-    // «Контроль приходів» section of /stats (ADMIN + ACCOUNTANT): empty-but-valid overview.
+    // «Контроль приходів» section of /stats (ADMIN): empty-but-valid overview.
     // Unmocked it falls through to the real API, 401s and bounces the page to /login.
     await page.route(new RegExp(`${API_RE}/finance/income-compliance(\\?.*)?$`), (r) =>
       jsonOk(r, {
@@ -622,7 +562,7 @@ test.describe('AC5 — Company balance KPI on /stats', () => {
       }),
     )
     // Full FinanceSummaryDto shape (the fixture default summary predates
-    // `adminBalances`). Owner decision 2026-10-12: ADMIN and ACCOUNTANT both see
+    // `adminBalances`). Owner decision 2026-10-12: ADMIN sees
     // the partner (admin) balances next to the company balance.
     await page.route(new RegExp(`${API_RE}/finance/summary(\\?.*)?$`), (r) =>
       jsonOk(r, {
@@ -650,17 +590,6 @@ test.describe('AC5 — Company balance KPI on /stats', () => {
     await expect(asAdmin.getByTestId('stats-company-account-balance')).toContainText(/12[\s,.]?345/)
   })
 
-  test('ACCOUNTANT sees company balance KPI on /stats', async ({ asAccountant }) => {
-    await mockStatsRoutes(asAccountant)
-
-    await asAccountant.goto('/stats')
-
-    await expect(asAccountant.getByTestId('stats-company-account-balance')).toBeVisible()
-    await expect(asAccountant.getByTestId('stats-company-account-balance')).toContainText(
-      /12[\s,.]?345/,
-    )
-  })
-
   async function expectCompanyAndPartnerBalances(page: Page) {
     await mockStatsRoutes(page)
 
@@ -676,10 +605,6 @@ test.describe('AC5 — Company balance KPI on /stats', () => {
 
   test('ADMIN sees company + partner balances card on /stats', async ({ asAdmin }) => {
     await expectCompanyAndPartnerBalances(asAdmin)
-  })
-
-  test('ACCOUNTANT sees company + partner balances card on /stats', async ({ asAccountant }) => {
-    await expectCompanyAndPartnerBalances(asAccountant)
   })
 
   test('JUNIOR does NOT see the company + partner balances card', async ({ asJunior }) => {

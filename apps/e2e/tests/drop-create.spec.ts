@@ -116,8 +116,7 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
     await dialog.getByTestId('user-dialog-payment-method-USDT_ERC20').click()
     await dialog.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
 
-    // HR + Accountant chips auto-select when fixtures expose a single user
-    // per role — see UserDialog auto-select effect.
+    // The HR chip auto-selects when fixtures expose a single HR — see UserDialog auto-select effect.
 
     // A3-3 (#119) turned CREATE mode into a 3-step wizard — step 1's button
     // is `wizard-next-btn` ("Далее"), which calls the same form.handleSubmit()
@@ -139,12 +138,11 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
       legalFullName: 'AC1 Legal Dropenko',
     })
 
-    // hrIds + accountantId are required by createDropSchema. With single-HR
-    // and single-accountant fixtures both fields are auto-populated.
+    // hrIds is required by createDropSchema. With a single-HR fixture it is
+    // auto-populated.
     expect(Array.isArray(body.hrIds)).toBe(true)
     expect((body.hrIds as string[]).length).toBeGreaterThan(0)
     expect(body.hrIds as string[]).toContain(USERS.hr.id)
-    expect(body.accountantId).toBe(USERS.accountant.id)
 
     expect(typeof body.dropSharePercent).toBe('number')
     expect(body.dropSharePercent as number).toBeGreaterThanOrEqual(0)

@@ -2,7 +2,7 @@
  * onboarding-flow.spec.ts — Phase 6B E2E tests
  *
  * Coverage (AC #8):
- * - 5 non-ADMIN roles (HR, SENIOR, JUNIOR, DROP, ACCOUNTANT): unboarded user
+ * - 4 non-ADMIN roles (HR, SENIOR, JUNIOR, DROP): unboarded user
  *   → lands on /onboarding → signs contract → accepts ToS → reaches /crm
  * - ADMIN: logs in → NOT redirected to onboarding (gate bypass)
  * - Onboarded user: logs in → NOT redirected to onboarding (idempotent)
@@ -12,7 +12,7 @@
  * Onboarding API responses are controlled per-test to simulate unboarded / boarded state.
  */
 
-import { test as base, expect, type Page } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { USERS, mockAuthAs, API_GLOB } from './fixtures'
 
 // ---------------------------------------------------------------------------
@@ -191,20 +191,6 @@ async function mockOnboardingApi(
 }
 
 // ---------------------------------------------------------------------------
-// Custom fixture: asAccountant (not in shared fixtures)
-// ---------------------------------------------------------------------------
-type OnboardingFixtures = {
-  asAccountant: Page
-}
-
-const test = base.extend<OnboardingFixtures>({
-  asAccountant: async ({ page }, use) => {
-    await mockAuthAs(page, USERS.accountant)
-    await use(page)
-  },
-})
-
-// ---------------------------------------------------------------------------
 // Helper: complete the full onboarding wizard
 // ---------------------------------------------------------------------------
 async function completeOnboarding(page: Page) {
@@ -248,7 +234,7 @@ const CRM_ROOT = /^https?:\/\/[^/]+\/?(\?.*)?$/
 
 test.describe('Onboarding flow', () => {
   // -------------------------------------------------------------------------
-  // Role-parametrized tests: SENIOR (canonical), HR, JUNIOR, DROP, ACCOUNTANT
+  // Role-parametrized tests: SENIOR (canonical), HR, JUNIOR, DROP
   // -------------------------------------------------------------------------
 
   test('SENIOR: unboarded user → onboarding wizard → dashboard', async ({ page }) => {
@@ -307,17 +293,6 @@ test.describe('Onboarding flow', () => {
     // DROP's home is the CRM root: index.tsx renders the DropDashboard hub for DROP.
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8000 })
     await expect(page.getByTestId('drop-dashboard-hub')).toBeVisible({ timeout: 8000 })
-  })
-
-  test('ACCOUNTANT: unboarded user → onboarding wizard → dashboard', async ({
-    asAccountant: page,
-  }) => {
-    await mockOnboardingApi(page, { initialStatus: statusUnboarded('ACCOUNTANT') })
-
-    await page.goto('/')
-    await expect(page).toHaveURL(/\/onboarding/, { timeout: 8000 })
-    await completeOnboarding(page)
-    await expect(page).toHaveURL(CRM_ROOT, { timeout: 8000 })
   })
 
   // -------------------------------------------------------------------------
