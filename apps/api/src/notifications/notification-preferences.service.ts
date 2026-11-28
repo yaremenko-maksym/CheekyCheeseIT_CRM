@@ -10,7 +10,7 @@
  * body, and it cannot be judged from the controller — there is nothing here to judge).
  *
  * No role differences by design: setting one's own email is not a privilege. All
- * six roles (`ADMIN`, `SENIOR`, `JUNIOR`, `HR`, `DROP`)
+ * five roles (`ADMIN`, `SENIOR`, `JUNIOR`, `HR`, `DROP`)
  * work with it identically, which is verified live in
  * `notification-preferences.rbac.integration.spec.ts`.
  */
