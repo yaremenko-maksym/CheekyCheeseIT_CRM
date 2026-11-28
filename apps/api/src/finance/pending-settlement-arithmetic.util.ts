@@ -255,7 +255,9 @@ export function convertDropPayoutAmount(
   rates: ExchangeRateResult,
 ): number {
   // SECURITY (MED-2, security-review PR #521 round 1) — refined by the
-  // owner addendum (round 3): `getRates()` NEVER throws — on an NBU
+  // owner addendum (round 3): `getRates()` never throws for an NBU or store
+  // failure (it throws `FINANCE_DATE_FORMAT_INVALID` only for a date that is
+  // not a real calendar day; callers validate first) — on an NBU
   // gap it falls back to either (a) a real, dated rate from the
   // nearest prior business day (`rates.rateDate` set — a holiday with
   // no same-day publication, the SAME mechanism the round-2 reviewer

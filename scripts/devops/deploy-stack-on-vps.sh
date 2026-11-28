@@ -2873,6 +2873,30 @@ docker compose \
   < "$ACCOUNTANT_ROLE_RETIRE_FILE"
 echo "==> accountant role retire applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-28_nbu_daily_rates.sql
+# Creates nbu_daily_rates (class A; the official NBU rate of one past day, no personal data).
+# MUST precede the grants file: its grant names the table unconditionally and fails 42P01 on a
+# missing one. Depends on nothing else. Applied before the container swap (the file's ORDER
+# header); if it lags, the API prices past days at the live rate with stale=true. One transaction:
+# the file uses SET LOCAL lock_timeout. Idempotent (CREATE TABLE IF NOT EXISTS).
+NBU_DAILY_RATES_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-28_nbu_daily_rates.sql"
+
+if [ ! -f "$NBU_DAILY_RATES_FILE" ]; then
+  echo "ERROR: DDL file not found at $NBU_DAILY_RATES_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying NBU daily rates (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$NBU_DAILY_RATES_FILE"
+echo "==> NBU daily rates applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file

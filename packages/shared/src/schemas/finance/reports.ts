@@ -218,6 +218,10 @@ export const financeSummarySchema = z.object({
       userId: z.string().uuid(),
       displayName: z.string(),
       balance: z.number(),
+      // Manager-role plan PR 8 (design §4.6 currency): true when a row of this balance was
+      // converted at a stale or fallback NBU rate (the figure is approximate; a payout against
+      // it should warn). Optional so clients and fixtures that predate it keep parsing.
+      stale: z.boolean().optional(),
     }),
   ),
   // Drop role - phase 2. Aggregated PAYOUT_DROP credit minus debit per DROP

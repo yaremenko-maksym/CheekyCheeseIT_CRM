@@ -1310,6 +1310,7 @@ describe('operator diagnostics: the log says WHY a payout was refused', () => {
     // non-JSON blob `[{ Wrong date format }]` when handed the wrong date
     // dialect (verified live 2026-08-18). Decoding must fail softly into
     // "try the next source", never bubble out of getRates.
+    pinDay('2026-07-07') // the fallback answers for 20260707; today is date-checked too
     // @ts-expect-error — test stub
     globalThis.fetch = vi.fn().mockImplementation((url: string) => {
       requestedUrls.push(url)

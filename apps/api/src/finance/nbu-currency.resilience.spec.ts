@@ -21,20 +21,23 @@ function makeService(): NbuCurrencyService {
 
 function mockNbuResponse(rates: Array<{ cc: string; rate: number }>, ok = true, status = 200) {
   // @ts-expect-error — test stub for global fetch
-  globalThis.fetch = vi.fn().mockResolvedValue({
-    ok,
-    status,
-    json: () =>
-      Promise.resolve(
-        rates.map((r) => ({
-          r030: 0,
-          txt: r.cc,
-          rate: r.rate,
-          cc: r.cc,
-          exchangedate: '03.07.2026',
-        })),
-      ),
-  })
+  globalThis.fetch = vi.fn().mockImplementation((url: string) =>
+    Promise.resolve({
+      ok,
+      status,
+      json: () =>
+        Promise.resolve(
+          rates.map((r) => ({
+            r030: 0,
+            txt: r.cc,
+            rate: r.rate,
+            cc: r.cc,
+            // Dated the day asked, as the live feed answers (today is date-checked too, round 4).
+            exchangedate: ymdToDotted(requestedDateOf(url) ?? '20260703'),
+          })),
+        ),
+    }),
+  )
 }
 
 function mockNbuEmpty() {

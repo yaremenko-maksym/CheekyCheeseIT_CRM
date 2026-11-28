@@ -699,6 +699,7 @@ jobs:
             apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql \
             apps/api/drizzle/manual/2026-11-25_job_queue_entries_published_at.sql \
             apps/api/drizzle/manual/2026-11-27_accountant_role_retire.sql \
+            apps/api/drizzle/manual/2026-11-28_nbu_daily_rates.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -3208,6 +3209,21 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file before 2026-10-18_db_grants.sql,
+      # which grants on nbu_daily_rates and fails 42P01 while the table does not exist.
+      - name: Copy NBU daily rates DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-28_nbu_daily_rates.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-28_nbu_daily_rates.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-28_nbu_daily_rates.sql
 
       # Order constraint: deploy-stack-on-vps.sh applies this file before the container swap: the
       # new API writes and reads job_queue_generation_entries.published_at on every queue publish

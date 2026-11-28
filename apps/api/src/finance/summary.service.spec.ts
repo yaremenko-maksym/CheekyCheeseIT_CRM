@@ -184,6 +184,8 @@ interface DbData {
   payouts?: Row[]
   salaryRows?: Row[]
   teamMembers?: Row[]
+  /** PR 8: the per-day NBU rate (`YYYYMMDD`) a row on that day converts at; default `RATES`. */
+  ratesByDay?: Record<string, { usdUah: string; usdtUah: string; eurUah: string; stale?: boolean }>
 }
 
 function makeDb(data: DbData = {}) {
@@ -249,9 +251,18 @@ function makeDb(data: DbData = {}) {
       },
     }),
   }
-  const nbu = { getRates: vi.fn().mockResolvedValue(RATES) }
+  const nbu = {
+    getRates: vi.fn().mockResolvedValue(RATES),
+    getRatesForDays: vi.fn((days: readonly string[]) =>
+      Promise.resolve(
+        new Map(
+          days.map((d) => [d, { stale: false, ...(data.ratesByDay?.[d] ?? RATES), date: d }]),
+        ),
+      ),
+    ),
+  }
   const svc = new SummaryService({ db } as never, nbu as never)
-  return { svc, cap }
+  return { svc, cap, nbu }
 }
 
 afterEach(() => {
@@ -346,8 +357,8 @@ describe('SummaryService.getSummary — figures (hand-computed literals)', () =>
     // a1 received 1000 + 10 (PAYOUT_CONFIRMED) ; sent 120.5 + 30
     // a2 received 70 + 30 + 100 (COMPANY_ACCOUNT 400 excluded) ; sent 80.25
     expect(r.adminBalances).toEqual([
-      { userId: 'a1', displayName: 'Alice', balance: 859.5 },
-      { userId: 'a2', displayName: 'Bob', balance: 119.75 },
+      { userId: 'a1', displayName: 'Alice', balance: 859.5, stale: false },
+      { userId: 'a2', displayName: 'Bob', balance: 119.75, stale: false },
     ])
     expect(r.dropBalances).toEqual([])
 
@@ -364,6 +375,139 @@ describe('SummaryService.getSummary — figures (hand-computed literals)', () =>
     expect(cap.usersFindMany.map((c) => c.params)).toEqual([['ADMIN'], ['DROP']])
     // the ledger read is soft-delete scoped
     expect(compileWhere(cap.txFindMany[0]!.where).sql).toContain('"deleted_at" is null')
+  })
+
+  // Manager-role plan PR 8 (design §4.6 currency): the HOLDING balance converts each row at the
+  // NBU rate of its own business day; totals and the monthly series stay on today's rate.
+  it("converts each admin HOLDING row at its own day's rate, in one batch per distinct day", async () => {
+    const { svc, nbu } = makeDb({
+      txs: [
+        stx({
+          type: 'ADMIN_INCOME',
+          amount: '4000',
+          currency: 'UAH',
+          receiverId: 'a1',
+          txDate: new Date('2026-03-02T00:00:00Z'),
+        }),
+        stx({
+          type: 'ADMIN_INCOME',
+          amount: '1000',
+          currency: 'UAH',
+          receiverId: 'a1',
+          txDate: new Date('2026-06-01T00:00:00Z'),
+        }),
+        stx({
+          type: 'EXPENSE',
+          amount: '20',
+          currency: 'EUR',
+          senderId: 'a1',
+          txDate: new Date('2026-06-01T00:00:00Z'),
+        }),
+        stx({ type: 'PAYOUT_ADMIN', amount: '7', currency: 'USDT', receiverId: 'a2' }),
+      ],
+      admins: ADMINS,
+      ratesByDay: {
+        '20260302': { usdUah: '40', usdtUah: '40', eurUah: '44' },
+        '20260601': { usdUah: '50', usdtUah: '50', eurUah: '55' },
+      },
+    })
+    const r = await svc.getSummary(user('ADMIN'))
+    // a1: 4000/40 + 1000/50 - 20*55/50 = 100 + 20 - 22 = 98 (today's rate would give 100)
+    expect(r.adminBalances).toEqual([
+      { userId: 'a1', displayName: 'Alice', balance: 98, stale: false },
+      { userId: 'a2', displayName: 'Bob', balance: 7, stale: false },
+    ])
+    // one batch: each distinct day of a non-USD admin row; never the USDT row's day
+    expect(nbu.getRatesForDays).toHaveBeenCalledTimes(1)
+    expect([...new Set(nbu.getRatesForDays.mock.calls[0]![0])].sort()).toEqual([
+      '20260302',
+      '20260601',
+    ])
+    // CR-M-1: the summary hands over its own live rate, so the prefetch never asks NBU again
+    expect(nbu.getRates).toHaveBeenCalledTimes(1)
+    expect(nbu.getRatesForDays.mock.calls[0]![1]).toBe(RATES)
+    // totals keep today's rate: 4000/40 + 1000/40 = 125 income, 20*50/40 = 25 expenses
+    expect(r.totalIncome).toBe(125)
+    expect(r.totalExpenses).toBe(25)
+  })
+
+  it('marks an admin balance stale when one of its rows needed a stale or fallback rate', async () => {
+    const { svc } = makeDb({
+      txs: [
+        stx({
+          type: 'ADMIN_INCOME',
+          amount: '4150',
+          currency: 'UAH',
+          receiverId: 'a1',
+          txDate: new Date('2026-03-02T00:00:00Z'),
+        }),
+        stx({ type: 'ADMIN_INCOME', amount: '9', currency: 'USD', receiverId: 'a2' }),
+      ],
+      admins: ADMINS,
+      ratesByDay: {
+        '20260302': { usdUah: '41.5', usdtUah: '41.5', eurUah: '44.8', stale: true },
+      },
+    })
+    const r = await svc.getSummary(user('ADMIN'))
+    expect(r.adminBalances).toEqual([
+      { userId: 'a1', displayName: 'Alice', balance: 100, stale: true },
+      { userId: 'a2', displayName: 'Bob', balance: 9, stale: false },
+    ])
+  })
+
+  // CR-M-3: a row HOLDING ignores neither costs an NBU fetch nor marks the balance stale.
+  it('a non-USD row the admin balance ignores is never priced and never marks it stale', async () => {
+    const { svc, nbu } = makeDb({
+      txs: [
+        // company-account income goes to the shared pool, not the admin's balance
+        stx({
+          type: 'ADMIN_INCOME',
+          amount: '4150',
+          currency: 'UAH',
+          receiverId: 'a1',
+          fundingSource: 'COMPANY_ACCOUNT',
+          txDate: new Date('2026-03-02T00:00:00Z'),
+        }),
+        // a plain PAYOUT received by an admin is not a HOLDING credit either
+        stx({
+          type: 'PAYOUT',
+          amount: '415',
+          currency: 'UAH',
+          receiverId: 'a2',
+          txDate: new Date('2026-03-03T00:00:00Z'),
+        }),
+        stx({ type: 'PAYOUT_ADMIN', amount: '9', currency: 'USD', receiverId: 'a1' }),
+      ],
+      admins: ADMINS,
+      ratesByDay: {
+        '20260302': { usdUah: '41.5', usdtUah: '41.5', eurUah: '44.8', stale: true },
+        '20260303': { usdUah: '41.5', usdtUah: '41.5', eurUah: '44.8', stale: true },
+      },
+    })
+    const r = await svc.getSummary(user('ADMIN'))
+    expect(nbu.getRatesForDays).not.toHaveBeenCalled()
+    expect(r.adminBalances).toEqual([
+      { userId: 'a1', displayName: 'Alice', balance: 9, stale: false },
+      { userId: 'a2', displayName: 'Bob', balance: 0, stale: false },
+    ])
+  })
+
+  it('a USD/USDT-only ledger makes no historical rate lookup at all', async () => {
+    const { svc, nbu } = makeDb({
+      txs: [
+        stx({ type: 'PAYOUT_ADMIN', amount: '500', currency: 'USDT', receiverId: 'a1' }),
+        stx({ type: 'EXPENSE', amount: '5', currency: 'USD', senderId: 'a1' }),
+      ],
+      admins: ADMINS,
+    })
+    const r = await svc.getSummary(user('ADMIN'))
+    expect(nbu.getRatesForDays).not.toHaveBeenCalled()
+    expect(r.adminBalances[0]).toEqual({
+      userId: 'a1',
+      displayName: 'Alice',
+      balance: 495,
+      stale: false,
+    })
   })
 
   it('maps drop aggregates to the admin-summary shape (no debtToCompany)', async () => {
@@ -402,6 +546,26 @@ describe('SummaryService.getSummary — figures (hand-computed literals)', () =>
     await expect(svc.getSummary(user('ADMIN'))).rejects.toThrow(
       'transactionBusinessMonth: transaction tx-null has a NULL tx_date',
     )
+  })
+
+  it('fails loud on a NULL txDate in a row that needs its own day rate, never pricing it at another day', async () => {
+    const { svc, nbu } = makeDb({
+      txs: [
+        stx({
+          id: 'tx-null-uah',
+          type: 'ADMIN_INCOME',
+          amount: '4000',
+          currency: 'UAH',
+          receiverId: 'a1',
+          txDate: null,
+        }),
+      ],
+      admins: ADMINS,
+    })
+    await expect(svc.getSummary(user('ADMIN'))).rejects.toThrow(
+      'getSummary: transaction tx-null-uah has a NULL tx_date',
+    )
+    expect(nbu.getRatesForDays).not.toHaveBeenCalled()
   })
 
   it('sums several rows of one month and splits expenses / salaries / income per month', async () => {

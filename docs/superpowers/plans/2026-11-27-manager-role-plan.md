@@ -579,6 +579,11 @@ the module; callers use the two named wrappers only: `computeInHand(db, userId)`
 7. MANAGER `GENERAL` / `MANAGER_SETTLEMENT` expense, ADMIN → MANAGER transfer, `MANAGER_PAYOUT` creation, and a transfer with `sender ≠ me` → 403 (HTTP integration each).
 8. MANAGER write with `fundingSource = 'COMPANY_ACCOUNT'`, or with a payer / recipient / receiver other than himself
    (another ADMIN, the company pool) → 403 (HTTP integration each); an unconfirmed handover moves nothing.
+9. Carried over from PR 8 (owner decision 2026-11-28: PR 8 converts only admin HOLDING per row day). `in hand`, the
+   `getSummary` totals, the monthly series, the drop aggregates, `BalanceService` and the payout paths convert each
+   non-USD row at the NBU rate of its own business day through `NbuCurrencyService.getRatesForDays` (one batch per
+   read, the caller's live rate passed in). A test per figure pins a hand-computed per-day result that today's rate
+   would get wrong.
 
 ## PR 8 — Historical NBU rates persisted (§4.6 currency)
 
@@ -613,6 +618,11 @@ by the partner accounts list; `getTotalEarned` MANAGER branch.
 5. Negative balance: payout warning, not a block.
 6. `SummaryService.getSummary` gains a MANAGER branch returning only his partner-account figures and his projects'
    rows; company-wide figures, `getAccount` (company account) and the admin summary stay ADMIN only (403 test each).
+7. Carried over from PR 8 (PR 8 AC3 shipped only the API flag). `earned` and the legacy figure convert each row at
+   its own day's rate, as `in hand` does from PR 7b. The `stale` flag reaches the user: `BalanceService` returns it,
+   the web app shows a balance priced on a stale or fallback rate as such, and a payout against a stale balance
+   shows a warning (a warning, not a block). Tests: unit for `stale` on `BalanceService`, E2E for the web marker and
+   the payout warning.
 
 **Tests:** unit for the legacy formula (sign, both-partner restriction); integration no double count across the
 cutoff; E2E partner accounts list (ADMIN) and own account (MANAGER).

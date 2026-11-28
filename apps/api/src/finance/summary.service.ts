@@ -16,10 +16,10 @@ import {
   users,
   visibleProjects,
 } from '../database/schema'
-import { NbuCurrencyService } from './nbu-currency.service'
+import { NbuCurrencyService, type ExchangeRateResult } from './nbu-currency.service'
 import { convertToBase, type BalanceCurrency } from './balance.service'
 import { resolveSeniorShare } from './senior-share-resolver'
-import { transactionBusinessMonth } from './transaction-date.util'
+import { formatTransactionBusinessDate, transactionBusinessMonth } from './transaction-date.util'
 import { getOwnSalaryStates } from './salary-status.helper'
 import { findActiveTeamsForUser } from './active-teams.util'
 import { CRON_ELIGIBLE_SALARY_ROLES } from './salary-roles.const'
@@ -166,37 +166,82 @@ export class SummaryService {
     // separate, undocumented-today business decision (nothing in
     // docs/business/ addresses it) — not bundled into this task's narrow
     // scope of "who may see `adminBalances`".
-    const adminBalances = (
-      await this.db.db.query.users.findMany({
-        where: eq(users.role, 'ADMIN'),
-      })
-    ).map((admin) => {
+    //
+    // Manager-role plan PR 8 (design §4.6 currency): HOLDING converts each row at the NBU rate
+    // of ITS OWN business day, not today's, so a balance over non-USD rows no longer drifts
+    // with the rate. Only rows that need a rate (not USD/USDT — the peg is an identity) are
+    // looked up, in ONE batch of distinct days (`getRatesForDays`: persisted days cost no NBU
+    // call). A row priced on a stale or fallback rate marks its admin's balance `stale`.
+    // Totals, the monthly series and the drop aggregate stay on today's rate (out of scope).
+    const admins = await this.db.db.query.users.findMany({
+      where: eq(users.role, 'ADMIN'),
+    })
+    // The rows HOLDING counts for `adminId`: a credit is one of the types below received by the
+    // admin, a debit is ANY paid row the admin sent. `needsRate`, `stale` and both sums read
+    // this one predicate (code review PR #1523, CR-M-3), so a row the balance ignores never
+    // costs an NBU fetch nor marks the balance stale.
+    const creditsAdmin = (tx: TxWithRelations, adminId: string): boolean =>
+      tx.receiverId === adminId &&
+      (tx.type === 'PAYOUT_ADMIN' ||
+        // task-salary-company-account: ADMIN_INCOME routed to the
+        // company account (fundingSource='COMPANY_ACCOUNT') went into
+        // the shared pool, NOT the admin's personal balance — exclude
+        // it here. Legacy/admin-personal ADMIN_INCOME (NULL funding)
+        // still credits the admin as before.
+        (tx.type === 'ADMIN_INCOME' && tx.fundingSource !== 'COMPANY_ACCOUNT') ||
+        tx.type === 'ADMIN_TRANSFER' ||
+        tx.type === 'PAYOUT_CONFIRMED')
+    const countsForAdmin = (tx: TxWithRelations, adminId: string): boolean =>
+      creditsAdmin(tx, adminId) || tx.senderId === adminId
+    const needsRate = (tx: TxWithRelations): boolean =>
+      tx.currency !== 'USD' &&
+      tx.currency !== 'USDT' &&
+      admins.some((admin) => countsForAdmin(tx, admin.id))
+    // Same fail-loud rule as `transactionBusinessMonth` (backlog 338): a NULL txDate is a broken
+    // invariant, never priced at some other day's rate.
+    const rowDay = (tx: TxWithRelations): string => {
+      if (!tx.txDate) throw new Error(`getSummary: transaction ${tx.id} has a NULL tx_date`)
+      return formatTransactionBusinessDate(tx.txDate).replace(/-/g, '')
+    }
+    const dayRows = paid.filter(needsRate).map((tx) => [tx, rowDay(tx)] as const)
+    const dayRates =
+      dayRows.length === 0
+        ? new Map<string, ExchangeRateResult>()
+        : await this.nbuCurrency.getRatesForDays(
+            dayRows.map(([, day]) => day),
+            rates,
+          )
+    // Resolved once per row: the admin loop below reads it for every admin.
+    const rowRates = new Map<TxWithRelations, ExchangeRateResult>(
+      dayRows.map(([tx, day]) => [tx, dayRates.get(day) ?? rates]),
+    )
+    const toBaseAtRowDay = (tx: TxWithRelations): number =>
+      convertToBase(
+        parseFloat(tx.amount),
+        tx.currency as BalanceCurrency,
+        'USD',
+        rowRates.get(tx) ?? rates,
+      )
+
+    const adminBalances = admins.map((admin) => {
+      const stale = paid.some(
+        (tx) => countsForAdmin(tx, admin.id) && rowRates.get(tx)?.stale === true,
+      )
       const receivedScaled = paid
-        .filter(
-          (tx) =>
-            tx.receiverId === admin.id &&
-            (tx.type === 'PAYOUT_ADMIN' ||
-              // task-salary-company-account: ADMIN_INCOME routed to the
-              // company account (fundingSource='COMPANY_ACCOUNT') went into
-              // the shared pool, NOT the admin's personal balance — exclude
-              // it here. Legacy/admin-personal ADMIN_INCOME (NULL funding)
-              // still credits the admin as before.
-              (tx.type === 'ADMIN_INCOME' && tx.fundingSource !== 'COMPANY_ACCOUNT') ||
-              tx.type === 'ADMIN_TRANSFER' ||
-              tx.type === 'PAYOUT_CONFIRMED'),
-        )
+        .filter((tx) => creditsAdmin(tx, admin.id))
         // Audit 2026-06-28 (#4): convert to base before scaling (mixed-currency
         // safe). USD/USDT → identity, so prod balances stay byte-exact.
-        .reduce((sum, tx) => sum + Math.round(toBase(tx) * SCALE), 0)
+        .reduce((sum, tx) => sum + Math.round(toBaseAtRowDay(tx) * SCALE), 0)
       // HOLDING model: debit = ALL paid transactions sent by this admin
       // (SALARY, EXPENSE, ADMIN_TRANSFER, etc.), not only ADMIN_TRANSFER.
       const sentScaled = paid
         .filter((tx) => tx.senderId === admin.id)
-        .reduce((sum, tx) => sum + Math.round(toBase(tx) * SCALE), 0)
+        .reduce((sum, tx) => sum + Math.round(toBaseAtRowDay(tx) * SCALE), 0)
       return {
         userId: admin.id,
         displayName: admin.displayName,
         balance: (receivedScaled - sentScaled) / SCALE,
+        stale,
       }
     })
 

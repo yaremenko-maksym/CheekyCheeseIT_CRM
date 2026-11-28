@@ -97,6 +97,7 @@ BEGIN
     ('legends', 'A', false),
     ('meeting_recorder_connections', 'A', false),
     ('meeting_recorder_webhook_receipts', 'A', false),
+    ('nbu_daily_rates', 'A', false),
     ('notification_emails', 'A', false),
     ('notification_preferences', 'A', false),
     ('notifications', 'A', false),
@@ -227,6 +228,7 @@ BEGIN
     ('legends', 'A', false),
     ('meeting_recorder_connections', 'A', false),
     ('meeting_recorder_webhook_receipts', 'A', false),
+    ('nbu_daily_rates', 'A', false),
     ('notification_emails', 'A', false),
     ('notification_preferences', 'A', false),
     ('notifications', 'A', false),
@@ -526,6 +528,7 @@ BEGIN
     ('legends', 'A', false),
     ('meeting_recorder_connections', 'A', false),
     ('meeting_recorder_webhook_receipts', 'A', false),
+    ('nbu_daily_rates', 'A', false),
     ('notification_emails', 'A', false),
     ('notification_preferences', 'A', false),
     ('notifications', 'A', false),
@@ -737,6 +740,7 @@ BEGIN
     ('legends', 'A', false),
     ('meeting_recorder_connections', 'A', false),
     ('meeting_recorder_webhook_receipts', 'A', false),
+    ('nbu_daily_rates', 'A', false),
     ('notification_emails', 'A', false),
     ('notification_preferences', 'A', false),
     ('notifications', 'A', false),
@@ -1139,7 +1143,7 @@ $check$;
 DO $ok$
 BEGIN
   RAISE NOTICE 'db-privileges check passed: % relations classified, roles %, %, %',
-    90, 'crm_app', 'crm_collector', 'crm_retention_owner';
+    91, 'crm_app', 'crm_collector', 'crm_retention_owner';
 END
 $ok$;
 
