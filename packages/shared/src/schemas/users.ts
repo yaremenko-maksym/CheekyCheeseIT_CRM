@@ -12,6 +12,7 @@ export const roleSchema = z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT
  * A role a write path may assign. ACCOUNTANT is being retired (manager-role plan PR 1a): reads keep
  * accepting the stored value through `roleSchema` until PR 1d, but no input may set it.
  */
+// Stryker disable next-line StringLiteral: `exclude([''])` throws "Key not found in enum" at module load, so vitest loads no spec and Stryker reports Survived with 0 tests; the mutant cannot ship (users.spec.ts pins the options).
 export const assignableRoleSchema = roleSchema.exclude(['ACCOUNTANT'])
 
 /**
