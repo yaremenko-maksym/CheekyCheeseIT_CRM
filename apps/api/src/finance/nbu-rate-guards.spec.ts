@@ -173,6 +173,22 @@ describe('what is persisted', () => {
     expect(store.save).not.toHaveBeenCalled()
   })
 
+  it('the write guard alone refuses a stale result and an undated one', async () => {
+    // `buildResult` never makes either shape (it dates exactly the non-stale results); a row is
+    // permanent, so each half of the guard is pinned on its own.
+    const persist = (r: object): Promise<void> =>
+      (svc as unknown as { persistExact(r: object, s: string): Promise<void> }).persistExact(
+        r,
+        'statdirectory',
+      )
+    const exact = { usdUah: '41.1000', usdtUah: '41.1000', eurUah: '44.1000', date: '20261110' }
+    await persist({ ...exact, stale: true, rateDate: '20261110' })
+    await persist({ ...exact, stale: false })
+    expect(store.save).not.toHaveBeenCalled()
+    await persist({ ...exact, stale: false, rateDate: '20261110' })
+    expect(store.save).toHaveBeenCalledTimes(1)
+  })
+
   it('a failed write is logged with the day, and the read still succeeds', async () => {
     store.save.mockRejectedValueOnce(new Error('relation does not exist'))
     expect(await svc.getRates('20261110')).toMatchObject({ rateDate: '20261110', stale: false })
@@ -272,6 +288,21 @@ describe('why a prefetch stopped is logged exactly', () => {
       expect.stringContaining('cause=prefetch deadline of 30000ms reached | daysAtLiveRate=1'),
     ])
     expect(said(error).filter((m) => m.includes('NBU unavailable on every source'))).toEqual([])
+  })
+
+  it('a cooling day read under a stopped prefetch is a stand-in for the stop, not a cooled day', async () => {
+    await svc.getRatesForDays(['20261109'], LIVE) // unanswerable (and so is 20261108): cooled
+    const asked = askedDays().length
+    await svc.getRatesForDays(['20261109'], { ...LIVE, stale: true })
+    await svc.getRatesForDays(['20261109'], LIVE)
+    expect(asked).toBeGreaterThan(0)
+    expect(askedDays()).toHaveLength(asked) // neither later read asked NBU again
+    expect(prefetchWarnings()).toEqual([
+      expect.stringContaining(
+        'cause=NBU feed down (live rate stale) | daysAtLiveRate=1 | cooledDays=0',
+      ),
+      expect.stringContaining('cause=failed days cooling down | daysAtLiveRate=1 | cooledDays=1'),
+    ])
   })
 
   it('a day cut by the deadline on the last allowed fetch keeps the deadline as the cause', async () => {

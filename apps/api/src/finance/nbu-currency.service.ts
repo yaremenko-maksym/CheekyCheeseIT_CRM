@@ -290,13 +290,13 @@ export class NbuCurrencyService {
     live: ExchangeRateResult,
   ): Promise<Map<string, ExchangeRateResult>> {
     const out = new Map<string, ExchangeRateResult>()
-    const unique = [...new Set(days)]
-    if (unique.length === 0) return out
-
     const deadline = Date.now() + HISTORICAL_PREFETCH_DEADLINE_MS
     const today = this.todayStr()
-    const past = unique.filter((d) => d < today)
-    for (const d of unique) if (d >= today) out.set(d, live)
+    const past: string[] = []
+    for (const d of new Set(days)) {
+      if (d >= today) out.set(d, live)
+      else past.push(d)
+    }
     if (past.length === 0) return out
 
     const persisted = await this.readPersisted(past)
@@ -323,8 +323,8 @@ export class NbuCurrencyService {
       if (stop === null && Date.now() >= deadline) {
         stop = `prefetch deadline of ${HISTORICAL_PREFETCH_DEADLINE_MS}ms reached`
       }
-      const cooledUntil = this.failedDays.get(d)
-      if (stop === null && cooledUntil !== undefined && Date.now() < cooledUntil) {
+      const cooledUntil = this.failedDays.get(d) ?? 0
+      if (stop === null && Date.now() < cooledUntil) {
         standIns++
         cooled++
         out.set(d, { usdUah, usdtUah, eurUah, date: d, stale: true })
@@ -361,6 +361,7 @@ export class NbuCurrencyService {
     this.failedDays.delete(day)
     if (this.failedDays.size >= MAX_COOLED_DAYS) {
       const oldest = this.failedDays.keys().next().value
+      // Stryker disable next-line ConditionalExpression: the map holds MAX_COOLED_DAYS (> 0) keys here, so `oldest` is defined, and `Map.delete(undefined)` would be a no-op anyway
       if (oldest !== undefined) this.failedDays.delete(oldest)
     }
     this.failedDays.set(day, Date.now() + FAILED_DAY_COOLDOWN_MS)
