@@ -36,12 +36,15 @@
 --   without the label (after PR 1d) the same holds.
 --
 -- ROLLBACK
---   The delete is by design and is not reversible from this file. The deleted rows are in the
---   owner's scheduled backup (scripts/devops/pg-backup.sh, cron, not taken by the deploy); the
---   owner restores a template from there if needed. Rolling the API back is safe: the old API
---   keeps working without the rows, because no user holds ACCOUNTANT. From this PR on, the API
---   refuses ACCOUNTANT on every write path (user create and update, role change, template
---   publish), so an ACCOUNTANT user or template can no longer be created through it.
+--   The delete is by design and is not reversible from this file. The deploy takes no dump: the
+--   deleted rows exist only in the owner's scheduled daily backup (scripts/devops/pg-backup.sh,
+--   cron, BACKUP_RETENTION_DAYS, 30 days by default), so a restore must happen inside that window.
+--   From this PR on, the API refuses ACCOUNTANT on every write path (user create and update, role
+--   change, template publish), so an ACCOUNTANT user or template can no longer be created through
+--   it. The old API keeps working without the rows, because no user holds ACCOUNTANT. But rolling
+--   the API back below this PR re-enables ACCOUNTANT writes: any ACCOUNTANT user, or any ACCOUNTANT
+--   template created after the cutoff, then fails every deploy (this file is re-applied each time)
+--   until it is fixed by hand.
 --
 -- LOCKS
 --   Row locks on contract_templates only; the table has a handful of rows. The reference counts

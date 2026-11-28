@@ -279,7 +279,11 @@ describe('UsersController — role ACCOUNTANT is refused on every write path (pl
         bankUahIban: 'UA123456789012345678901234567',
         bankUahRnokpp: '1234567890',
       }),
-    ).rejects.toMatchObject({ name: 'ZodError' })
+    ).rejects.toMatchObject({
+      name: 'ZodError',
+      // The only issue is the role: the rest of the payload is valid, so the refusal is ACCOUNTANT.
+      issues: [expect.objectContaining({ path: ['role'] })],
+    })
     expect(usersService.createUser).not.toHaveBeenCalled()
   })
 

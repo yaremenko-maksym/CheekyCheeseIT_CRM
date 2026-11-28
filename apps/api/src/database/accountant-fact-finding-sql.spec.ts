@@ -33,6 +33,9 @@ const FORBIDDEN: ReadonlyArray<readonly [string, RegExp]> = [
   ['pg_cancel_backend(', /\bpg_cancel_backend\s*\(/i],
   ['dblink', /\bdblink/i],
   ['lo_', /\blo_\w*/i],
+  // psql runs a backslash command itself (\i, \c, \!, \gexec, \copy, \o, \set ...), outside any SQL
+  // rule. Any backslash is refused, not only at line start: `SELECT ... \gexec` runs mid-line.
+  ['psql meta-command', /\\/],
 ]
 
 /** A statement that ends the transaction. END is matched at statement start only (CASE ... END). */
@@ -108,6 +111,10 @@ describe('readOnlyViolations', () => {
     ['pg_cancel_backend(', 'SELECT pg_cancel_backend(42)'],
     ['dblink', "SELECT * FROM dblink('host=x', 'DELETE FROM users') AS t(x int)"],
     ['lo_', 'SELECT lo_unlink(42)'],
+    ['psql meta-command', 'SELECT 1;\n\\! rm -rf /tmp/x\nSELECT 2'],
+    ['psql meta-command', 'SELECT 1;\n  \\c other_db\nSELECT 2'],
+    ['psql meta-command', "SELECT 'DELETE FROM users' \\gexec"],
+    ['psql meta-command', 'SELECT 1;\n\\i /tmp/other.sql\nSELECT 2'],
   ])('flags %s: %s', (rule, body) => {
     expect(readOnlyViolations(wrap(body))).toContain(rule)
   })
