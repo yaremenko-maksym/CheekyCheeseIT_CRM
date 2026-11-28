@@ -145,6 +145,17 @@ describe('FinanceSection — SENIOR', () => {
     expect(screen.getByRole('spinbutton')).toHaveValue(40)
   })
 
+  it('defaults the slider to 40 for a NEW senior (create mode) when the form value is unset', () => {
+    render(<Harness isCreate />)
+    expect(screen.getByRole('spinbutton')).toHaveValue(40)
+    expect(screen.getByRole('slider')).toHaveValue('40')
+  })
+
+  it('keeps an existing senior share in create mode too (a set value is never replaced)', () => {
+    render(<Harness isCreate defaults={{ seniorSharePercent: 26 }} />)
+    expect(screen.getByRole('spinbutton')).toHaveValue(26)
+  })
+
   it('keeps the slider at the form value 0 (nullish-only default)', () => {
     render(<Harness defaults={{ seniorSharePercent: 0 }} />)
     expect(screen.getByRole('spinbutton')).toHaveValue(0)

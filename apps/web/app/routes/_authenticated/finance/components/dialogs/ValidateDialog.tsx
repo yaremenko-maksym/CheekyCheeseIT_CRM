@@ -49,7 +49,7 @@ import {
  * - Кнопка «Підтвердити» показує лічильник тих, що лишились: «Підтвердити (N)».
  * - При кліку «Підтвердити» → AlertDialog-попап для підтвердження.
  * - «Відхилити» (з причиною) рухає чергу без попапа.
- * - Інвалідує ['transactions'], ['finance-summary'], ['accountant','summary'].
+ * - Інвалідує ['transactions'], ['finance-summary'].
  */
 export function ValidateDialog({
   tx,
@@ -75,7 +75,7 @@ export function ValidateDialog({
   const [reason, setReason] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
 
-  // AC3 (finance money strategy): for a non-USD/USDT income the accountant
+  // AC3 (finance money strategy): for a non-USD/USDT income the admin
   // needs to see the conversion they're validating — original amount, the NBU
   // rate, and the resulting USD figure. USD/USDT transactions skip the query
   // entirely (no conversion to show).
@@ -115,7 +115,6 @@ export function ValidateDialog({
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['transactions'] })
       void qc.invalidateQueries({ queryKey: ['finance-summary'] })
-      void qc.invalidateQueries({ queryKey: ['accountant', 'summary'] })
       handleActionSuccess()
     },
   })

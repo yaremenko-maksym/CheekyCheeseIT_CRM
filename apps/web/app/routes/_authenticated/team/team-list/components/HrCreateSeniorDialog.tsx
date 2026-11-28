@@ -25,6 +25,7 @@ import { Label } from '@/components/ui/label'
 import { PhoneInput } from '@/components/ui/phone-input'
 import { ShareSlider } from '@/components/ui/share-slider'
 import { toast } from 'sonner'
+import { NEW_SENIOR_SHARE_PERCENT } from '@/components/users/user-dialog/form-defaults'
 import { RolesSection } from '@/components/users/user-dialog/RolesSection'
 import { seniorRolesError } from '@/components/users/user-dialog/validation'
 import { focusFirstInvalid } from '@/lib/focus-first-invalid'
@@ -112,7 +113,7 @@ export function HrCreateSeniorDialog({
       telegram: '',
       phone: '' as PhoneValue | '',
       technicalRoles: [] as SeniorSelectableRole[],
-      seniorSharePercent: 26 as number,
+      seniorSharePercent: NEW_SENIOR_SHARE_PERCENT as number,
     },
     onSubmit: async ({ value }) => {
       const payload: HrCreateSeniorDto = {
@@ -335,8 +336,8 @@ export function HrCreateSeniorDialog({
                 }}
               >
                 {(field) => {
-                  // ut-31: value is SENIOR's share (default 26 → 74% company / 26% senior).
-                  const val = field.state.value ?? 26
+                  // ut-31: value is SENIOR's share (a new senior defaults to 40 → 60% company / 40% senior).
+                  const val = field.state.value ?? NEW_SENIOR_SHARE_PERCENT
                   const err = field.state.meta.isTouched
                     ? (field.state.meta.errors[0] as string | undefined)
                     : undefined

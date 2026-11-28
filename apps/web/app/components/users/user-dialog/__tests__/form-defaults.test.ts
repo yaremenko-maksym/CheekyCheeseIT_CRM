@@ -13,7 +13,8 @@ const BLANK_COMMON = {
   phone: '',
   techStack: [],
   technicalRoles: [],
-  seniorSharePercent: 26,
+  // Create: a NEW senior starts at 40 (owner 2026-11-28). Existing users keep theirs.
+  seniorSharePercent: 40,
   monthlySalary: '',
   salaryCurrency: 'USD',
   projectId: '',
@@ -141,6 +142,8 @@ describe('buildUserDialogDefaults', () => {
       displayName: 'Bob',
       role: 'JUNIOR',
       paymentMethod: 'BANK_UAH_FOP',
+      // Edit of an existing user: the old 26 fallback is untouched, never the new-senior 40.
+      seniorSharePercent: 26,
     })
   })
 
