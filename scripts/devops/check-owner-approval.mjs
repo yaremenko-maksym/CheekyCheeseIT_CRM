@@ -6,11 +6,12 @@
 // without the owner (design §7, the manager role; plan PR 11). CODEOWNERS restricts files, not
 // behaviour, and agents share the owner's GitHub account. So a PR by anyone but the owner that
 // (a) touches a critical zone (owner-verdict-zones.json — contracts.md §2.1 + pipeline + web
-// auth/finance), or (b) in an unowned file, reaches the DB / the API / a finance module or adds a
+// auth/finance), (b) touches any owner-owned path of CODEOWNERS (`owned-path`, by both names of a
+// rename), or (c) in an unowned file, reaches the DB / the API / a finance module or adds a
 // controller, stays red until the owner posts a review whose first line is `Owner Verdict: APPROVE`
 // and which carries `Commit: <head sha>`.
 //
-// (b) IS FAIL-CLOSED, NOT A REGEX SCAN: every non-removed unowned file is either on the inert
+// (c) IS FAIL-CLOSED, NOT A REGEX SCAN: every non-removed unowned file is either on the inert
 // allowlist (INERT_EXT) or parsed with the TypeScript compiler API from its FULL head content
 // (fetched through the REST API as data, never checked out). Every module specifier from the AST
 // is resolved (relative paths against the file's directory; tsconfig `paths` of the owning package,
@@ -571,6 +572,20 @@ export function findingsForFile(file, content, rules, aliases) {
   return out
 }
 
+// SO-H-1 / SO-H-2: Layer 1 (CODEOWNERS review) is off, so every owner-owned path a non-owner
+// changes needs a verdict, keyword zone or not (`apps/api/src/payments/**`, `package.json`,
+// `pnpm-lock.yaml`, `.husky/**`). A rename / removal counts by both names, like zones.
+export function ownedPathHits(rules, files) {
+  const hits = []
+  for (const f of files) {
+    for (const name of [f.filename, f.previous_filename].filter(Boolean)) {
+      if (ownersOf(rules, name).length > 0)
+        hits.push({ kind: 'owned-path', file: name, detail: 'owner-owned in .github/CODEOWNERS' })
+    }
+  }
+  return hits
+}
+
 export function unownedFiles(rules, files) {
   return files.filter((f) => ownersOf(rules, f.filename).length === 0)
 }
@@ -675,14 +690,14 @@ export function evaluate({ pr, files, contents, rules, zones, aliases, owner }) 
   } catch (e) {
     return fail(`the scanner failed: ${e.message}`)
   }
-  const findings = [...zoneHits(zones, files), ...detections]
+  const findings = [...zoneHits(zones, files), ...ownedPathHits(rules, files), ...detections]
   const base = { scanned: unowned.length, findings }
   if (findings.length === 0) {
     return {
       ok: true,
       status: 'not-required',
       ...base,
-      reason: 'no critical zone, no trigger in the unowned files',
+      reason: 'no critical zone, no owner-owned path, no trigger in the unowned files',
     }
   }
   if (String(pr.author).toLowerCase() === owner.toLowerCase()) {

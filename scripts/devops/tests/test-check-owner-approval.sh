@@ -519,6 +519,37 @@ src json '{ "dependencies": { "pg": "8" } }'
 mk json apps/e2e/fixtures/ok.json modified
 assert_green "plain data JSON is inert -> passes" --contains "[not-required]" -- run json
 
+# SO-H-1 / SO-H-2 (addendum 12 item 1): every owner-owned path changed by a non-owner needs a
+# verdict, keyword zone or not; the same change by the owner passes.
+OWNED_EXAMPLES=(apps/api/src/invoices/invoice-dto.util.ts apps/api/src/users/salary.service.ts
+  packages/shared/src/schemas/finance.ts package.json apps/web/package.json pnpm-lock.yaml
+  apps/web/vite.config.ts apps/web/index.html .husky/pre-push docker-compose.yml
+  apps/api/src/payments/payout-split.service.ts)
+i=0
+for f in "${OWNED_EXAMPLES[@]}"; do
+  i=$((i + 1))
+  mk "own$i" "$f" modified
+  assert_red "SO-H-1: non-owner changes owned $f -> refused" --contains "owned-path: $f" \
+    --contains "[missing]" -- run "own$i"
+  pr "own$i" '[]' 1 "$OWNER"
+  assert_green "SO-H-1: the owner changes $f -> passes" --contains "[owner-authored]" -- run "own$i"
+done
+mk ownrm apps/api/src/payments/old.service.ts removed
+assert_red "SO-H-1: removing an owned file -> refused" --contains "owned-path: apps/api/src/payments/old.service.ts" \
+  -- run ownrm
+src ownmvin 'export const a = 1'
+mk ownmvin apps/api/src/payments/a.ts renamed apps/web/app/lib/a.ts
+assert_red "SO-H-1: rename INTO an owned path counts by its new name" \
+  --contains "owned-path: apps/api/src/payments/a.ts" -- run ownmvin
+src ownmvout 'export const a = 1'
+mk ownmvout apps/web/app/lib/b.ts renamed apps/api/src/payments/b.ts
+assert_red "SO-H-1: rename OUT of an owned path counts by its old name" \
+  --contains "owned-path: apps/api/src/payments/b.ts" -- run ownmvout
+src openclean 'export const label = "x"'
+mk openclean apps/web/app/components/clean.tsx modified
+assert_green "SO-H-1: a non-owner PR on an open-zone file with no trigger -> passes" \
+  --contains "[not-required]" --not-contains "owned-path" -- run openclean
+
 # ── owner-verdict-decide.sh (Master addendum 5 item 2): fails closed ─────────────────────
 DECIDE="$GUARD_DIR/owner-verdict-decide.sh"
 STUB="$T/stub-gh"
