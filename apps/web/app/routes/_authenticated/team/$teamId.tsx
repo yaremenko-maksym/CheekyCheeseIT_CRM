@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { useMemo, useState } from 'react'
 import type { TeamDto } from '@crm/shared'
 import { compareNames } from '@crm/shared'
@@ -287,7 +287,7 @@ function TeamDetailPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <motion.div
+      <m.div
         className="flex-1 min-h-0 overflow-y-auto space-y-6 px-6 pt-4 pb-6"
         variants={container}
         initial="hidden"
@@ -322,7 +322,7 @@ function TeamDetailPage() {
 
         <div className="space-y-6">
           {/* Members */}
-          <motion.div variants={item}>
+          <m.div variants={item}>
             <MembersCard
               members={team.members}
               viewerRole={user?.role}
@@ -330,20 +330,20 @@ function TeamDetailPage() {
               canManage={canManage}
               onRemove={(userId) => removeMemberMutation.mutate(userId)}
             />
-          </motion.div>
+          </m.div>
 
           {/* Active Projects — hidden from JUNIOR viewers per task #11;
             also hidden from SENIOR (task-senior-ui-followups §3b):
             SENIOR has no profile-link access to teammates and seeing the
             junior slot with identity hidden adds no value. */}
           {user?.role !== 'JUNIOR' && user?.role !== 'SENIOR' && (
-            <motion.div variants={item}>
+            <m.div variants={item}>
               <ActiveProjectsCard
                 visibleProjects={visibleProjects}
                 viewerRole={user?.role}
                 members={team.members}
               />
-            </motion.div>
+            </m.div>
           )}
         </div>
 
@@ -395,7 +395,7 @@ function TeamDetailPage() {
           onSubmit={() => rotateSeniorMutation.mutate(newSeniorId)}
           isPending={rotateSeniorMutation.isPending}
         />
-      </motion.div>
+      </m.div>
     </div>
   )
 }

@@ -14,7 +14,7 @@ import {
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { z } from 'zod'
 import { Plus, Unlink2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
@@ -331,7 +331,7 @@ function InterviewsPage() {
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-hidden" data-testid="interviews-page">
-      <motion.div
+      <m.div
         className="px-6 pt-4 mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between shrink-0"
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -379,7 +379,7 @@ function InterviewsPage() {
             </Button>
           )}
         </div>
-      </motion.div>
+      </m.div>
 
       <div className="flex flex-1 min-h-0 overflow-x-auto overflow-y-hidden pb-6">
         {isLoading ? (
@@ -400,14 +400,14 @@ function InterviewsPage() {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            <motion.div
+            <m.div
               className="flex gap-3 items-stretch h-full px-6"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.4, delay: 0.1 }}
             >
               {ACTIVE_STAGES.map((stage, idx) => (
-                <motion.div
+                <m.div
                   key={stage}
                   className="h-full"
                   initial={{ opacity: 0, y: 16 }}
@@ -420,13 +420,13 @@ function InterviewsPage() {
                     onCardClick={setSelectedCard}
                     canDrag={isAdmin || isHR}
                   />
-                </motion.div>
+                </m.div>
               ))}
 
               <div className="shrink-0 self-stretch w-px bg-border/60 mx-1" />
 
               {TERMINAL_STAGES.map((stage, idx) => (
-                <motion.div
+                <m.div
                   key={stage}
                   className="h-full"
                   initial={{ opacity: 0, y: 16 }}
@@ -439,9 +439,9 @@ function InterviewsPage() {
                     onCardClick={setSelectedCard}
                     canDrag={isAdmin || isHR}
                   />
-                </motion.div>
+                </m.div>
               ))}
-            </motion.div>
+            </m.div>
             <DragOverlay>
               {activeCard && <InterviewCardStatic interview={activeCard} />}
             </DragOverlay>

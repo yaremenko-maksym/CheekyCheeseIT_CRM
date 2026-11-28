@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, m } from 'motion/react'
 import { CheckCircle2, ChevronDown, TrendingUp } from 'lucide-react'
 import { useState } from 'react'
 import { Trans, Plural } from '@lingui/react/macro'
@@ -305,7 +305,7 @@ export function ComplianceReceiverRow({ receiver }: { receiver: IncomeCompliance
 
       <AnimatePresence>
         {open && hasMissing && (
-          <motion.div
+          <m.div
             key="detail"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -362,7 +362,7 @@ export function ComplianceReceiverRow({ receiver }: { receiver: IncomeCompliance
                 ))}
               </ul>
             </div>
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>

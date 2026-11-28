@@ -1,5 +1,5 @@
 import { Mail, Phone, Send, UserMinus } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { useMemo } from 'react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { Role, TeamDto } from '@crm/shared'
@@ -69,10 +69,10 @@ export function MembersCard({
           return (
             <div className="grid gap-2 sm:grid-cols-2">
               {visibleMembers.map((member) => (
-                <motion.div
+                <m.div
                   key={member.id}
                   className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/50 p-3"
-                  // Stryker disable next-line ObjectLiteral: hover animation config; framer-motion applies it only on real pointer events, which no jsdom assertion observes
+                  // Stryker disable next-line ObjectLiteral: hover animation config; motion applies it only on real pointer events, which no jsdom assertion observes
                   whileHover={{ scale: 1.01 }}
                   // Stryker disable next-line ObjectLiteral: animation timing config; not observable in jsdom
                   transition={{ duration: 0.15 }}
@@ -196,7 +196,7 @@ export function MembersCard({
                         </Button>
                       ) : null
                     })()}
-                </motion.div>
+                </m.div>
               ))}
               {visibleMembers.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-12 text-center col-span-2">

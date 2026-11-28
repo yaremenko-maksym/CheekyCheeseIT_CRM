@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { AnimatePresence } from 'framer-motion'
+import { AnimatePresence } from 'motion/react'
 import { Search, ArrowUpDown, ChevronDown, X, Trash2 } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'

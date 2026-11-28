@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, m } from 'motion/react'
 import { useLingui } from '@lingui/react/macro'
 import { i18n } from '@lingui/core'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
@@ -660,12 +660,12 @@ function ProjectsPage() {
           {!isError && filtered.length > 0 && (
             <Card>
               <CardContent className="p-3">
-                <motion.div className="space-y-1" data-testid="projects-list">
+                <m.div className="space-y-1" data-testid="projects-list">
                   <AnimatePresence mode="popLayout" initial={false}>
                     {filtered.map((project) => {
                       const isArchived = !!project.archivedAt
                       return (
-                        <motion.div
+                        <m.div
                           key={project.id}
                           variants={item}
                           layout="position"
@@ -682,11 +682,11 @@ function ProjectsPage() {
                             viewerId={user?.id}
                             reasonPending={reasonPending}
                           />
-                        </motion.div>
+                        </m.div>
                       )
                     })}
                   </AnimatePresence>
-                </motion.div>
+                </m.div>
               </CardContent>
             </Card>
           )}

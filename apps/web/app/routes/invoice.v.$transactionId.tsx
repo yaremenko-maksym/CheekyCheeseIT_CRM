@@ -20,7 +20,6 @@
  */
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
 import { AlertCircle, CheckCircle2, FileSignature, ShieldCheck } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { i18n } from '@lingui/core'
@@ -184,11 +183,9 @@ function LoadingState() {
 
 function ErrorState({ message }: { message: string }) {
   return (
-    <motion.div
+    <div
       data-testid="invoice-verify-error"
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="flex flex-col items-center justify-center rounded-xl border border-destructive/30 bg-destructive/5 p-12 text-center"
+      className="flex flex-col items-center justify-center rounded-xl border border-destructive/30 bg-destructive/5 p-12 text-center animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out"
     >
       <AlertCircle className="h-12 w-12 text-destructive" />
       <h2 className="mt-4 text-lg font-semibold" data-testid="invoice-verify-error-message">
@@ -200,7 +197,7 @@ function ErrorState({ message }: { message: string }) {
           згенерований.
         </Trans>
       </p>
-    </motion.div>
+    </div>
   )
 }
 
@@ -212,12 +209,9 @@ function VerifiedState({ data }: { data: InvoiceVerifyResponse }) {
   const isSigned = data.status === 'SIGNED'
   const locale = useLocale()
   return (
-    <motion.div
+    <div
       data-testid="invoice-verify-success"
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="space-y-6"
+      className="space-y-6 animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out"
     >
       {/* Hero — big green check */}
       <div
@@ -358,7 +352,7 @@ function VerifiedState({ data }: { data: InvoiceVerifyResponse }) {
           )}
         </CardContent>
       </Card>
-    </motion.div>
+    </div>
   )
 }
 

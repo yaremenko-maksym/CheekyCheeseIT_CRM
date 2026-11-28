@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { BACKDATE_LIMIT_DAYS } from '@crm/shared'
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { AnimatePresence, m, useReducedMotion } from 'motion/react'
 import { getApiErrorCode } from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
@@ -84,7 +84,7 @@ export function TxDateField({
       )}
       <AnimatePresence initial={false}>
         {changed && (
-          <motion.div
+          <m.div
             key="admin-edit-tx-date-reason"
             initial={{ opacity: 0, height: 0, y: -4 }}
             animate={{ opacity: 1, height: 'auto', y: 0 }}
@@ -124,7 +124,7 @@ export function TxDateField({
                 {errorMessage}
               </p>
             )}
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>

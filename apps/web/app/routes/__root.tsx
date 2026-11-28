@@ -3,6 +3,7 @@ import { createRootRouteWithContext, Outlet } from '@tanstack/react-router'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import type { Query } from '@tanstack/react-query'
 import { I18nProvider } from '@lingui/react'
+import { domMax, LazyMotion } from 'motion/react'
 import { queryClient } from '../lib/query-client'
 import { persister } from '../lib/persister'
 import type { RouterContext } from '../lib/router-context'
@@ -87,7 +88,13 @@ function RootDocument() {
             },
           }}
         >
-          <LocaleScopedApp />
+          {/* Every animation renders `m.*` under this `LazyMotion`; `strict` makes a
+              stray `motion.*` throw. `domMax` (not `domAnimation`): the app's tab pills
+              and lists rely on `layout` / `layoutId`, which only `domMax` carries.
+              Scoped to `LocaleScopedApp` so the `persistOptions` block stays untouched. */}
+          <LazyMotion features={domMax} strict>
+            <LocaleScopedApp />
+          </LazyMotion>
         </PersistQueryClientProvider>
       </TelemetryProvider>
     </I18nProvider>

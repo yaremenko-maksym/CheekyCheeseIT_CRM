@@ -4,7 +4,7 @@
  * Design spec: docs/design/junior-hub-round4.md
  * Changes from round 3:
  *  - Equal-height columns: removed items-start, left stack gets self-start,
- *    right motion.div gets flex flex-col, SalaryCard gets flex-1 className
+ *    right m.div gets flex flex-col, SalaryCard gets flex-1 className
  *  - SalarySnapshotCard: 3-zone layout (rate / payments / summary), text-4xl,
  *    flex flex-col flex-1, summary anchored mt-auto
  *  - Removed: «Все мои выплаты» Link + ExternalLink import + Link import
@@ -13,7 +13,7 @@
  * AC3: redirect JUNIOR → /project при логине (в index.tsx).
  */
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { msg } from '@lingui/core/macro'
 import type { MessageDescriptor } from '@lingui/core'
@@ -263,10 +263,10 @@ function HubCards({ project, projectId }: { project: ProjectDto; projectId: stri
   return (
     // Round 4 equal-height strategy:
     //  - No items-start → default align-items: stretch
-    //  - Left motion.div: self-start → height = content (~551px), cards stay h-fit
-    //  - Right motion.div: flex flex-col → SalaryCard flex-1 fills grid row height
+    //  - Left m.div: self-start → height = content (~551px), cards stay h-fit
+    //  - Right m.div: flex flex-col → SalaryCard flex-1 fills grid row height
     // Structure: left 1/3 stack + right 2/3 salary + full-width credentials.
-    <motion.div
+    <m.div
       className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
       variants={container}
       initial="hidden"
@@ -274,26 +274,26 @@ function HubCards({ project, projectId }: { project: ProjectDto; projectId: stri
       data-testid="junior-hub-bento"
     >
       {/* Left stack: self-start → h-fit cards, не растягиваются по высоте ряда */}
-      <motion.div variants={card} className="lg:col-span-1 flex flex-col gap-4 self-start">
+      <m.div variants={card} className="lg:col-span-1 flex flex-col gap-4 self-start">
         <ProjectInfoCard project={project} hrContact={hrContact ?? null} hrLoading={hrLoading} />
         <PersonaCard legend={legend ?? null} isLoading={legendLoading} />
-      </motion.div>
+      </m.div>
 
       {/* Right wide: flex flex-col → SalaryCard flex-1 = grid row height */}
-      <motion.div variants={card} className="lg:col-span-2 flex flex-col">
+      <m.div variants={card} className="lg:col-span-2 flex flex-col">
         <SalarySnapshotCard
           salaryMeta={salaryMeta ?? null}
           salaryTxs={salaryTxs ?? []}
           isLoading={salaryLoading}
           className="flex-1"
         />
-      </motion.div>
+      </m.div>
 
       {/* Bottom full-width: Пароли проекта — twoColumn for wide layout */}
-      <motion.div variants={card} className="col-span-full">
+      <m.div variants={card} className="col-span-full">
         <ProjectCredentialsSection projectId={projectId} canEdit={false} canAdd twoColumn />
-      </motion.div>
-    </motion.div>
+      </m.div>
+    </m.div>
   )
 }
 

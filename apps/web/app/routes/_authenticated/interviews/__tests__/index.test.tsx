@@ -69,8 +69,8 @@ vi.mock('@/hooks/use-active-team', () => ({
   useActiveTeam: () => ({ team: null, isTeamless: false, isLoading: false }),
 }))
 
-vi.mock('framer-motion', () => ({
-  motion: {
+vi.mock('motion/react', () => ({
+  m: {
     div: ({
       children,
       ...props

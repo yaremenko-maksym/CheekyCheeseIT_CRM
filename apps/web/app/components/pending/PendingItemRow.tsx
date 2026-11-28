@@ -236,7 +236,7 @@ export interface PendingItemRowProps {
  * устройств" decision.
  *
  * Renders a `<div>`, not the `<li>` — `PendingKindSection` supplies the
- * `<motion.li>` wrapper (design spec §11's AnimatePresence/exit animation
+ * `<m.li>` wrapper (design spec §11's AnimatePresence/exit animation
  * needs to own the actual list-item node so the whole row — border, padding,
  * everything — collapses together, not just its content).
  */

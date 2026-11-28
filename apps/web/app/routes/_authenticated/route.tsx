@@ -185,7 +185,7 @@ function CrmLayout() {
       {/* Ambient depth — three faint static blobs provide visual depth without
           any animation cost. Static divs: zero rAF schedule, zero GPU repaint
           per frame, zero main-thread blur recomputation. Position/size/colour
-          preserved exactly; only the framer-motion keyframe loops are removed.
+          preserved exactly; only the motion keyframe loops are removed.
           perf/bundle-animation: replaced motion.div + infinite scale/translate
           keyframes (caused continuous GPU blur repaints on every screen). */}
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
