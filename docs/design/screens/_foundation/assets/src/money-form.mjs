@@ -522,9 +522,9 @@ export function checkSheetBoot(w, h) {
 export const PILL_H = 56
 const PILL_POS = (w) =>
   `position:absolute;left:12px;right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16}px;z-index:44;height:${PILL_H}px;border-radius:16px;background:oklch(0.2 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)`
-const pillBox = (w, inner, label, tone = '0.34 0.05 85', close = false) =>
+const pillBox = (w, inner, label, tone = '0.34 0.05 85', close = false, extra = '') =>
   close
-    ? `<div class="row" style="${PILL_POS(w)};border:1px solid oklch(${tone});padding:0 4px 0 0"><div role="button" aria-label="${label}" class="row grow" style="gap:10px;height:100%;padding:0 4px 0 10px;min-width:0">${inner}</div><span class="iconbtn" role="button" aria-label="Закрити" style="color:var(--muted-fg)">${icon('x', { size: 18 })}</span></div>`
+    ? `<div class="row" style="${PILL_POS(w)};border:1px solid oklch(${tone});padding:0 4px 0 0"><div role="button" aria-label="${label}" class="row grow" style="gap:10px;height:100%;padding:0 4px 0 10px;min-width:0">${inner}</div>${extra}<span class="iconbtn" role="button" aria-label="Закрити" style="color:var(--muted-fg)">${icon('x', { size: 18 })}</span></div>`
     : `<div role="button" aria-label="${label}" class="row" style="${PILL_POS(w)};gap:10px;padding:0 12px 0 10px;border:1px solid oklch(${tone})">${inner}</div>`
 // R4-15: the whole pill is ONE button; its trailing «Відкрити…» is the button's label, drawn in accent ink
 // (never muted meta), so the meta before it («62% ·», the time) stays muted and reads as status.
@@ -543,7 +543,11 @@ const pillText = (a, b) => {
  * inflight: the create has left. drafts: two or more failed / unknown drafts; a tap opens Фінанси at the
  * pinned rows.
  */
-export function moneyPill(w, kind = 'armed', { amount = AMOUNT } = {}) {
+// R6-02 (foundation §11 «Money results queue»): earlier unacknowledged results queue by write ID behind one
+// persistent 44 px count button on the newest saved pill; it opens the chooser «Результати збереження».
+const queueBtn = (n) =>
+  `<span role="button" aria-haspopup="dialog" aria-label="Ще ${n}: усі результати збереження" class="row" style="height:44px;padding:0 10px;margin-right:2px;border-radius:12px;background:oklch(0.27 0.01 85);font-size:13px;font-weight:600;white-space:nowrap">Ще ${n}</span>`
+export function moneyPill(w, kind = 'armed', { amount = AMOUNT, more = 0 } = {}) {
   if (kind === 'unknown')
     return pillBox(
       w,
@@ -565,6 +569,7 @@ export function moneyPill(w, kind = 'armed', { amount = AMOUNT } = {}) {
       `Збережено −${amount} USD. Відкрити`,
       '0.4 0.08 150',
       true,
+      more ? queueBtn(more) : '',
     )
   if (kind === 'multi')
     return pillBox(
@@ -676,6 +681,17 @@ export function savedOverPill(w, h, under = 'failed') {
   return under === 'armed' ? shell : draftFab(shell)
 }
 export const savedOverFailedPill = (w, h) => savedOverPill(w, h, 'failed')
+/** R6-02: two creates succeeded while a failed draft holds the slot. The newest result (−320,00 USD) sits above the
+ * draft pill and carries «Ще 1»: the earlier unacknowledged success (−75,00 USD) is queued, never replaced. */
+export const SAVED_EARLIER = '75,00'
+export function savedQueuePill(w, h) {
+  const base = TABBAR_H + safeBottom(w) + 16
+  const saved = moneyPill(w, 'saved', { amount: SAVED_OTHER, more: 1 }).replace(
+    `bottom:${base}px`,
+    `bottom:${base + PILL_H + 8}px`,
+  )
+  return draftFab(financeTab(w, h, moneyPill(w, 'failed') + saved, pinDrafts([DRAFT.failed])))
+}
 
 /** Toast + pill: the pill keeps the base slot, at most one toast stacks 8 px above it. */
 export function toastPillStack(w, h) {
@@ -792,8 +808,10 @@ export const confirmRecreate = (w, h) =>
       title: `Створити −${AMOUNT} USD ще раз?`,
       desc: 'У списку є схожа о\u00a014:33. Буде створено одну нову транзакцію: витрата, сьогодні, без проєкту.',
       action: 'Створити ще раз',
-      ink: 'var(--primary)',
+      // R6-01: a «схожа» row is in the list, so the money-moving step is neutral and «Скасувати» takes focus.
+      ink: 'var(--foreground)',
       overSheet: true,
+      focusCancel: true,
     }),
   )
 

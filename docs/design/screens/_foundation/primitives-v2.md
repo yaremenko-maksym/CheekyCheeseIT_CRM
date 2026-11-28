@@ -433,7 +433,7 @@ so only when the user tries to close a sheet with uploads running, and an armed 
 (`alert-pagekill-sent-375`, `page-kill-768`, `page-kill-1440`). The phases and when the marker is cleared: foundation §11. **Confirms**
 use the action-sheet confirm (`sheet-confirm-375`; `actionConfirm` in the mockup sources), two 56 px
 rows, over the one open sheet (≥ 640 it replaces the check dialog; depth rule, §12 Dismissal): `confirm-recreate-375` («Створити −1 250,50 USD ще раз?» ·
-«Створити ще раз» · «Скасувати», from the unknown-outcome exit) and `confirm-discard-draft-375`
+«Створити ще раз» · «Скасувати», from the unknown-outcome exit; its weight follows foundation §11: neutral with a «збіг» or «схожа» row, focus on «Скасувати») and `confirm-discard-draft-375`
 («Видалити чернетку −1 250,50 USD?» · «Видалити» · «Залишити», for a failed or unknown draft; for an
 unknown one the description adds «Якщо транзакцію вже збережено, вона залишиться в списку.»; never
 while its request is in flight). A boot with several markers shows **one alert per phase** with a
@@ -449,8 +449,9 @@ dismissed); it never times out. **Several drafts** (foundation §11): the slot s
 two armed «Збережеться 2 транзакції» / «Після завантаження чеків · Відкрити» (never one merged percentage: each pinned row shows
 its own; `upload-pill-multi-375`); «+2 чеки» counts only uploads that belong to no draft; two or more
 failed or unknown «2 потребують перевірки» / «Відкрити», which opens Фінанси at the pinned rows, and the
-dock button carries the count (`drafts-two-unresolved-375`). A save that completes under a failed or
-unknown pill shows as a normal success toast stacked above it; the pill keeps its own state. Фінанси pins a row per unsaved draft by the slot precedence (§12 Drafts and money rows) (`drafts-two-375`: one failed and one armed; the failed one wins the pill). Without a money draft the
+dock button carries the count (`drafts-two-unresolved-375`). A save that completes under any draft
+pill stacks as a saved pill above it and earlier unacknowledged results queue behind its «Ще {n}» (one rule:
+foundation §11 «Money results queue»; `upload-pill-saved-queue-375`, `-768`); the draft pill keeps its own state. Фінанси pins a row per unsaved draft by the slot precedence (§12 Drafts and money rows) (`drafts-two-375`: one failed and one armed; the failed one wins the pill). Without a money draft the
 slot holds the plain upload pill. **Toast + pill** (`toast-pill-stack-375`): the pill keeps the base slot (left 12,
 right inset 80, left of the FAB; full width above the dock on Фінанси, D-8); a toast stacks 8 px above it; at most one toast at a time. A toast
 timer pauses while the page is hidden.

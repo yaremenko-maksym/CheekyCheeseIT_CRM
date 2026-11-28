@@ -56,12 +56,16 @@ const PILL = {
   failed: () => [`<span style="color:var(--destructive);display:grid">${icon('circle-alert', { size: 22 })}</span>`, `Не збережено −${NB(AMOUNT)} USD`, `${SENT_AT} · Відкрити`, 'oklch(0.42 0.12 22)', `Не збережено −${AMOUNT} USD, о ${SENT_AT}. Відкрити`],
   saved: () => [`<span style="color:var(--positive);display:grid">${icon('circle-check', { size: 22 })}</span>`, `Збережено −${NB(SAVED_OTHER)} USD`, 'Відкрити', 'oklch(0.4 0.08 150)', `Збережено −${SAVED_OTHER} USD. Відкрити`],
 }
-export const widePill = (kind, touch, bottom = 24) => {
+export const widePill = (kind, touch, bottom = 24, more = 0) => {
   const [ic, a, b, edge, label] = PILL[kind]()
   const hgt = touch ? 52 : 44
+  // R6-02: the persistent count of queued unacknowledged results (foundation §11 «Money results queue»).
+  const q = more
+    ? `<button type="button" aria-haspopup="dialog" aria-label="Ще ${more}: усі результати збереження" style="appearance:none;border:0;font:inherit;color:inherit;flex:none;height:${touch ? 44 : 32}px;padding:0 10px;border-radius:10px;background:oklch(0.27 0.01 85);font-size:13px;font-weight:600;white-space:nowrap;cursor:pointer">Ще ${more}</button>`
+    : ''
   const x =
     kind === 'saved'
-      ? `<button type="button" class="iconbtn" aria-label="Закрити" style="flex:none;width:${touch ? 44 : 32}px;height:${touch ? 44 : 32}px;color:var(--muted-fg)">${icon('x', { size: 16 })}</button>`
+      ? q + `<button type="button" class="iconbtn" aria-label="Закрити" style="flex:none;width:${touch ? 44 : 32}px;height:${touch ? 44 : 32}px;color:var(--muted-fg)">${icon('x', { size: 16 })}</button>`
       : ''
   return `<div class="row" style="position:absolute;right:24px;bottom:${bottom}px;z-index:50;width:320px;min-height:${hgt}px;gap:4px;padding:0 6px 0 0;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid ${edge};box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><div role="button" aria-label="${label}" class="row grow" style="gap:10px;min-width:0;min-height:${hgt}px;padding:0 6px 0 12px">${ic}<span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:13px;font-weight:600;white-space:nowrap">${a}</span><span class="t-cap muted num" style="white-space:nowrap">${b}</span></span></div>${x}</div>`
 }
@@ -85,6 +89,12 @@ export const signOutConfirmTablet = (w, h) =>
     .replace(/style="width:52px;height:52px;/, 'style="position:relative;width:52px;height:52px;')
     .replace(/(style="position:relative;width:52px[^>]*><svg[\s\S]*?<\/svg>)/, `$1${DOT_I}`)
 
+/** R6-02: two unacknowledged successes + a failed draft at >= 640: the newest saved pill carries «Ще 1». */
+export const savedQueueTablet = (w, h) =>
+  tablet({ w, h, overlay: widePill('failed', true) + widePill('saved', true, 24 + 52 + 8, 1) }).replace(
+    '<div class="sechead"><span class="t-over">Сьогодні</span></div>',
+    `${pinnedRows([DRAFT.failed])}<div class="sechead"><span class="t-over">Сьогодні</span></div>`,
+  )
 /** R5-08: a create success while a failed draft owns the corner at >= 640: the saved pill stacks 8 px above, with
  * its own amount (another transaction); the failed pill keeps the slot (precedence), its row stays pinned. */
 export const savedOverFailedTablet = (w, h) =>

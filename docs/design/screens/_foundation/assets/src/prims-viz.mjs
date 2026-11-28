@@ -248,7 +248,7 @@ function recreateBox(touch) {
   <div role="alertdialog" aria-modal="true" aria-labelledby="cr-t" aria-describedby="cr-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:90;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);padding:20px 20px 16px">
   <div id="cr-t" class="t-head num">Створити −${AMOUNT.replace(' ', ' ')} USD ще раз?</div>
   <div id="cr-d" class="t-foot muted" style="margin-top:6px;font-size:14px;line-height:20px">У списку є збіг о\u00a014:33. Буде створено одну нову транзакцію: витрата, сьогодні, без проєкту.</div>
-  <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><button type="button" class="btn sm secondary" style="${bh};box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Скасувати</button><button type="button" class="btn sm primary" style="${bh}">Створити ще раз</button></div></div>`
+  <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><button type="button" class="btn sm secondary" style="${bh};box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Скасувати</button><button type="button" class="btn sm secondary" style="${bh}">Створити ще раз</button></div></div>`
 }
 export const confirmRecreateTablet = (w, h) =>
   tablet({ w, h, overlay: checkPanel(true) + recreateBox(true) })
