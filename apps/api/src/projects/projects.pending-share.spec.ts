@@ -15,6 +15,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
+import { ProjectAccessService } from './project-access.service'
 import { projectFinanceSettings, projects, transactions } from '../database/schema'
 import { resolveSeniorShare } from '../finance/senior-share-resolver'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
@@ -911,20 +912,36 @@ describe('ProjectsService.mapProject — the pending-share mask itself', () => {
 })
 
 describe('ProjectsService.update — SR-L-4: pending lookup gated by role, like findOne', () => {
-  const accountantUser: SessionUser = {
-    id: 'acc-1',
-    role: 'ACCOUNTANT',
-    displayName: 'Accountant',
-    email: 'acc@x.com',
+  const hrUser: SessionUser = {
+    id: 'hr-1',
+    role: 'HR',
+    displayName: 'HR',
+    email: 'hr@x.com',
     avatarUrl: null,
     avatarDocumentId: null,
     seniorSharePercent: null,
   }
 
-  // `paymentType` (not `rate`) because ACCOUNTANT's own gate in `update()`
-  // admits them only when EVERY patched field is finance-scoped — and it is
-  // deliberately a field that opens no proposal, so the `getStatus` call this
-  // asserts about could only come from the unconditional tail lookup.
+  // HR can PATCH a project it manages but cannot see the pending share. The
+  // HR scope check is stubbed (it is not what this test is about); `name`
+  // opens no proposal, so a `getStatus` call could only come from the
+  // unconditional tail lookup.
+  it('does not ask approvals for a role that cannot see the field (HR)', async () => {
+    const h = buildHarness({ seniorSharePercentOverride: 26 })
+    const manage = vi
+      .spyOn(ProjectAccessService.prototype, 'assertHrCanManageProject')
+      .mockResolvedValue(undefined)
+    const access = vi
+      .spyOn(ProjectAccessService.prototype, 'assertAccess')
+      .mockResolvedValue(undefined)
+    try {
+      await h.service.update('proj-1', { name: 'Renamed' }, hrUser)
+      expect(h.approvals.getStatus).not.toHaveBeenCalled()
+    } finally {
+      manage.mockRestore()
+      access.mockRestore()
+    }
+  })
 
   it('still asks for ADMIN, who can see it', async () => {
     const h = buildHarness({

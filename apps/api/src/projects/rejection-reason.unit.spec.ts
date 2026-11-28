@@ -32,6 +32,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
+import { ProjectAccessService } from './project-access.service'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 // r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
 vi.mock('../job-sourcing/dirty-producers')
@@ -547,5 +548,23 @@ describe('ProjectsService.update — rejectionReason on the response (CR-M-1, PR
     await expect(
       service.update(PROJECT_ID, { name: 'Sneaky rename' }, sessionFor('hr-1', 'HR')),
     ).rejects.toThrow('Project not found')
+  })
+
+  it("SR-H-1 defense-in-depth: even if update() authorization is ever loosened so a non-ADMIN caller CAN pass assertAccess on a REJECTED project (isApprover: true), the response still never carries rejectionReason — SR-M-5's ADMIN-only gate is independent of, not redundant with, the assertAccess gate", async () => {
+    // An HR whose manage-scope check passes (stubbed) and who is poisoned
+    // as an approver (unreachable in the real domain model today, since only
+    // SENIOR/DROP are ever assigned as approvers) proves SR-M-5's gate does
+    // not silently rely on "nobody non-ADMIN ever gets this far".
+    const { service } = buildServiceWithAccessGate(rejectedProject(), { isApprover: true })
+    const manage = vi
+      .spyOn(ProjectAccessService.prototype, 'assertHrCanManageProject')
+      .mockResolvedValue(undefined)
+    try {
+      const result = await service.update(PROJECT_ID, { name: 'Renamed' }, sessionFor('hr-1', 'HR'))
+      expect(result.status).toBe('REJECTED')
+      expect(result.rejectionReason).toBeNull()
+    } finally {
+      manage.mockRestore()
+    }
   })
 })
