@@ -108,7 +108,9 @@ Owner-authored and not-required PRs keep the `merge-approved` label path.
 - **Accepted risk: E2E code execution.** E2E code can run arbitrary programs on dev, agent and CI machines through
   routes that no denylist covers (`tsImport` with a runtime specifier, fs-write-then-import, Playwright
   `executablePath`, environment reads without `process`); owner decision 2026-11-28. `apps/e2e/**` stays open;
-  no e2e-specific triggers are added.
+  no e2e-specific triggers are added. Consequently, (a) a PR touching only `apps/e2e/**` needs no owner verdict and
+  can auto-merge after the normal reviews, and (b) a machine running E2E may hold credentials beyond the repo (for
+  example a developer machine), so E2E code reaches whatever that machine can reach.
 - **Agents can post the marker.** Agents use the owner's account, so the gate rests on a hook that refuses a
   `gh` command carrying `Owner Verdict:`. That hook is in the Architect's zone and is **not built yet**. It is
   reported in PR 11 with its exact specification. Until it lands, the verdict is a convention for agents, not a lock.

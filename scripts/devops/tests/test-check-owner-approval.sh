@@ -386,6 +386,14 @@ case_red p_paren apps/web/app/lib/p_paren.ts modified "const k = 'x'; let v; (({
   "a parenthesized pattern target -> refused"
 case_red p_as apps/web/app/lib/p_as.ts modified "const k = 'x'; let v; (({ [k]: v }) as any) = o" "$CK" \
   "a pattern wrapped in as any -> refused"
+case_red p_nonnull apps/web/app/lib/p_nonnull.ts modified "const k = 'x'; let v; ((({ [k]: v })!) = o)" "$CK" \
+  "a pattern wrapped in non-null ! -> refused"
+case_red p_satisfies apps/web/app/lib/p_satisfies.ts modified "const k = 'x'; let v; (({ [k]: v }) satisfies any) = o" "$CK" \
+  "a pattern wrapped in satisfies -> refused"
+case_red p_typeassert apps/web/app/lib/p_typeassert.ts modified "const k = 'x'; let v; (<any>({ [k]: v })) = o" "$CK" \
+  "a pattern wrapped in type assertion -> refused"
+case_red p_spread_elem apps/web/app/lib/p_spread_elem.ts modified "const k = 'x'; let v; [...[{ [k]: v }]] = o" "$CK" \
+  "a real SpreadElement in array pattern -> refused"
 src dok "export class Box { constructor(readonly id: string) {} }
 export const byId = (id: string, v: number) => ({ [id]: v })
 export const h = window.location.href
