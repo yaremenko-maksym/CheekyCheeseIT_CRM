@@ -180,8 +180,17 @@ export function pickerSheet(w, h) {
   const body = `${search}<div role="listbox" aria-label="Проєкт">
   <div class="group">${opt('circle-off', 'Без проєкту')}</div>
   ${sec('Нещодавні')}<div class="group">${opt('folder', 'Проєкт «Альфа»', { cur: true, sub: 'Використано сьогодні' })}${opt('folder', 'Проєкт «Бета»', { sub: 'Використано вчора' })}</div>
-  ${sec('Усі проєкти')}<div class="group">${opt('folder', 'Проєкт «Гамма»')}${opt('folder', 'Проєкт «Дельта»')}${opt('folder', 'Інфраструктура')}</div></div>`
-  const picker = sheet({ w, h, top: Math.round(h * 0.3), title: 'Проєкт', trail: closeBtn, body })
+  ${sec('Усі проєкти')}<div class="group">${opt('folder', 'Проєкт «Гамма»')}${opt('folder', 'Проєкт «Дельта»')}${opt('folder', 'Інфраструктура')}</div><div style="height:16px"></div></div>`
+  // R5-03: the option list scrolls and its scrollport ends above the bottom safe area (shell-v2 «Reachability»).
+  const picker = sheet({
+    w,
+    h,
+    top: Math.round(h * 0.3),
+    title: 'Проєкт',
+    trail: closeBtn,
+    body,
+    scroll: 'data-scroll-body',
+  })
   return moneyForm({ w, h, receipt: 'done', expanded: true, over: picker })
 }
 
@@ -275,7 +284,8 @@ const sec = (t, action = '') =>
 
 export function listVariants(w, h) {
   const [ini, n, sub, st] = PEOPLE[3]
-  const inner = `${topBar({ title: 'ListRow', bell: false, search: false })}<div class="content">
+  // R5-03: a page with no bottom bar ends its scrollport above the bottom safe area too.
+  const inner = `${topBar({ title: 'ListRow', bell: false, search: false })}<div class="content" style="margin-bottom:${safeBottom(w)}px">
   ${sec('Навігація · 56')}<div class="group">${navRow('dollar-sign', 'Фінанси')}${navRow('clock', 'Чекають рішення', { badge: 3 })}${navRow('languages', 'Мова', { value: 'Українська' })}</div>
   ${sec('Дворядковий · 64', 'Усі')}<div class="group">${txnRow(TXNS[0])}${txnRow(TXNS[1])}</div>
   ${sec('Аватар і статус')}<div class="group"><div class="lrow two" style="--inset:64px"><div class="lead av">${ini}</div><div class="grow col" style="gap:2px"><div class="t-body trunc" style="font-weight:500">${n}</div><div class="t-foot muted" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere">${sub}</div></div><span class="pill ok">${st}</span></div></div>

@@ -117,19 +117,27 @@ function probe(coarse) {
   for (const sh of document.querySelectorAll('.sheet')) {
     if (!vis(sh)) continue
     const shb = sh.getBoundingClientRect()
-    const sc = [...sh.querySelectorAll('*')].find((e) => /auto|scroll/.test(getComputedStyle(e).overflowY))
-    const keep = sc ? sc.scrollTop : 0
+    const scs = [...sh.querySelectorAll('*')].filter((e) =>
+      /auto|scroll/.test(getComputedStyle(e).overflowY),
+    )
+    const keep = scs.map((e) => e.scrollTop)
     for (const el of sh.querySelectorAll(CTL)) {
       if (el.closest(OS) || !vis(el) || (el.parentElement && el.parentElement.closest(CTL))) continue
-      if (sc && sc.contains(el)) el.scrollIntoView({ block: 'nearest' })
+      // the nearest scroller that holds the control (a keyboard-open form scrolls its own body)
+      const sc = scs.filter((e) => e.contains(el)).pop()
+      if (sc) el.scrollIntoView({ block: 'nearest' })
       const r = el.getBoundingClientRect()
-      const b = sc && sc.contains(el) ? sc.getBoundingClientRect() : shb
+      const b = sc ? sc.getBoundingClientRect() : shb
+      // a drawn scroll offset (`[data-scrolled]`, a transform in place of scrollTop): a control above the box is
+      // reached by scrolling back up, as it would be in a real scroller.
+      const up = el.closest('[data-scrolled]') && r.top < b.top && r.bottom < band
+      if (up) continue
       if (r.top < b.top - 1 || r.bottom > b.bottom + 1 || r.bottom > band + 1 || r.top < 0)
         out.reach.push(
           `sheet ${name(el)} unreachable (${Math.round(r.top)}–${Math.round(r.bottom)}, box ${Math.round(b.top)}–${Math.round(b.bottom)}, safe-area top ${Math.round(band)})`,
         )
     }
-    if (sc) sc.scrollTop = keep
+    scs.forEach((e, i) => (e.scrollTop = keep[i]))
   }
   // r6 (R5-03): nothing interactive is painted inside the bottom safe area (the home-indicator band) in the frame
   // as drawn — the initial scroll position, not only a scrolled-to-the-end state. Sampled on an 8 px grid.

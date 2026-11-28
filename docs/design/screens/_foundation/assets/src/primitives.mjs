@@ -10,7 +10,9 @@ import {
   sessionExpired,
   DRAFT,
   failureUnknownSimilar,
+  pillScrolled,
   savedOverFailedPill,
+  savedOverPill,
 } from './money-form.mjs'
 import {
   sheetMedium,
@@ -191,6 +193,7 @@ function allFrames() {
     M('upload-pill-inflight-375', 375, 812, uploadPillInflight(375, 812)),
     M('upload-pill-unknown-375', 375, 812, uploadPillUnknown(375, 812)),
     M('upload-pill-saved-over-failed-375', 375, 812, savedOverFailedPill(375, 812)),
+    M('upload-pill-saved-over-armed-375', 375, 812, savedOverPill(375, 812, 'armed')),
     M('drafts-two-375', 375, 812, draftsTwo(375, 812)),
     M('drafts-two-unresolved-375', 375, 812, draftsTwoUnresolved(375, 812)),
     M('drafts-four-collapsed-375', 375, 812, draftsFourCollapsed(375, 812)),
@@ -209,6 +212,7 @@ function allFrames() {
         end: true,
       }),
     ),
+    M('pill-scrolled-375', 375, 812, pillScrolled(375, 812)),
     M('toast-pill-stack-375', 375, 812, toastPillStack(375, 812)),
     M('state-page-kill-375', 375, 812, pageKillAlert(375, 812)),
     M('alert-pagekill-sent-375', 375, 812, pageKillAlert(375, 812, 'sent')),
@@ -221,6 +225,7 @@ function allFrames() {
     M('signout-confirm-375', 375, 812, r3.signOutConfirmPhone(375, 812)),
     D('signout-confirm-768', 768, 1024, r3.signOutConfirmTablet(768, 1024)),
     D('signout-confirm-1440', 1440, 900, r3.signOutConfirmDesktop(1440, 900)),
+    D('upload-pill-saved-over-failed-768', 768, 1024, r3.savedOverFailedTablet(768, 1024)),
     M('confirm-discard-draft-375', 375, 812, confirmDiscardDraft(375, 812)),
     M('listrow-draft-375', 375, 812, listrowDraft(375, 812)),
     M('upload-states-375', 375, 812, uploadStates(375, 812)),

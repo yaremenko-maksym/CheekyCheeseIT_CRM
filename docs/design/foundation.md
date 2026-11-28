@@ -94,10 +94,7 @@ Rules that hold in every class:
   the FAB, and the FAB never covers them. Bottom padding of every phone scroller: the one formula of shell-v2 §2 (R3-12). A money list (Фінанси) on a phone has no FAB: its create action is the docked 64 px «Нова транзакція» strip above the tab bar, and the pill and the toast span the width 16 px above the dock (D-8). Order: tab bar < FAB / toast / pill < sheet; a toast raised from inside a sheet or popover sits in that layer, above its pinned link (primitives-v2 §12 D-3, R3-17).
   With a pill showing, a toast stacks 8 px above it; at most one toast at a time
   (`primitives-v2/toast-pill-stack-375.png`).
-- **FAB and pill on scroll.** Scrolling down slides the FAB and the upload pill out below the tab bar;
-  they come back on scroll-up or after **1 s** without scrolling. Transform only (`translateY`, 200 ms
-  standard easing); under `prefers-reduced-motion` they fade instead. They never hide while one of them
-  holds keyboard focus (SC 2.4.11). On a Фінанси phone the dock is a fixed strip and never hides, so no trailing amount ever sits under a
+- **FAB and pill on scroll:** the one rule is `shell-v2.md` «FAB and pill on scroll» (R5-06: an unacknowledged money result never slides). On a Фінанси phone the dock is a fixed strip and never hides, so no trailing amount ever sits under a
   floating control (`shell-v2/state-scrolled-375.png`).
 
 ---

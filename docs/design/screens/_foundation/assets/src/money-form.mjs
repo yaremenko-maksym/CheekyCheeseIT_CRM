@@ -157,7 +157,8 @@ export const moneyBody = ({
       ? `<div class="col" style="gap:16px">${optionalFields({ focus, dateError, note, project })}</div>`
       : defaultsRow(project)
   const fields = `${receiptCard(receipt, { narrow, cur })}${amountBlock({ focus: focus === 'amount', amount, cur })}${rest}`
-  return `<div class="col" style="gap:14px;padding:${pad};transform:translateY(-${scroll}px)">${alert}${locked ? lockedFields(fields) : fields}</div>`
+  // data-scrolled: a drawn scroll offset (a transform stands in for scrollTop); measure.mjs reads it.
+  return `<div class="col"${scroll ? ` data-scrolled="${scroll}"` : ''} style="gap:14px;padding:${pad};transform:translateY(-${scroll}px)">${alert}${locked ? lockedFields(fields) : fields}</div>`
 }
 
 /**
@@ -541,7 +542,7 @@ const pillText = (a, b) => {
  * inflight: the create has left. drafts: two or more failed / unknown drafts; a tap opens Фінанси at the
  * pinned rows.
  */
-export function moneyPill(w, kind = 'armed') {
+export function moneyPill(w, kind = 'armed', { amount = AMOUNT } = {}) {
   if (kind === 'unknown')
     return pillBox(
       w,
@@ -559,8 +560,8 @@ export function moneyPill(w, kind = 'armed') {
   if (kind === 'saved')
     return pillBox(
       w,
-      `<span style="color:var(--positive)">${icon('circle-check', { size: 24 })}</span>${pillText(`Збережено −${AMOUNT} USD`, 'Відкрити')}<span role="status" style="${SR}">Транзакцію збережено</span>`,
-      `Збережено −${AMOUNT} USD. Відкрити`,
+      `<span style="color:var(--positive)">${icon('circle-check', { size: 24 })}</span>${pillText(`Збережено −${amount} USD`, 'Відкрити')}<span role="status" style="${SR}">Транзакцію збережено</span>`,
+      `Збережено −${amount} USD. Відкрити`,
       '0.4 0.08 150',
       true,
     )
@@ -593,6 +594,23 @@ export function moneyPill(w, kind = 'armed') {
 
 const financeTab = (w, h, overlay, body = financeBody()) =>
   tabScreen({ w, h, role: 'ADMIN', active: '/finance', title: 'Фінанси', body, overlay })
+
+/**
+ * R5-06: scrolling never hides an unacknowledged money result. Фінанси scrolled down: the pinned failed row has
+ * left the viewport, the bar collapsed, and the failed pill stays in its slot (the FAB, where a tab has one,
+ * still slides out; the dock never does).
+ */
+export const pillScrolled = (w, h) =>
+  tabScreen({
+    w,
+    h,
+    role: 'ADMIN',
+    active: '/finance',
+    title: 'Фінанси',
+    body: `<div style="transform:translateY(-190px)">${pinDrafts([DRAFT.failed])}</div>`,
+    overlay: moneyPill(w, 'failed'),
+    scrolled: true,
+  })
 
 /** Sheet dismissed while armed: the global upload pill carries the save; a tap reopens the draft. */
 export const uploadPillArmed = (w, h) =>
@@ -641,13 +659,22 @@ export const uploadPillFailed = (w, h) =>
 export const uploadPillUnknown = (w, h) =>
   draftFab(financeTab(w, h, moneyPill(w, 'unknown'), pinDrafts([DRAFT.unknown])))
 
-/** R4-10: a success while a failed / unknown pill owns the slot never becomes a timed toast: it stacks as a
- * second pill 8 px above, with the saved pill's own rule (stays until tapped or dismissed by its ✕ / a swipe). */
-export function savedOverFailedPill(w, h) {
+/** R4-10, R5-07: a create success while ANY draft pill owns the slot (failed, unknown, armed, in flight) never
+ * becomes a timed toast: it stacks as a second pill 8 px above, with the saved pill's own rule (stays until tapped
+ * or dismissed by its ✕ / a swipe). Stack order: the slot keeps the draft (precedence), the newest result sits
+ * above it. R5-08: the saved result is another transaction, so its amount differs from the draft's. */
+export const SAVED_OTHER = '320,00'
+export function savedOverPill(w, h, under = 'failed') {
   const base = TABBAR_H + safeBottom(w) + 16
-  const saved = moneyPill(w, 'saved').replace(`bottom:${base}px`, `bottom:${base + PILL_H + 8}px`)
-  return draftFab(financeTab(w, h, moneyPill(w, 'failed') + saved, pinDrafts([DRAFT.failed])))
+  const saved = moneyPill(w, 'saved', { amount: SAVED_OTHER }).replace(
+    `bottom:${base}px`,
+    `bottom:${base + PILL_H + 8}px`,
+  )
+  const draft = under === 'armed' ? DRAFT.armed2 : DRAFT.failed
+  const shell = financeTab(w, h, moneyPill(w, under) + saved, pinDrafts([draft]))
+  return under === 'armed' ? shell : draftFab(shell)
 }
+export const savedOverFailedPill = (w, h) => savedOverPill(w, h, 'failed')
 
 /** Toast + pill: the pill keeps the base slot, at most one toast stacks 8 px above it. */
 export function toastPillStack(w, h) {

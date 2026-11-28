@@ -2,7 +2,17 @@
 import { icon } from './base.mjs'
 import { desktop } from './desktop.mjs'
 import { moreSheet } from './mobile-overlays.mjs'
-import { moneyForm, actionConfirm, overHome, AMOUNT, NB, DRAFT, pinnedRows } from './money-form.mjs'
+import {
+  moneyForm,
+  actionConfirm,
+  overHome,
+  AMOUNT,
+  NB,
+  DRAFT,
+  pinnedRows,
+  SAVED_OTHER,
+  SENT_AT,
+} from './money-form.mjs'
 import { tablet } from './tablet.mjs'
 
 // D-1: after sign-in the form returns with what the user had typed and the receipt; the armed draft stays armed.
@@ -38,13 +48,28 @@ const box = (
 // R3-31: the page behind the dialog shows the draft it names: the upload pill at 62 %, the pinned armed row
 // and the dot on «+» (shell-v2 §4 «Money drafts per size»).
 const RING = `<svg width="26" height="26" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15" fill="none" stroke="oklch(1 0 0 / 0.14)" stroke-width="3"/><circle cx="18" cy="18" r="15" fill="none" stroke="var(--primary)" stroke-width="3" stroke-linecap="round" stroke-dasharray="94.2" stroke-dashoffset="35.8" transform="rotate(-90 18 18)"/></svg>`
-const upPill = (hgt) =>
-  `<div class="row" role="progressbar" aria-label="Завантаження чека" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100" style="position:absolute;right:24px;bottom:24px;width:300px;height:${hgt}px;z-index:50;gap:10px;padding:0 14px 0 10px;border-radius:${hgt / 2}px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.28 0.006 85);font-size:14px">${RING}<span class="grow num">Завантаження · 62%</span></div>`
+// R5-08: at >= 640 the money pill is the same pill as on a phone (foundation §5: the plain «Завантаження» pill
+// only without a money draft), in the one floating corner. R5-34: the pill body is one button; a ✕ (saved only)
+// is its sibling, never nested.
+const PILL = {
+  armed: () => [RING, `Збережеться −${NB(AMOUNT)} USD`, '62% · Відкрити чернетку', 'oklch(0.42 0.09 85)', `Збережеться −${AMOUNT} USD після завантаження чека, 62%. Відкрити чернетку`],
+  failed: () => [`<span style="color:var(--destructive);display:grid">${icon('circle-alert', { size: 22 })}</span>`, `Не збережено −${NB(AMOUNT)} USD`, `${SENT_AT} · Відкрити`, 'oklch(0.42 0.12 22)', `Не збережено −${AMOUNT} USD, о ${SENT_AT}. Відкрити`],
+  saved: () => [`<span style="color:var(--positive);display:grid">${icon('circle-check', { size: 22 })}</span>`, `Збережено −${NB(SAVED_OTHER)} USD`, 'Відкрити', 'oklch(0.4 0.08 150)', `Збережено −${SAVED_OTHER} USD. Відкрити`],
+}
+export const widePill = (kind, touch, bottom = 24) => {
+  const [ic, a, b, edge, label] = PILL[kind]()
+  const hgt = touch ? 52 : 44
+  const x =
+    kind === 'saved'
+      ? `<button type="button" class="iconbtn" aria-label="Закрити" style="flex:none;width:${touch ? 44 : 32}px;height:${touch ? 44 : 32}px;color:var(--muted-fg)">${icon('x', { size: 16 })}</button>`
+      : ''
+  return `<div class="row" style="position:absolute;right:24px;bottom:${bottom}px;z-index:50;width:320px;min-height:${hgt}px;gap:4px;padding:0 6px 0 0;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid ${edge};box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><div role="button" aria-label="${label}" class="row grow" style="gap:10px;min-width:0;min-height:${hgt}px;padding:0 6px 0 12px">${ic}<span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:13px;font-weight:600;white-space:nowrap">${a}</span><span class="t-cap muted num" style="white-space:nowrap">${b}</span></span></div>${x}</div>`
+}
 const DOT_I =
   '<i aria-hidden="true" style="position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--bg)"></i>'
 const deskRow = `<tr><td colspan="7" style="padding:0;max-width:none;background:var(--raised);box-shadow:inset 2px 0 0 var(--primary)"><div class="row" style="gap:10px;height:40px;padding:0 12px"><span style="color:var(--primary);display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">−${NB(AMOUNT)} USD</span><span class="grow muted" style="white-space:nowrap;overflow:hidden">Збережеться після завантаження чека · Витрата</span></div></td></tr>`
 export const signOutConfirmDesktop = (w, h) =>
-  desktop({ w, h, overlay: upPill(40) + box() })
+  desktop({ w, h, overlay: widePill('armed', false) + box() })
     .replace('<tbody>', `<tbody>${deskRow}`)
     .replace(
       '<span class="btn primary" style="height:36px',
@@ -52,10 +77,18 @@ export const signOutConfirmDesktop = (w, h) =>
     )
     .replace('C</span></span></header>', `C</span>${DOT_I}</span></header>`)
 export const signOutConfirmTablet = (w, h) =>
-  tablet({ w, h, overlay: upPill(52) + box(true) })
+  tablet({ w, h, overlay: widePill('armed', true) + box(true) })
     .replace(
       '<div class="sechead"><span class="t-over">Сьогодні</span></div>',
       `${pinnedRows([DRAFT.armed2])}<div class="sechead"><span class="t-over">Сьогодні</span></div>`,
     )
     .replace(/style="width:52px;height:52px;/, 'style="position:relative;width:52px;height:52px;')
     .replace(/(style="position:relative;width:52px[^>]*><svg[\s\S]*?<\/svg>)/, `$1${DOT_I}`)
+
+/** R5-08: a create success while a failed draft owns the corner at >= 640: the saved pill stacks 8 px above, with
+ * its own amount (another transaction); the failed pill keeps the slot (precedence), its row stays pinned. */
+export const savedOverFailedTablet = (w, h) =>
+  tablet({ w, h, overlay: widePill('failed', true) + widePill('saved', true, 24 + 52 + 8) }).replace(
+    '<div class="sechead"><span class="t-over">Сьогодні</span></div>',
+    `${pinnedRows([DRAFT.failed])}<div class="sechead"><span class="t-over">Сьогодні</span></div>`,
+  )

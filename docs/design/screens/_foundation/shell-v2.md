@@ -83,8 +83,12 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 
 - 56 px yellow circle (context «+», §1), bottom right, inset 16, 16 px above the tab bar. **A money list has no FAB** (R1-04, D-8): on a Фінанси phone the one create entry is the docked 48 px «Нова транзакція» button in a 64 px strip above the tab bar, with the red dot or count when drafts need attention, so nothing floats over an amount (primitives-v2 §12 «Create entry»). Hidden while
   the keyboard is open and while a sheet is open. **Never dimmed or disabled**, offline included.
-- **FAB and pill on scroll.** Scrolling down slides the FAB (where there is one) and the upload pill out below the tab bar;
-  they come back on scroll-up or after **1 s** without scrolling. Transform only (`translateY`, 200 ms
+- **FAB and pill on scroll (the one rule; R5-06).** Scrolling down slides the FAB (where there is one) and a plain upload pill out below the tab bar;
+  they come back on scroll-up or after **1 s** without scrolling. **An unacknowledged money result never
+  slides** (saved, failed, unknown, the drafts count): it stays in its slot on every tab until acknowledged,
+  in its one-line form (`primitives-v2/pill-scrolled-375`). On Фінанси the pill and its own pinned row may
+  both be in view at rest: the row is the list entry, the pill is the one global slot (the live region, ✕,
+  the 5 s Undo) and is never hidden by the row's position, so it does not flicker in and out as the list scrolls. Transform only (`translateY`, 200 ms
   standard easing); under `prefers-reduced-motion` they fade instead. They never hide while one of them
   holds keyboard focus (SC 2.4.11). Mid-scroll the large title has collapsed into the 44 px inline bar («Фінанси» centred, a hairline under the bar, the dock stays) (`state-scrolled-375`, drawn on Фінанси, so no FAB; the dock never slides away).
 - **Floating-layer stacking:** toasts and the upload pill sit left of the FAB slot (inset 12 left, 80 right,
