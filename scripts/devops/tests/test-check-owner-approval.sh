@@ -593,7 +593,7 @@ assert_green "CR-M-3: the failure comment runs on always() and has one marker pe
 # through SCRIPT_DIR, plus the tsconfig alias inputs, is inside a critical zone.
 zone_cover() {
   node --input-type=module -e '
-    import { readFileSync, existsSync } from "node:fs"
+    import { readFileSync, existsSync, statSync } from "node:fs"
     import { posix } from "node:path"
     const [repo, subject, zonesPath, ...wfs] = process.argv.slice(1)
     const { compileZones, zoneHits } = await import(subject)
@@ -611,6 +611,7 @@ zone_cover() {
       if (seen.has(p)) continue
       seen.add(p)
       if (!existsSync(`${repo}/${p}`)) { console.log(`missing file ${p}`); process.exit(1) }
+      if (statSync(`${repo}/${p}`).isDirectory()) { seen.delete(p); continue }
       if (!p.endsWith(".sh")) continue
       for (const m of readFileSync(`${repo}/${p}`, "utf8").matchAll(/\$\{?SCRIPT_DIR\}?\/([\w./-]+)/g))
         todo.push(posix.normalize(posix.join(posix.dirname(p), m[1])))
