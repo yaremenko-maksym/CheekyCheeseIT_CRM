@@ -472,9 +472,16 @@ for a tooltip with the exact value; **the tapped or focused bar is selected (R3-
 only way). **R4-19:** on the touch tablet the same holds: a horizontal swipe on the plot area changes the
 period by one step, the segmented control is the primary way, and a swipe that starts on a bar scrubs
 instead (`chart-768`); a tapped bar keeps full ink and its ring, the others dim, and the card's value
-line reads that month as a polite status (`chart-mobile-tapped-375`); a second tap or a tap outside
-the plot clears it. Статистика creates nothing of its own: its FAB is the quick-add FAB (shell-v2 §4 «The start
-control»), which opens the quick-add sheet (`chart-mobile-375`). The second, smaller chart (partners) sits **below the fold** (`chart-mobile-scrolled-375`),
+line reads that month exactly as the ≥ 640 tooltip does (R5-09): the signed net («+7 900,00 USD», a polite
+status), the month, and «Дохід» / «Витрати» with their exact amounts; two 44 px buttons «Попередній
+місяць» / «Наступний місяць» beside it step one month, so exact months stay reachable where the bands are
+under 44 px and drag-scrub replaces a tap (`chart-mobile-tapped-375`); a second tap or a tap outside the
+plot clears it. **Delta (R5-30, every class):** under the period value one line «▲ 12% до попереднього
+періоду» (`--positive`; ▼ and `--destructive` for a drop; it may wrap, never abbreviates); phone, tablet and
+desktop draw it (`chart-mobile-375`, `chart-mobile-320`, `chart-desktop`); it hides only while a month is
+selected (the value line or tooltip then reads the month: `chart-mobile-tapped-375`, `chart-768`). **Partner payouts at 640–1023 (R5-33):** the second card
+sits under the net-profit card at full width, as on a phone (below the fold), with the same quarter bars. Статистика creates nothing of its own: its FAB is the quick-add FAB (shell-v2 §4 «The start
+control»), which opens the quick-add sheet (`chart-mobile-375`; 320 draws it too, R5-29: `chart-mobile-320`). The second, smaller chart (partners) sits **below the fold** (`chart-mobile-scrolled-375`),
 with the partners' **initials** («ВК», «ОШ») directly under their bars, no legend, and the full
 names in the accessible summary. Bars and ticks carry bare numbers («4,2», «8»); the caption row states
 the unit once («тис. USD»), and the accessible summary says «тис. USD». `chart-desktop`: hover tooltip (values `white-space: nowrap`, min-width 176 px; it sits beside the bar, on the right when there is room and otherwise on the left, never over a bar), keyboard focus on bars (arrow keys), series swatches carry

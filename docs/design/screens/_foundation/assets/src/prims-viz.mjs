@@ -1,6 +1,8 @@
 // Primitives v2, part 2: ResponsiveSheet on tablet/desktop, toasts, upload indicator, skeletons,
 // chart theme, pull-to-refresh, page-transition storyboard.
 import { fileName, icon, phone, safeBottom, segmented } from './base.mjs'
+// R5-30: the delta names the comparison in full (wrap allowed) and shows on every class (primitives-v2 §6).
+const DELTA = '▲ 12% до попереднього періоду'
 import {
   tabScreen,
   interviewsBody,
@@ -142,7 +144,7 @@ export function draftsDesktop(w, h, { chooser = false } = {}) {
     ? {
         active: '/stats',
         crumb: ['Гроші', 'Статистика'],
-        content: `<div style="padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Чистий прибуток · 6 міс</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+${usd(NET_K)} USD</div><div style="margin-top:10px">${netBars(1100, 300, { labelSize: 12, pad: 34 })}</div>${legend(
+        content: `<div style="padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Чистий прибуток · 6 міс</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+${usd(NET_K)} USD</div><div class="t-foot" style="color:var(--positive);margin-top:2px">${DELTA}</div><div style="margin-top:10px">${netBars(1100, 300, { labelSize: 12, pad: 34 })}</div>${legend(
           [
             ['var(--chart-1)', 'Прибуток'],
             ['', 'Збиток', 'hatch'],
@@ -474,6 +476,13 @@ function partnerBars(W, H, { labelSize = 11, pad = 8 } = {}) {
 export const legend = (items, unit = 'тис. USD') =>
   `<div class="row" style="gap:14px;font-size:13px"><span class="muted">${unit}</span>${items.map(([c, t, shape]) => `<span class="row" style="gap:6px"><i style="width:10px;height:10px;border-radius:${shape === 'hatch' ? '2px' : '2px'};background:${c};${shape === 'hatch' ? 'background:repeating-linear-gradient(45deg,var(--chart-1) 0 1.5px,transparent 1.5px 4px);outline:1px solid var(--chart-1)' : ''}"></i>${t}</span>`).join('')}</div>`
 
+// R5-09: the tapped month's value line is exact (the signed net, then income and expenses, as the >= 640
+// tooltip), and two 44 px buttons step to the previous / next month, so exact months are reachable where the
+// bands are under 44 px and drag-scrub replaces a tap.
+const STEP = (dir, label) =>
+  `<button type="button" class="iconbtn" aria-label="${label}" style="flex:none;width:44px;height:44px;border-radius:12px;background:var(--secondary);color:var(--fg)">${icon(dir, { size: 20 })}</button>`
+const monthStepper = () =>
+  `<div class="row" style="flex-basis:100%;gap:8px;margin-top:6px;color:var(--fg);font-weight:400">${STEP('chevron-left', 'Попередній місяць')}<div class="grow col" style="gap:2px;min-width:0;align-items:center"><div class="t-foot" style="font-weight:600">Жовтень 2026</div><div class="row num" style="gap:6px 12px;flex-wrap:wrap;justify-content:center;font-size:13px"><span class="muted">Дохід</span><span style="white-space:nowrap">${money(OCT.income)} USD</span><span class="muted">Витрати</span><span style="white-space:nowrap">${money(OCT.expenses)} USD</span></div></div>${STEP('chevron-right', 'Наступний місяць')}</div>`
 // R4-19: `tapped` — a tapped bar (жовт) keeps full ink with its ring, the others dim; the card's value line
 // reads that month (a polite status), a second tap on it or a tap outside the plot clears it.
 export function chartMobile(w, h, { scrolled = 0, tapped = false } = {}) {
@@ -482,8 +491,8 @@ export function chartMobile(w, h, { scrolled = 0, tapped = false } = {}) {
   const body = `<div style="padding:0 16px 10px">${segmented(['3 міс', '6 міс', 'Рік'], 1, { fit: true })}</div>
   ${card(
     'Чистий прибуток · 6 міс',
-    tapped ? `<span role="status">+${kFmt(NET[4])} тис. USD</span>` : `+${kFmt(NET_K)} тис. USD`,
-    tapped ? '<span class="muted">жовт 2026</span>' : '▲ 12% до попер.',
+    tapped ? `<span role="status">+${money(OCT.net)} USD</span>` : `+${kFmt(NET_K)} тис. USD`,
+    tapped ? monthStepper() : DELTA,
     netBars(w - 60, w <= 320 ? 200 : 380, tapped ? { selected: 4 } : {}),
     legend([
       ['var(--chart-1)', 'Прибуток'],
@@ -491,7 +500,6 @@ export function chartMobile(w, h, { scrolled = 0, tapped = false } = {}) {
     ]),
   )}
   ${card('Виплати партнерам · 2026', `${kFmt(PART_K)} тис. USD`, '', partnerBars(w - 60, 150), legend([]))}`
-  // FAB hidden at 320 only so the static frame shows the chart; the live screen scrolls under it.
   return tabScreen({
     w,
     h,
@@ -499,7 +507,7 @@ export function chartMobile(w, h, { scrolled = 0, tapped = false } = {}) {
     active: '/stats',
     title: 'Статистика',
     body,
-    showFab: w > 320,
+    showFab: true, // R5-29: 320 draws the FAB too (§6)
   })
     .replace(
       '<div class="content">',
@@ -523,7 +531,7 @@ export function chartDesktop() {
     .join('')
   const controls = `<div class="row" style="gap:10px;margin-bottom:16px"><span role="radiogroup" aria-label="Період графіка" class="row" style="gap:2px;padding:2px;border-radius:9px;background:var(--surface);border:1px solid var(--border)">${seg}</span><span class="row btn sm secondary" style="gap:6px;height:32px">${icon('calendar', { size: 14 })}Червень – листопад 2026</span><span class="row" style="gap:6px;height:32px;padding:0 6px 0 10px;border-radius:8px;background:var(--yellow-subtle);border:1px solid oklch(0.34 0.07 85);font-size:13px">Проєкт: Альфа<span class="iconbtn" aria-label="Прибрати фільтр «Проєкт: Альфа»" style="width:24px;height:24px">${icon('x', { size: 13 })}</span></span><span class="grow"></span><span class="t-foot muted">Дані на 12.11.2026, 09:00</span></div>`
   return `<div style="padding:24px;background:var(--bg);width:1200px">${controls}<div class="row" style="gap:16px;align-items:stretch">
-  <div style="position:relative;flex:2;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted" style="font-size:13px">Чистий прибуток</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+${usd(NET_K)} USD</div></div>${legend(
+  <div style="position:relative;flex:2;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted" style="font-size:13px">Чистий прибуток</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+${usd(NET_K)} USD</div><div class="t-foot" style="color:var(--positive);margin-top:2px">${DELTA}</div></div>${legend(
     [
       ['var(--chart-1)', 'Прибуток'],
       ['', 'Збиток', 'hatch'],
