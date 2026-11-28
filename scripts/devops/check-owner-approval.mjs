@@ -237,12 +237,14 @@ export function classifySpecifier(filename, spec, aliases) {
 // allowed without a verdict (a literal `import('x')` is resolved and judged the same way). Any
 // reference to an identifier below — called, aliased, passed or shadowed — is a trigger.
 // Node built-ins (isBuiltin, bare or node:) are triggers in browser code (apps/web, apps/landing,
-// docs); apps/e2e may import only E2E_BUILTINS. Reflect.get/apply/construct and any computed
-// member of a global object are triggers, and so is any computed key that is neither a string nor
-// a numeric literal (addendum 7d), whatever the receiver.
-// Trade-off (Master addendum 4): a plain `window` / `globalThis` / `global` / `self` reference is
-// NOT a trigger — browser code reads `window.location` everywhere, and flagging it would put every
-// web PR behind the owner. Only a global object PASSED AS A VALUE (call / new argument, initializer,
+// docs); apps/e2e may import only E2E_BUILTINS. Any token in DENIED_NAMES (addendum 8: Reflect,
+// constructor, prototype reflection, globalThis, process …) and any computed member of a global
+// object are triggers, and so is any computed key that is neither a string nor a numeric literal
+// (addendum 7d), whatever the receiver, including a computed key in a destructuring pattern.
+// Trade-off (Master addendum 4): a plain `window` / `global` / `self` reference is NOT a trigger —
+// browser code reads `window.location` everywhere, and flagging it would put every web PR behind
+// the owner. `globalThis` is a denied name since addendum 8 (5 files on main use it). Only a
+// global object PASSED AS A VALUE (call / new argument, initializer,
 // assignment right-hand side, spread, property value, array element, return) is a trigger: that is
 // how a loader is reached without naming it (`Reflect.get(globalThis, k)`, `const g = self`).
 // Token-level denylist (Master addendum 8, SR-M-5 / SR-M-6): an identifier, property name,

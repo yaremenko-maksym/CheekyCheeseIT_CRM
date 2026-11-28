@@ -46,14 +46,22 @@ file's full head content, fetched through the REST API as text and never execute
 - an import that resolves into `apps/api/**`, a DB client package or path, or a finance service / repository.
   Resolution covers relative paths, the package's tsconfig `paths` read from main, and `@crm/*`.
 - a specifier that cannot be resolved.
-- any loader other than a literal ESM import: `require`, `module`, `process`, `exports`, `createRequire`,
-  `eval`, `Function`, `.constructor(...)`, `Reflect.get/apply/construct`, `import.meta.glob`, a computed member of a
-  global object, or a global object passed as a value (also through `=` / `??=` / `||=` / `&&=`).
-- any computed access whose key is neither a string nor a numeric literal (`x[k]`), whatever `x` is. Receiver
+- any loader other than a literal ESM import: `require`, `module`, `exports`, `createRequire`, `import.meta.glob`, a
+  computed member of a global object, or a global object passed as a value (also through `=` / `??=` / `||=` / `&&=`).
+- a denied name, wherever it appears: an identifier, a property or binding name, a string literal or a template chunk
+  (compared on the cooked text) equal to `constructor`, `Reflect`, `Function`, `eval`, `globalThis`,
+  `getOwnPropertyDescriptor(s)`, `getPrototypeOf`, `setPrototypeOf`, `__proto__`, `defineProperty`, `__defineGetter__`,
+  `__lookupGetter__` or `process`. This token-level denylist (addendum 8) replaces the per-call special cases: aliasing
+  (`const R = Reflect`, `const { constructor: F } = f`) and prototype reflection cannot reach `Function` without naming
+  one of them. A class's own `constructor() {}` and JSX text are not triggers.
+- any computed access whose key is neither a string nor a numeric literal (`x[k]`), whatever `x` is, and such a key
+  in a destructuring or assignment pattern (`const { [k]: v } = o`; building `{ [k]: v }` is not a trigger). Receiver
   locality is not provable statically: members of locals (`o.toString[k]`), a computed key earlier in the chain
   (`a[k].call[k]`), aliases and mutation through a property or a call argument all reach `constructor`.
   Decision (addendum 7d, measured 2026-11-28 on the 1058 open-zone code files of main): this blanket rule triggers
   on 227 files (the receiver-locality rule it replaces: 181, with three rounds of bypasses), under the 300 limit.
+  Addendum 8 (denied names + pattern keys, measured 2026-11-28 on the same 1058 files): 238 trigger, under the 300
+  limit; `process` alone adds no file (the old reference rule already caught all 14).
   Re-measure with `findingsForFile` over `fetchPlan(git ls-files)` before changing it.
 - a Node built-in in browser code. `apps/e2e` may import only `fs`, `path`, `url`, `os`, `crypto`.
 - a new `*.controller.*` file or an `@Controller(...)` decorator.
@@ -61,9 +69,9 @@ file's full head content, fetched through the REST API as text and never execute
 - a file that does not parse, or whose content could not be fetched.
 - a file type that is neither inert nor code: `.html`, `.mdx`, `.vue`, unknown extensions.
 
-A trigger is not an accusation. It means "the owner looks". On main (2026-11-28) 227 of 1058 open-zone code files
-(about 21%) carry a trigger: E2E helpers using `process` / `node:*`, design tooling, and code indexing with a
-non-literal key (`record[key]`, `rows[i]`). Editing one of them needs a verdict.
+A trigger is not an accusation. It means "the owner looks". On main (2026-11-28) 238 of 1058 open-zone code files
+(about 22%) carry a trigger: E2E helpers using `process` / `node:*`, `Object.defineProperty` in test setup, design
+tooling, and code indexing with a non-literal key (`record[key]`, `rows[i]`). Editing one of them needs a verdict.
 
 **The verdict.** Only a **PR review** by the owner counts (state Comment or Approve, not an issue comment, not
 Dismissed):
