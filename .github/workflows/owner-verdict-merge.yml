@@ -163,10 +163,11 @@ jobs:
           TIMEOUT_SECONDS: '600'
         run: bash scripts/devops/owner-verdict-wait-checks.sh
 
-      # The verdict is evaluated AGAIN here, on a fresh fetch, right before the merge (SR-M-2): a
-      # BLOCK, an edit or a label posted while this run waited on the checks stops it. Then pinned
-      # twice: the PR head is re-read, and the merge itself carries --match-head-commit HEAD_SHA
-      # (MATCH_HEAD), so a push in between makes GitHub refuse it.
+      # The verdict is evaluated AGAIN here, on a fresh fetch, before EACH merge attempt
+      # (owner-verdict-recheck.sh as PRE_ATTEMPT; SR-M-2 + the merge-window LOW): a BLOCK, an edit
+      # or a label posted while this run waited on the checks or between retries stops it. Then
+      # pinned twice: the PR head is re-read, and the merge itself carries --match-head-commit
+      # HEAD_SHA (MATCH_HEAD), so a push in between makes GitHub refuse it.
       - name: Squash and merge
         id: squash
         if: steps.wait_checks.outcome == 'success'
@@ -179,19 +180,8 @@ jobs:
           OWNER: yaremenko-maksym
         run: |
           set -euo pipefail
-          bash scripts/devops/owner-verdict-fetch.sh
-          final=$(GITHUB_OUTPUT= bash scripts/devops/owner-verdict-evaluate.sh)
-          printf '%s\n' "$final"
-          if ! printf '%s\n' "$final" | grep -qx 'go=true'; then
-            echo "::error::the verdict re-read right before the merge is not a go — not merging."
-            exit 1
-          fi
-          current=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')
-          if [ "$current" != "$HEAD_SHA" ]; then
-            echo "::error::PR head is now '$current', not the verified $HEAD_SHA — not merging."
-            exit 1
-          fi
-          MATCH_HEAD="$HEAD_SHA" bash scripts/devops/gh-merge-pr-with-retry.sh
+          MATCH_HEAD="$HEAD_SHA" PRE_ATTEMPT=scripts/devops/owner-verdict-recheck.sh \
+            bash scripts/devops/gh-merge-pr-with-retry.sh
 
       # One comment per head AND kind (pending / check-failed / merge-stopped), saying what happened —
       # later runs for the same head and kind find the marker and stay silent; a pending comment

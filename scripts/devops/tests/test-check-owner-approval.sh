@@ -592,12 +592,39 @@ printf 'not json\n' >"$T/broken.contents.json"
 assert_green "CR-M-1: a scanner that prints nothing -> status error, go=false (not an empty status)" \
   --contains "verdict status: error" --contains "go=false" -- evaluate broken
 MERGE_YML="$REPO/.github/workflows/owner-verdict-merge.yml"
+RECHECK="$GUARD_DIR/owner-verdict-recheck.sh"
 squash_order() {
-  awk '/- name: Squash and merge/{s=1} s && /owner-verdict-fetch.sh/{print "fetch"} s && /owner-verdict-evaluate.sh/{print "eval"} s && /gh-merge-pr-with-retry.sh/{print "merge"; exit}' "$MERGE_YML" | tr '\n' ' '
+  awk '/- name: Squash and merge/{s=1} s && /PRE_ATTEMPT=scripts\/devops\/owner-verdict-recheck.sh/{print "recheck"} s && /gh-merge-pr-with-retry.sh/{print "merge"; exit}' "$MERGE_YML" | tr '\n' ' '
 }
-assert_green "SR-M-2: the Squash step fetches, re-evaluates, then merges — in that order" \
-  --contains "fetch eval merge" -- squash_order
-assert_green "SR-M-2: the Squash step merges only on a go=true line" --contains "grep -qx 'go=true'" -- cat "$MERGE_YML"
+assert_green "SR-M-2 + LOW: the Squash step merges with the recheck as PRE_ATTEMPT (before each attempt)" \
+  --contains "recheck merge" -- squash_order
+assert_green "SR-M-2: the recheck fetches, re-evaluates, then merges only on a go=true line" \
+  --contains "owner-verdict-fetch.sh" --contains "owner-verdict-evaluate.sh" --contains "grep -qx 'go=true'" \
+  -- cat "$RECHECK"
+# Recheck end to end: a stub gh for fetch + the labels call of decide.
+cat >"$T/stub-recheck-gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *graphql*) cat "$FX/graphql" ;;
+  *"/files?"*) printf '{"filename":"apps/web/app/lib/x.ts","previous_filename":null,"status":"added"}\n' ;;
+  *"/contents/"*) printf "import pg from 'pg'\n" ;;
+  *labels*) echo ready ;;
+  *) printf '{"headSha":"%s","author":"some-manager","counts":{"changedFiles":1}}\n' "$FX_HEAD" ;;
+esac
+STUB
+chmod +x "$T/stub-recheck-gh"
+recheck() { # <verdict word> [head the PR reports; the verdict names it too]
+  local h="${2:-$HEAD}"
+  rm -rf "$T/rd"
+  printf '{"total":1,"nodes":[%s]}\n' "$(review "$OWNER" COMMENTED $'Owner Verdict: '"$1"$'\n\nCommit: '"$h" "$h")" \
+    >"$FX/graphql"
+  (cd "$REPO" && env REPO=acme/crm PR_NUMBER=7 HEAD_SHA="$HEAD" D="$T/rd" OWNER="$OWNER" \
+    GH_BIN="$T/stub-recheck-gh" FX="$FX" FX_HEAD="$h" GITHUB_OUTPUT= bash "$RECHECK")
+}
+assert_green "Recheck: a fresh APPROVE on the head -> exit 0" --contains "go=true" -- recheck APPROVE
+assert_red "Recheck: a BLOCK posted between attempts -> exit 1" --contains "not a go" -- recheck BLOCK
+assert_red "Recheck: the head moved (even with a verdict on the new head) -> exit 1" --contains "the PR head moved past" \
+  -- recheck APPROVE 0123456789abcdef0123456789abcdef01234567
 assert_green "CR-M-3: the failure comment runs on always() and has one marker per kind" \
   --contains "if: always() && steps.decide.outputs.go == 'true'" --contains 'owner-verdict-merge:$HEAD_SHA:$kind' \
   --contains "will NOT merge automatically" -- cat "$MERGE_YML"

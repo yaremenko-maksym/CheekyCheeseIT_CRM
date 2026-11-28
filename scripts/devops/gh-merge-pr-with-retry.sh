@@ -99,6 +99,11 @@
 #                  head moved after the caller verified it, and that refusal is
 #                  an unrecognized error, so it fails fast. Unset = the call is
 #                  exactly as before (auto-merge-on-label.yml).
+#   PRE_ATTEMPT    optional path of a script run (bash) before EVERY attempt,
+#                  the first included. A non-zero exit stops the loop with exit
+#                  1 and no merge call (owner-verdict-merge.yml passes
+#                  owner-verdict-recheck.sh: the verdict is re-read before each
+#                  retry). Unset = no check (auto-merge-on-label.yml).
 #
 # Exit codes:
 #   0  merged (first try or after a retry).
@@ -126,6 +131,7 @@ MAX_ATTEMPTS="${MAX_ATTEMPTS:-4}"
 RETRY_SLEEP_SECONDS="${RETRY_SLEEP_SECONDS:-5}"
 CALL_TIMEOUT_SECONDS="${CALL_TIMEOUT_SECONDS:-60}"
 MATCH_HEAD="${MATCH_HEAD:-}"
+PRE_ATTEMPT="${PRE_ATTEMPT:-}"
 pin=()
 if [ -n "$MATCH_HEAD" ]; then
   case "$MATCH_HEAD" in
@@ -138,6 +144,10 @@ fi
 attempt=1
 last_out=""
 while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
+  if [ -n "$PRE_ATTEMPT" ] && ! bash "$PRE_ATTEMPT"; then
+    echo "::error::the pre-attempt check ($PRE_ATTEMPT) refused attempt $attempt/$MAX_ATTEMPTS — not merging."
+    exit 1
+  fi
   run_with_timeout "$CALL_TIMEOUT_SECONDS" "$GH_BIN" pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch ${pin[@]+"${pin[@]}"}
   last_out="$_TIMEOUT_OUT"
   rc="$_TIMEOUT_RC"
