@@ -671,8 +671,8 @@ export class ProjectsService {
     //
     // task-648-fix-round-3 (SR-L-4): gated by role, exactly like `findOne` and
     // `loadForResponse` already were. `mapProject` below masks the field for
-    // every role except ADMIN and the affected SENIOR, is an
-    // admitted caller of this method (the propose-gate names them) — so this
+    // every role except ADMIN and the affected SENIOR, and HR is an admitted
+    // caller of this method (the role check at the top of `update`) — so this
     // was the third response path asking `approvals` a question whose answer
     // it then threw away, the one SR-bm-3 missed in round 2.
     const pendingSeniorShare = canSeePendingSeniorShare(currentUser.role)

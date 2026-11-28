@@ -202,7 +202,7 @@ export function mapProjectToDto(
     // viewer reaching this point IS `project.seniorId` (a SENIOR can only
     // ever fetch their OWN project), so `viewerRole === 'SENIOR'` alone is
     // exactly "the affected senior" here — no extra id comparison needed.
-    //HR/DROP see the ACTIVE `effectiveSeniorSharePercent`
+    // HR / DROP see the ACTIVE `effectiveSeniorSharePercent`
     // (payroll / team-management need-to-know) but must not learn a change
     // is even proposed. `undefined` (list endpoint / create) collapses to
     // `null` here too — the field is simply absent on those responses.

@@ -213,7 +213,7 @@ export class UsersAccessService {
       // The isSeniorViewingOwnProjectMember helper is now restricted to JUNIOR-role
       // targets only, so SENIOR→SENIOR and SENIOR→DROP are blocked at the role check.
       if (target.role !== 'JUNIOR') {
-        // SENIOR cannot view another SENIOR, DROP, HR, ADMIN, profile
+        // SENIOR cannot view another SENIOR, DROP, HR or ADMIN profile
         // via the project-member path. Zero tabs — 403 at route level.
         // (Future: a separate "team-mate" path for HR could be added,
         //  but is explicitly out of scope per task-junior-ux-1-backend §2 side-fix.)

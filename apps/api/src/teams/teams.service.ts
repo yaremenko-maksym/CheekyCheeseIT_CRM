@@ -353,8 +353,6 @@ export class TeamsService {
     const handle = tx ?? this.db.db
     await this.assertUserRole(dropId, 'DROP', tx)
     for (const hrId of hrIds) await this.assertUserRole(hrId, 'HR', tx)
-    // Accountant is OPTIONAL for a drop-team (mirrors the senior `create`
-    // path). Only validate the role when one was actually supplied.
 
     const dropUser = await handle
       .select()

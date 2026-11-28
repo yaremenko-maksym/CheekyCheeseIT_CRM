@@ -243,24 +243,8 @@ describe('projectProfileUser', () => {
     expect(changed.sort()).toEqual([...opened].sort())
   })
 
-  it('requisitesExcludeWallet hides destination fields but keeps paymentMethod', () => {
-    const out = projectProfileUser(
-      full,
-      perms({ requisites: true, requisitesExcludeWallet: true }),
-      row,
-      null,
-    )
-    expect(out.paymentMethod).toBe('USDT_ERC20')
-    expect(out.walletUsdtErc20).toBeNull()
-    expect(out.walletUsdtLabel).toBeNull()
-    expect(out.bankUahRecipient).toBeNull()
-    expect(out.bankUahIban).toBeNull()
-    expect(out.bankUahRnokpp).toBeNull()
-    expect(out.bankUahBankName).toBeNull()
-  })
-
-  it('requisitesExcludeWallet=false without requisites exposes nothing', () => {
-    const out = projectProfileUser(full, perms({ requisitesExcludeWallet: false }), row, null)
+  it('without requisites exposes no payment field', () => {
+    const out = projectProfileUser(full, perms({}), row, null)
     expect(out.paymentMethod).toBeNull()
     expect(out.walletUsdtErc20).toBeNull()
     expect(out.bankUahIban).toBeNull()

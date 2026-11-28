@@ -109,9 +109,9 @@ export class TeamMembersPreviewService {
     // BRANCH-MASK-1/2 (non-empty DROP rosters) catch. No suppression needed.
     if (user.role === 'DROP') {
       // Drop role - phase 1: drop's "team members" are the drop-team itself
-      // (HR + accountant + optional active senior). JUNIORs are not surfaced
-      // (no JUNIOR row can exist in `team_members` — that table only ever
-      // gets SENIOR/HR/DROP rows). The viewerRole filter below
+      // (HR + optional active senior). JUNIORs are not surfaced (no JUNIOR
+      // row can exist in `team_members` — new rows are only ever SENIOR/HR/DROP;
+      // a pre-retirement accountant row is returned as stored). The viewerRole filter below
       // still applies to whatever this branch produces regardless.
       //
       // security-review PR #541 round 5 (mutation-gate suppression rework):

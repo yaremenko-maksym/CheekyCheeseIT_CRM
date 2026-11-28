@@ -53,15 +53,9 @@ export class SummaryService {
       throw apiError('FINANCE_SUMMARY_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
-    // The partner/drop balance arrays expose payment-routing config (partner +
-    // DROP display names alongside their accumulated balances): ADMIN only.
-    const canSeeDropBalances = currentUser.role === 'ADMIN'
-
-    // Deliberately a bare literal, NOT a role re-check: the RBAC guard at the
-    // top of this method already throws for every role except ADMIN, so a
-    // re-check would be an equivalent-mutant magnet. The only mutant left is
-    // `true → false`, which the `getSummary` unit spec kills.
-    const canSeeAdminBalances = true
+    // The admin/drop balance arrays below expose payment-routing config (admin +
+    // DROP display names alongside their accumulated balances). They need no
+    // role re-check: the guard above already throws for every role except ADMIN.
 
     // Scaled-integer constant used throughout aggregations below to avoid
     // JS float accumulation errors. Aliased to the module-level `MONEY_SCALE`
@@ -172,41 +166,39 @@ export class SummaryService {
     // separate, undocumented-today business decision (nothing in
     // docs/business/ addresses it) — not bundled into this task's narrow
     // scope of "who may see `adminBalances`".
-    const adminBalances = !canSeeAdminBalances
-      ? []
-      : (
-          await this.db.db.query.users.findMany({
-            where: eq(users.role, 'ADMIN'),
-          })
-        ).map((admin) => {
-          const receivedScaled = paid
-            .filter(
-              (tx) =>
-                tx.receiverId === admin.id &&
-                (tx.type === 'PAYOUT_ADMIN' ||
-                  // task-salary-company-account: ADMIN_INCOME routed to the
-                  // company account (fundingSource='COMPANY_ACCOUNT') went into
-                  // the shared pool, NOT the admin's personal balance — exclude
-                  // it here. Legacy/admin-personal ADMIN_INCOME (NULL funding)
-                  // still credits the admin as before.
-                  (tx.type === 'ADMIN_INCOME' && tx.fundingSource !== 'COMPANY_ACCOUNT') ||
-                  tx.type === 'ADMIN_TRANSFER' ||
-                  tx.type === 'PAYOUT_CONFIRMED'),
-            )
-            // Audit 2026-06-28 (#4): convert to base before scaling (mixed-currency
-            // safe). USD/USDT → identity, so prod balances stay byte-exact.
-            .reduce((sum, tx) => sum + Math.round(toBase(tx) * SCALE), 0)
-          // HOLDING model: debit = ALL paid transactions sent by this admin
-          // (SALARY, EXPENSE, ADMIN_TRANSFER, etc.), not only ADMIN_TRANSFER.
-          const sentScaled = paid
-            .filter((tx) => tx.senderId === admin.id)
-            .reduce((sum, tx) => sum + Math.round(toBase(tx) * SCALE), 0)
-          return {
-            userId: admin.id,
-            displayName: admin.displayName,
-            balance: (receivedScaled - sentScaled) / SCALE,
-          }
-        })
+    const adminBalances = (
+      await this.db.db.query.users.findMany({
+        where: eq(users.role, 'ADMIN'),
+      })
+    ).map((admin) => {
+      const receivedScaled = paid
+        .filter(
+          (tx) =>
+            tx.receiverId === admin.id &&
+            (tx.type === 'PAYOUT_ADMIN' ||
+              // task-salary-company-account: ADMIN_INCOME routed to the
+              // company account (fundingSource='COMPANY_ACCOUNT') went into
+              // the shared pool, NOT the admin's personal balance — exclude
+              // it here. Legacy/admin-personal ADMIN_INCOME (NULL funding)
+              // still credits the admin as before.
+              (tx.type === 'ADMIN_INCOME' && tx.fundingSource !== 'COMPANY_ACCOUNT') ||
+              tx.type === 'ADMIN_TRANSFER' ||
+              tx.type === 'PAYOUT_CONFIRMED'),
+        )
+        // Audit 2026-06-28 (#4): convert to base before scaling (mixed-currency
+        // safe). USD/USDT → identity, so prod balances stay byte-exact.
+        .reduce((sum, tx) => sum + Math.round(toBase(tx) * SCALE), 0)
+      // HOLDING model: debit = ALL paid transactions sent by this admin
+      // (SALARY, EXPENSE, ADMIN_TRANSFER, etc.), not only ADMIN_TRANSFER.
+      const sentScaled = paid
+        .filter((tx) => tx.senderId === admin.id)
+        .reduce((sum, tx) => sum + Math.round(toBase(tx) * SCALE), 0)
+      return {
+        userId: admin.id,
+        displayName: admin.displayName,
+        balance: (receivedScaled - sentScaled) / SCALE,
+      }
+    })
 
     // Drop role - phase 2 (AC4): aggregate balance per DROP user — credit on
     // PAYOUT_DROP (their slice of drop-project distribution) minus any debit
@@ -220,26 +212,24 @@ export class SummaryService {
     // DTO is unchanged — `debtToCompany` (returned by the helper) is mapped
     // away here so `financeSummarySchema.dropBalances` and its existing unit
     // tests stay byte-for-byte identical.
-    const dropBalances = !canSeeDropBalances
-      ? []
-      : (
-          await this.db.db.query.users.findMany({
-            where: eq(users.role, 'DROP'),
-          })
-        ).map((drop) => {
-          const aggregate = computeDropAggregate(
-            { id: drop.id, displayName: drop.displayName, dropSharePercent: drop.dropSharePercent },
-            allTxs,
-            rates,
-          )
-          return {
-            userId: aggregate.userId,
-            displayName: aggregate.displayName,
-            balance: aggregate.balance,
-            dropSharePercent: aggregate.dropSharePercent,
-            pendingCount: aggregate.pendingCount,
-          }
-        })
+    const dropBalances = (
+      await this.db.db.query.users.findMany({
+        where: eq(users.role, 'DROP'),
+      })
+    ).map((drop) => {
+      const aggregate = computeDropAggregate(
+        { id: drop.id, displayName: drop.displayName, dropSharePercent: drop.dropSharePercent },
+        allTxs,
+        rates,
+      )
+      return {
+        userId: aggregate.userId,
+        displayName: aggregate.displayName,
+        balance: aggregate.balance,
+        dropSharePercent: aggregate.dropSharePercent,
+        pendingCount: aggregate.pendingCount,
+      }
+    })
 
     // Monthly breakdown — scaled-integer accumulation (MED-5).
     const monthMap = new Map<

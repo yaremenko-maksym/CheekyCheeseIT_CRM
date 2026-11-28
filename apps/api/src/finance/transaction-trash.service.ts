@@ -132,8 +132,8 @@ export class TransactionTrashService {
   // ── Admin Restore ─────────────────────────────────────────────────────────
   //
   // task-soft-delete-and-money-audit. Reverses `adminDeleteTransaction` —
-  // ADMIN only (ADMIN can SEE a deleted row via the `includeDeleted`
-  // list toggle / a direct `findOne`, but cannot restore it). Reason is
+  // ADMIN only (ADMIN is also the only role that can SEE a deleted row, via
+  // the `includeDeleted` list toggle / a direct `findOne`). Reason is
   // mandatory for the same audit-trail reason as delete.
 
   async restoreTransactionRow(id: string, reason: string, currentUser: SessionUser): Promise<void> {

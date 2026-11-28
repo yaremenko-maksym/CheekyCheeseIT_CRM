@@ -17,13 +17,13 @@ import { apiError } from '../common/api-error'
  *   RECEIPT:
  *     ADMIN — any ownerId
  *     SENIOR — ownerId == self only
- *     HR / JUNIOR — forbidden
+ *     HR / JUNIOR / DROP — forbidden
  *   AVATAR:
  *     ADMIN — any ownerId (impersonation)
  *     anyone else — ownerId == self only
  *   LOGO:
  *     ADMIN/HR/SENIOR — allowed (projectId scope is enforced elsewhere)
- *     JUNIOR — forbidden
+ *     JUNIOR / DROP — forbidden
  */
 export function assertCanUpload(
   role: Role,

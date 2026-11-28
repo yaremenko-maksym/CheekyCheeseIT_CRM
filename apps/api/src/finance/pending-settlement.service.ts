@@ -354,8 +354,8 @@ export class PendingSettlementService {
     // Verified NOT reachable today the same way as `paySalary`: a senior/drop
     // creditor can never become an ADMIN either — `UsersService.changeRole`
     // and `.adminUpdateUser` both refuse `role === 'ADMIN'` unconditionally
-    // ("ADMIN pool is fixed"), and only an ADMIN-verified ADMIN can
-    // be an `ADMIN_PERSONAL` payer here. Kept as defense-in-depth for the same
+    // ("ADMIN pool is fixed"), and an `ADMIN_PERSONAL` payer here is
+    // always a user verified above to hold the ADMIN role. Kept as defense-in-depth for the same
     // reason as `paySalary`'s guard — do not rely on that invariant forever.
     const settleSelfPayErr = selfPayError(senderId, obligation.creditorUserId)
     if (settleSelfPayErr) throw zodErrorBadRequest(settleSelfPayErr)
