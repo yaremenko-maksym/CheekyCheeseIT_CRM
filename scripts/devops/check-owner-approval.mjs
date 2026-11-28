@@ -157,19 +157,22 @@ const CONFIG_JSON =
   /(^|\/)(jsconfig[^/]*|tsconfig[^/]*|\.babelrc[^/]*|babel\.config[^/]*|\.swcrc|package)\.json$/
 
 // SO-H-3 (round 14): Tailwind drops CSS comments before it reads at-rules, so `@/**/plugin` loads JS.
-// Strings and escapes are skipped so a `/*` inside them is not a comment start; a quote with no
-// closing quote is a plain character. An unterminated `/*` runs to end of file (fail closed).
+// SR-H-1 (round 15): the tokenizer mirrors Tailwind 4.3.3 `Te` / `Lr` (dist/lib.mjs) exactly:
+//  - a string body ends at its quote or at an unescaped LF; CR and FF are ordinary characters in it;
+//  - a backslash skips the next character, inside a string, a comment, or outside both;
+//  - a comment ends at the first unescaped `*/`; an unterminated `/*` is not a comment (Tailwind
+//    drops the `/` and keeps tokenizing), so it is not matched here either.
 const CSS_TOKEN =
-  /("(?:\\[\s\S]|[^"\\\r\n\f])*"|'(?:\\[\s\S]|[^'\\\r\n\f])*')|\\[\s\S]|\/\*[\s\S]*?(?:\*\/|$)/g
+  /("(?:\\[\s\S]|[^"\\\n])*"|'(?:\\[\s\S]|[^'\\\n])*')|\\[\s\S]|\/\*(?:\\[\s\S]|[^\\])*?\*\//g
 const stripCssComments = (css) => css.replace(CSS_TOKEN, (m) => (m.startsWith('/*') ? '' : m))
-// Every `/*...*/` removed whatever surrounds it (an unterminated `/*` runs to end of file).
-const stripAllCssComments = (css) => css.replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
+// Every comment removed whatever surrounds it (string-blind: joins a string-aware pass does not make).
+const stripAllCssComments = (css) => css.replace(/\/\*(?:\\[\s\S]|[^\\])*?\*\//g, '')
 const CSS_LOADER = /@(plugin|config)\b/i
 // A comment inside an at-keyword (`@/**/plugin`, `@plu/**/gin`), matched on the raw text.
-const AT_KEYWORD_COMMENT = /@[\w\\-]*(?:\/\*[\s\S]*?\*\/[\w\\-]*)+/g
+const AT_KEYWORD_COMMENT = /@[\w\\-]*(?:\/\*(?:\\[\s\S]|[^\\])*?\*\/[\w\\-]*)+/g
 const atKeywordCommentHit = (css) => {
   for (const m of css.match(AT_KEYWORD_COMMENT) ?? []) {
-    const kw = decodeCssEscapes(m.replace(/\/\*[\s\S]*?\*\//g, ''))
+    const kw = decodeCssEscapes(m.replace(/\/\*(?:\\[\s\S]|[^\\])*?\*\//g, ''))
     if (/^@(plugin|config)$/i.test(kw)) return [kw]
   }
   return null
@@ -643,7 +646,7 @@ export function scanCode(filename, content, aliases) {
       }
       // SO-L-2: a mock / requireActual argument loads a module like an import. Matched on the
       // method name (`const v = vi; v.mock('pg')` too); a non-literal argument is a trigger only
-      // on a `vi` / `jest` receiver. `vi.mock(import('./x'))` is judged by the import rule.
+      // on any receiver (SO-H-4). `vi.mock(import('./x'))` is judged by the import rule.
       // CR-M-1: `vi['importActual'](...)` is the same call; so is a destructured binding.
       const mn = mockName(callee)
       if (mn) {
@@ -757,7 +760,8 @@ export function findingsForFile(file, content, rules, aliases) {
   }
   if (cls === 'css') {
     // Comments included: a commented-out `@plugin` is rare, and reading it costs only a verdict.
-    // SR-L (round 13): escapes decoded before the match (`@\70 lugin`, `@plugi\n` are `@plugin`).
+    // SR-L (round 13): escapes decoded before the match. Tailwind 4.3.3 does NOT load `@\70 lugin`
+    // (it compares the raw name); the decoded match over-matches on purpose, which fails closed.
     // SO-H-3 (round 14): Tailwind strips comments before it reads at-rules, and the string rules
     // here are not Tailwind's exactly, so the views are fail-closed: any one hit refuses.
     const hit =

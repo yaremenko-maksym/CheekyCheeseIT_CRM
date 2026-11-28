@@ -737,6 +737,17 @@ case_red css17 apps/web/app/styles/c12.css modified $'a{b:"x\fz"}\n@/**/plugin "
 # around it (Tailwind errors on this form, so nothing loads; the gate still refuses it).
 case_red css18 apps/web/app/styles/c13.css modified $'a{b:"x\\\r\ny"} @/**/plugin "./x.js";' \
   "css-loader" "SO-H-3: a quote-spanning comment in an at-keyword -> refused (fail closed)"
+# Round 15 SR-H-1: a CR / FF inside a string is an ordinary character for Tailwind 4.3.3 (only an
+# unescaped LF ends a string), so the `/*` after it is a real comment start for the tokenizer.
+case_red css19 apps/web/app/styles/c14.css modified $'.x{content:"\r@a/*"}@plu/**/gin "./evil.js";' \
+  "css-loader" "SR-H-1: a lone CR inside a string hides a comment join -> refused"
+case_red css20 apps/web/app/styles/c15.css modified $'.x{content:"\f@a/*"}@plu/**/gin "./evil.js";' \
+  "css-loader" "SR-H-1: a lone FF inside a string hides a comment join -> refused"
+# Round 15 SR-H-1: a backslash skips the next character inside a comment, so `\*/` does not close it.
+case_red css21 apps/web/app/styles/c16.css modified '@plu/*\*/x*/gin "./x.js";' \
+  "css-loader" "SR-H-1: an escaped */ inside a comment does not end it -> refused"
+case_red css22 apps/web/app/styles/c17.css modified '@plu/*\*/*/gin "./x.js";' \
+  "css-loader" "SR-H-1: `\*/*/` closes at the second */ (Tailwind-verified) -> refused"
 src cssc $'/* tokens */\n.btn { color: red; }'
 mk cssc apps/web/app/styles/c10.css modified
 assert_green "SO-H-3: plain CSS with a comment and no at-rule -> passes" --contains "[not-required]" -- run cssc
