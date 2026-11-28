@@ -391,7 +391,7 @@ export const PROJECTS = [
     // type — this file already declares it that way at `seniorSharePercentOverride?:
     // number | null` in the drop-project options below.
     seniorSharePercentOverride: null as number | null,
-    seniorSharePercentDefault: 26,
+    seniorSharePercentDefault: 40,
     startDate: '2024-01-15T00:00:00.000Z',
     // SPEC-H-2 (PR #646 fix-round 1): `status` added — this fixture predates
     // task-project-draft-status (PR #630), which made `status` a REQUIRED
@@ -422,7 +422,7 @@ export const PROJECTS = [
     currency: 'USD',
     // Same reason as project-1-id above.
     seniorSharePercentOverride: null as number | null,
-    seniorSharePercentDefault: 26,
+    seniorSharePercentDefault: 40,
     sharePercent: null,
     startDate: '2023-06-01T00:00:00.000Z',
     // SPEC-H-2: same as project-1-id — a completed, closed project (hence
