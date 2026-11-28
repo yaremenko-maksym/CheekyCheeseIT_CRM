@@ -404,7 +404,7 @@ export class TransactionsService {
       )
     } else if (currentUser.role !== 'ADMIN') {
       // Allowlist, not fall-through: ADMIN sees all; a role without a branch
-      // above (the retired until the enum drops it) sees nothing.
+      // above sees nothing.
       result = []
     }
 

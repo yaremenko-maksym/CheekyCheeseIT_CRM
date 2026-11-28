@@ -176,10 +176,10 @@ export function projectProfileUser(
       permissions.fields.techStack && target.role === 'SENIOR' ? target.technicalRoles : [],
 
     // Payment requisites.
-    // `requisitesExcludeWallet` (pre-deploy MEDIUM): an ACCOUNTANT viewing an
-    // ADMIN gets the requisites surface EXCEPT the payout destination
-    // (wallet/IBAN/recipient/RNOKPP/bank) — admins are not on payroll, so the
-    // accountant has no business need for another admin's payout details.
+    // `requisitesExcludeWallet` (pre-deploy MEDIUM): when a permission set grants
+    // requisites but sets this flag, the payout destination
+    // (wallet/IBAN/recipient/RNOKPP/bank) stays masked. No current viewer
+    // branch sets it; the mask is kept fail-closed.
     // `paymentMethod` (the method type, no destination) stays visible.
     paymentMethod: permissions.fields.requisites ? (target.paymentMethod ?? null) : null,
     walletUsdtErc20:

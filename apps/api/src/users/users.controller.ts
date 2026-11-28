@@ -76,23 +76,7 @@ export class UsersController {
     // every other role (including DROP) is rejected. /me, /:id (single
     // profile lookup) and /me/* endpoints remain available since they're
     // self-only or used by the existing profile view.
-    //
-    // task-accountant-create-transaction: ACCOUNTANT now has create-parity with
-    // ADMIN on the finance page. CreateTransactionDialog needs the directory for
-    // the admin set — SALARY receiver picker, ADMIN_TRANSFER party picker, and
-    // identifying admin-owned projects for ACCOUNTANT-registered ADMIN_INCOME.
-    // The list projection (UserListItem) excludes PII / finance columns
-    // (legalFullName, bankUah*, wallet*, paymentMethod, monthlySalary,
-    // adminNote — see USER_LIST_PROJECTION in users.service.ts); the accountant
-    // already has company-wide finance read access, so surfacing the directory
-    // is consistent with the role. ACCOUNTANT gets the SAME listing as ADMIN
-    // (incl. admins — required to pick transfer parties / admin owners).
-    if (
-      currentUser.role !== 'ADMIN' &&
-      currentUser.role !== 'HR' &&
-      currentUser.role !== 'ACCOUNTANT'
-    )
-      throw new ForbiddenException()
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') throw new ForbiddenException()
     // round 7 (ut-44): tri-state filter — 'true' = archived only, 'all' = both,
     // anything else (including missing) = active only. Boolean kept for legacy
     // E2E + clients still expecting only `true`/absent.
@@ -368,7 +352,7 @@ export class UsersController {
       throw new ForbiddenException()
     }
     if (!this.transactionsService) return []
-    // ADMIN both see all transactions in TransactionsService.findAll,
+    // ADMIN sees all transactions in TransactionsService.findAll,
     // so we pass the real viewer — no role spoofing.
     return this.transactionsService.findAll(currentUser, { seniorId: id })
   }
