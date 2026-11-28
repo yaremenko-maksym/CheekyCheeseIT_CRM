@@ -110,7 +110,7 @@ describe('assertCanUpload — full role x category x ownership matrix', () => {
 
   it('every refusal is a 403', () => {
     expect(run('JUNIOR', 'RESUME', OTHER).status).toBe(HttpStatus.FORBIDDEN)
-    expect(run('ACCOUNTANT', 'RESUME', ACTOR).status).toBe(HttpStatus.FORBIDDEN)
+    expect(run('X' as Role, 'RESUME', ACTOR).status).toBe(HttpStatus.FORBIDDEN)
     expect(run('HR', 'CONTRACT', ACTOR).status).toBe(HttpStatus.FORBIDDEN)
     expect(run('SENIOR', 'RECEIPT', OTHER).status).toBe(HttpStatus.FORBIDDEN)
     expect(run('JUNIOR', 'AVATAR', OTHER).status).toBe(HttpStatus.FORBIDDEN)
@@ -118,8 +118,8 @@ describe('assertCanUpload — full role x category x ownership matrix', () => {
   })
 
   it('CATEGORY_FORBIDDEN carries the refused category as a param', () => {
-    expect(run('ACCOUNTANT', 'RESUME', ACTOR).body?.params).toEqual({ category: 'RESUME' })
-    expect(run('ACCOUNTANT', 'SCAN', ACTOR).body?.params).toEqual({ category: 'SCAN' })
+    expect(run('X' as Role, 'RESUME', ACTOR).body?.params).toEqual({ category: 'RESUME' })
+    expect(run('X' as Role, 'SCAN', ACTOR).body?.params).toEqual({ category: 'SCAN' })
     expect(run('JUNIOR', 'RECEIPT', ACTOR).body?.params).toEqual({ category: 'RECEIPT' })
     expect(run('JUNIOR', 'LOGO', ACTOR).body?.params).toEqual({ category: 'LOGO' })
   })

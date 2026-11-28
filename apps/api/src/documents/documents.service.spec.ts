@@ -15,7 +15,7 @@
  *  - upload S3 compensation on failure
  *  - upload S3 contract (sanitized key + correct mime)
  *  - soft + restore + hard delete RBAC
- *  - getDownloadUrl visibility (incl. HR team scope + ACCOUNTANT receipts)
+ *  - getDownloadUrl visibility (incl. HR team scope)
  *  - soft-deleted docs invisible to getDownloadUrl
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -72,7 +72,6 @@ const SENIOR = u('senior-1', 'SENIOR')
 const SENIOR2 = u('senior-2', 'SENIOR')
 const JUNIOR = u('junior-1', 'JUNIOR')
 const HR = u('hr-1', 'HR')
-const ACCOUNTANT = u('acc-1', 'ACCOUNTANT')
 const DROP = u('drop-1', 'DROP')
 const DROP2 = u('drop-2', 'DROP')
 
@@ -542,7 +541,7 @@ describe('DocumentsService.upload — RBAC by category', () => {
 
   describe('AVATAR', () => {
     it('any role for self → ok', async () => {
-      for (const actor of [JUNIOR, HR, SENIOR, ACCOUNTANT, ADMIN]) {
+      for (const actor of [JUNIOR, HR, SENIOR, ADMIN]) {
         const h = makeHarness()
         const doc = await h.service.upload(actor, pdfFile, { category: 'AVATAR' })
         expect(doc.ownerId).toBe(actor.id)
@@ -920,8 +919,7 @@ describe('DocumentsService.getDownloadUrl', () => {
 
     // security-review round 3, MED-1: `actorId` must be the REAL human
     // (`impersonatorId ?? id`), not the impersonated account — this log is
-    // the sole compensating control the owner's ACCOUNTANT/SCAN decision
-    // leans on, so a wrong actor here quietly weakens that justification.
+    // the audit trail of every document read, so a wrong actor here weakens it.
     it('while impersonating: logs the IMPERSONATOR (real admin) as actorId, not the impersonated account', async () => {
       const h = makeHarness({
         docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
@@ -1122,14 +1120,6 @@ describe('DocumentsService — team-scoped RESUME/SCAN (task-file-storage-harden
       response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
     })
   })
-
-  // task-file-storage-hardening — owner decision 2026-08-03 (security-review
-  // round 2, reversing round 1's MED-1 transaction-scoping attempt):
-  // ACCOUNTANT sees ALL scans, unconditionally, regardless of whether the
-  // owner has any transaction on record. See the SCAN branch of
-  // buildVisibilityClause for the full two-part rejection rationale
-  // (self-satisfying + broke onboarding for the 16/21 people with zero
-  // transactions at review time).
 
   it("JUNIOR cannot download a teammate's SCAN either (own-only, unaffected by this task)", async () => {
     const h = makeHarness({

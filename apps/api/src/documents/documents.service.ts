@@ -709,32 +709,14 @@ export class DocumentsService {
       throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
 
-    // ACCOUNTANT reads any SCAN — owner decision 2026-08-03 (security-review
-    // round 2), see the doc comment on the SCAN branch of
-    // `buildVisibilityClause` for the full rationale (transaction-scoping
-    // tried in round 1 was rejected as self-satisfying + onboarding-breaking).
-    if (actor.role === 'ACCOUNTANT' && doc.category === 'SCAN') {
-      return doc
-    }
-
     // HR + CONTRACT: special team-scope check.
     if (actor.role === 'HR' && doc.category === 'CONTRACT') {
       const seniorIds = await getHrSeniorIds(this.db, actor.id)
       if (seniorIds.includes(doc.ownerId)) return doc
     }
 
-    // ACCOUNTANT can read all receipts.
-    if (actor.role === 'ACCOUNTANT' && doc.category === 'RECEIPT') {
-      return doc
-    }
-
     // LOGO read for HR/SENIOR.
     if ((actor.role === 'HR' || actor.role === 'SENIOR') && doc.category === 'LOGO') {
-      return doc
-    }
-
-    // ACCOUNTANT reads any INVOICE (finance audit, same scope as RECEIPT).
-    if (actor.role === 'ACCOUNTANT' && doc.category === 'INVOICE') {
       return doc
     }
 

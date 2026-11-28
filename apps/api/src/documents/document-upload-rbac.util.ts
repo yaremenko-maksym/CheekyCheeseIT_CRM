@@ -8,8 +8,8 @@ import { apiError } from '../common/api-error'
  *
  *   RESUME / SCAN:
  *     ADMIN/HR/SENIOR — any ownerId
- *     JUNIOR — ownerId == self only
- *     ACCOUNTANT — forbidden
+ *     JUNIOR / DROP — ownerId == self only
+ *     any other role — forbidden
  *   CONTRACT:
  *     ADMIN — any ownerId
  *     SENIOR — ownerId == self only
@@ -36,7 +36,14 @@ export function assertCanUpload(
   switch (category) {
     case 'RESUME':
     case 'SCAN':
-      if (role === 'ACCOUNTANT') {
+      // Allowlist: a role outside these five (a retired one included) cannot upload.
+      if (
+        role !== 'ADMIN' &&
+        role !== 'HR' &&
+        role !== 'SENIOR' &&
+        role !== 'JUNIOR' &&
+        role !== 'DROP'
+      ) {
         throw apiError('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN', HttpStatus.FORBIDDEN, { category })
       }
       if (role === 'JUNIOR' && !isSelf) {

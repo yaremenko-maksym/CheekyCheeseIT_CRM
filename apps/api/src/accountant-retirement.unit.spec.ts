@@ -6,15 +6,61 @@
  * - AC 5: team reconcile never touches the `team_members` row of a former accountant.
  * - Master addendum: `TransactionsService.findAll` is an allowlist — an ACCOUNTANT session
  *   gets `[]`, while ADMIN over the same data gets the row (so the empty result is not vacuous).
+ * - AC 3: the deleted document read-all branches (SCAN / RECEIPT / INVOICE) and the RESUME/SCAN
+ *   upload refusal — an ACCOUNTANT session sees only its own AVATAR / INVOICE rows and cannot upload.
  */
 import { describe, expect, it, vi } from 'vitest'
+import { HttpException } from '@nestjs/common'
 import { getTableName, type SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import type { SessionUser } from '@crm/shared'
-import { TeamReconcileService } from './team-reconcile.service'
-import { makeTransactionsService } from '../finance/__test-helpers__/make-transactions-service'
+import type { DocumentCategory, Role, SessionUser } from '@crm/shared'
+import type { DatabaseService } from './database/database.service'
+import type { HrAccessService } from './common/hr-access.service'
+import { TeamReconcileService } from './users/team-reconcile.service'
+import { makeTransactionsService } from './finance/__test-helpers__/make-transactions-service'
+import { buildVisibilityClause } from './documents/document-visibility.util'
+import { assertCanUpload } from './documents/document-upload-rbac.util'
 
 const dialect = new PgDialect()
+const LEGACY: Role = 'ACCOUNTANT'
+
+describe('AC 3 — documents: no read-all, no upload', () => {
+  const CAT = '"documents"."category"'
+  const OWN = '"documents"."owner_id"'
+  const vis = async (category: DocumentCategory) => {
+    const r = await buildVisibilityClause(
+      { db: {} } as unknown as DatabaseService,
+      {} as unknown as HrAccessService,
+      { id: 'u-1', role: LEGACY } as unknown as SessionUser,
+      { category },
+    )
+    if (r === null || r === 'NONE') return r
+    const { sql, params } = dialect.sqlToQuery(r)
+    return { sql, params }
+  }
+
+  it('SCAN / RECEIPT / RESUME / CONTRACT / LOGO -> NONE; AVATAR / INVOICE -> own rows only', async () => {
+    for (const c of ['SCAN', 'RECEIPT', 'RESUME', 'CONTRACT', 'LOGO'] as const) {
+      expect(await vis(c)).toBe('NONE')
+    }
+    for (const c of ['AVATAR', 'INVOICE'] as const) {
+      expect(await vis(c)).toEqual({ sql: `(${CAT} = $1 and ${OWN} = $2)`, params: [c, 'u-1'] })
+    }
+  })
+
+  it.each(['RESUME', 'SCAN', 'LOGO', 'RECEIPT', 'CONTRACT'] as const)(
+    'upload of %s for self -> 403',
+    (category) => {
+      let status: number | undefined
+      try {
+        assertCanUpload(LEGACY, 'u-1', category, 'u-1')
+      } catch (e) {
+        status = (e as HttpException).getStatus()
+      }
+      expect(status).toBe(403)
+    },
+  )
+})
 
 describe('AC 5 — reconcile leaves a former accountant team_members row untouched', () => {
   function makeTx(selects: unknown[][]) {

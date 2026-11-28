@@ -40,7 +40,6 @@ import { resolveTransactionDate } from '../finance/transaction-date.util'
  * WHAT it covers (PR-2 AC1):
  *   1. ADMIN sees ALL users' non-CANCELLED employee_contract virtual entries
  *   2. SENIOR sees only own employee_contract virtual entry
- *   3. ACCOUNTANT sees only non-CANCELLED contract for themselves (if any)
  *   4. INVOICE file rows carry statusBadge {kind:'invoice', state:'ready'/'signed'}
  *      derived from invoice_signatures completeness
  *   5. RECEIPT file rows carry statusBadge {kind:'receipt', state} derived from
@@ -59,7 +58,6 @@ import { resolveTransactionDate } from '../finance/transaction-date.util'
  *   - ADMIN:       yaremenkomaksym99@gmail.com  (a8f4d3b1-...)
  *   - SENIOR:      artem.kravchenko             (d8f9e0b1-...) SIGNED contract
  *   - SENIOR 2:    dmytro.marchenko             (d2f3e4b5-...) READY_TO_SIGN contract
- *   - ACCOUNTANT:  mykola.savchenko             (c7e8d9a0-...)
  *
  * SETUP: creates temporary documents + transactions + invoice_signatures rows
  * in beforeAll, tagged with a unique run-id. Cleans up in afterAll.
@@ -108,17 +106,6 @@ const DMYTRO: SessionUser = {
   role: 'SENIOR',
   seniorSharePercent: 26,
   legalFullName: 'Марченко Дмитро Олексійович',
-}
-
-/** ACCOUNTANT */
-const ACCOUNTANT: SessionUser = {
-  id: 'c7e8d9a0-b1c2-4d3e-8f5a-6b7c8d9e0fbb',
-  email: 'mykola.savchenko@cheekycheese.dev',
-  displayName: 'Mykola Savchenko',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 26,
-  legalFullName: null,
 }
 
 // ---------------------------------------------------------------------------
@@ -612,7 +599,7 @@ describe.skipIf(!hasDatabaseUrl())('PR-2 documents unified list — real backend
     expect(virtualEntries.length).toBeGreaterThan(0)
   })
 
-  // ── 9. ACCOUNTANT: 401 without JWT ──────────────────────────────────────
+  // ── 9. 401 without JWT ───────────────────────────────────────────────────────────────────────────
 
   it('9. Unauthenticated request → 401', async () => {
     const res = await app.inject({
@@ -621,23 +608,6 @@ describe.skipIf(!hasDatabaseUrl())('PR-2 documents unified list — real backend
     })
 
     expect(res.statusCode).toBe(401)
-  })
-
-  // ── 10. ACCOUNTANT can list (no access restriction on list) ──────────────
-
-  it('10. ACCOUNTANT: GET /api/documents returns 200 (no restriction on list)', async () => {
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/documents',
-      cookies: { jwt: tokenFor(ACCOUNTANT) },
-    })
-
-    // ACCOUNTANT has no employee_contract (only SENIOR/JUNIOR/HR/ACCOUNTANT-role users
-    // may have contracts — in seed data only SENIORs/JUNIORs do).
-    // Just verify the endpoint returns 200 and is an array.
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as DocumentDto[]
-    expect(Array.isArray(body)).toBe(true)
   })
 
   // ── 11–12. DRAFT contract visibility: ADMIN sees DRAFT, non-ADMIN does not ─
