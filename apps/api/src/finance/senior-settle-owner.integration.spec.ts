@@ -33,6 +33,8 @@ import { resolveTransactionDate } from './transaction-date.util'
  * Plus the money invariants that must NOT regress versus the obligation-id path:
  *   - idempotency: a second settle of the SAME source tx → 404, no second payout.
  *   - RBAC: SENIOR / DROP → 403 (gate before any money / lookup).
+ *   - ROLE-SET: the role set of all four service entry points (two lists, two
+ *     settles) for ADMIN / SENIOR / HR / JUNIOR / DROP and an unknown role.
  *
  * The DB, the obligation, the settle cascade and the balance derivation are ALL
  * real. Run against a scratch DB (NEVER the live crm_db):
@@ -532,6 +534,67 @@ describe.skipIf(!hasDatabaseUrl())(
         }),
       ).rejects.toThrow()
       expect(await seniorIncomeRow()).toBeFalsy()
+    })
+
+    // ── ROLE-SET (PR 1b, ACCOUNTANT retirement): the body-level role checks of
+    // all four PendingSettlementService entry points keep their role set; a
+    // role outside the five (a retired one included) is refused. The obligation
+    // seeded by beforeEach is the one each allowed read must surface.
+    const as = (role: string): SessionUser => ({ ...SENIOR, role: role as SessionUser['role'] })
+    const forbidden = (code: string) => ({ response: { code, statusCode: 403 } })
+
+    it('ROLE-SET. listSeniorObligations — SENIOR and ADMIN read the IOU; HR, JUNIOR, DROP, unknown → 403', async () => {
+      for (const u of [SENIOR, ADMIN]) {
+        const rows = await settleSvc.listSeniorObligations(u)
+        expect(
+          rows.some((r) => r.obligationId === OBLIGATION_ID),
+          u.role,
+        ).toBe(true)
+      }
+      for (const role of ['HR', 'JUNIOR', 'DROP', 'X']) {
+        await expect(settleSvc.listSeniorObligations(as(role)), role).rejects.toMatchObject(
+          forbidden('FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN'),
+        )
+      }
+    })
+
+    it('ROLE-SET. listCompanyObligations — ADMIN reads the IOU; SENIOR, HR, JUNIOR, DROP, unknown → 403', async () => {
+      const rows = await settleSvc.listCompanyObligations(ADMIN)
+      expect(rows.some((r) => r.obligationId === OBLIGATION_ID)).toBe(true)
+      for (const role of ['SENIOR', 'HR', 'JUNIOR', 'DROP', 'X']) {
+        await expect(settleSvc.listCompanyObligations(as(role)), role).rejects.toMatchObject(
+          forbidden('FINANCE_COMPANY_OBLIGATIONS_LIST_FORBIDDEN'),
+        )
+      }
+    })
+
+    it('ROLE-SET. settleByCompany / settleByCompanySourceTransaction — SENIOR, HR, JUNIOR, DROP, unknown → 403, nothing booked', async () => {
+      const funding = {
+        fundingSource: 'COMPANY_ACCOUNT' as const,
+        currency: 'USDT' as const,
+        ...EXPLORER_RECEIPT,
+      }
+      for (const role of ['SENIOR', 'HR', 'JUNIOR', 'DROP', 'X']) {
+        await expect(
+          settleSvc.settleByCompany(OBLIGATION_ID, as(role), funding),
+          role,
+        ).rejects.toMatchObject(forbidden('FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN'))
+        await expect(
+          settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, as(role), funding),
+          role,
+        ).rejects.toMatchObject(forbidden('FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN'))
+      }
+      expect(await seniorIncomeRow()).toBeFalsy()
+    })
+
+    it('ROLE-SET. settleByCompany — ADMIN closes the IOU by obligation id', async () => {
+      const res = await settleSvc.settleByCompany(OBLIGATION_ID, ADMIN, {
+        fundingSource: 'COMPANY_ACCOUNT',
+        currency: 'USDT',
+        ...EXPLORER_RECEIPT,
+      })
+      expect(res.obligation.status).toBe('PAID')
+      expect(await seniorIncomeRow()).toBeTruthy()
     })
   },
 )
