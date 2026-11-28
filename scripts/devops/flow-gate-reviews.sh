@@ -4,8 +4,10 @@
 # ({author, association, state, body, at, commit_id}).
 # SR-M-4: only GraphQL says whether a review body was edited after it was posted. An edited
 # review is never positive evidence for `Verdict:` / `Security Review:` / `Spec Review:`: its body
-# is replaced by one synthesized line per marker kind, where those three kinds keep only a
-# negative verdict and every other kind keeps what flow-gate.mjs `parseMarker` read from it.
+# is replaced by one synthesized line per marker kind. SR-M-7: for those three kinds a marker of
+# either polarity becomes NEGATIVE (not dropped), so an edit cannot erase a BLOCK and let an older
+# approval resurface; it stays negative until a fresh unedited review supersedes it. Every other
+# kind keeps what flow-gate.mjs `parseMarker` read from it.
 # A page set that does not add up to totalCount fails (never a short list).
 # Env: REPO, PR_NUMBER, GH_BIN (default gh; tests point it at a stub).
 # Run from a checkout holding scripts/architect/flow-gate.mjs and scripts/devops/.
@@ -47,11 +49,11 @@ FLOW_GATE="$ROOT/scripts/architect/flow-gate.mjs" node --input-type=module -e '
   const reviews = JSON.parse(readFileSync(process.argv[1], "utf8"))
   const out = reviews.map(({ edited, ...r }) => {
     if (edited !== false) {
-      const lines = ["(edited after posting: no positive Verdict / Security Review / Spec Review)"]
+      const lines = ["(edited after posting: Verdict / Security Review / Spec Review count as negative)"]
       for (const [kind, m] of Object.entries(MARKERS)) {
         const v = parseMarker(r.body, kind)
-        if (v === "neg") lines.push(`${m.prefix}: ${m.neg[0]}`)
-        else if (v === "pos" && !STRICT.has(kind)) lines.push(`${m.prefix}: ${m.pos[0]}`)
+        if (v === "neg" || (v && STRICT.has(kind))) lines.push(`${m.prefix}: ${m.neg[0]}`)
+        else if (v === "pos") lines.push(`${m.prefix}: ${m.pos[0]}`)
       }
       r.body = lines.join("\n")
     }

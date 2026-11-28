@@ -161,15 +161,15 @@ case_red mdx docs/page.mdx added 'import pg from "pg"' "non-inert-file-type" \
   "an .mdx file -> refused (not parsed, not inert)"
 case_red unk apps/web/app/x.weird added 'x' "non-inert-file-type" "an unknown extension -> refused"
 case_red ev apps/web/app/lib/ev.ts modified "eval('1')" "eval" "eval(...) -> refused"
-case_red nf apps/web/app/lib/nf.ts modified "const f = new Function('return 1')" "eval" "new Function -> refused"
-case_red ctor apps/web/app/lib/ct.ts modified "const f = (()=>{}).constructor('return 1')" "eval" \
+case_red nf apps/web/app/lib/nf.ts modified "const f = new Function('return 1')" "denied name \`Function\`" "new Function -> refused"
+case_red ctor apps/web/app/lib/ct.ts modified "const f = (()=>{}).constructor('return 1')" "denied name \`constructor\`" \
   ".constructor(...) -> refused"
 case_red bad apps/web/app/lib/bad.ts modified 'import { from' "unparseable" "a file that does not parse -> refused"
 
 # Master addendum 3: inverted loader detection — only a literal static ESM import is allowed
 case_red lreq apps/web/app/lib/lr.ts modified "const t = require('./t')" "reference to \`require\`" \
   "a literal require('./t') is a trigger too"
-case_red proc apps/e2e/helpers/p.ts modified "const b = process.binding('fs')" "reference to \`process\`" \
+case_red proc apps/e2e/helpers/p.ts modified "const b = process.binding('fs')" "denied name \`process\`" \
   "a reference to process -> refused"
 case_red modx apps/landing/src/mx.cjs modified "module.exports = {}" "reference to \`module\`" \
   "a reference to module -> refused"
@@ -177,13 +177,13 @@ case_red expo apps/landing/src/ex.cjs modified "exports.a = 1" "reference to \`e
   "a reference to exports -> refused"
 case_red nwr apps/web/app/lib/nw.ts modified "const x = __non_webpack_require__('pg')" "__non_webpack_require__" \
   "__non_webpack_require__ -> refused"
-case_red short_proc apps/web/app/lib/sp.ts modified "const o = { process }" "reference to \`process\`" \
+case_red short_proc apps/web/app/lib/sp.ts modified "const o = { process }" "denied name \`process\`" \
   "a shorthand { process } is a reference -> refused"
 case_red gcomp apps/web/app/lib/gc.ts modified "const r = globalThis['req' + 'uire']" "globalThis[...]" \
   "a computed member of globalThis -> refused"
 case_red wcomp apps/web/app/lib/wc.ts modified "const r = window[name]" "window[...]" \
   "a computed member of window -> refused"
-case_red gprop apps/web/app/lib/gp.ts modified "const r = self.eval" "self.eval" "self.eval -> refused"
+case_red gprop apps/web/app/lib/gp.ts modified "const r = self.eval" "denied name \`eval\`" "self.eval -> refused"
 case_red cp apps/e2e/helpers/cp.ts modified "import { exec } from 'child_process'" "Node built-in child_process" \
   "e2e: a child_process import -> refused"
 case_red nmod apps/e2e/helpers/nm.ts modified "import { createRequire as c } from 'module'" "Node built-in module" \
@@ -213,10 +213,10 @@ mk e2eok apps/e2e/helpers/ok.ts modified
 assert_green "e2e: fs / fs/promises / path / url / os / crypto are allowed" --contains "[not-required]" -- run e2eok
 assert_green "E2E_BUILTINS is exactly fs, path, url, os, crypto" --contains '["fs","path","url","os","crypto"]' \
   -- env S="$SUBJECT" node --input-type=module -e "const m = await import(process.env.S); console.log(JSON.stringify(m.E2E_BUILTINS))"
-case_red rget apps/web/app/lib/rg.ts modified "const r = Reflect.get(o, k)" "Reflect.get" "Reflect.get -> refused"
-case_red rapply apps/web/app/lib/rp.ts modified "Reflect.apply(f, null, [])" "Reflect.apply" "Reflect.apply -> refused"
-case_red rcons apps/web/app/lib/rc.ts modified "Reflect.construct(F, [])" "Reflect.construct" "Reflect.construct -> refused"
-case_red rcomp apps/web/app/lib/rx.ts modified "Reflect['get'](o, k)" "Reflect[...]" "Reflect['get'] -> refused"
+case_red rget apps/web/app/lib/rg.ts modified "const r = Reflect.get(o, k)" "denied name \`Reflect\`" "Reflect.get -> refused"
+case_red rapply apps/web/app/lib/rp.ts modified "Reflect.apply(f, null, [])" "denied name \`Reflect\`" "Reflect.apply -> refused"
+case_red rcons apps/web/app/lib/rc.ts modified "Reflect.construct(F, [])" "denied name \`Reflect\`" "Reflect.construct -> refused"
+case_red rcomp apps/web/app/lib/rx.ts modified "Reflect['get'](o, k)" "denied name \`Reflect\`" "Reflect['get'] -> refused"
 case_red gval apps/web/app/lib/gv.ts modified "const g = self" "\`self\` passed as a value" "const g = self -> refused"
 case_red garg apps/web/app/lib/ga.ts modified "inspect(window)" "\`window\` passed as a value" "f(window) -> refused"
 case_red gobj apps/web/app/lib/go.ts modified "Object.entries(globalThis)" "\`globalThis\` passed as a value" \
@@ -229,13 +229,12 @@ case_red gret apps/web/app/lib/gr.ts modified "export const f = () => globalThis
   "a global returned from an arrow -> refused"
 src gok "const href = window.location.href
 if (typeof window !== 'undefined') window.addEventListener('resize', onResize)
-const dark = globalThis.matchMedia?.('(prefers-color-scheme: dark)')
 const w = window.innerWidth"
 mk gok apps/web/app/components/g.tsx modified
 assert_green "plain window / globalThis member reads are NOT triggers (trade-off)" --contains "[not-required]" -- run gok
 # Master addendum 5 item 3: a property NAMED like the global object is the global object; a
 # property named like a loader is a trigger whatever the receiver.
-case_red galias1 apps/web/app/lib/ga1.ts modified "const p = a.globalThis.process" "a.globalThis.process" \
+case_red galias1 apps/web/app/lib/ga1.ts modified "const p = a.globalThis.process" "denied name \`process\`" \
   "a.globalThis.process (any receiver) -> refused"
 case_red galias2 apps/web/app/lib/ga2.ts modified "const g = window.self" "\`window.self\` (global object) passed as a value" \
   "const g = window.self -> refused"
@@ -327,8 +326,61 @@ assert_green "local top / parent, member reads of .top / .parent, window.locatio
   --contains "[not-required]" -- run galiasok
 case_red ieq apps/web/app/lib/ie.ts modified "import x = require('./x')" "import = require" \
   "import x = require(...) -> refused"
-case_red ctor2 apps/web/app/lib/c2.ts modified "const f = ''['constructor']['constructor']('return 1')" "eval" \
+case_red ctor2 apps/web/app/lib/c2.ts modified "const f = ''['constructor']['constructor']('return 1')" "denied name \`constructor\` (string)" \
   "a ['constructor'] call -> refused"
+# Master addendum 8 (SR-M-5 / SR-M-6, review 6099087723): token-level denylist. Each probe of the
+# review is red, and red through the new detail string (not the x[k] rule).
+DN='denied name `'
+case_red d1 apps/web/app/lib/d1.ts modified "const R = Reflect; export const v = R.get(o, 'x')" "${DN}Reflect\`" \
+  "const R = Reflect; R.get(...) (aliased Reflect) -> refused"
+case_red d2 apps/web/app/lib/d2x.ts modified "const { get } = Reflect; export const v = get(o, 'x')" "${DN}Reflect\`" \
+  "const { get } = Reflect -> refused"
+case_red d3 apps/e2e/helpers/d3.ts modified "const F = (() => 0).constructor; F('return 1')()" "${DN}constructor\`" \
+  "F = (()=>0).constructor; F() -> refused"
+case_red d4 apps/e2e/helpers/d4.ts modified "new ((() => 0).constructor)('return 1')" "${DN}constructor\`" \
+  "new ((()=>0).constructor)(...) -> refused"
+case_red d5 apps/e2e/helpers/d5.ts modified '(() => 0).constructor`return 1`' "${DN}constructor\`" \
+  "a tagged template on .constructor -> refused"
+case_red d6 apps/e2e/helpers/d6.ts modified "(() => 0).constructor.call(null, 'return 1')()" "${DN}constructor\`" \
+  ".constructor.call(...) -> refused"
+case_red d7 apps/e2e/helpers/d7.ts modified "const F = (() => 0)['constructor']; F('return 1')()" \
+  "${DN}constructor\` (string)" "F = (()=>0)['constructor'] -> refused"
+case_red d8 apps/e2e/helpers/d8.ts modified "const { constructor: F } = () => 0; F('return 1')()" "${DN}constructor\`" \
+  "const { constructor: F } -> refused"
+case_red d9 apps/e2e/helpers/d9.ts modified \
+  "Object.getOwnPropertyDescriptor(Object.getPrototypeOf(() => 0), 'constructor').value('return 1')" \
+  "${DN}getOwnPropertyDescriptor\`" "getOwnPropertyDescriptor(getPrototypeOf(f), ...).value -> refused"
+case_red d10 apps/e2e/helpers/d10.ts modified \
+  "Object.entries(Object.getOwnPropertyDescriptors(Object.getPrototypeOf(() => 0))).find(([n]) => n === 'con' + 'structor')[1].value('return 1')" \
+  "${DN}getOwnPropertyDescriptors\`" "Object.entries(getOwnPropertyDescriptors(...)) -> refused"
+case_red d11 apps/web/app/lib/d11.ts modified "export const v = ''['\\u0063onstructor']" "${DN}constructor\` (string)" \
+  "an escaped string literal (cooked text) -> refused"
+case_red d12 apps/web/app/lib/d12.ts modified 'export const v = `${a}constructor`' "${DN}constructor\` (string)" \
+  "a template chunk -> refused"
+case_red d13 apps/web/app/lib/d13.ts modified "const dark = globalThis.matchMedia?.('(x)')" "${DN}globalThis\`" \
+  "a plain globalThis member read -> refused (addendum 8: globalThis is a denied name)"
+for n in setPrototypeOf __proto__ defineProperty __defineGetter__ __lookupGetter__; do
+  case_red "dn_$n" "apps/web/app/lib/dn_$n.ts" modified "export const v = o.$n" "${DN}$n\`" "o.$n -> refused"
+done
+assert_green "DENIED_NAMES is exactly the addendum-8 list" \
+  --contains '["constructor","Reflect","Function","eval","globalThis","getOwnPropertyDescriptor","getOwnPropertyDescriptors","getPrototypeOf","setPrototypeOf","__proto__","defineProperty","__defineGetter__","__lookupGetter__","process"]' \
+  -- env S="$SUBJECT" node --input-type=module -e "const m = await import(process.env.S); console.log(JSON.stringify(m.DENIED_NAMES))"
+# Computed keys in destructuring / assignment patterns.
+CK='computed key in a destructuring pattern'
+case_red p1 apps/web/app/lib/p1.ts modified "const k = 'x'; const { [k]: v } = o" "$CK" "const { [k]: v } = o -> refused"
+case_red p2 apps/web/app/lib/p2.ts modified "const k = 'x'; export function f({ [k]: v }: any) { return v }" "$CK" \
+  "a computed key in a parameter pattern -> refused"
+case_red p3 apps/web/app/lib/p3.ts modified "const k = 'x'; let v; ({ a: { [k]: v } } = o)" "$CK" \
+  "a nested computed key in an assignment pattern -> refused"
+case_red p4 apps/web/app/lib/p4.ts modified "const k = 'x'; let v; for ({ [k]: v } of xs);" "$CK" \
+  "a computed key in a for-of assignment pattern -> refused"
+src dok "export class Box { constructor(readonly id: string) {} }
+export const byId = (id: string, v: number) => ({ [id]: v })
+export const h = window.location.href
+export const P = () => <p>constructor process</p>"
+mk dok apps/web/app/components/dok.tsx modified
+assert_green "class constructor, { [id]: v } construction, window.location, JSX text are NOT triggers" \
+  --contains "[not-required]" -- run dok
 
 printf '* @o\napps/**\n' >"$T/open-co"
 src pj '{ "dependencies": { "db": "npm:pg@8" } }'
@@ -619,8 +671,8 @@ assert_red "Fetch: a head sha that is not 40-hex -> refused" --contains "no head
 # Flow Gate reviews (SR-M-4): GraphQL, and an edited review is never positive evidence.
 FGR="$GUARD_DIR/flow-gate-reviews.sh"
 FG_MJS="$REPO/scripts/architect/flow-gate.mjs"
-fgr_node() { # <author> <body> <edited>
-  node -e 'const [a, b, e] = process.argv.slice(1); console.log(JSON.stringify({ author: { login: a }, authorAssociation: "OWNER", state: "COMMENTED", body: b, submittedAt: "2026-11-28T00:00:00Z", commit: { oid: "'"$HEAD"'" }, lastEditedAt: e === "true" ? "2026-11-28T01:00:00Z" : null, includesCreatedEdit: false, userContentEdits: { totalCount: 0 } }))' "$1" "$2" "$3"
+fgr_node() { # <author> <body> <edited> [submittedAt]
+  node -e 'const [a, b, e, t] = process.argv.slice(1); console.log(JSON.stringify({ author: { login: a }, authorAssociation: "OWNER", state: "COMMENTED", body: b, submittedAt: t || "2026-11-28T00:00:00Z", commit: { oid: "'"$HEAD"'" }, lastEditedAt: e === "true" ? "2026-11-28T01:00:00Z" : null, includesCreatedEdit: false, userContentEdits: { totalCount: 0 } }))' "$1" "$2" "$3" "${4:-}"
 }
 cat >"$T/stub-fgr-gh" <<'STUB'
 #!/usr/bin/env bash
@@ -651,8 +703,22 @@ fgr_fixture 3 "$(fgr_node rev1 $'Verdict: APPROVE\nSecurity Review: APPROVE\nSpe
 assert_green "SR-M-4: the Flow Gate review fetch keeps the REST shape" \
   --contains '"association":"OWNER"' --contains '"at":"2026-11-28T00:00:00Z"' --contains "\"commit_id\":\"$HEAD\"" \
   --not-contains '"edited"' -- fgr_run
-assert_green "SR-M-4: edited APPROVE/PASS -> no positive Verdict / Security / Spec, Copy kept; edited BLOCK stays negative; unedited untouched" \
-  --contains $'none none none pos\nneg none neg none\npos pos none none' -- fgr_pipe
+assert_green "SR-M-4 + SR-M-7: edited APPROVE/PASS -> NEGATIVE Verdict / Security / Spec, Copy kept; edited BLOCK stays negative; absent kinds stay absent; unedited untouched" \
+  --contains $'neg neg neg pos\nneg none neg none\npos pos none none' -- fgr_pipe
+fgr_fixture 1 "$(fgr_node rev1 $'Copy Review: PASS\nnotes only' true)"
+assert_green "SR-M-7: an edited review with no strict-kind marker is unchanged for every kind" \
+  --contains 'none none none pos' -- fgr_pipe
+fgr_standing() { # reviews.json on stdin -> the standing Security Review state
+  FG_MJS="$FG_MJS" node --input-type=module -e '
+    import { readFileSync } from "node:fs"
+    const { standingVerdict } = await import(process.env.FG_MJS)
+    console.log("standing=" + standingVerdict(JSON.parse(readFileSync(0, "utf8")), "security").state)'
+}
+fgr_standing_pipe() { fgr_run | fgr_standing; }
+fgr_fixture 2 "$(fgr_node rev1 'Security Review: APPROVE' false 2026-11-28T10:00:00Z)" \
+  "$(fgr_node rev1 'Security Review: APPROVE' true 2026-11-28T11:00:00Z)"
+assert_green "SR-M-7: unedited APPROVE, then an edited BLOCK-to-APPROVE -> standing negative (the old APPROVE does not resurface)" \
+  --contains 'standing=neg' -- fgr_standing_pipe
 fgr_fixture 2 "$(fgr_node rev1 'Verdict: APPROVE' false)"
 assert_red "SR-M-4: GraphQL pages short of totalCount -> refused" --contains "do not add up" -- fgr_run
 assert_green "SR-M-4: flow-gate.yml reads reviews through flow-gate-reviews.sh, not REST" \
