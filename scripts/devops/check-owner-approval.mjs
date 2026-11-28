@@ -148,6 +148,8 @@ const CONFIG_JSON =
 
 export function classify(filename) {
   if (CODE_EXT.test(filename)) return 'code'
+  // SO-L-4: Tailwind v4 loads JS from CSS (`@plugin`, `@config`), so CSS is fetched and read.
+  if (/\.css$/i.test(filename)) return 'css'
   if (CONFIG_JSON.test(filename)) return 'other'
   if (INERT_EXT.test(filename)) return 'inert'
   return 'other'
@@ -216,12 +218,17 @@ const DB_PKG =
 const FINANCE_WORD =
   /(financ|transaction|payout|company-account|wallet|salary|ledger|requisite|invoice|dividend)/i
 
+// SO-L-1: a `node_modules` segment reaches any installed package (a DB client too) by path.
+const NODE_MODULES = /(^|\/)node_modules(\/|$)/
+
 export function classifySpecifier(filename, spec, aliases) {
+  if (NODE_MODULES.test(spec)) return { kind: 'node-modules', detail: spec }
   const r = resolveSpecifier(filename, spec, aliases)
   if (r.unresolved) return { kind: 'unresolved-specifier', detail: spec }
   if (r.pkg && DB_PKG.test(r.pkg)) return { kind: 'db-client', detail: spec }
   if (!r.path) return null
   const via = `${spec} -> ${r.path}`
+  if (NODE_MODULES.test(r.path)) return { kind: 'node-modules', detail: via }
   if (r.path.startsWith('..') || r.path.startsWith('/'))
     return { kind: 'unresolved-specifier', detail: via }
   if (r.path === 'apps/api' || r.path.startsWith('apps/api/'))
@@ -282,6 +289,19 @@ const LOADER_IDS = new Set([
   'exports',
   '__non_webpack_require__',
   'createRequire',
+])
+// vi.* / jest.* methods whose first argument is a module specifier (SO-L-2).
+const MOCK_FNS = new Set([
+  'mock',
+  'doMock',
+  'unmock',
+  'doUnmock',
+  'importActual',
+  'importMock',
+  'requireActual',
+  'requireMock',
+  'createMockFromModule',
+  'setMock',
 ])
 const GLOBAL_OBJECTS = new Set(['globalThis', 'global', 'window', 'self'])
 // Master addendum 5: a PROPERTY with one of these names reaches the global object from any
@@ -482,6 +502,34 @@ export function scanCode(filename, content, aliases) {
       if (T.isIdentifier(callee) && callee.text === 'Controller' && T.isDecorator(node.parent)) {
         push('controller', node, '@Controller(...)')
       }
+      // SO-L-2: a mock / requireActual argument loads a module like an import. Matched on the
+      // method name (`const v = vi; v.mock('pg')` too); a non-literal argument is a trigger only
+      // on a `vi` / `jest` receiver. `vi.mock(import('./x'))` is judged by the import rule.
+      if (T.isPropertyAccessExpression(callee) && MOCK_FNS.has(callee.name.text)) {
+        const a = node.arguments[0]
+        const recv = unwrap(callee.expression)
+        if (literal(a)) spec(node, a.text)
+        else if (
+          a &&
+          T.isIdentifier(recv) &&
+          ['vi', 'jest'].includes(recv.text) &&
+          !(T.isCallExpression(a) && a.expression.kind === SK.ImportKeyword)
+        )
+          push('dynamic-specifier', node, `${recv.text}.${callee.name.text}(<non-literal>)`)
+      }
+    } else if (T.isNewExpression(node)) {
+      // SO-L-2: `new URL('<spec>', import.meta.url)` names a module file (workers, assets).
+      const [a, b] = node.arguments ?? []
+      const metaUrl =
+        b &&
+        T.isPropertyAccessExpression(b) &&
+        T.isMetaProperty(b.expression) &&
+        b.expression.keywordToken === SK.ImportKeyword &&
+        b.name.text === 'url'
+      if (T.isIdentifier(node.expression) && node.expression.text === 'URL' && metaUrl) {
+        if (literal(a)) spec(node, a.text)
+        else push('dynamic-specifier', node, 'new URL(<non-literal>, import.meta.url)')
+      }
     } else if (T.isIdentifier(node)) {
       if (DENIED.has(node.text)) push('denied-name', node, `denied name \`${node.text}\``)
       if (LOADER_IDS.has(node.text) && isReference(node)) {
@@ -568,6 +616,12 @@ export function findingsForFile(file, content, rules, aliases) {
     out.push({ kind: 'uninspectable', file: name, detail: 'head content was not fetched' })
     return out
   }
+  if (cls === 'css') {
+    // Comments included: a commented-out `@plugin` is rare, and reading it costs only a verdict.
+    const m = content.match(/@(plugin|config)\b/i)
+    if (m) out.push({ kind: 'css-loader', file: name, detail: `CSS \`${m[0]}\` loads JS` })
+    return out
+  }
   out.push(...scanCode(name, content, aliases))
   return out
 }
@@ -594,7 +648,9 @@ export function fetchPlan(rules, files) {
   return unownedFiles(rules, files)
     .filter(
       (f) =>
-        f.status !== 'removed' && classify(f.filename) === 'code' && !f.filename.includes('\n'),
+        f.status !== 'removed' &&
+        ['code', 'css'].includes(classify(f.filename)) &&
+        !f.filename.includes('\n'),
     )
     .map((f) => f.filename)
 }

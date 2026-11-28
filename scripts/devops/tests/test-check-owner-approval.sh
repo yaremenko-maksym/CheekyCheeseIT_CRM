@@ -591,6 +591,43 @@ mk openclean apps/web/app/components/clean.tsx modified
 assert_green "SO-H-1: a non-owner PR on an open-zone file with no trigger -> passes" \
   --contains "[not-required]" --not-contains "owned-path" -- run openclean
 
+# SO-L-1: a node_modules segment, raw or after resolution.
+case_red nm1 apps/web/app/lib/nm1.ts modified "import x from 'x/node_modules/pg'" "node-modules" \
+  "SO-L-1: a bare specifier with a node_modules segment -> refused"
+case_red nm2 apps/web/app/lib/nm2.ts modified "import x from '../../../../node_modules/pg/lib/index.js'" "node-modules" \
+  "SO-L-1: a relative path into the root node_modules -> refused"
+# SO-L-2: mock / requireActual arguments and new URL(..., import.meta.url) resolve like imports.
+case_red mk1 apps/web/app/lib/mk1.spec.ts modified "const pg = await vi.importActual('pg')" "db-client" \
+  "SO-L-2: vi.importActual('pg') -> refused"
+case_red mk2 apps/web/app/lib/mk2.spec.ts modified "vi.mock('../../../api/src/database/schema')" "api-source" \
+  "SO-L-2: vi.mock(<api database path>) -> refused"
+case_red mk3 apps/e2e/helpers/mk3.spec.ts modified "const a = jest.requireActual('drizzle-orm')" "db-client" \
+  "SO-L-2: jest.requireActual('drizzle-orm') -> refused"
+case_red mk4 apps/web/app/lib/mk4.spec.ts modified $'const v = vi\nv.doMock(\'pg\')' "db-client" \
+  "SO-L-2: an aliased receiver (const v = vi; v.doMock('pg')) -> refused"
+case_red mk5 apps/web/app/lib/mk5.spec.ts modified "vi.mock(name)" "dynamic-specifier" \
+  "SO-L-2: vi.mock(<non-literal>) -> refused"
+case_red url1 apps/web/app/w.ts modified "const w = new Worker(new URL('../../api/src/main.ts', import.meta.url))" \
+  "api-source" "SO-L-2: new Worker(new URL('../../api/src/main.ts', import.meta.url)) -> refused"
+src mkok "vi.mock('./clock')
+vi.mock(import('./x'))
+const w = new Worker(new URL('./worker.ts', import.meta.url))"
+mk mkok apps/web/app/lib/mkok.spec.ts modified
+assert_green "SO-L-2: mocking a local module / a local worker URL -> passes" --contains "[not-required]" -- run mkok
+# SO-L-4: CSS is fetched; `@plugin` / `@config` (Tailwind v4 loads JS from them) is a trigger.
+case_red css1 apps/web/app/styles/app.css modified $'@import "tailwindcss";\n@plugin "../../../api/src/main.ts";' \
+  "css-loader" "SO-L-4: CSS @plugin -> refused"
+case_red css2 apps/landing/src/index.css modified '@config "./evil.config.js";' "css-loader" \
+  "SO-L-4: CSS @config -> refused"
+mk css3 apps/web/app/styles/x.css modified
+assert_red "SO-L-4: a CSS file whose content was not fetched -> refused (fail closed)" --contains "uninspectable" -- run css3
+src cssok $'@import "tailwindcss";\n.btn { color: red; }'
+mk cssok apps/web/app/styles/ok.css modified
+assert_green "SO-L-4: plain CSS -> passes" --contains "[not-required]" -- run cssok
+printf '[{"filename":"apps/web/app/styles/a.css","status":"modified"}]\n' >"$T/cssplan.json"
+assert_green "SO-L-4: the fetch plan includes unowned CSS" --contains "apps/web/app/styles/a.css" \
+  -- node "$SUBJECT" --codeowners "$CO" --files "$T/cssplan.json" --fetch-plan
+
 # ── owner-verdict-decide.sh (Master addendum 5 item 2): fails closed ─────────────────────
 DECIDE="$GUARD_DIR/owner-verdict-decide.sh"
 STUB="$T/stub-gh"
