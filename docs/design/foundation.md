@@ -62,7 +62,10 @@ Rules that hold in every class:
 - **Sidebar / More groups:** Огляд · Гроші · Люди · Робота · Найм · Система (new headings, copy-reviewer
   gate in the Wave 0 implementation).
 - **Standalone PWA has no browser back.** Every pushed screen shows an in-app back control (44 px).
-- **No left-edge swipe gesture** of our own (it collides with the system back gesture). Swipe actions on
+- **No left-edge swipe gesture** of our own where the system has one (it collides with the system back
+  gesture). **The one exception (R3-28):** the installed standalone PWA on iOS, which has no system back
+  gesture: there a pushed page gets the app's own edge-swipe back (the storyboard «Назад» row), from the
+  left 20 px only and never on a tab root; in a browser tab and on Android it is off. Swipe actions on
   list rows come from the trailing edge only.
 
 ---

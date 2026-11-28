@@ -270,5 +270,6 @@ export function frames() {
     D('confirm-recreate-768', 768, 1024, confirmRecreateTablet(768, 1024)),
     D('confirm-recreate-1440', 1440, 900, confirmRecreateDesktop(1440, 900)),
     M('timefield-375', 375, 812, r1.timefieldPhone(375, 812)),
+    M('search-paged-states-375', 375, 812, r1.searchPagedPhone(375, 812)),
   ]
 }

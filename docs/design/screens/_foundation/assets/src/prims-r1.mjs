@@ -303,6 +303,22 @@ export function timefieldPhone(w, h) {
   return phone({ w, h, inner })
 }
 
+// R3-29: «Шукати далі» result states, one frame: running (spinner, aria-disabled), found, nothing new.
+export function searchPagedPhone(w, h) {
+  const cap = (t) => `<div class="t-over" style="padding:16px 16px 6px">${t}</div>`
+  const line = (text, btn, { busy = false, status = false } = {}) =>
+    `<div class="row" ${status ? 'role="status" ' : ''}style="gap:12px;padding:12px 16px;justify-content:space-between"><span class="t-foot muted num" style="min-width:0">${text}</span>${
+      btn
+        ? `<span class="btn sm secondary" role="button"${busy ? ' aria-disabled="true"' : ''} style="height:44px;flex:none">${busy ? `<span class="spin" aria-hidden="true" style="display:grid;animation:none">${icon('loader-circle', { size: 16 })}</span>` : ''}Шукати далі</span>`
+        : ''
+    }</div>`
+  const inner = `${topBar({ title: 'Фінанси' })}<div class="content">${searchField('оренда').replace('color:var(--placeholder)', 'color:var(--fg)')}
+  ${cap('Пошук триває')}${line('Шукали серед завантажених, з\u00a09.11', true, { busy: true })}
+  ${cap('Знайдено')}${line('Знайдено ще 3', false, { status: true })}${line('Шукали серед завантажених, з\u00a02.11', true)}
+  ${cap('Нічого нового')}${line('Нових збігів немає · шукали з\u00a02.11', true, { status: true })}</div>`
+  return phone({ w, h, inner })
+}
+
 // ---------- Tablet cells (F0-17) ----------
 export function chartTablet(w, h) {
   const card = `<div style="position:relative;margin:0 16px;padding:14px 16px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted">Чистий прибуток · 6 міс</div><div class="num" style="font-size:24px;font-weight:700">+${usd(NET_K)} USD</div></div>${legend(
@@ -316,7 +332,7 @@ export function chartTablet(w, h) {
 }
 
 export function listFooterTablet(w, h) {
-  const covered = `<div class="row" style="gap:12px;padding:12px 16px;justify-content:space-between"><span class="t-foot muted num" style="min-width:0">Шукали серед завантажених, з 9.11</span><span class="btn sm secondary" role="button" style="height:44px;flex:none">Шукати далі</span></div>`
+  const covered = `<div class="row" style="gap:12px;padding:12px 16px;justify-content:space-between"><span class="t-foot muted num" style="min-width:0">Шукали серед завантажених, з\u00a09.11</span><span class="btn sm secondary" role="button" style="height:44px;flex:none">Шукати далі</span></div>`
   const list = txnPane(
     `${listFooter(w - 80, { menu: true }).replace(/width:\d+px;/, '')}${covered}`,
   )

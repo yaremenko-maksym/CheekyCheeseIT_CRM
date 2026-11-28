@@ -66,7 +66,10 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 ### Top bar
 
 - Tab root: large title 28/34 that collapses into a 44 px inline bar on scroll; bell (and search where the
-  screen has it) on the right.
+  screen has it) on the right. **Magnifier (R3-22):** on a screen with an inline search field the bar
+  carries the magnifier at rest and collapsed, always left of the bell (the bell never leaves the bar); a
+  tap scrolls the list to the top and focuses the inline field, so it is a shortcut to that one field, never
+  a second search (`listrow-sticky-320`, `ptr-pulling-375`).
 - Pushed screen: 44 px bar, back chevron (44 × 44 `<button>`, `aria-label="Назад"`) + a 17/22 title
   **centred on the bar, not on the space left over** (iOS): the title is absolutely positioned and
   inset on both sides by the wider side, the back button or the trailing actions (`--topbar-side`,
@@ -222,8 +225,9 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   show only when the viewer may edit the record; a read-only viewer sees the status line «Лише перегляд»
   in their place (`primitives-v2/detail-readonly-1000`, JUNIOR).
 - **Row actions:** every list row at ≥ 640 has the «…» trigger in its reserved trailing slot, 44 px under touch; the rule, the slot and the menu position are primitives-v2 §12 «Row actions and the «…» trigger» (`primitives-v2/row-menu-768`). A swipe is a phone-only shortcut.
-- **Key hints** (Esc, ⌘↵, letters) never show on the touch tablet (F0-04); the rail «Ще» popover closes
-  on an outside tap or on «Ще» again, and focus returns to «Ще».
+- **Key hints** (Esc, ⌘↵, letters) never show on the touch tablet (F0-04); the rail «Ще» overflow (R3-21) is a modal `role="dialog"` «Ще» with a 44 px ✕ over a `--scrim` that
+  dims the page and the rail but not «Ще» itself (`tablet-rail-more-768`); focus moves to its first row
+  and is trapped; ✕, a scrim tap, «Ще» again, Esc and system back close it, and focus returns to «Ще».
 
 ---
 

@@ -317,7 +317,7 @@ export function listSticky(w, h) {
   // The rows drawn under each header ARE the rows its total sums (R1-03).
   const yesterday = [TXNS[3], { ...long, day: 'Вчора' }, TXNS[4], TXNS[5]]
   const nov9 = TXNS.filter((x) => x.day === '9 листопада')
-  const inner = `${topBar({ title: 'Фінанси', bell: false })}<div class="content">
+  const inner = `${topBar({ title: 'Фінанси' })}<div class="content">
   <div class="sechead sticky" style="box-shadow:0 1px 0 var(--border)"><span class="t-over">Вчора</span><span class="t-cap muted num">${dayTotal(yesterday)}</span></div>
   <div class="group" style="margin-top:-18px">${yesterday.map((x) => txnRow(x)).join('')}</div>
   <div class="sechead"><span class="t-over">9 листопада</span><span class="t-cap muted num">${dayTotal(nov9)}</span></div><div class="group">${nov9.map((x) => txnRow(x)).join('')}</div></div>`
