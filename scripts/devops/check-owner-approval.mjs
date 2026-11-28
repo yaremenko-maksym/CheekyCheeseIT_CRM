@@ -15,9 +15,10 @@
 // (fetched through the REST API as data, never checked out). Every module specifier from the AST
 // is resolved (relative paths against the file's directory; tsconfig `paths` of the owning package,
 // read from the BASE branch; `@crm/<pkg>` workspace names) and then matched. Anything the scanner
-// cannot pin to a literal module — any reference to require / module / process / exports / eval / Function /
-// createRequire, a computed member of a global object, any non-literal non-numeric computed key (`x[k]`),
-// `.constructor(...)`, a node:* specifier, import.meta.glob*, an
+// cannot pin to a literal module — any reference to require / module / exports / createRequire, any
+// token in DENIED_NAMES (constructor, Reflect, Function, eval, globalThis, process, prototype
+// reflection), a computed member of a global object, any non-literal non-numeric computed key
+// (`x[k]`, also in a destructuring pattern), a node:* specifier, import.meta.glob*, an
 // unresolved alias, a non-code non-inert file type — is itself a trigger. A trigger is not a
 // verdict of malice; it means "the owner looks".
 //
@@ -246,7 +247,7 @@ export function classifySpecifier(filename, spec, aliases) {
 // the owner. `globalThis` is a denied name since addendum 8 (5 files on main use it). Only a
 // global object PASSED AS A VALUE (call / new argument, initializer,
 // assignment right-hand side, spread, property value, array element, return) is a trigger: that is
-// how a loader is reached without naming it (`Reflect.get(globalThis, k)`, `const g = self`).
+// how a loader is reached without naming it (`f(window, k)`, `const g = self`).
 // Token-level denylist (Master addendum 8, SR-M-5 / SR-M-6): an identifier, property name,
 // binding name, string literal or template chunk whose cooked text is one of these triggers,
 // wherever it appears and whatever it is bound to (`const R = Reflect`, `const { constructor: F }`,

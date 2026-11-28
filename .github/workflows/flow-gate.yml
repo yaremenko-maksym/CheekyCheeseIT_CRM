@@ -164,7 +164,8 @@ jobs:
           # `commit_id` is the commit the review was submitted against — the whole basis of the
           # freshness check. A PR comment has no equivalent field, so it keeps only `created_at`.
           # Reviews through GraphQL (SR-M-4): an edited review is never positive Verdict /
-          # Security Review / Spec Review evidence; a short page set fails the step.
+          # Security Review / Spec Review evidence; a marker of those kinds in it counts as
+          # negative (SR-M-7). A short page set fails the step.
           bash scripts/devops/flow-gate-reviews.sh >"$D/reviews.json"
           gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
             --jq '.[] | {author: .user.login, association: .author_association, body: (.body // ""), at: .created_at}' \
