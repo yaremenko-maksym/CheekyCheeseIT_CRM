@@ -11,6 +11,13 @@ import { type Role } from '../constants'
 import { defaultPaymentMethod } from './validation'
 
 /**
+ * The share pre-filled when a NEW senior is created (owner decision 2026-11-28). Create-only:
+ * an existing user keeps the share stored on the row, and read-time fallbacks for old rows
+ * (`DEFAULT_SENIOR_SHARE_PERCENT` = 26) are deliberately separate and unchanged.
+ */
+export const NEW_SENIOR_SHARE_PERCENT = 40
+
+/**
  * Single source of the UserDialog form default values. Used by BOTH the
  * initial `useForm({ defaultValues })` (create, or edit before the re-seed
  * effect runs) and the edit-mode `form.reset(...)` re-seed, so the two can
@@ -60,7 +67,9 @@ export function buildUserDialogDefaults(
     phone: ((editingUser?.phone as PhoneValue | undefined) ?? '') as PhoneValue | '',
     techStack: (editingUser?.techStack ?? []) as string[],
     technicalRoles: (editingUser?.technicalRoles ?? []) as SeniorSelectableRole[],
-    seniorSharePercent: editingUser?.seniorSharePercent ?? 26,
+    seniorSharePercent: editingUser
+      ? (editingUser.seniorSharePercent ?? 26)
+      : NEW_SENIOR_SHARE_PERCENT,
     monthlySalary: editingUser?.monthlySalary ?? '',
     salaryCurrency: ((editingUser?.salaryCurrency as Currency | undefined) ?? 'USD') as Currency,
     projectId: '' as string,
