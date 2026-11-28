@@ -234,8 +234,8 @@ export function useCreateTransactionMutation({
         toast.success(t`Дивіденди виведено`)
       }
       // Invalidate company-account balance when any company-account debit/credit
-      // succeeds. `isAdminIncomeCompanyFunded` covers ADMIN_INCOME's two shapes
-      // (ADMIN's receiverId sentinel, ACCOUNTANT's fundingSource toggle);
+      // succeeds. `isAdminIncomeCompanyFunded` covers ADMIN_INCOME (ADMIN's
+      // receiverId sentinel);
       // `fundingSource === 'COMPANY_ACCOUNT'` covers EXPENSE (unaffected by
       // task-admin-income-unified — still its own toggle).
       if (fundingSource === 'COMPANY_ACCOUNT' || isAdminIncomeCompanyFunded) {

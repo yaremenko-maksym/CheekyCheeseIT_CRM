@@ -3,11 +3,8 @@ import { cn } from '@/lib/utils'
 import { Label } from '@/components/ui/label'
 import type { Currency, FundingSourceUI } from './shared'
 
-// EXPENSE and ADMIN_INCOME's ACCOUNTANT branch render the SAME two-button
-// legacy/company toggle — only the copy differs (see the two call sites in
-// `CreateTransactionDialog`). Sharing the implementation means there is exactly
-// ONE place that decides which button is active, not two near-identical copies
-// that could drift apart silently.
+// EXPENSE's two-button legacy/company toggle (call site in
+// `CreateTransactionDialog`).
 export function renderFundingSourceToggle({
   sectionLabel,
   personalLabel,

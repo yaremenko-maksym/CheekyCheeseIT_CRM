@@ -141,7 +141,7 @@ describe('ContractDataSection', () => {
     await waitFor(() => expect(legal().getAttribute('aria-invalid')).toBeNull())
   })
 
-  it.each(['SENIOR', 'HR', 'JUNIOR', 'ACCOUNTANT', 'DROP'])(
+  it.each(['SENIOR', 'HR', 'JUNIOR', 'DROP'])(
     'on submit with an empty legal name, role %s is required in create mode',
     async (role) => {
       render(<Harness role={role} isCreate />)

@@ -109,7 +109,7 @@ function makeValue(overrides: Partial<CreateUserFormValue> = {}): CreateUserForm
   }
 }
 
-const NO_TEAM = { hrIds: [] as string[], accountantId: '', exchangeRates: RATES }
+const NO_TEAM = { hrIds: [] as string[], exchangeRates: RATES }
 
 describe('buildCreateUserPayload', () => {
   it('builds the minimal JUNIOR payload (every optional key explicitly undefined)', () => {
@@ -302,7 +302,7 @@ describe('buildCreateUserPayload', () => {
       },
     )
 
-    it.each(['HR', 'ACCOUNTANT', 'JUNIOR'] as const)('%s uses the form payment method', (role) => {
+    it.each(['HR', 'JUNIOR'] as const)('%s uses the form payment method', (role) => {
       const payload = buildCreateUserPayload(
         makeValue({ role, paymentMethod: 'BANK_UAH_FOP' }),
         NO_TEAM,
@@ -312,7 +312,7 @@ describe('buildCreateUserPayload', () => {
   })
 
   describe('SENIOR', () => {
-    it('CREATE_NEW: includes share, hrIds and accountantId; no salary / project / teamMode', () => {
+    it('CREATE_NEW: includes share and hrIds; no accountantId / salary / project / teamMode', () => {
       const payload = buildCreateUserPayload(
         makeValue({
           role: 'SENIOR',
@@ -321,7 +321,7 @@ describe('buildCreateUserPayload', () => {
           projectId: 'proj-1',
           dropTeamId: 'drop-1',
         }),
-        { hrIds: ['hr-1', 'hr-2'], accountantId: 'acc-1', exchangeRates: RATES },
+        { hrIds: ['hr-1', 'hr-2'], exchangeRates: RATES },
       )
       expect(payload).toStrictEqual({
         email: 'user@example.com',
@@ -334,24 +334,22 @@ describe('buildCreateUserPayload', () => {
         walletUsdtErc20: '',
         seniorSharePercent: 30,
         hrIds: ['hr-1', 'hr-2'],
-        accountantId: 'acc-1',
       })
     })
 
-    it('CREATE_NEW: an empty accountantId becomes null', () => {
+    it('CREATE_NEW: never sends accountantId (the accountant role is retired)', () => {
       const payload = buildCreateUserPayload(makeValue({ role: 'SENIOR' }), {
         hrIds: ['hr-1'],
-        accountantId: '',
         exchangeRates: RATES,
       })
-      expect(payload.accountantId).toBeNull()
+      expect('accountantId' in payload).toBe(false)
       expect(payload.hrIds).toEqual(['hr-1'])
     })
 
     it('JOIN_DROP_TEAM: omits hrIds / accountantId and carries teamMode + dropTeamId', () => {
       const payload = buildCreateUserPayload(
         makeValue({ role: 'SENIOR', teamMode: 'JOIN_DROP_TEAM', dropTeamId: 'drop-9' }),
-        { hrIds: ['hr-1'], accountantId: 'acc-1', exchangeRates: RATES },
+        { hrIds: ['hr-1'], exchangeRates: RATES },
       )
       expect(payload).toStrictEqual({
         email: 'user@example.com',
@@ -376,7 +374,7 @@ describe('buildCreateUserPayload', () => {
           dropTeamId: 'drop-9',
           seniorSharePercent: 40,
         }),
-        { hrIds: ['hr-1'], accountantId: 'acc-1', exchangeRates: RATES },
+        { hrIds: ['hr-1'], exchangeRates: RATES },
       )
       expect('hrIds' in payload).toBe(false)
       expect('accountantId' in payload).toBe(false)
@@ -415,8 +413,8 @@ describe('buildCreateUserPayload', () => {
 
     it('uses the raw number when no rates are loaded', () => {
       const payload = buildCreateUserPayload(
-        makeValue({ role: 'ACCOUNTANT', monthlySalary: '1500', salaryCurrency: 'EUR' }),
-        { hrIds: [], accountantId: '', exchangeRates: undefined },
+        makeValue({ role: 'HR', monthlySalary: '1500', salaryCurrency: 'EUR' }),
+        { hrIds: [], exchangeRates: undefined },
       )
       expect(payload.monthlySalary).toBe(1500)
       expect(payload.salaryCurrency).toBe('USD')
@@ -449,12 +447,11 @@ describe('buildCreateUserPayload', () => {
       expect('projectId' in buildCreateUserPayload(makeValue(), NO_TEAM)).toBe(false)
     })
 
-    it.each(['HR', 'ACCOUNTANT', 'ADMIN', 'SENIOR'] as const)(
+    it.each(['HR', 'ADMIN', 'SENIOR'] as const)(
       'is omitted for %s even when a stale projectId is set',
       (role) => {
         const payload = buildCreateUserPayload(makeValue({ role, projectId: 'proj-1' }), {
           hrIds: ['hr-1'],
-          accountantId: '',
           exchangeRates: RATES,
         })
         expect('projectId' in payload).toBe(false)
@@ -569,7 +566,7 @@ function makeDropValue(overrides: Partial<CreateDropFormValue> = {}): CreateDrop
   }
 }
 
-const DROP_DEPS = { hrIds: ['hr-1', 'hr-2'], accountantId: 'acc-1' }
+const DROP_DEPS = { hrIds: ['hr-1', 'hr-2'] }
 
 describe('buildCreateDropPayload', () => {
   it('builds the minimal USDT payload (optional keys explicitly undefined / null)', () => {
@@ -582,7 +579,6 @@ describe('buildCreateDropPayload', () => {
       paymentMethod: 'USDT_ERC20',
       walletUsdtErc20: '0xwallet',
       hrIds: ['hr-1', 'hr-2'],
-      accountantId: 'acc-1',
       telegramChannel: null,
     })
   })
@@ -611,7 +607,6 @@ describe('buildCreateDropPayload', () => {
       walletUsdtErc20: '0xabc',
       walletUsdtLabel: 'main',
       hrIds: ['hr-1', 'hr-2'],
-      accountantId: 'acc-1',
       telegramChannel: null,
     })
   })
@@ -645,7 +640,6 @@ describe('buildCreateDropPayload', () => {
       paymentMethod: 'USDT_ERC20',
       walletUsdtErc20: '0xwallet',
       hrIds: ['hr-1', 'hr-2'],
-      accountantId: 'acc-1',
       telegramChannel: null,
     })
   })
@@ -676,7 +670,6 @@ describe('buildCreateDropPayload', () => {
       bankUahRnokpp: '1234567890',
       bankUahBankName: 'Mono',
       hrIds: ['hr-1', 'hr-2'],
-      accountantId: 'acc-1',
       telegramChannel: null,
     })
   })
@@ -703,10 +696,10 @@ describe('buildCreateDropPayload', () => {
     expect('techStack' in buildCreateDropPayload(makeDropValue(), DROP_DEPS)).toBe(false)
   })
 
-  it('accountantId: empty becomes null; hrIds passed through by reference', () => {
+  it('never sends accountantId; hrIds passed through by reference', () => {
     const hrIds = ['hr-9']
-    const payload = buildCreateDropPayload(makeDropValue(), { hrIds, accountantId: '' })
-    expect(payload.accountantId).toBeNull()
+    const payload = buildCreateDropPayload(makeDropValue(), { hrIds })
+    expect('accountantId' in payload).toBe(false)
     expect(payload.hrIds).toBe(hrIds)
   })
 
@@ -738,7 +731,6 @@ describe('buildCreateDropPayload', () => {
       paymentMethod: 'USDT_ERC20',
       walletUsdtErc20: '0xwallet',
       hrIds: ['hr-1', 'hr-2'],
-      accountantId: 'acc-1',
       telegramChannel: null,
       legalFullName: 'Full Legal',
       registrationAddress: 'Addr',
@@ -809,7 +801,7 @@ describe('buildWizardUpdatePayload', () => {
         seniorSharePercent: 30,
         monthlySalary: '1000',
       }),
-      { hrIds: ['hr-1', 'hr-2'], accountantId: 'acc-1', exchangeRates: RATES },
+      { hrIds: ['hr-1', 'hr-2'], exchangeRates: RATES },
     )
     expect(payload).toStrictEqual({
       displayName: 'Test User',
@@ -820,13 +812,12 @@ describe('buildWizardUpdatePayload', () => {
       walletUsdtLabel: 'main',
       seniorSharePercent: 30,
       hrIds: ['hr-1', 'hr-2'],
-      accountantId: 'acc-1',
     })
   })
 
-  it('SENIOR with no accountant picked sends accountantId null and keeps empty hrIds', () => {
+  it('SENIOR sends no accountantId and keeps empty hrIds', () => {
     const payload = buildWizardUpdatePayload(makeWizardValue({ role: 'SENIOR' }), NO_TEAM)
-    expect(payload.accountantId).toBeNull()
+    expect('accountantId' in payload).toBe(false)
     expect(payload.hrIds).toStrictEqual([])
     expect(payload.seniorSharePercent).toBe(26)
   })
@@ -834,7 +825,7 @@ describe('buildWizardUpdatePayload', () => {
   it('ADMIN: forced USDT even if BANK selected, salary block (non-SENIOR), no senior block', () => {
     const payload = buildWizardUpdatePayload(
       makeWizardValue({ role: 'ADMIN', paymentMethod: 'BANK_UAH_FOP', bankUahIban: 'UA1' }),
-      { hrIds: ['hr-1'], accountantId: 'acc-1', exchangeRates: RATES },
+      { hrIds: ['hr-1'], exchangeRates: RATES },
     )
     expect(payload).toStrictEqual({
       displayName: 'Test User',
@@ -912,7 +903,7 @@ describe('buildWizardUpdatePayload', () => {
   it('non-SENIOR salary passes through unconverted when exchange rates are not loaded', () => {
     const payload = buildWizardUpdatePayload(
       makeWizardValue({ monthlySalary: '1500.555', salaryCurrency: 'UAH' }),
-      { hrIds: [], accountantId: '', exchangeRates: undefined },
+      { hrIds: [], exchangeRates: undefined },
     )
     expect(payload.monthlySalary).toBe(1500.555)
   })
@@ -1026,7 +1017,6 @@ function makeEditValue(overrides: Partial<EditUserFormValue> = {}): EditUserForm
 const EDIT_DEPS = {
   editingUser: SNAPSHOT,
   hrIds: ['hr1'],
-  accountantId: 'acc1',
   exchangeRates: RATES,
 }
 
@@ -1037,7 +1027,6 @@ describe('buildEditUpdatePayload', () => {
       telegram: null,
       phone: null,
       hrIds: ['hr1'],
-      accountantId: 'acc1',
       teamTelegramChannel: null,
       registrationAddress: null,
     })
@@ -1084,9 +1073,9 @@ describe('buildEditUpdatePayload', () => {
     expect('teamTelegramChannel' in p).toBe(false)
   })
 
-  it('SENIOR with empty accountant sends accountantId null', () => {
-    const p = buildEditUpdatePayload(makeEditValue(), { ...EDIT_DEPS, accountantId: '' })
-    expect(p.accountantId).toBeNull()
+  it('SENIOR never sends accountantId', () => {
+    const p = buildEditUpdatePayload(makeEditValue(), EDIT_DEPS)
+    expect('accountantId' in p).toBe(false)
   })
 
   it('normalizedTeamChannel: blank -> null, @-prefixed stripped, bare kept, trimmed', () => {

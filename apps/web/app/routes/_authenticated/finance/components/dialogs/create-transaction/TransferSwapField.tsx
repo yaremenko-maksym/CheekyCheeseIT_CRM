@@ -18,7 +18,10 @@ export function TransferSwapField({
       </Label>
       <div className="flex items-center gap-2">
         {/* Sender card */}
-        <div className="flex-1 flex flex-col items-center gap-1 rounded-lg border px-3 py-2.5 transition-all text-center border-border bg-muted/20">
+        <div
+          data-testid="transfer-sender-card"
+          className="flex-1 flex flex-col items-center gap-1 rounded-lg border px-3 py-2.5 transition-all text-center border-border bg-muted/20"
+        >
           <div className="h-8 w-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-sm font-bold text-primary">
             {transferSender?.displayName.charAt(0) ?? '?'}
           </div>
@@ -33,7 +36,10 @@ export function TransferSwapField({
         <ArrowRight aria-hidden="true" className="shrink-0 h-4 w-4 text-muted-foreground" />
 
         {/* Receiver card */}
-        <div className="flex-1 flex flex-col items-center gap-1 rounded-lg border px-3 py-2.5 transition-all text-center border-border bg-muted/20">
+        <div
+          data-testid="transfer-receiver-card"
+          className="flex-1 flex flex-col items-center gap-1 rounded-lg border px-3 py-2.5 transition-all text-center border-border bg-muted/20"
+        >
           <div className="h-8 w-8 rounded-full bg-muted/40 border border-border flex items-center justify-center text-sm font-bold text-muted-foreground">
             {transferReceiver?.displayName.charAt(0) ?? '?'}
           </div>

@@ -17,8 +17,7 @@ import type { UserOption } from './shared'
 // default, AC9) + «Рахунок компанії», no group headers, no default
 // pre-selection — covering BOTH routes (createAdminIncome AND
 // declareUsdtProjectIncome). `adminUsers` is role-filtered (=== 'ADMIN'): a drop
-// structurally cannot appear here. ACCOUNTANT does NOT get this Select — it gets
-// the constrained funding toggle instead.
+// structurally cannot appear here.
 export function AdminIncomeReceiverField({
   receiverId,
   setReceiverId,
@@ -84,8 +83,8 @@ export function AdminIncomeReceiverField({
           </Trans>
         </p>
       )}
-      {/* Company account balance hint — same hint the EXPENSE/ACCOUNTANT
-                  toggles show, now keyed off `receiverId` for this Select. */}
+      {/* Company account balance hint — same hint the EXPENSE
+                  toggle shows, now keyed off `receiverId` for this Select. */}
       {receiverId === COMPANY_ACCOUNT_RECEIVER && (
         <div className="flex items-center justify-between rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-400">
           <span>

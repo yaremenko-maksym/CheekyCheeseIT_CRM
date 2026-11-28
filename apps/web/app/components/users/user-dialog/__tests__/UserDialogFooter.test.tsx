@@ -66,8 +66,8 @@ describe('UserDialogFooter', () => {
   })
 
   it('renders a different role label for another role', () => {
-    render(<Harness role="ACCOUNTANT" />)
-    expect(screen.getByText('Бухгалтер')).toBeInTheDocument()
+    render(<Harness role="DROP" />)
+    expect(screen.getByText('Дроп')).toBeInTheDocument()
     expect(screen.queryByText('Сеньйор')).not.toBeInTheDocument()
   })
 

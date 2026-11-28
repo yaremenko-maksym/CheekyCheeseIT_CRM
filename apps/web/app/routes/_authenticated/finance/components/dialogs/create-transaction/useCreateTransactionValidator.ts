@@ -67,8 +67,7 @@ export function useCreateTransactionValidator({
     // Surface B). ADMIN now ALWAYS picks an explicit receiver for ADMIN_INCOME
     // — both routes (createAdminIncome and declareUsdtProjectIncome) — no
     // default pre-selection (same "deliberate choice each time" convention the
-    // USDT flow already had). ACCOUNTANT never sees this Select (their binary
-    // toggle always has a value), so no check needed for that role.
+    // USDT flow already had).
     if (type === 'ADMIN_INCOME' && isAdmin) {
       if (!receiverId) errors.receiver = t`Виберіть отримувача`
     }
