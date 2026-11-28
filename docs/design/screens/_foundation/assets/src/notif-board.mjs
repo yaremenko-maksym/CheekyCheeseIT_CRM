@@ -261,13 +261,15 @@ function column([title, n], { target = false, states = {}, extra = '', touch = f
     : 'background:var(--surface)'
   // Touch tablet 640–899 (R4-14, was 200 px in F0-38): fixed 290 px, two columns whole and the third peeks under
   // the fade, so a name stays on one line and the meta never breaks after «·»; never a cut count badge.
-  const size = touch ? 'flex:0 0 290px;width:290px' : 'flex:1 1 0;min-width:180px;max-width:280px'
+  // Fine pointer >= 900 (R5-14): minmax(220px, 280px) — the columns share the width; when six do not fit at 220 the
+  // board scrolls sideways with the edge fade (board-1440), so names stay on one line and the meta on two.
+  const size = touch ? 'flex:0 0 290px;width:290px' : 'flex:1 1 0;min-width:220px;max-width:280px'
   return `<section aria-label="${title}, ${n}" style="${size};display:flex;flex-direction:column;gap:8px;padding:8px;border-radius:12px;${ring}"><div class="row" style="justify-content:space-between;gap:6px;height:28px;padding:0 4px;min-width:0"><span class="trunc" style="font-size:13px;font-weight:600">${title}</span><span class="pill num" style="height:20px;flex:none">${n}</span></div><div role="list" class="col" style="gap:8px">${cards}${extra}</div></section>`
 }
 
 /** board-1440: a drag in progress (source, lifted card, drop target) and a focused card with its «Етап» button. */
 export function board1440() {
-  const lifted = `<div style="position:absolute;left:398px;top:262px;width:166px;z-index:5">${card(['ОК', 'Олена Коваль', 'Frontend · «Альфа»', '12.11 · 11:00'], { state: 'lifted' })}</div>`
+  const lifted = `<div style="position:absolute;left:478px;top:262px;width:204px;z-index:5">${card(['ОК', 'Олена Коваль', 'Frontend · «Альфа»', '12.11 · 11:00'], { state: 'lifted' })}</div>`
   const cols = STAGES.map((s) => {
     if (s[0] === 'Англійська') return column(s, { states: { 0: 'source' } })
     if (s[0] === 'Технічна')
@@ -281,7 +283,7 @@ export function board1440() {
   }).join('')
   const live = `<div role="status" class="sr">Олена Коваль: над «Технічна». Відпустіть, щоб перемістити, або Esc, щоб скасувати.</div>`
   const content = `<div class="row" style="gap:8px"><span class="row dsearch" style="gap:8px;height:32px;width:300px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:var(--muted-fg);font-size:13px">${icon('search', { size: 14 })}<span class="grow">Пошук співбесід</span><span class="kbdkey">/</span></span><span class="grow"></span><span class="t-foot muted num">12 активних</span></div>
-  <div style="position:relative;min-height:0;flex:1;overflow:hidden"><div class="row" style="gap:12px;align-items:flex-start">${cols}</div>${lifted}${live}</div>`
+  <div style="position:relative;min-height:0;flex:1;overflow:hidden"><div class="row" style="gap:12px;align-items:flex-start;width:max-content">${cols}</div>${lifted}${live}<div aria-hidden="true" style="position:absolute;top:0;right:0;bottom:0;width:64px;background:linear-gradient(to right, transparent, var(--bg));pointer-events:none"></div></div>`
   return desktop({
     w: 1440,
     h: 900,
@@ -312,7 +314,7 @@ export function boardStageSheet(w, h) {
   })
 }
 
-/** board-768: touch tablet. «Змінити етап» on every card (44 px); columns are 200 px and scroll sideways with an edge fade. */
+/** board-768: touch tablet. «Змінити етап» on every card (44 px); columns are 290 px (§12 Board) and scroll sideways with an edge fade. */
 export function board768() {
   const cols = STAGES.map((st) => column(st, { touch: true })).join('')
   const fade =

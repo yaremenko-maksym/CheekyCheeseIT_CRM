@@ -370,7 +370,10 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
   - **Both definite cases at ≥ 640 (R4-31)** happen in the open side panel, the same way: the alert tops
     the panel body and takes focus, a field error sits inline under its field, the primary stays enabled,
     no toast and no pill, and the panel never closes on its own (`primitives-v2/save-error-offline-768`,
-    `primitives-v2/save-error-definite-1024`).
+    `primitives-v2/save-error-definite-1024`). **The primary per case (R5-15), every class:** offline or a
+    server error with no field → «Повторити збереження» (the same payload is resent); a field error →
+    «Зберегти» (the user changes the field first). A create says «Транзакцію не надіслано»; an edit says
+    «Зміни не збережено» («Немає з’єднання. Зміни залишились у формі.»).
   - **Unknown** — it may have committed: a 502 / 504 from the gateway, a Cloudflare 524 (prod sits behind
     Cloudflare), a connection dropped after sending, or a client timeout. On a form without a key the
     alert reads «Відповідь не надійшла. Форма й чек залишились. Перевірте список: якщо транзакції там

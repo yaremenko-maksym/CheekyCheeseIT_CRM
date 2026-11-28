@@ -175,7 +175,7 @@ translucent bar with blur while stuck; date sections show the day total on the r
 loaded page hides its total until the next page loads (no extra request).
 **Row rule:** §12.0 holds it for every row at every width (`listrow-sticky-320`, `list-footer-375`, `list-footer-320`, `listrow-768`); no other passage restates it.
 
-**Board** (`board-1440`, `board-768`, `board-stage-sheet-375`, `board-undo-375`, `board-hire-confirm-375`; today the interviews pipeline). At ≥ 640: one column per active stage, `minmax(180px, 1fr)` capped at 280 px, so the columns share the width and no stage is clipped while space is left (`board-1440`). Only when the stages do not fit at 180 px does the board scroll sideways: a fade on the clipped edge, plus a visible scrollbar for the mouse (`board-768`). A touch drag held within 48 px of the board's left or right edge scrolls the board that way. The column header holds the stage name and its count
+**Board** (`board-1440`, `board-768`, `board-stage-sheet-375`, `board-undo-375`, `board-hire-confirm-375`; today the interviews pipeline). At ≥ 640: one column per active stage; **column widths are the one rule in §12 Board (R5-14)**. When the stages do not fit, the board scrolls sideways: a fade on the clipped edge, plus a visible scrollbar for the mouse (`board-768`, `board-1440`). A touch drag held within 48 px of the board's left or right edge scrolls the board that way. The column header holds the stage name and its count
 (`tabular-nums`; the accessible name reads «Технічна, 2»). A card shows initials, the name (wraps, never
 truncates), one muted line (role · project) and a date (`tabular-nums`). **Card states:** rest; at a fine pointer, hover or focus shows a 32 px «Змінити етап» button in the top-right corner (tooltip «Змінити етап (M)»; focus ring per foundation §13); under `(pointer: coarse)` that button is always visible with a 44 px hit area (foundation §13, `board-768`); the **drag
 source** stays in place at 35 % opacity with a dashed border; the **lifted card** follows the pointer,
@@ -708,7 +708,7 @@ Re-render: `node assets/src/render.mjs primitives [filter]`, then `assets/src/co
   definite = 4xx + app 500 / 503; unknown = 502 / 504 / 524, a drop after send, a client timeout.
 - The 768 / 1440 toast, upload pill and skeleton frames show placement and metrics; the screen specs own
   the content.
-- The board's `M` key and the `minmax(180px, 1fr)` column capped at 280 px are settled (council R11); the interviews screen spec only places them.
+- The board's `M` key and the column widths (§12 Board) are settled; the interviews screen spec only places them.
 
 ## 12. Council rules (r1, r2)
 
@@ -922,9 +922,12 @@ Columns follow the **container**, not the viewport (R1-07): one column below 560
 ### Board (F0-38)
 
 - Card meta takes two lines (role · project, then the date); it wraps, never truncates.
-- On the touch tablet (640–899) the columns are 290 px (R4-14): two fit whole at 768 and the third peeks
-  under the end fade, so a name stays on one line, the meta never breaks after «·» and a count badge is
-  never cut (`board-768`).
+- **Column widths (the one rule; R4-14, R5-14).** Touch tablet (640–899): a fixed 290 px; two fit whole at
+  768 and the third peeks under the end fade (`board-768`). Everywhere else: `minmax(220px, 280px)`, the
+  columns share the width; when the stages do not fit at 220 px the board scrolls sideways with the edge
+  fade (`board-1440`: six stages, five whole). So a name stays on one line (a focused card's «Етап» button
+  may push a long name to a second line), the meta takes at most two lines, «·» binds to the item after it
+  (NBSP: «Frontend · «Альфа»» never breaks inside) and a count badge is never cut.
 
 ### Tab-bar strip (F0-39)
 

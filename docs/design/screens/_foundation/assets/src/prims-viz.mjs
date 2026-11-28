@@ -38,7 +38,7 @@ import {
 
 // ---------- ResponsiveSheet ≥ 640: right side panel; confirm = centred dialog ----------
 
-function sidePanel(width, { touch = false, modal = true, extra = {} } = {}) {
+function sidePanel(width, { touch = false, modal = true, extra = {}, primary = 'Зберегти' } = {}) {
   // < 1440 modal over a scrim (focus trapped); ≥ 1440 non-modal: a landmark in the flex row, no scrim, the table stays usable.
   const shell = modal
     ? `<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>
@@ -58,7 +58,7 @@ function sidePanel(width, { touch = false, modal = true, extra = {} } = {}) {
       ...extra,
     })
   }</div>
-  <div class="row" style="gap:8px;justify-content:flex-end;padding:14px 24px;border-top:1px solid var(--border)"><span class="btn sm secondary" style="height:${touch ? 44 : 36}px;font-size:14px">Скасувати</span><span class="btn sm primary" style="height:${touch ? 44 : 36}px;font-size:14px">Зберегти${touch ? '' : `<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">⌘↵</span>`}</span></div></aside>`
+  <div class="row" style="gap:8px;justify-content:flex-end;padding:14px 24px;border-top:1px solid var(--border)"><span class="btn sm secondary" style="height:${touch ? 44 : 36}px;font-size:14px">Скасувати</span><span class="btn sm primary" style="height:${touch ? 44 : 36}px;font-size:14px">${primary}${touch ? '' : `<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">⌘↵</span>`}</span></div></aside>`
 }
 
 export const panelDesktop = (w, h) =>
@@ -67,17 +67,20 @@ export const panelDesktop = (w, h) =>
     : desktop({ w, h, overlay: sidePanel(420) })
 /** R4-31: a definite or offline save error at >= 640 stays in the open panel, as on the phone (foundation §11):
  * the alert tops the panel body and takes focus, a field error sits inline, the primary stays enabled; no toast,
- * no pill, the panel never closes on its own. Tablet: offline; desktop: a definite 422 on the date. */
+ * no pill, the panel never closes on its own. Tablet: offline; desktop: a definite 422 on the date.
+ * R5-15: the primary names the next step per case — offline: «Повторити збереження» (the same payload is resent);
+ * a definite field error: «Зберегти» (the user changes the field first). The edit panel says «Зміни не збережено». */
 export const saveErrorOfflineTablet = (w, h) =>
   tablet({
     w,
     h,
     overlay: sidePanel(400, {
       touch: true,
+      primary: 'Повторити збереження',
       extra: {
         alert: errAlert(
-          'Транзакцію не надіслано',
-          'Немає з’єднання. Нічого не збережено; сума й чек залишились у формі.',
+          'Зміни не збережено',
+          'Немає з’єднання. Зміни залишились у формі.',
         ),
       },
     }),
