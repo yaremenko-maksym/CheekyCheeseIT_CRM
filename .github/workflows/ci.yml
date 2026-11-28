@@ -551,10 +551,13 @@ jobs:
   # (every project spec runs in exactly one shard — verified by listing both shards against the
   # unsharded set). shared and landing stay in quality_core. Hard gate: the `quality`
   # aggregator below `needs:` this job.
-  # Prerequisites carried over from quality_core, plus the two build artifacts the suite needs on a
-  # fresh checkout (verified by running it without them: 49 of 392 files in one shard failed to
-  # load): the Lingui catalogs `locales/{uk,en}/messages.ts` and `@crm/inference`'s `dist/`.
-  # `@crm/shared` needs no build (apps/api/vitest.config.mts aliases it to TypeScript source).
+  # Prerequisites carried over from quality_core, plus the generated artifacts the suite needs on a
+  # fresh checkout (verified by running both shards without them, then with them): the Lingui
+  # catalogs `locales/{uk,en}/messages.ts` and the `dist/` of `@crm/inference` (package entry point;
+  # 49 of 392 files in shard 1 failed to load without them) and of `@crm/shared` (only
+  # app.module.container.spec.ts needs it: it boots the tsc-compiled DI container, which resolves
+  # `@crm/shared` through node_modules, not through the vitest alias). The full `pnpm build`
+  # (web, api, landing) is not needed.
   unit_api:
     name: Unit Tests (api ${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
@@ -639,9 +642,9 @@ jobs:
         if: steps.scope.outputs.code == 'true'
         run: pnpm i18n:compile
 
-      - name: Build @crm/inference (dist/ is its package entry point)
+      - name: Build @crm/shared and @crm/inference (dist/ is their package entry point)
         if: steps.scope.outputs.code == 'true'
-        run: pnpm --filter @crm/inference build
+        run: pnpm --filter @crm/shared --filter @crm/inference build
 
       # No DATABASE_URL: integration specs are excluded from discovery on a non-integration run.
       - name: Run api unit tests
