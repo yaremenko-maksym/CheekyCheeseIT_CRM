@@ -132,7 +132,7 @@ function cal(c) {
 
 export function datepickerSheet(w, h) {
   const body = `<div style="padding:4px 16px 0;display:grid;justify-content:center">${cal(44)}</div>
-  <div class="row" style="justify-content:space-between;gap:12px;padding:12px 16px ${safeBottom(w) + 12}px"><span class="t-foot muted">Вибір дня закриває аркуш</span><span class="btn sm secondary" role="button" style="height:44px">Сьогодні</span></div>`
+  <div class="row" style="justify-content:space-between;gap:12px;padding:12px 16px ${safeBottom(w) + 12}px"><span class="t-foot muted">Вибір дня закриває календар</span><span class="btn sm secondary" role="button" style="height:44px">Сьогодні</span></div>`
   const overlay = sheet({ w, h, top: null, title: 'Дата', trail: closeBtn, body })
   return tabScreen({
     w,
@@ -298,7 +298,7 @@ export const stateErrorDesktop = (w, h) => deskState(w, h, errorBlock())
 export function sessionExpiredDesktop(w, h) {
   const dlg = `${ALERT_SCRIM()}<div role="alertdialog" aria-modal="true" aria-labelledby="sx-t" aria-describedby="sx-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:80;padding:20px 20px 16px;${POP}">
   <div id="sx-t" class="t-head">Сесія завершилася. Увійдіть знову, щоб продовжити.</div>
-  <div id="sx-d" class="t-foot muted" style="margin-top:8px;font-size:14px;line-height:20px">Введене у формі «Нова співбесіда» збережеться на цьому пристрої й повернеться після входу.</div>
+  <div id="sx-d" class="t-foot muted" style="margin-top:8px;font-size:14px;line-height:20px">Введені у формі «Нова співбесіда» дані збережуться на цьому пристрої й повернуться після входу.</div>
   <div class="row" style="justify-content:flex-end;gap:8px;margin-top:18px"><span class="btn secondary" style="height:36px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Не зараз</span><span class="btn primary" style="height:36px">Увійти знову</span></div></div>`
   return peopleDesk({
     w,
@@ -353,21 +353,25 @@ export function searchPagedPhone(w, h) {
 // slot holds the delta at rest and the selected month (with the 44 px step buttons) when a bar is tapped; the
 // partner card sits under it at full width (R5-33). No tooltip on touch.
 export function chartTablet(w, h, { tapped = false } = {}) {
-  const card = `<div style="margin:0 16px 12px;padding:14px 16px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted">Чистий прибуток · 6 міс</div><div class="num" style="font-size:24px;font-weight:700">+${usd(NET_K)} USD</div></div>${legend(
+  const card = `<div style="margin:0 16px 12px;padding:14px 16px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted">Чистий прибуток · 6 міс.</div><div class="num" style="font-size:24px;font-weight:700">+${usd(NET_K)} USD</div></div>${legend(
     [
       ['var(--chart-1)', 'Прибуток'],
       ['', 'Збиток', 'hatch'],
     ],
   )}</div>${valueSlot(tapped, 56)}<div style="margin-top:8px">${netBars(w - 80 - 64, 300, { labelSize: 12, pad: 34, selected: tapped ? 4 : -1 })}</div></div>`
   const partners = `<div style="margin:0 16px 12px;padding:14px 16px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted">Дивіденди адміну · 2026</div><div class="num" style="font-size:24px;font-weight:700">${usd(PART_K)} USD</div><div style="margin:8px 0 6px">${partnerBars(w - 80 - 64, 170, { labelSize: 12 })}</div>${legend([])}</div>`
-  const list = `<section aria-label="Статистика" class="col grow" style="min-width:0">${paneHead('Статистика')}<div style="padding:0 16px 12px">${segmented(['3 міс', '6 міс', 'Рік'], 1, { fit: true })}</div>${card}${partners}</section>`
+  const list = `<section aria-label="Статистика" class="col grow" style="min-width:0">${paneHead('Статистика')}<div style="padding:0 16px 12px">${segmented(['3 міс.', '6 міс.', 'Рік'], 1, { fit: true })}</div>${card}${partners}</section>`
   return tablet({ w, h, list, active: '/stats' })
 }
 
 // R7-19: paging without a query: the list reached its loaded end and auto-loads the next page (skeleton rows), as
 // §3 List footer says; with a query auto-load is off and the covered line answers instead (`search-paged-375`).
 export function listFooterTablet(w, h) {
-  return tablet({ w, h, list: txnPane(listFooter(w - 80, { menu: true }).replace(/width:\d+px;/, '')) })
+  return tablet({
+    w,
+    h,
+    list: txnPane(listFooter(w - 80, { menu: true }).replace(/width:\d+px;/, '')),
+  })
 }
 
 /** Desktop table end: the next page auto-loads at the end; failure keeps the rows and adds an inline retry row. */
@@ -443,7 +447,7 @@ export const sheetDirtyClose = (w, h) =>
     actionConfirm(w, {
       id: 'dc',
       title: 'Вийти без збереження?',
-      desc: 'Введене в цій формі буде втрачено.',
+      desc: 'Введені в цій формі дані буде втрачено.',
       action: 'Вийти',
       cancel: 'Залишитися',
       overSheet: true,
@@ -487,7 +491,7 @@ export const pageKillDesktop = (w, h) => desktop({ w, h, overlay: pageKillDialog
 export function sessionExpiredTablet(w, h) {
   const dlg = `${ALERT_SCRIM()}<div role="alertdialog" aria-modal="true" aria-labelledby="sx-t" aria-describedby="sx-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:80;padding:22px 24px 18px;${POP}">
   <div id="sx-t" class="t-head">Сесія завершилася. Увійдіть знову, щоб продовжити.</div>
-  <div id="sx-d" class="t-foot muted" style="margin-top:8px;font-size:15px;line-height:21px">Введене у формі «Нова співбесіда» збережеться на цьому пристрої й повернеться після входу.</div>
+  <div id="sx-d" class="t-foot muted" style="margin-top:8px;font-size:15px;line-height:21px">Введені у формі «Нова співбесіда» дані збережуться на цьому пристрої й повернуться після входу.</div>
   <div class="row" style="justify-content:flex-end;gap:8px;margin-top:20px"><span class="btn secondary" style="height:44px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Не зараз</span><span class="btn primary" style="height:44px">Увійти знову</span></div></div>`
   return tablet({
     w,

@@ -3,6 +3,7 @@
 //   frame -> table  every rendered string is covered by a row (as before) whose en cell is filled;
 //   table -> frame  every uk token of a row is drawn in some frame, unless the row's Kind is `interaction`
 //                   (an announcement, an accessible name, a state no frame draws) — only with set `all`;
+//                   a `plural` row (Lingui one / few / many, en one / other) needs one drawn form per part;
 //   uk <-> en       per row: the same number of « · » parts and « / » alternatives (plural tags collapsed)
 //                   and the same {placeholders}.
 // r6 (R5-18, R5-28): `two ways` — one string drawn with two texts that differ only by a trailing «…», «.» or «:»;
@@ -327,13 +328,18 @@ for (const [fr, l] of dangles)
   )
 // table -> frame: only meaningful over every frame of both sets.
 const full = set === 'all' && !filter
-const interaction = rows.filter((r) => r[3] === 'interaction')
+// Kind is a set of words: `interaction` = no frame draws it; `plural` = a Lingui plural whose forms are
+// « / » alternatives, so a drawn row needs one drawn form per « · » part, not every form.
+const kinds = (k) => new Set((k || '').split(/[\s,]+/).filter(Boolean))
+const interaction = rows.filter((r) => kinds(r[3]).has('interaction'))
+const undrawn = (id, uk, kind) => {
+  const tok = (t) => used.has(`${id}\u0000${norm(t.replace(/\s\((one|few|many|other)\)$/, ''))}`)
+  if (!kinds(kind).has('plural'))
+    return (tokensOf.get(id) || []).some((t) => !used.has(`${id}\u0000${t}`))
+  return uk.split(/\s·\s/).some((part) => !part.split(/\s\/\s/).some(tok))
+}
 const unused = full
-  ? rows.filter(
-      ([id, , , kind]) =>
-        kind !== 'interaction' &&
-        (tokensOf.get(id) || []).some((t) => !used.has(`${id}\u0000${t}`)),
-    )
+  ? rows.filter(([id, uk, , kind]) => !kinds(kind).has('interaction') && undrawn(id, uk, kind))
   : []
 for (const [id, uk] of unused) {
   const miss = tokensOf.get(id).filter((t) => !used.has(`${id}\u0000${t}`))

@@ -54,9 +54,9 @@ const NOTIFS = [
 const notifRow = (n, more = false) =>
   `<div class="lrow two" style="--inset:64px;align-items:flex-start${more ? ';padding-right:4px' : ''}">${n.notarget ? (n.unread ? `<button type="button" class="row grow" aria-label="Позначити як прочитане: ${n.t}" style="gap:12px;align-items:flex-start;min-width:0;min-height:44px;color:inherit;background:none;border:0;padding:0;font:inherit;text-align:left">` : '<div class="row grow" style="gap:12px;align-items:flex-start;min-width:0">') : '<a href="#" class="row grow" style="gap:12px;align-items:flex-start;min-width:0;min-height:44px;color:inherit;text-decoration:none">'}<div class="lead" style="margin-top:2px;position:relative">${icon(n.ic, { size: 18 })}${n.unread ? '<i aria-label="Непрочитане" style="position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:5px;background:var(--primary);box-shadow:0 0 0 2px var(--card)"></i>' : ''}</div><div class="grow col" style="gap:2px;min-width:0"><div class="t-body" style="font-weight:${n.unread ? 600 : 400};overflow-wrap:anywhere">${n.t}</div><div class="t-foot muted num" style="overflow-wrap:anywhere">${n.at} · ${n.s}</div></div>${n.notarget ? (n.unread ? '</button>' : '</div>') : '</a>'}${more === 'del' ? `<span class="iconbtn" role="button" aria-label="Видалити сповіщення" style="color:var(--muted-fg)">${icon('trash-2', { size: 20 })}</span>` : more ? `<span class="iconbtn" role="button" aria-label="Дії зі сповіщенням" aria-haspopup="menu" style="color:var(--muted-fg)">${icon('ellipsis', { size: 20 })}</span>` : ''}</div>`
 
-// «Прочитати все» (the shipped label): a text button with a 44 px hit area that adds no height (padding cancelled by margin).
+// «Позначити все прочитаним» (the shipped label): a text button with a 44 px hit area that adds no height (padding cancelled by margin).
 const markAll = (pad = 14) =>
-  `<a href="#" role="button" style="padding:${pad}px 8px;margin:-${pad}px -8px;font-size:13px;font-weight:600;color:var(--primary);text-decoration:none;white-space:nowrap">Прочитати все</a>`
+  `<a href="#" role="button" style="padding:${pad}px 8px;margin:-${pad}px -8px;font-size:13px;font-weight:600;color:var(--primary);text-decoration:none;white-space:nowrap">Позначити все прочитаним</a>`
 
 // The count line «Непрочитаних: N» (server `unreadCount`): body text, not a section overline.
 const sec = (label, trail = '', pad = '14px 16px 8px') =>
@@ -86,7 +86,7 @@ const EMPTY = () =>
 
 /** Phone: a medium sheet over the page the bell was tapped on; the bell's page stays behind the scrim. */
 // F0-34: first load = skeleton rows under the real header; a failed load = an inline alert with retry (the sheet stays).
-// R1-06: the skeleton is the real list shape — the real count line and «Прочитати все» stay, rows are lead tile + two text lines (no amount column, as in notifRow).
+// R1-06: the skeleton is the real list shape — the real count line and «Позначити все прочитаним» stay, rows are lead tile + two text lines (no amount column, as in notifRow).
 const skNotif = () =>
   `<div class="lrow two" style="--inset:64px;align-items:flex-start"><div class="sk" style="width:36px;height:36px;border-radius:10px;margin-top:2px"></div><div class="grow col" style="gap:8px;min-width:0"><div class="sk" style="height:14px;width:68%"></div><div class="sk" style="height:11px;width:46%"></div></div></div>`
 const LOADING = () =>

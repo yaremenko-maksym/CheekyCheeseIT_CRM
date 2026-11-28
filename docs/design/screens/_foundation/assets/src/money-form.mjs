@@ -219,7 +219,12 @@ export const DECIMAL_H = 44 + 4 * 46 + 4 * 8 + 30 + 8
 
 // R6-15: the drawn return key comes from the focused field's `enterkeyhint`: «Далі» (next), «Готово» on the last field
 // (done), and the return glyph in a textarea (enter), never «Далі» there.
-const RETURN = { next: 'Далі', done: 'Готово', search: 'Пошук', enter: icon('corner-down-left', { size: 20 }) }
+const RETURN = {
+  next: 'Далі',
+  done: 'Готово',
+  search: 'Пошук',
+  enter: icon('corner-down-left', { size: 20 }),
+}
 export function textKeyboard(hint = 'next') {
   const key = (k) =>
     `<span style="flex:1;height:42px;border-radius:6px;background:oklch(0.36 0 0);display:grid;place-items:center;font-size:20px;color:#fff">${k}</span>`
@@ -584,8 +589,8 @@ export function moneyPill(w, kind = 'armed', { amount = AMOUNT, more = 0 } = {})
   if (kind === 'multi')
     return pillBox(
       w,
-      `<span style="color:var(--primary)">${icon('clock', { size: 24 })}</span>${pillText('Збережеться 2 транзакції', 'Після завантаження чеків · Відкрити')}`,
-      'Збережеться 2 транзакції після завантаження чеків. Відкрити',
+      `<span style="color:var(--primary)">${icon('clock', { size: 24 })}</span>${pillText('Збережуться 2 транзакції', 'Після завантаження чеків · Відкрити')}`,
+      'Збережуться 2 транзакції після завантаження чеків. Відкрити',
     )
   if (kind === 'inflight')
     return pillBox(
@@ -747,7 +752,6 @@ export function resultsChooser(w, h) {
     'aria-haspopup="dialog" aria-expanded="true" aria-label="Ще 1',
   )
 }
-
 
 /** Toast + pill: the pill keeps the base slot, at most one toast stacks 8 px above it. */
 export function toastPillStack(w, h) {

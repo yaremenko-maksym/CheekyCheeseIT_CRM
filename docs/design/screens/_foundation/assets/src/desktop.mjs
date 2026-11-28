@@ -87,7 +87,14 @@ function table(contentW, { skeleton = false, headOnly = false, rows = ROWS, touc
   // R7-05: under 800 px of main (a side panel open beside the table) «Тип» leaves the grid and rides in «Опис» as
   // the first part of the muted tail, so «Опис» keeps room for its distinguishing word.
   const slim = contentW < 800
-  const head = ['Дата', 'Опис', ...(slim ? [] : ['Тип']), ...(wide ? ['Проєкт'] : []), 'Чек', 'Сума']
+  const head = [
+    'Дата',
+    'Опис',
+    ...(slim ? [] : ['Тип']),
+    ...(wide ? ['Проєкт'] : []),
+    'Чек',
+    'Сума',
+  ]
   const th =
     head
       .map(
@@ -239,7 +246,7 @@ export function cmdk({ compact = false, empty = false, coarse = false, kbd = 0 }
     `<div class="row" role="option" aria-selected="${on}" style="gap:12px;height:${coarse ? 44 : 40}px;padding:0 12px;margin:0 6px;border-radius:8px;font-size:${coarse ? 16 : 14}px;${on ? 'background:var(--raised)' : ''}"><span class="${on ? '' : 'muted'}" style="${on ? 'color:var(--primary)' : ''}">${icon(ic, { size: 16 })}</span><span class="grow trunc" style="color:var(--muted-fg)">${hl(label)}${sub ? ` <span class="muted">· ${sub}</span>` : ''}</span>${keys.length ? `<span style="display:inline-flex;gap:4px">${keys.map((k) => `<span class="kbdkey">${k}</span>`).join('')}</span>` : ''}</div>`
   const grp = (t) => `<div class="t-over" style="font-size:11px;padding:10px 18px 4px">${t}</div>`
   const list = empty
-    ? `<div role="status" class="col" style="align-items:center;gap:4px;padding:28px 24px 24px;text-align:center"><div style="font-size:15px;font-weight:600">Нічого не знайдено за «${q}»</div><div class="t-foot muted">Палітра шукає дії, розділи й рядки, завантажені на цій сторінці.</div></div>`
+    ? `<div role="status" class="col" style="align-items:center;gap:4px;padding:28px 24px 24px;text-align:center"><div style="font-size:15px;font-weight:600">За запитом «${q}» нічого не знайдено</div><div class="t-foot muted">Палітра шукає дії, розділи й рядки, завантажені на цій сторінці.</div></div>`
     : `${grp('Дії')}${item('receipt', 'Нова транзакція', ['C'], true, 'ця сторінка')}${item('user-plus', 'Новий користувач')}${item('square-kanban', 'Нова співбесіда')}${item('briefcase', 'Нова вакансія')}`
   // All four ADMIN create actions start with «Нов…», so the «нов» filter keeps all four.
   const top = kbd ? 24 : compact ? 72 : 110

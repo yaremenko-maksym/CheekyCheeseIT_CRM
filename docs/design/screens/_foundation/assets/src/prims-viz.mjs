@@ -134,7 +134,7 @@ export function draftsDesktop(w, h, { chooser = false } = {}) {
   // R4-08, R5-21: the pinned draft row keeps the table's column grid: the date in «Дата», the state and send time in
   // «Опис» with a tonal «Відкрити» text
   // button, the type in «Тип», the amount in «Сума», and the fine-pointer «…» in the action slot (its menu:
-  // «Відкрити» · «Відкинути чернетку»). A click on the row opens the draft too; «…» is the only other way in.
+  // «Відкрити» · «Видалити чернетку»). A click on the row opens the draft too; «…» is the only other way in.
   const cell = (inner, extra = '') => `<td style="background:${WARN(7)};${extra}">${inner}</td>`
   const row = (wide) =>
     `<tr aria-label="Чернетка −${AMOUNT} USD, результат невідомий, надіслано о\u00a0${SENT_AT}">${cell(`<span class="row num" style="gap:6px;color:var(--warning)">${icon('file-pen', { size: 16 })}<span class="muted">11.11</span></span>`, 'box-shadow:inset 2px 0 0 var(--warning)')}${cell(`<span class="row" style="gap:8px;min-width:0"><span class="trunc muted">Результат невідомий · ${SENT_AT}</span><button type="button" class="btn sm" aria-label="Відкрити чернетку −${AMOUNT} USD" style="flex:none;height:28px;padding:0 10px;font-size:13px;color:var(--primary);background:oklch(0.84 0.183 85.3 / 0.14);border:0">Відкрити</button></span>`)}${cell('<span class="muted">Витрата</span>')}${wide ? cell('<span class="muted">—</span>') : ''}${cell('')}${cell(amt(`−${AMOUNT} USD`), 'text-align:right;font-weight:600')}<td class="kcell" style="background:${WARN(7)}"><button type="button" class="iconbtn" aria-haspopup="menu" aria-label="Дії: чернетка −${AMOUNT} USD" style="width:32px;height:32px;margin:auto">${icon('ellipsis', { size: 18 })}</button></td></tr>`
@@ -146,7 +146,7 @@ export function draftsDesktop(w, h, { chooser = false } = {}) {
     ? {
         active: '/stats',
         crumb: ['Гроші', 'Статистика'],
-        content: `<div style="padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Чистий прибуток · 6 міс</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+${usd(NET_K)} USD</div><div class="t-foot" style="color:var(--positive);margin-top:2px">${DELTA}</div><div style="margin-top:10px">${netBars(1100, 300, { labelSize: 12, pad: 34 })}</div>${legend(
+        content: `<div style="padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Чистий прибуток · 6 міс.</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+${usd(NET_K)} USD</div><div class="t-foot" style="color:var(--positive);margin-top:2px">${DELTA}</div><div style="margin-top:10px">${netBars(1100, 300, { labelSize: 12, pad: 34 })}</div>${legend(
           [
             ['var(--chart-1)', 'Прибуток'],
             ['', 'Збиток', 'hatch'],
@@ -498,9 +498,9 @@ export const valueSlot = (tapped, h) =>
 export function chartMobile(w, h, { scrolled = 0, tapped = false } = {}) {
   const card = (title, value, sub, chart, leg) =>
     `<div style="margin:0 16px 12px;padding:14px 14px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted">${title}</div><div class="row" style="gap:2px 8px;flex-wrap:wrap;align-items:baseline;margin-top:2px"><span class="num" style="font-size:24px;font-weight:700;letter-spacing:-0.02em;white-space:nowrap">${value}</span></div>${sub}<div style="margin-top:8px">${chart}</div>${leg}</div>`
-  const body = `<div style="padding:0 16px 10px">${segmented(['3 міс', '6 міс', 'Рік'], 1, { fit: true })}</div>
+  const body = `<div style="padding:0 16px 10px">${segmented(['3 міс.', '6 міс.', 'Рік'], 1, { fit: true })}</div>
   ${card(
-    'Чистий прибуток · 6 міс',
+    'Чистий прибуток · 6 міс.',
     `+${kFmt(NET_K)} тис. USD`,
     valueSlot(tapped, w <= 320 ? 76 : 56),
     // R7-02: the plot is sized to the viewport at scroll 0, so the legend ends above the FAB band and the last axis
@@ -540,7 +540,7 @@ export function chartDesktop({ selected = false } = {}) {
     ? `<div role="status" class="row t-foot num" style="gap:0 14px;flex-wrap:wrap;height:42px;align-content:flex-start;margin-top:2px"><span style="font-weight:600">Жовтень 2026</span><span style="font-weight:600;white-space:nowrap">+${money(OCT.net)} USD</span><span class="row" style="gap:6px"><span class="muted">Дохід</span><span style="white-space:nowrap">${money(OCT.income)} USD</span></span><span class="row" style="gap:6px"><span class="muted">Витрати</span><span style="white-space:nowrap">${money(OCT.expenses)} USD</span></span></div>`
     : `<div class="t-foot" style="color:var(--positive);height:42px;margin-top:2px">${DELTA}</div>`
   // F0-39: the period control and the active filter sit above the charts they drive; a filter is a removable chip.
-  const seg = ['3 міс', '6 міс', 'Рік']
+  const seg = ['3 міс.', '6 міс.', 'Рік']
     .map(
       (s, i) =>
         `<span role="radio" aria-checked="${i === 1}" style="display:grid;place-items:center;height:28px;padding:0 12px;border-radius:7px;font-size:13px;font-weight:500;${i === 1 ? 'background:var(--raised);color:var(--fg)' : 'color:var(--muted-fg)'}">${s}</span>`,
