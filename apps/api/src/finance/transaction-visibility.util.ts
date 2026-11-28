@@ -88,7 +88,7 @@ import type { TxWithRelations } from './transaction-mapper.util'
 /** Reusable predicate for LIST/JOIN reads — AND this into every multi-row query. */
 export const TRANSACTION_NOT_DELETED = isNull(transactions.deletedAt)
 
-/** ADMIN are the only roles that can ever see a deleted row. */
+/** ADMIN is the only role that can ever see a deleted row. */
 function isPrivilegedViewer(currentUser: SessionUser | null): boolean {
   return currentUser?.role === 'ADMIN'
 }

@@ -1015,7 +1015,7 @@ const UP_SENIOR = uploadPersona(3, 'SENIOR')
 const UP_JUNIOR = uploadPersona(4, 'JUNIOR')
 const UP_DROP = uploadPersona(5, 'DROP')
 const UP_OWNER = uploadPersona(6, 'SENIOR')
-// An unknown role reaches the service body as stored (JwtAuthGuard re-reads it from the DB).
+// A role outside the allowlist (a retired one included), passed to upload() as the actor's role.
 const UP_UNKNOWN: SessionUser = { ...uploadPersona(7, 'SENIOR'), role: 'X' as SessionUser['role'] }
 const UP_USERS = [UP_ADMIN, UP_HR, UP_SENIOR, UP_JUNIOR, UP_DROP, UP_OWNER, UP_UNKNOWN]
 const UP_IDS = UP_USERS.map((u) => u.id)
