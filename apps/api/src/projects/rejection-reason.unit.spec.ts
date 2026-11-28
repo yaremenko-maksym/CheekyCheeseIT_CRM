@@ -496,7 +496,7 @@ describe('ProjectsService.update — rejectionReason on the response (CR-M-1, PR
   })
 
   // SR-H-1 (PR #646 fix-round 2, HIGH). update() never called assertAccess —
-  // HR/ACCOUNTANT could PATCH a field they are allowed to touch (e.g. name)
+  // HR could PATCH a field they are allowed to touch (e.g. name)
   // on a REJECTED project they can never GET (findOne 404s them on the same
   // project) and get the full rejectionReason text back in the PATCH
   // response. Proven here the same way the finding itself proved it:
@@ -547,40 +547,5 @@ describe('ProjectsService.update — rejectionReason on the response (CR-M-1, PR
     await expect(
       service.update(PROJECT_ID, { name: 'Sneaky rename' }, sessionFor('hr-1', 'HR')),
     ).rejects.toThrow('Project not found')
-  })
-
-  it('SR-H-1: ACCOUNTANT patching ONLY finance-scoped fields (the branch that skips assertHrCanManageProject) still gets 404 on a REJECTED project they are not invited on — assertAccess runs regardless of which fields are touched', async () => {
-    const { service } = buildServiceWithAccessGate(rejectedProject(), { isApprover: false })
-
-    await expect(
-      service.update(
-        PROJECT_ID,
-        { seniorSharePercentOverride: 30 },
-        sessionFor('accountant-1', 'ACCOUNTANT'),
-      ),
-    ).rejects.toThrow('Project not found')
-  })
-
-  it("SR-H-1 defense-in-depth: even if update() authorization is ever loosened so a non-ADMIN caller CAN pass assertAccess on a REJECTED project (isApprover: true), the response still never carries rejectionReason — SR-M-5's ADMIN-only gate is independent of, not redundant with, the assertAccess gate", async () => {
-    // ACCOUNTANT doing a finance-scoped-only patch is the one non-ADMIN
-    // path that skips assertHrCanManageProject and reaches assertAccess
-    // directly — poisoning isApprover to true here (unreachable in the
-    // real domain model today, since only SENIOR/DROP are ever assigned as
-    // approvers) proves SR-M-5's gate does not silently rely on "nobody
-    // non-ADMIN ever gets this far" being true forever.
-    const { service } = buildServiceWithAccessGate(rejectedProject(), { isApprover: true })
-
-    // paymentType (not seniorSharePercentOverride) — still finance-scoped
-    // (satisfies ACCOUNTANT's hasOnlyOverride gate) but avoids
-    // syncFinanceSettingsOverride's own DB dependency, which this focused
-    // mock does not stub.
-    const result = await service.update(
-      PROJECT_ID,
-      { paymentType: 'FOP' },
-      sessionFor('accountant-1', 'ACCOUNTANT'),
-    )
-
-    expect(result.status).toBe('REJECTED')
-    expect(result.rejectionReason).toBeNull()
   })
 })

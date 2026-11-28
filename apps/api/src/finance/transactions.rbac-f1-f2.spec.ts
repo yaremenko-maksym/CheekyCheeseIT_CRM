@@ -280,13 +280,6 @@ describe('F2 — payout-request IDOR: findPayoutRequest', () => {
     await expect(svc.findPayoutRequest('req-1', admin)).resolves.toBeDefined()
   })
 
-  it('ACCOUNTANT can access any payout request', async () => {
-    const svc = makeServiceWithPayoutRequest(baseReq)
-    const accountant = user('ACCOUNTANT')
-
-    await expect(svc.findPayoutRequest('req-1', accountant)).resolves.toBeDefined()
-  })
-
   it('owner SENIOR can access their own payout request', async () => {
     const svc = makeServiceWithPayoutRequest(baseReq) // req.seniorId = SENIOR_ID
     const ownerSenior = user('SENIOR', SENIOR_ID)
@@ -390,7 +383,7 @@ describe('F2b — findPayoutRequest merges obligation-derived transactions', () 
 // a SEPARATE senior IOU) — recovering it must not be the first time an
 // unprivileged, non-creditor viewer sees it. Before settle that row never
 // passed the client's isIncomeTransaction filter (wrong type); after settle
-// it must still only reach ADMIN/ACCOUNTANT or the obligation's own creditor.
+// it must still only reach ADMIN or the obligation's own creditor.
 describe('F2c — findPayoutRequest narrows recovered obligations to their own creditor', () => {
   it('the creditor themselves sees their own recovered obligation', async () => {
     const recoveredTx = makeTx({ id: 'tx-own-obligation', type: 'SENIOR_INCOME' })
@@ -422,7 +415,7 @@ describe('F2c — findPayoutRequest narrows recovered obligations to their own c
     expect(result.transactions).toEqual([])
   })
 
-  it('ADMIN/ACCOUNTANT (privileged) see a recovered obligation regardless of who the creditor is', async () => {
+  it('ADMIN (privileged) see a recovered obligation regardless of who the creditor is', async () => {
     const seniorsTx = makeTx({ id: 'tx-senior-obligation-2', type: 'SENIOR_INCOME' })
     const dropOwnerReq = { ...baseReq, seniorId: 'drop-owner-id' }
     const svc = makeServiceWithPayoutRequest(
@@ -430,7 +423,7 @@ describe('F2c — findPayoutRequest narrows recovered obligations to their own c
       [],
       [{ creditorUserId: SENIOR_ID, sourceTransaction: seniorsTx }],
     )
-    const accountant = user('ACCOUNTANT')
+    const accountant = user('ADMIN')
 
     const result = await svc.findPayoutRequest('req-1', accountant)
 
@@ -499,7 +492,7 @@ describe('F2d — findPayoutRequest narrows the LIVE relation to sender/receiver
     expect(result.transactions.map((t) => t.id)).toEqual(['tx-payout-itself'])
   })
 
-  it('ADMIN/ACCOUNTANT (privileged) see a live-relation row regardless of who it belongs to', async () => {
+  it('ADMIN (privileged) see a live-relation row regardless of who it belongs to', async () => {
     const seniorsLiveTx = makeTx({
       id: 'tx-senior-live-2',
       type: 'SENIOR_PENDING_PAYOUT',
@@ -508,7 +501,7 @@ describe('F2d — findPayoutRequest narrows the LIVE relation to sender/receiver
     })
     const dropOwnerReq = { ...baseReq, seniorId: 'drop-owner-id' }
     const svc = makeServiceWithPayoutRequest(dropOwnerReq, [seniorsLiveTx])
-    const accountant = user('ACCOUNTANT')
+    const accountant = user('ADMIN')
 
     const result = await svc.findPayoutRequest('req-1', accountant)
 

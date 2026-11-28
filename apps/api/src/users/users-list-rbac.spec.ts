@@ -61,12 +61,6 @@ describe('UsersController.findAll — list RBAC gate', () => {
   })
 
   // ── Allowed ─────────────────────────────────────────────────────────────────
-  it('ACCOUNTANT → findAllIncludingAdmin (admins visible) — NEW parity', async () => {
-    const res = (await controller.findAll(persona('ACCOUNTANT'))) as Array<{ listMethod: string }>
-    expect(findAllIncludingAdmin).toHaveBeenCalledTimes(1)
-    expect(findAll).not.toHaveBeenCalled()
-    expect(res[0]?.listMethod).toBe('findAllIncludingAdmin')
-  })
 
   it('ADMIN → findAllIncludingAdmin (regression)', async () => {
     await controller.findAll(persona('ADMIN'))

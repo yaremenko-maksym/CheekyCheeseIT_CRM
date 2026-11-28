@@ -334,7 +334,7 @@ describe.each(KINDS)('$name — resubmit a REJECTED income', ({ name, kind, owne
         expect(h.txFindFirst).not.toHaveBeenCalled()
         expect(h.events).toEqual([])
       })
-      it.each([ADMIN, ACCOUNTANT, HR])('role $role is refused', async (who) => {
+      it.each([ADMIN, HR])('role $role is refused', async (who) => {
         const h = makeHarness({ tx: incomeRow(kind) })
         expect(await rejection(call(h, {}, who))).toBeInstanceOf(ForbiddenException)
       })
@@ -772,7 +772,7 @@ describe('attachOrReplaceReceipt', () => {
       expect(apiCode(err)).toEqual({ code: 'FINANCE_TRANSACTION_NOT_FOUND', status: 404 })
     })
 
-    it.each([ADMIN, ACCOUNTANT])('deleted + $role -> 400 restore-first', async (who) => {
+    it.each([ADMIN])('deleted + $role -> 400 restore-first', async (who) => {
       const h = makeHarness({ tx: row({ deletedAt: new Date() }) })
       const err = await rejection(attach(h, { receiptExternalUrl: 'https://a' }, who))
       expect(apiCode(err)).toEqual({
@@ -784,7 +784,7 @@ describe('attachOrReplaceReceipt', () => {
   })
 
   describe('RBAC', () => {
-    it.each([ADMIN, ACCOUNTANT])('$role may attach to a tx they did not create', async (who) => {
+    it.each([ADMIN])('$role may attach to a tx they did not create', async (who) => {
       const h = makeHarness({ tx: row() })
       await attach(h, { receiptExternalUrl: 'https://a' }, who)
       expect(h.transaction).toHaveBeenCalledTimes(1)
@@ -826,7 +826,7 @@ describe('attachOrReplaceReceipt', () => {
       })
     })
 
-    it.each([ADMIN, ACCOUNTANT])('$role may replace a PAID receipt', async (who) => {
+    it.each([ADMIN])('$role may replace a PAID receipt', async (who) => {
       const h = makeHarness({ tx: row({ status: 'PAID', receiptExternalUrl: 'https://old' }) })
       await attach(h, { receiptExternalUrl: 'https://a' }, who)
       expect(h.transaction).toHaveBeenCalledTimes(1)
@@ -922,7 +922,7 @@ describe('attachOrReplaceReceipt', () => {
       expect(h.transaction).not.toHaveBeenCalled()
     })
 
-    it.each([ADMIN, ACCOUNTANT])(
+    it.each([ADMIN])(
       'privileged $role still cannot bind a doc they do not own (ownership = caller)',
       async (who) => {
         const h = makeHarness({

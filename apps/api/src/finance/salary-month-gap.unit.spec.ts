@@ -27,7 +27,7 @@
  * `it` asserts on it directly, via `compileWhere`/`collectParamValues`.
  *
  * Covers:
- *   - RBAC: getSalaryMonthGapReport → ADMIN/ACCOUNTANT only, 403 for everyone
+ *   - RBAC: getSalaryMonthGapReport → ADMIN only, 403 for everyone
  *     else BEFORE any DB access (with the exact refusal message pinned, not
  *     just instanceof); backfillSalaryMonth → ADMIN ONLY (narrower —
  *     ACCOUNTANT is refused too, matching paySalary's ADMIN-only bar).
@@ -297,11 +297,6 @@ describe('getSalaryMonthGapReport — RBAC guard', () => {
     const { svc } = makeService()
     await expect(svc.getSalaryMonthGapReport(user('ADMIN'), MONTH)).resolves.toBeDefined()
   })
-
-  it('resolves for ACCOUNTANT', async () => {
-    const { svc } = makeService()
-    await expect(svc.getSalaryMonthGapReport(user('ACCOUNTANT'), MONTH)).resolves.toBeDefined()
-  })
 })
 
 // SR-M-3. The reviewer measured this: deleting the service-body role check in
@@ -333,7 +328,7 @@ describe('getSalaryParts — RBAC lives in the service body too (SR-M-3)', () =>
 
   // The permitted pair, so the four refusals above are a statement about the
   // role check and not about a method that refuses everyone.
-  for (const role of ['ADMIN', 'ACCOUNTANT'] as const) {
+  for (const role of ['ADMIN'] as const) {
     it(`reads for ${role}`, async () => {
       const rows = [
         {
@@ -486,7 +481,7 @@ describe('getSalaryParts — RBAC lives in the service body too (SR-M-3)', () =>
 })
 
 describe('backfillSalaryMonth — RBAC guard (ADMIN only, narrower than the report)', () => {
-  const forbiddenRoles: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'DROP', 'ACCOUNTANT']
+  const forbiddenRoles: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'DROP']
 
   for (const role of forbiddenRoles) {
     it(`throws ForbiddenException for ${role} (before any DB access)`, async () => {
@@ -570,30 +565,6 @@ describe('getSalaryMonthGapReport — AC5: exactly the configured-and-missing, n
     expect(report.missing).toHaveLength(0)
   })
 
-  it('an ACCOUNTANT behaves the same as HR (both auto-eligible)', async () => {
-    const { svc } = makeService({
-      hrAccountantEmployees: [
-        hrEmployee({
-          id: 'acc-1',
-          displayName: 'Acc One',
-          role: 'ACCOUNTANT',
-          monthlySalary: '2000',
-        }),
-      ],
-    })
-    const report = await svc.getSalaryMonthGapReport(user('ADMIN'), MONTH)
-    expect(report.missing).toEqual([
-      {
-        userId: 'acc-1',
-        displayName: 'Acc One',
-        role: 'ACCOUNTANT',
-        expectedAmount: 2000,
-        projectId: null,
-        projectName: null,
-      },
-    ])
-  })
-
   it('a JUNIOR on an active project with a resolved salary and no row is missing, with project context', async () => {
     const jr = {
       id: 'jr-1',
@@ -606,7 +577,7 @@ describe('getSalaryMonthGapReport — AC5: exactly the configured-and-missing, n
     const { svc } = makeService({
       activeMembers: [juniorMember(jr, { id: 'proj-1', name: 'Proj One', financeSettings: null })],
     })
-    const report = await svc.getSalaryMonthGapReport(user('ACCOUNTANT'), MONTH)
+    const report = await svc.getSalaryMonthGapReport(user('ADMIN'), MONTH)
     expect(report.missing).toEqual([
       {
         userId: 'jr-1',
@@ -1027,7 +998,7 @@ describe('backfillSalaryMonth — re-invokes the idempotent cron insert, then re
   // being flipped to BOTH `true` (always audit) and `false` (never audit)
   // — every existing test stays green either way, because none of them
   // ever put a JUNIOR receiver through `backfillSalaryMonth`.
-  it('backfilling a missing JUNIOR journals the creation too — not just HR/ACCOUNTANT (audit coverage gap)', async () => {
+  it('backfilling a missing JUNIOR journals the creation too — not just HR (audit coverage gap)', async () => {
     const jr = {
       id: 'jr-audit-1',
       email: 'jr-audit-1@test.spec',

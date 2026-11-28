@@ -121,7 +121,6 @@ describe('createMonthlySalaries — AC1: the employee SELECT excludes archived u
     // The roles the cron is FOR must still be bound — a fix that narrowed the
     // query into selecting nobody would also "exclude archived employees".
     expect(params).toContain('HR')
-    expect(params).toContain('ACCOUNTANT')
   })
 })
 

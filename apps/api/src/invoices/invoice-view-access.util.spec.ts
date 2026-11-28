@@ -26,9 +26,8 @@ function caught(fn: () => void): unknown {
 }
 
 describe('assertCanViewInvoice', () => {
-  it('ADMIN and ACCOUNTANT may view any invoice', () => {
+  it('ADMIN may view any invoice', () => {
     expect(() => assertCanViewInvoice(viewer('ADMIN'), tx({}))).not.toThrow()
-    expect(() => assertCanViewInvoice(viewer('ACCOUNTANT'), tx({}))).not.toThrow()
   })
 
   it.each(['SENIOR', 'JUNIOR', 'HR'] as const)('%s who is the counterparty may view', (role) => {

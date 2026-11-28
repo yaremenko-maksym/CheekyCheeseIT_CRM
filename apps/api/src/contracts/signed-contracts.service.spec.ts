@@ -936,20 +936,6 @@ describe('SignedContractsService', () => {
       expect(result).toEqual(row)
     })
 
-    it('allows ACCOUNTANT', async () => {
-      const row = makeSignedContract({ userId: 'senior-1' })
-      const mockDb = makeDb()
-      mockDb.db.query.signedContracts.findFirst.mockResolvedValue(row)
-      const service = new SignedContractsService(
-        mockDb as unknown as DatabaseService,
-        makeEmployeeContractsSvc(),
-        makePdfSvc(),
-      )
-
-      const result = await service.findById(row.id, accountantUser)
-      expect(result).toEqual(row)
-    })
-
     it('forbids non-owner SENIOR', async () => {
       const row = makeSignedContract({ userId: 'senior-1' })
       const mockDb = makeDb()

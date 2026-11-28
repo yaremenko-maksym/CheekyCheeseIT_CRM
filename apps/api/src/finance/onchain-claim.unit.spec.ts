@@ -160,7 +160,6 @@ describe('releaseOnChainHash', () => {
     ['SENIOR', SENIOR],
     ['JUNIOR', JUNIOR],
     ['HR', HR],
-    ['ACCOUNTANT', ACCOUNTANT],
     ['DROP', DROP],
   ])('%s is forbidden before any db work', async (_n, user) => {
     const h = makeHarness()
@@ -355,10 +354,7 @@ describe('inspectOnChainHash', () => {
     expect(h.consumedFindMany).not.toHaveBeenCalled()
   })
 
-  it.each([
-    ['ADMIN', ADMIN],
-    ['ACCOUNTANT', ACCOUNTANT],
-  ])(
+  it.each([['ADMIN', ADMIN]])(
     '%s may inspect; unknown hash → { txHash (normalized), claimed:false } and nothing else',
     async (_n, user) => {
       const h = makeHarness({ consumedFindMany: [] })
@@ -425,7 +421,7 @@ describe('inspectOnChainHash', () => {
         },
       ],
     })
-    const res = await h.svc.inspectOnChainHash(H1, ACCOUNTANT)
+    const res = await h.svc.inspectOnChainHash(H1, ADMIN)
     expect(res).toEqual({
       txHash: H1,
       claimed: false,

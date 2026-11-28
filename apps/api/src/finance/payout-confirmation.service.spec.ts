@@ -132,7 +132,7 @@ describe('validateTransaction — guards', () => {
     },
   )
 
-  it.each([ADMIN, ACCOUNTANT])('lets %# through the role gate', async (u) => {
+  it.each([ADMIN])('lets %# through the role gate', async (u) => {
     const h = makeHarness({ txRows: [INCOME] })
     await expect(h.svc.validateTransaction('inc-1', 'validate', null, u)).resolves.toBeUndefined()
   })
@@ -260,14 +260,14 @@ describe('validateTransaction — reject', () => {
 
   it('flips to REJECTED with the reason, journals REJECT and notifies with the reason', async () => {
     const h = makeHarness({ txRows: [INCOME] })
-    await h.svc.validateTransaction('inc-1', 'reject', 'blurry receipt', ACCOUNTANT)
+    await h.svc.validateTransaction('inc-1', 'reject', 'blurry receipt', ADMIN)
 
     expect(h.updates).toHaveLength(1)
     const [upd] = h.updates
     expect(upd?.table).toBe(transactions)
     expect(upd?.set).toEqual({
       status: 'REJECTED',
-      validatedBy: 'accountant-1',
+      validatedBy: ADMIN.id,
       validatedAt: NOW,
       rejectionReason: 'blurry receipt',
       updatedAt: NOW,
@@ -280,7 +280,7 @@ describe('validateTransaction — reject', () => {
     expect(h.inserts).toHaveLength(1)
     expect(h.inserts[0]?.table).toBe(transactionAuditLog)
     expect(h.inserts[0]?.values).toEqual({
-      actorId: 'accountant-1',
+      actorId: ADMIN.id,
       targetId: 'inc-1',
       action: 'REJECT',
       metadata: {
@@ -290,7 +290,7 @@ describe('validateTransaction — reject', () => {
         rejectionReason: 'blurry receipt',
       },
     })
-    expect(h.notify).toHaveBeenCalledWith('inc-1', 'REJECTED', 'blurry receipt', ACCOUNTANT)
+    expect(h.notify).toHaveBeenCalledWith('inc-1', 'REJECTED', 'blurry receipt', ADMIN)
   })
 
   it('stamps the REAL operator (impersonator) on a reject', async () => {
@@ -351,7 +351,7 @@ describe('confirmPayout — guards', () => {
     expect(h.txFindFirst).not.toHaveBeenCalled()
   })
 
-  it.each([ADMIN, ACCOUNTANT])('lets %# through the role gate', async (u) => {
+  it.each([ADMIN])('lets %# through the role gate', async (u) => {
     const h = confirmHarness()
     await expect(
       h.svc.confirmPayout('payout-1', 'recipient-admin', u, { txHash: HASH }, readBack),

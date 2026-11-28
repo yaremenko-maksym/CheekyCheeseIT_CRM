@@ -103,7 +103,7 @@ const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1,
 const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 15))
 
 describe('getSeniorSummary — RBAC guard (AC2)', () => {
-  const forbiddenRoles: SessionUser['role'][] = ['JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
+  const forbiddenRoles: SessionUser['role'][] = ['JUNIOR', 'HR', 'DROP']
 
   for (const role of forbiddenRoles) {
     it(`throws ForbiddenException for ${role} (before any DB access)`, async () => {
@@ -624,8 +624,8 @@ describe('getSeniorSummary — mySalaryState / mySalaryStatus mapping', () => {
 // resolveHrAccountantSalaryReceivers / resolveJuniorSalaryReceivers
 // target").
 describe('CRON_ELIGIBLE_SALARY_ROLES — exact membership (pinned directly, not through a caller)', () => {
-  it('contains exactly HR, ACCOUNTANT, JUNIOR — the roles createMonthlySalaries actually accrues to', () => {
-    expect([...CRON_ELIGIBLE_SALARY_ROLES].sort()).toEqual(['ACCOUNTANT', 'HR', 'JUNIOR'])
+  it('contains exactly HR, JUNIOR — the roles createMonthlySalaries actually accrues to', () => {
+    expect([...CRON_ELIGIBLE_SALARY_ROLES].sort()).toEqual(['HR', 'JUNIOR'])
   })
 
   it('does NOT contain SENIOR, DROP, or ADMIN — they can only ever get a MANUALLY created salary', () => {

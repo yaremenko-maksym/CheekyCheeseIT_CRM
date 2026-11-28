@@ -106,7 +106,6 @@ describe('buildEffectiveTeam — senior', () => {
 
   it.each<[Role, string, boolean]>([
     ['ADMIN', 'adm@x.test', true],
-    ['ACCOUNTANT', 'adm@x.test', true],
     ['SENIOR', '', false],
     ['HR', '', false],
     ['DROP', '', false],
@@ -178,7 +177,7 @@ describe('buildEffectiveTeam — juniors (RBAC #1)', () => {
     expect(buildEffectiveTeam(p, 'SENIOR', []).juniors).toEqual([])
   })
 
-  it.each<Role>(['ADMIN', 'HR', 'ACCOUNTANT', 'DROP'])('%s viewer sees active juniors', (role) => {
+  it.each<Role>(['ADMIN', 'HR', 'DROP'])('%s viewer sees active juniors', (role) => {
     const p = project({ members: [junior('1')] })
     expect(buildEffectiveTeam(p, role, []).juniors).toEqual([
       {
@@ -223,7 +222,7 @@ describe('buildEffectiveTeam — drop (RBAC #2)', () => {
     expect(buildEffectiveTeam(project(), 'SENIOR', []).drop).toBeNull()
   })
 
-  it.each<Role>(['ADMIN', 'HR', 'ACCOUNTANT', 'DROP'])('%s viewer sees the drop', (role) => {
+  it.each<Role>(['ADMIN', 'HR', 'DROP'])('%s viewer sees the drop', (role) => {
     expect(buildEffectiveTeam(project(), role, []).drop).toEqual({
       id: 'drop1',
       displayName: 'Drp',

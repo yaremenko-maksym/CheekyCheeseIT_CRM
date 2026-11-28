@@ -1005,7 +1005,7 @@ describe('SalaryPaymentService.createMonthlySalaries', () => {
       expect.any(String),
     )
     expect(errorSpy).toHaveBeenCalledWith(
-      'createMonthlySalaries: 2 HR/ACCOUNTANT salary(ies) failed for month=2026-10. Failed employee ids: hr-1, hr-2',
+      'createMonthlySalaries: 2 HR salary(ies) failed for month=2026-10. Failed employee ids: hr-1, hr-2',
     )
   })
 

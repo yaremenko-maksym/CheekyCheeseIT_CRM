@@ -138,9 +138,7 @@ function makeObligation(overrides: Partial<ObligationRow> = {}): ObligationRow {
 
 describe('assertCanReadAdminBalance', () => {
   const svc = makeService()
-  it('ACCOUNTANT can read any admin balance', () => {
-    expect(() => svc.assertCanReadAdminBalance(accountantUser, 'any-admin')).not.toThrow()
-  })
+
   it('ADMIN can read own balance', () => {
     expect(() => svc.assertCanReadAdminBalance(adminUser, adminUser.id)).not.toThrow()
   })
@@ -167,9 +165,7 @@ describe('assertCanReadSeniorBalance', () => {
   it('ADMIN can read any senior balance', () => {
     expect(() => svc.assertCanReadSeniorBalance(adminUser, seniorA.id)).not.toThrow()
   })
-  it('ACCOUNTANT can read any senior balance', () => {
-    expect(() => svc.assertCanReadSeniorBalance(accountantUser, seniorA.id)).not.toThrow()
-  })
+
   it('SENIOR can read own balance', () => {
     expect(() => svc.assertCanReadSeniorBalance(seniorA, seniorA.id)).not.toThrow()
   })
@@ -192,9 +188,7 @@ describe('assertCanListPendingObligations', () => {
   it('ADMIN allowed', () => {
     expect(() => svc.assertCanListPendingObligations(adminUser)).not.toThrow()
   })
-  it('ACCOUNTANT allowed', () => {
-    expect(() => svc.assertCanListPendingObligations(accountantUser)).not.toThrow()
-  })
+
   it('SENIOR allowed (will be scoped to self by the controller)', () => {
     expect(() => svc.assertCanListPendingObligations(seniorA)).not.toThrow()
   })

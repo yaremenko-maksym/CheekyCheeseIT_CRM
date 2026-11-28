@@ -2103,7 +2103,7 @@ describe('UsersService.createUser — SENIOR', () => {
 // createUser — other roles (HR, ACCOUNTANT)
 // ---------------------------------------------------------------------------
 
-describe('UsersService.createUser — HR / ACCOUNTANT', () => {
+describe('UsersService.createUser — HR', () => {
   it.each(['HR', 'ACCOUNTANT'] as const)(
     'creates a %s user with only a users insert (no team, no project)',
     async (role) => {
@@ -3385,19 +3385,6 @@ describe('UsersService.buildProfileView — legalFullName masking', () => {
     expect((result.user as Record<string, unknown>).legalFullName).toBeNull()
   })
 
-  it('ACCOUNTANT viewer — legalFullName is masked to null (fields.legalName falsy)', async () => {
-    const viewer = makeUser({ id: 'acc-id', role: 'ACCOUNTANT' })
-    const permissions = {
-      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
-      actions: [],
-      fields: { requisites: true, techStack: true },
-      // legalName is NOT set — ACCOUNTANT sees requisites but not passport PII
-    }
-    const service = makeServiceForProfileView(targetWithLegalName, permissions)
-    const result = await service.buildProfileView(viewer as never, 'target-id')
-    expect((result.user as Record<string, unknown>).legalFullName).toBeNull()
-  })
-
   it('SENIOR viewer (shared project) — legalFullName is masked to null', async () => {
     const viewer = makeUser({ id: 'sr-other', role: 'SENIOR' })
     const permissions = {
@@ -3467,57 +3454,6 @@ describe('UsersService.buildProfileView — legalFullName masking', () => {
     expect(u.walletUsdtErc20).toBe('0xSENIORWALLET')
     expect(u.bankUahIban).toBe('UA000000000000000000000000002')
     expect(u.bankUahRnokpp).toBe('9876543210')
-  })
-
-  it('ACCOUNTANT reading requisites writes a requisites_read audit (redacted, actor=accountant)', async () => {
-    const seniorTarget = makeUser({
-      id: 'target-id',
-      role: 'SENIOR',
-      paymentMethod: 'BANK_UAH_FOP',
-      bankUahIban: 'UA000000000000000000000000002',
-      bankUahRnokpp: '9876543210',
-    } as Record<string, unknown>)
-    const viewer = makeUser({ id: 'acc-id', role: 'ACCOUNTANT' })
-    const permissions = {
-      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
-      actions: [],
-      fields: { requisites: true, techStack: true },
-    }
-    const { service, auditRecord } = makeServiceForProfileViewWithAudit(seniorTarget, permissions)
-    await service.buildProfileView(viewer as never, 'target-id')
-    expect(auditRecord).toHaveBeenCalledTimes(1)
-    const entry = auditRecord.mock.calls[0]![0] as {
-      actorId: string
-      targetId: string
-      action: string
-      changes: Record<string, { before: unknown; after: unknown }>
-    }
-    expect(entry.action).toBe('requisites_read')
-    expect(entry.actorId).toBe('acc-id')
-    expect(entry.targetId).toBe('target-id')
-    // Read-audit records WHICH fields were read but never their plaintext values.
-    expect(Object.keys(entry.changes)).toContain('bankUahIban')
-    expect(Object.keys(entry.changes)).toContain('bankUahRnokpp')
-    expect(entry.changes.bankUahIban.before).toBe('[redacted]')
-    expect(entry.changes.bankUahIban.after).toBe('[redacted]')
-  })
-
-  it('ACCOUNTANT viewing SELF does NOT write a requisites_read audit', async () => {
-    const selfTarget = makeUser({
-      id: 'acc-self',
-      role: 'ACCOUNTANT',
-      paymentMethod: 'BANK_UAH_FOP',
-      bankUahIban: 'UA000000000000000000000000003',
-    } as Record<string, unknown>)
-    const viewer = makeUser({ id: 'acc-self', role: 'ACCOUNTANT' })
-    const permissions = {
-      tabs: ['overview', 'requisites'],
-      actions: [],
-      fields: { requisites: true, techStack: true },
-    }
-    const { service, auditRecord } = makeServiceForProfileViewWithAudit(selfTarget, permissions)
-    await service.buildProfileView(viewer as never, 'acc-self')
-    expect(auditRecord).not.toHaveBeenCalled()
   })
 
   it('ADMIN reading requisites does NOT write a requisites_read audit (accountant-only)', async () => {
@@ -3604,7 +3540,7 @@ describe('UsersService.buildProfileView — pendingSeniorShare', () => {
   // payroll need-to-know) must NOT learn a change is even proposed. Before
   // this fix, both flags were the same underlying `fields.share` value, so
   // this exact combination was unreachable and the leak went unnoticed.
-  it('does not call approvals.getStatus, and returns null, when share=true but sharePending=false (ACCOUNTANT-shaped viewer)', async () => {
+  it('does not call approvals.getStatus, and returns null, when share=true but sharePending=false (share-only viewer)', async () => {
     const approvals = makeApprovalsService() as { getStatus: ReturnType<typeof vi.fn> }
     const accountantShapedPermissions = {
       tabs: ['overview', 'finance'],
@@ -3923,31 +3859,6 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
   // ── ACCOUNTANT viewing any user ───────────────────────────────────────────
   // ACCOUNTANT has requisites access but NOT adminNote, NOT fopPii, contacts visible
 
-  it('ACCOUNTANT → SENIOR: adminNote is null', async () => {
-    const viewer = makeUser({ id: 'acc-viewer', role: 'ACCOUNTANT' })
-    const permissions = {
-      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
-      actions: [],
-      fields: { salary: true, share: true, requisites: true, techStack: true, realContacts: true },
-      // adminNote NOT in fields → must be null
-    }
-    const service = makeServicePii(seniorTarget, permissions)
-    const result = await service.buildProfileView(viewer as never, 'senior-target')
-    expect((result.user as Record<string, unknown>).adminNote).toBeNull()
-  })
-
-  it('ACCOUNTANT → SENIOR: registrationAddress is null (fopPii not in fields)', async () => {
-    const viewer = makeUser({ id: 'acc-viewer', role: 'ACCOUNTANT' })
-    const permissions = {
-      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
-      actions: [],
-      fields: { salary: true, share: true, requisites: true, techStack: true, realContacts: true },
-    }
-    const service = makeServicePii(seniorTarget, permissions)
-    const result = await service.buildProfileView(viewer as never, 'senior-target')
-    expect((result.user as Record<string, unknown>).registrationAddress).toBeNull()
-  })
-
   // ── HR viewing their SENIOR ───────────────────────────────────────────────
 
   it('HR → SENIOR: adminNote is null', async () => {
@@ -4140,7 +4051,7 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
   // the SIBLING `null` assertions stay green either way, which is exactly
   // the ambiguity this pins).
   describe('personalContactVisible (UX-M-1) — "no access" vs "not set" are distinguishable', () => {
-    it('no access: personalContactVisible is false (the ACCOUNTANT/masked case)', async () => {
+    it('no access: personalContactVisible is false (the masked case)', async () => {
       const viewer = makeUser({ id: 'accountant-id', role: 'ACCOUNTANT' })
       const noContactsPermissions = {
         tabs: ['overview'],

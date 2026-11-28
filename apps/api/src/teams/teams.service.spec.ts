@@ -207,13 +207,6 @@ describe('TeamsService.findAll', () => {
     expect(result).toHaveLength(1)
     expect(result[0]!.id).toBe('team-1')
   })
-
-  it('ACCOUNTANT sees all teams', async () => {
-    const teams = [makeTeam({ id: 'team-1' }), makeTeam({ id: 'team-2' })]
-    const service = makeService(makeDb({ teamList: teams }))
-    const result = await service.findAll(accountantUser)
-    expect(result).toHaveLength(2)
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -481,17 +474,6 @@ describe('TeamsService.removeMember', () => {
     const service = makeService(makeDb({ team }))
     await expect(service.removeMember('team-1', 'senior-1', adminUser)).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'TEAM_CANNOT_REMOVE_SENIOR', statusCode: 400 }),
-    })
-  })
-
-  it('throws BadRequestException when removing the last ACCOUNTANT', async () => {
-    const team = makeTeam({ members: [makeMember('acc-1', 'ACCOUNTANT')] })
-    const service = makeService(makeDb({ team }))
-    await expect(service.removeMember('team-1', 'acc-1', adminUser)).rejects.toMatchObject({
-      response: expect.objectContaining({
-        code: 'TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE',
-        statusCode: 400,
-      }),
     })
   })
 

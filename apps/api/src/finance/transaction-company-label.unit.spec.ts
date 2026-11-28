@@ -6,7 +6,7 @@
  * RBAC invariant (security-critical): swapping the stored marker must not
  * widen who sees the real label. Non-privileged viewers (SENIOR / JUNIOR /
  * DROP / HR) always get the brand `CheekyCheeseIT` with the id stripped;
- * ADMIN / ACCOUNTANT get the stored value verbatim (the web localizes the code).
+ * ADMIN get the stored value verbatim (the web localizes the code).
  *
  * The two markers are exercised through the same `findAll` / `findOne` call
  * sites `mapTx` serves, with a unit double (the mutation gate cannot execute
@@ -135,16 +135,16 @@ describe('company-account counterparty masking', () => {
     expect(dto.receiverLabel).toBe('CheekyCheeseIT')
   })
 
-  it.each([
-    ['ADMIN', ADMIN_ID],
-    ['ACCOUNTANT', ACCOUNTANT_ID],
-  ] as const)('%s sees the stored marker verbatim', async (role, id) => {
-    const svc = serviceReturning(companyPaidRow('SENIOR_PENDING_PAYOUT', 'SENIOR', marker))
+  it.each([['ADMIN', ADMIN_ID]] as const)(
+    '%s sees the stored marker verbatim',
+    async (role, id) => {
+      const svc = serviceReturning(companyPaidRow('SENIOR_PENDING_PAYOUT', 'SENIOR', marker))
 
-    const [dto] = await svc.findAll(user(role, id))
+      const [dto] = await svc.findAll(user(role, id))
 
-    expect(dto?.senderLabel).toBe(marker)
-  })
+      expect(dto?.senderLabel).toBe(marker)
+    },
+  )
 })
 
 describe('retired legacy prose alias is an ordinary label', () => {

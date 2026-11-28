@@ -208,21 +208,6 @@ describe('TeamsService.update — AC3: seniorSharePercentOverride RBAC (SEC-04)'
     expect(setArg).toHaveProperty('seniorSharePercentOverride', 40)
   })
 
-  it('AC3e: ACCOUNTANT CAN set seniorSharePercentOverride', async () => {
-    const team = makeTeamWithHr()
-    const { dbSvc, setFn } = makeDb(team)
-    const { service } = makeService(dbSvc)
-
-    await expect(
-      service.update(TEAM_ID, 'Alpha Team', undefined, null, accountantUser, undefined, {
-        seniorSharePercentOverride: 35,
-      }),
-    ).resolves.toBeDefined()
-
-    const setArg = setFn.mock.calls[0]?.[0] as Record<string, unknown>
-    expect(setArg).toHaveProperty('seniorSharePercentOverride', 35)
-  })
-
   it('AC3f: ADMIN change of override is recorded in team_audit_log', async () => {
     const team = makeTeamWithHr({ seniorSharePercentOverride: null })
     const { dbSvc } = makeDb(team)

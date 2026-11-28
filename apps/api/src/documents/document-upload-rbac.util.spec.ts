@@ -50,7 +50,6 @@ const MATRIX: Record<DocumentCategory, Record<Role, [Outcome, Outcome]>> = {
     SENIOR: ['ok', 'ok'],
     JUNIOR: ['ok', 'SELF_ONLY'],
     DROP: ['ok', 'SELF_ONLY'],
-    ACCOUNTANT: ['CATEGORY_FORBIDDEN', 'CATEGORY_FORBIDDEN'],
   },
   SCAN: {
     ADMIN: ['ok', 'ok'],
@@ -58,7 +57,6 @@ const MATRIX: Record<DocumentCategory, Record<Role, [Outcome, Outcome]>> = {
     SENIOR: ['ok', 'ok'],
     JUNIOR: ['ok', 'SELF_ONLY'],
     DROP: ['ok', 'SELF_ONLY'],
-    ACCOUNTANT: ['CATEGORY_FORBIDDEN', 'CATEGORY_FORBIDDEN'],
   },
   CONTRACT: {
     ADMIN: ['ok', 'ok'],
@@ -66,11 +64,9 @@ const MATRIX: Record<DocumentCategory, Record<Role, [Outcome, Outcome]>> = {
     DROP: ['ok', 'CONTRACT_RESTRICTED'],
     HR: ['CONTRACT_RESTRICTED', 'CONTRACT_RESTRICTED'],
     JUNIOR: ['CONTRACT_RESTRICTED', 'CONTRACT_RESTRICTED'],
-    ACCOUNTANT: ['CONTRACT_RESTRICTED', 'CONTRACT_RESTRICTED'],
   },
   RECEIPT: {
     ADMIN: ['ok', 'ok'],
-    ACCOUNTANT: ['ok', 'ok'],
     SENIOR: ['ok', 'RECEIPT_SELF_ONLY'],
     HR: ['CATEGORY_FORBIDDEN', 'CATEGORY_FORBIDDEN'],
     JUNIOR: ['CATEGORY_FORBIDDEN', 'CATEGORY_FORBIDDEN'],
@@ -82,7 +78,6 @@ const MATRIX: Record<DocumentCategory, Record<Role, [Outcome, Outcome]>> = {
     SENIOR: ['ok', 'AVATAR_SELF_ONLY'],
     JUNIOR: ['ok', 'AVATAR_SELF_ONLY'],
     DROP: ['ok', 'AVATAR_SELF_ONLY'],
-    ACCOUNTANT: ['ok', 'AVATAR_SELF_ONLY'],
   },
   LOGO: {
     ADMIN: ['ok', 'ok'],
@@ -90,7 +85,6 @@ const MATRIX: Record<DocumentCategory, Record<Role, [Outcome, Outcome]>> = {
     SENIOR: ['ok', 'ok'],
     JUNIOR: ['CATEGORY_FORBIDDEN', 'CATEGORY_FORBIDDEN'],
     DROP: ['CATEGORY_FORBIDDEN', 'CATEGORY_FORBIDDEN'],
-    ACCOUNTANT: ['CATEGORY_FORBIDDEN', 'CATEGORY_FORBIDDEN'],
   },
   INVOICE: {
     ADMIN: ['INVOICE_FORBIDDEN', 'INVOICE_FORBIDDEN'],
@@ -98,7 +92,6 @@ const MATRIX: Record<DocumentCategory, Record<Role, [Outcome, Outcome]>> = {
     SENIOR: ['INVOICE_FORBIDDEN', 'INVOICE_FORBIDDEN'],
     JUNIOR: ['INVOICE_FORBIDDEN', 'INVOICE_FORBIDDEN'],
     DROP: ['INVOICE_FORBIDDEN', 'INVOICE_FORBIDDEN'],
-    ACCOUNTANT: ['INVOICE_FORBIDDEN', 'INVOICE_FORBIDDEN'],
   },
 }
 

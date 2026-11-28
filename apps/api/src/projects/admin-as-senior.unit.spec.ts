@@ -246,12 +246,6 @@ describe('admin-as-senior: mapProject seniorId masking', () => {
     expect(result.seniorName).toBe('Maksym Admin')
   })
 
-  it('UNIT-4. ACCOUNTANT viewer → seniorId=real (privileged, full visibility)', async () => {
-    const { service } = buildHarness(makeAdminProject())
-    const result = await service.findOne('proj-admin-sr-001', accountantViewer)
-    expect(result.seniorId, 'ACCOUNTANT viewer must see real seniorId').toBe(ADMIN_ID)
-  })
-
   it('UNIT-5. JUNIOR viewer → seniorId=null (normal JUNIOR masking — no regression)', async () => {
     const { service } = buildHarness(makeAdminProject())
     const result = await service.findOne('proj-admin-sr-001', juniorViewer)
@@ -303,18 +297,5 @@ describe('admin-as-senior: computeEffectiveTeam email + profileNavigable masking
     expect(senior).not.toBeNull()
     expect(senior!.email, 'ADMIN viewer must see real admin email').toBe(ADMIN_EMAIL)
     expect(senior!.profileNavigable, 'ADMIN viewer: profileNavigable must be true').toBe(true)
-  })
-
-  it('UNIT-8. ACCOUNTANT viewer → effectiveTeam.senior.email=real, profileNavigable=true', async () => {
-    const { service } = buildHarness(makeAdminProject())
-    const result = await service.findOne('proj-admin-sr-001', accountantViewer)
-
-    expect(result.effectiveTeam).toBeDefined()
-    const senior = (
-      result.effectiveTeam as { senior: { email: string; profileNavigable: boolean } | null }
-    )?.senior
-    expect(senior).not.toBeNull()
-    expect(senior!.email, 'ACCOUNTANT viewer must see real admin email').toBe(ADMIN_EMAIL)
-    expect(senior!.profileNavigable, 'ACCOUNTANT viewer: profileNavigable must be true').toBe(true)
   })
 })

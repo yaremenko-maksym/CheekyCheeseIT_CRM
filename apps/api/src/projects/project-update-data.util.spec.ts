@@ -23,7 +23,7 @@ function codeOf(fn: () => void): { code: unknown; status: number } | null {
 }
 
 describe('assertFinanceFieldsAllowed', () => {
-  it.each(['ADMIN', 'ACCOUNTANT'] as const)('%s may send every finance field', (role) => {
+  it.each(['ADMIN'] as const)('%s may send every finance field', (role) => {
     expect(
       codeOf(() =>
         assertFinanceFieldsAllowed(

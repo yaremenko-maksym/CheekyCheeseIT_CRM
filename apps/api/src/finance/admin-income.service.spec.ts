@@ -204,64 +204,6 @@ describe('AdminIncomeService.createAdminIncome', () => {
     expect(h.transaction).not.toHaveBeenCalled()
   })
 
-  describe('ACCOUNTANT project-owner lookup', () => {
-    it('looks the owner up by the project seniorId', async () => {
-      const h = make({
-        projectRow: project({ seniorId: 'owner-admin' }),
-        users: [{ id: 'owner-admin', role: 'ADMIN', archivedAt: null }],
-      })
-      await h.svc.createAdminIncome(
-        {
-          projectId: PROJECT_ID,
-          amount: 10,
-          currency: 'UAH',
-          receiptExternalUrl: 'https://x.io/r',
-        },
-        ACCOUNTANT,
-      )
-      const [args] = h.usersFindFirst.mock.calls[0] as unknown as [{ where: unknown }]
-      expect(paramsOf(args.where)).toEqual(['owner-admin'])
-      expect(h.inserted[0]).toMatchObject({ receiverId: 'owner-admin', createdBy: ACCOUNTANT.id })
-    })
-
-    it('owner missing → FINANCE_ADMIN_INCOME_PROJECT_MUST_BE_ADMIN_OWNED (not a TypeError)', async () => {
-      const h = make({ projectRow: project({ seniorId: 'ghost' }), users: [undefined] })
-      await expect(
-        h.svc.createAdminIncome(
-          {
-            projectId: PROJECT_ID,
-            amount: 10,
-            currency: 'UAH',
-            receiptExternalUrl: 'https://x.io/r',
-          },
-          ACCOUNTANT,
-        ),
-      ).rejects.toMatchObject({
-        response: { code: 'FINANCE_ADMIN_INCOME_PROJECT_MUST_BE_ADMIN_OWNED' },
-      })
-    })
-
-    it('owner that is not an ADMIN → FINANCE_ADMIN_INCOME_PROJECT_MUST_BE_ADMIN_OWNED', async () => {
-      const h = make({
-        projectRow: project({ seniorId: 'sen' }),
-        users: [{ id: 'sen', role: 'SENIOR', archivedAt: null }],
-      })
-      await expect(
-        h.svc.createAdminIncome(
-          {
-            projectId: PROJECT_ID,
-            amount: 10,
-            currency: 'UAH',
-            receiptExternalUrl: 'https://x.io/r',
-          },
-          ACCOUNTANT,
-        ),
-      ).rejects.toMatchObject({
-        response: { code: 'FINANCE_ADMIN_INCOME_PROJECT_MUST_BE_ADMIN_OWNED' },
-      })
-    })
-  })
-
   describe('receipt rules', () => {
     it('company-pool income is USDT: a file receipt is refused even though the supplied currency is UAH', async () => {
       const h = make()

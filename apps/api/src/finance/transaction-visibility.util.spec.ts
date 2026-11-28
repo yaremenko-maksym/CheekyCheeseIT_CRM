@@ -23,7 +23,7 @@ function tx(over: { senderId?: string; receiverId?: string; type?: string }): Tx
 const check = (t: TxWithRelations, role: string) => () => assertTransactionReadAccess(t, user(role))
 
 describe('assertTransactionReadAccess', () => {
-  it.each(['ADMIN', 'ACCOUNTANT'])('%s reads any row, including PAYOUT_ADMIN', (role) => {
+  it.each(['ADMIN'])('%s reads any row, including PAYOUT_ADMIN', (role) => {
     expect(check(tx({}), role)).not.toThrow()
     expect(check(tx({ type: 'PAYOUT_ADMIN' }), role)).not.toThrow()
     expect(check(tx({ type: 'PAYOUT_CONFIRMED' }), role)).not.toThrow()

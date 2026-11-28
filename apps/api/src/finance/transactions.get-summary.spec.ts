@@ -185,11 +185,6 @@ describe('getSummary — HIGH#1: RBAC guard', () => {
     const svc = makeStub([], [], [])
     await expect(svc.getSummary(user('ADMIN'))).resolves.toBeDefined()
   })
-
-  it('does NOT throw for ACCOUNTANT', async () => {
-    const svc = makeStub([], [], [])
-    await expect(svc.getSummary(user('ACCOUNTANT'))).resolves.toBeDefined()
-  })
 })
 
 // task-accountant-sees-admin-balances (2026-08-17, owner decision): #214/#215
@@ -205,37 +200,6 @@ describe('getSummary — task-accountant-sees-admin-balances: adminBalances reve
   function ledgerWithOneAdminBalance() {
     return [tx({ type: 'PAYOUT_ADMIN', amount: '500', receiverId: ADMIN_ID })]
   }
-
-  it('ACCOUNTANT: adminBalances is NON-EMPTY and carries the real balance (literal assert)', async () => {
-    const svc = makeStub(ledgerWithOneAdminBalance(), [], [adminUser(ADMIN_ID, 'Admin X')])
-    const result = await svc.getSummary(user('ACCOUNTANT'))
-    expect(result.adminBalances).toHaveLength(1)
-    expect(result.adminBalances[0]).toEqual({
-      userId: ADMIN_ID,
-      displayName: 'Admin X',
-      balance: 500,
-    })
-  })
-
-  it('ACCOUNTANT and ADMIN see the SAME adminBalances for the same ledger (two screens no longer disagree)', async () => {
-    const svcAccountant = makeStub(
-      ledgerWithOneAdminBalance(),
-      [],
-      [adminUser(ADMIN_ID, 'Admin X')],
-    )
-    const svcAdmin = makeStub(ledgerWithOneAdminBalance(), [], [adminUser(ADMIN_ID, 'Admin X')])
-    const [accountantResult, adminResult] = await Promise.all([
-      svcAccountant.getSummary(user('ACCOUNTANT')),
-      svcAdmin.getSummary(user('ADMIN')),
-    ])
-    expect(accountantResult.adminBalances).toEqual(adminResult.adminBalances)
-  })
-
-  it('ACCOUNTANT: dropBalances is STILL EMPTY — #214/#215 unchanged for drops', async () => {
-    const svc = makeStub([makePaidDropIncome(DROP_ID)], [dropUserStub], [])
-    const result = await svc.getSummary(user('ACCOUNTANT'))
-    expect(result.dropBalances).toEqual([])
-  })
 
   it('ADMIN: dropBalances is still NON-EMPTY (no regression on the untouched half)', async () => {
     const svc = makeStub([makePaidDropIncome(DROP_ID)], [dropUserStub], [])

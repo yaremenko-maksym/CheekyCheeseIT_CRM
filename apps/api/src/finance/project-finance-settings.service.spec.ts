@@ -133,7 +133,7 @@ describe('ProjectFinanceSettingsService.upsertProjectFinanceSettings writes', ()
     await svc.upsertProjectFinanceSettings(
       'p1',
       { seniorSharePercentOverride: 20, juniorSalaryOverride: 0 },
-      user('ACCOUNTANT'),
+      user('ADMIN'),
     )
     expect(insertCalls).toHaveLength(0)
     expect(setCalls).toHaveLength(2)
@@ -141,7 +141,7 @@ describe('ProjectFinanceSettingsService.upsertProjectFinanceSettings writes', ()
     expect(setCalls[0]!.values).toMatchObject({
       seniorSharePercentOverride: 20,
       juniorSalaryOverride: '0',
-      updatedBy: 'ACCOUNTANT-1',
+      updatedBy: 'ADMIN-1',
     })
     expect(setCalls[1]).toEqual({ table: 'projects', values: { seniorSharePercentOverride: 20 } })
   })

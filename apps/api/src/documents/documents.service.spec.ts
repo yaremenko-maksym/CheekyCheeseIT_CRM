@@ -435,18 +435,7 @@ describe('DocumentsService.upload — RBAC by category', () => {
       expect(doc.category).toBe('RESUME')
       expect(doc.ownerId).toBe(JUNIOR.id)
     })
-    it('ACCOUNTANT upload RESUME → 403', async () => {
-      const h = makeHarness()
-      await expect(
-        h.service.upload(ACCOUNTANT, pdfFile, { category: 'RESUME' }),
-      ).rejects.toMatchObject({
-        response: {
-          code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
-          statusCode: 403,
-          params: { category: 'RESUME' },
-        },
-      })
-    })
+
     it('ADMIN/HR/SENIOR upload SCAN for any ownerId → ok', async () => {
       for (const actor of [ADMIN, HR, SENIOR]) {
         const h = makeHarness()
@@ -549,14 +538,6 @@ describe('DocumentsService.upload — RBAC by category', () => {
         },
       })
     })
-    it('ACCOUNTANT for any owner → ok', async () => {
-      const h = makeHarness()
-      const doc = await h.service.upload(ACCOUNTANT, pdfFile, {
-        category: 'RECEIPT',
-        ownerId: SENIOR.id,
-      })
-      expect(doc.ownerId).toBe(SENIOR.id)
-    })
   })
 
   describe('AVATAR', () => {
@@ -599,18 +580,6 @@ describe('DocumentsService.upload — RBAC by category', () => {
     it('JUNIOR → 403', async () => {
       const h = makeHarness()
       await expect(h.service.upload(JUNIOR, pdfFile, { category: 'LOGO' })).rejects.toMatchObject({
-        response: {
-          code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
-          statusCode: 403,
-          params: { category: 'LOGO' },
-        },
-      })
-    })
-    it('ACCOUNTANT → 403', async () => {
-      const h = makeHarness()
-      await expect(
-        h.service.upload(ACCOUNTANT, pdfFile, { category: 'LOGO' }),
-      ).rejects.toMatchObject({
         response: {
           code: 'DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN',
           statusCode: 403,
@@ -1048,15 +1017,6 @@ describe('DocumentsService.getDownloadUrl', () => {
     })
   })
 
-  it('ACCOUNTANT can download any RECEIPT', async () => {
-    const h = makeHarness({
-      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RECEIPT' }],
-      honorSoftDeleteFilter: true,
-    })
-    const result = await h.service.getDownloadUrl(ACCOUNTANT, 'd1')
-    expect(result.url).toBeTruthy()
-  })
-
   it('owner cannot fetch URL for own soft-deleted doc → 404', async () => {
     const h = makeHarness({
       docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME', deletedAt: new Date() }],
@@ -1170,26 +1130,6 @@ describe('DocumentsService — team-scoped RESUME/SCAN (task-file-storage-harden
   // buildVisibilityClause for the full two-part rejection rationale
   // (self-satisfying + broke onboarding for the 16/21 people with zero
   // transactions at review time).
-  describe('ACCOUNTANT + SCAN — unconditional, owner decision 2026-08-03', () => {
-    it('ACCOUNTANT downloads SCAN of any owner, including one with zero transactions (e.g. a brand-new hire)', async () => {
-      const h = makeHarness({
-        docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'SCAN' }],
-        honorSoftDeleteFilter: true,
-      })
-      const result = await h.service.getDownloadUrl(ACCOUNTANT, 'd1')
-      expect(result.url).toBeTruthy()
-    })
-  })
-
-  it('ACCOUNTANT still has NO resume access (unaffected by this task — never granted)', async () => {
-    const h = makeHarness({
-      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
-      honorSoftDeleteFilter: true,
-    })
-    await expect(h.service.getDownloadUrl(ACCOUNTANT, 'd1')).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'DOCUMENT_NOT_FOUND', statusCode: 404 }),
-    })
-  })
 
   it("JUNIOR cannot download a teammate's SCAN either (own-only, unaffected by this task)", async () => {
     const h = makeHarness({

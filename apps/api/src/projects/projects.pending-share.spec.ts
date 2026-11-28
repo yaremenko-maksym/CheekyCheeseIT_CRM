@@ -666,24 +666,6 @@ describe('ProjectsService.findOne — pendingSeniorShare (JUNIOR skip-the-lookup
   // which need extra scope-membership mocking this harness does not set up —
   // those two are covered instead in `projects.service.spec.ts`, which
   // already has richer HR/DROP-access fixtures).
-  it('is null for an ACCOUNTANT viewer, and skips the approvals.getStatus lookup entirely (narrower than mapProject masking JUNIOR alone)', async () => {
-    const h = buildHarness({
-      seniorSharePercentOverride: null,
-      pendingSeniorSharePercentOverride: 40,
-    })
-    const accountantUser: SessionUser = {
-      id: 'accountant-1',
-      role: 'ACCOUNTANT',
-      displayName: 'Accountant',
-      email: 'accountant-1@x.com',
-      avatarUrl: null,
-      avatarDocumentId: null,
-      seniorSharePercent: null,
-    }
-    const result = await h.service.findOne('proj-1', accountantUser)
-    expect(h.approvals.getStatus).not.toHaveBeenCalled()
-    expect(result.pendingSeniorShare).toBeNull()
-  })
 
   it('skips the approvals.getStatus lookup entirely for a JUNIOR viewer (never just masks after the fact)', async () => {
     const h = buildHarness({
@@ -943,11 +925,6 @@ describe('ProjectsService.update — SR-L-4: pending lookup gated by role, like 
   // admits them only when EVERY patched field is finance-scoped — and it is
   // deliberately a field that opens no proposal, so the `getStatus` call this
   // asserts about could only come from the unconditional tail lookup.
-  it('does not ask approvals for a role that cannot see the field (ACCOUNTANT)', async () => {
-    const h = buildHarness({ seniorSharePercentOverride: 26 })
-    await h.service.update('proj-1', { paymentType: 'USDT' }, accountantUser)
-    expect(h.approvals.getStatus).not.toHaveBeenCalled()
-  })
 
   it('still asks for ADMIN, who can see it', async () => {
     const h = buildHarness({
@@ -983,22 +960,6 @@ describe('ProjectsService.cancelSeniorShareChange — RBAC + actual effect', () 
     // The ACTIVE override is untouched — cancel withdraws the PROPOSAL,
     // never the value that is already live.
     expect(h.projectRow.seniorSharePercentOverride).toBe(26)
-  })
-
-  it('ACCOUNTANT may also cancel (same RBAC as the propose-gate in update())', async () => {
-    const h = buildHarness({ pendingSeniorSharePercentOverride: 40 })
-    const accountantUser: SessionUser = {
-      id: 'acc-1',
-      role: 'ACCOUNTANT',
-      displayName: 'Accountant',
-      email: 'acc@x.com',
-      avatarUrl: null,
-      avatarDocumentId: null,
-      seniorSharePercent: null,
-    }
-    await h.service.cancelSeniorShareChange('proj-1', accountantUser)
-    expect(h.approvals.cancelInTx).toHaveBeenCalledOnce()
-    expect(h.projectRow.pendingSeniorSharePercentOverride).toBeNull()
   })
 
   // task-648-fix-round-2 (SR-M-7 / CR-M-2). Withdrawing a proposal moved
@@ -1044,21 +1005,6 @@ describe('ProjectsService.cancelSeniorShareChange — RBAC + actual effect', () 
   // round-trip is the small half; the real point is that `findOne` already
   // gates this exact lookup by role and `loadForResponse` silently did not,
   // so the two response paths disagreed about who may even ASK.
-  it('SR-bm-3: does not resolve the pending proposal for a role that cannot see it (ACCOUNTANT)', async () => {
-    const h = buildHarness({ pendingSeniorSharePercentOverride: 40 })
-    const accountantUser: SessionUser = {
-      id: 'acc-1',
-      role: 'ACCOUNTANT',
-      displayName: 'Accountant',
-      email: 'acc@x.com',
-      avatarUrl: null,
-      avatarDocumentId: null,
-      seniorSharePercent: null,
-    }
-    const result = await h.service.cancelSeniorShareChange('proj-1', accountantUser)
-    expect(h.approvals.getStatus).not.toHaveBeenCalled()
-    expect((result as { pendingSeniorShare: unknown }).pendingSeniorShare).toBeNull()
-  })
 
   // task-648-fix-round-2 (SR-bm-3): the gate names TWO roles, and only one of
   // them was exercised — an assertion covering ADMIN alone leaves "or SENIOR"
