@@ -62,6 +62,11 @@ export class ContractTemplatesService {
     if ((targetRole as string) === 'ADMIN') {
       throw apiError('CONTRACT_TEMPLATE_ADMIN_PUBLISH_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
+    // ACCOUNTANT is being retired (manager-role plan PR 1a): its templates are deleted on deploy,
+    // so a new one must not be published.
+    if (targetRole === 'ACCOUNTANT') {
+      throw apiError('CONTRACT_TEMPLATE_INVALID_ROLE', HttpStatus.BAD_REQUEST)
+    }
 
     return this.db.db.transaction(async (tx) => {
       // Resolve next version atomically (within the same tx as the deactivate+insert).
