@@ -80,6 +80,8 @@ async function renderAndExtract(
   const pdf = await typst.render({
     displayName: fixture.displayName,
     email: fixture.email,
+    phone: fixture.phone,
+    telegram: fixture.telegram,
     content: fixture.content,
     layout: DEFAULT_RESUME_LAYOUT,
     templateName,
@@ -94,6 +96,8 @@ function check(fixture: AtsFixture, fontSet: GlyphFontSet, result: Rendered): At
     layout: DEFAULT_RESUME_LAYOUT,
     displayName: fixture.displayName,
     email: fixture.email,
+    phone: fixture.phone,
+    telegram: fixture.telegram,
     pages: result.pages,
     pdfBytes: result.pdf.length,
   })

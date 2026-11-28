@@ -41,8 +41,10 @@ const {
   confirmMock,
   editMock,
   regenerateMock,
+  saveHeaderMock,
   state,
 } = vi.hoisted(() => ({
+  saveHeaderMock: vi.fn(),
   confirmMock: vi.fn(),
   editMock: vi.fn(),
   regenerateMock: vi.fn(),
@@ -70,6 +72,7 @@ vi.mock('@/hooks/use-senior-resume', () => ({
   useSaveResumeFacts: () => ({ mutateAsync: saveFactsMock, isPending: false }),
   useSubmitResume: () => ({ mutateAsync: submitMock, isPending: false }),
   useSaveResumeLayout: () => ({ mutate: saveLayoutMock, isPending: false }),
+  useSaveResumeHeader: () => ({ mutate: saveHeaderMock, isPending: false }),
   // Covered by ResumeTemplatePicker.test.tsx over the real hook.
   useSetResumeTemplate: () => ({ mutate: vi.fn(), isPending: false }),
   useUploadResumeSource: () => ({ mutate: uploadMock, isPending: false }),
@@ -133,6 +136,13 @@ function makeResponse(
     verifiedAt: null,
     verifiedByName: null,
     recheckNeededAt: null,
+    header: { displayName: null, email: null, phone: null, telegram: null },
+    headerDefaults: {
+      displayName: 'Jane Doe',
+      email: 'jane@example.com',
+      phone: null,
+      telegram: null,
+    },
     staged: null,
     verificationBusy: false,
     ...overrides,
@@ -357,7 +367,7 @@ describe('ResumeTab — facts form', () => {
     render(tab({ displayName: 'Олександр Доу' }))
     const list = screen.getByRole('list', { name: 'Незаповнені поля' })
     expect(
-      within(list).getByText('Ім’я в профілі має бути латиницею. Змініть його в профілі'),
+      within(list).getByText('Ім’я в шапці резюме має бути латиницею. Виправте його в шапці'),
     ).toBeInTheDocument()
   })
 
@@ -838,5 +848,64 @@ describe('ResumeTab — a failed refetch and a dirty Retry (FR-W-1, FR-W-2)', ()
     expect(retry).toBeDisabled()
     fireEvent.click(retry)
     expect(submitMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('ResumeTab — the header panel', () => {
+  const stagedResult = {
+    runId: '22222222-2222-4222-8222-222222222222',
+    content: EMPTY_RESUME_CONTENT,
+    layout: DEFAULT_RESUME_LAYOUT,
+    templateName: 'classic' as const,
+    pdfAvailable: true,
+    editedPaths: [],
+  }
+
+  it('HR sees it prefilled from the profile, and a save sends the overrides', () => {
+    setData(makeResponse())
+    render(tab())
+    const name = screen.getByTestId('resume-header-displayName') as HTMLInputElement
+    expect(name.value).toBe('Jane Doe')
+    expect(screen.queryByTestId('resume-header-discards-staged')).toBeNull()
+    fireEvent.change(name, { target: { value: 'Jana Doe' } })
+    fireEvent.click(screen.getByTestId('resume-header-save'))
+    expect(saveHeaderMock).toHaveBeenCalledWith({
+      displayName: 'Jana Doe',
+      email: null,
+      phone: null,
+      telegram: null,
+    })
+  })
+
+  it('a viewer without write access sees no header panel', () => {
+    setData(makeResponse({}, false))
+    render(tab())
+    expect(screen.queryByTestId('resume-header-panel')).toBeNull()
+  })
+
+  it('no resume yet, no header panel', () => {
+    setData({ resume: null, canEdit: true, canConfirm: false })
+    render(tab())
+    expect(screen.queryByTestId('resume-header-panel')).toBeNull()
+  })
+
+  it('a staged result shows the discard warning', () => {
+    setData(makeResponse({ verificationStatus: 'AWAITING_CONFIRM', staged: stagedResult }))
+    render(tab())
+    expect(screen.getByTestId('resume-header-discards-staged')).toBeInTheDocument()
+  })
+
+  it('a new server header remounts the panel with it', () => {
+    setData(makeResponse())
+    const { rerender } = render(tab())
+    setData(
+      makeResponse({
+        header: { displayName: 'Server Name', email: null, phone: null, telegram: null },
+      }),
+    )
+    rerender(tab())
+    expect((screen.getByTestId('resume-header-displayName') as HTMLInputElement).value).toBe(
+      'Server Name',
+    )
   })
 })

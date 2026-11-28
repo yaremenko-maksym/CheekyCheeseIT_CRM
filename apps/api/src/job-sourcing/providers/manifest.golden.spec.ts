@@ -54,7 +54,7 @@ const TYPES: TypeRow[] = [
   ['LEVER_ATS', 'Lever', 'NONE', 'NONE_RECORDED', 'postings-api', 'BOARD', 1],
   ['ASHBY_ATS', 'Ashby', 'NONE', 'NONE_RECORDED', 'posting-api', 'BOARD', 1],
   ['WORKABLE_ATS', 'Workable', 'NONE', 'NONE_RECORDED', 'widget-accounts', 'BOARD', 1],
-  ['SMARTRECRUITERS_ATS', 'SmartRecruiters', 'NONE', 'NONE_RECORDED', 'posting-api', 'BOARD', 1],
+  ['SMARTRECRUITERS_ATS', 'SmartRecruiters', 'NONE', 'NONE_RECORDED', 'posting-api', 'BOARD', 10],
   [
     'RECRUITEE_ATS',
     'Recruitee',
@@ -68,7 +68,6 @@ const TYPES: TypeRow[] = [
   ['JOOBLE_API', 'Jooble', 'API_KEY', 'NONE_RECORDED', 'search-post', 'SEARCH', 1],
   ['JSEARCH_API', 'JSearch', 'API_KEY', 'NONE_RECORDED', 'rapidapi-search', 'SEARCH', 1],
   ['THEIRSTACK_API', 'TheirStack', 'API_KEY', 'NONE_RECORDED', 'jobs-search-post', 'SEARCH', 1],
-  ['MUSE_API', 'The Muse', 'NONE', 'LINK_BACK_REQUIRED', 'public-jobs', 'CATEGORY', 5],
   ['REED_API', 'Reed', 'API_KEY', 'NONE_RECORDED', 'jobseeker-search', 'SEARCH', 1],
   ['DJINNI_RSS', 'Djinni', 'NONE', 'NONE_RECORDED', 'rss-primary-keyword', 'FEED_WINDOW', 1],
   ['WWR_RSS', 'We Work Remotely', 'NONE', 'LINK_BACK_REQUIRED', 'rss', 'FEED_WINDOW', 1],
@@ -81,13 +80,50 @@ const TYPES: TypeRow[] = [
     'FEED_WINDOW',
     1,
   ],
-  ['JUSTJOIN_HTML', 'JustJoin.it', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
-  ['NOFLUFF_HTML', 'No Fluff Jobs', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
-  ['LANDINGJOBS_HTML', 'Landing.jobs', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
-  ['NEXTLEVELJOBS_HTML', 'Next Level Jobs', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
-  ['DICE_HTML', 'Dice', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
-  ['THEHUB_HTML', 'The Hub', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
+  ['JUSTJOIN_HTML', 'JustJoin.it', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 27],
+  ['NOFLUFF_HTML', 'No Fluff Jobs', 'NONE', 'NONE_RECORDED', 'category-listing', 'BROWSE', 34],
+  ['LANDINGJOBS_HTML', 'Landing.jobs', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
+  ['NEXTLEVELJOBS_HTML', 'Next Level Jobs', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
+  ['DICE_HTML', 'Dice', 'NONE', 'NONE_RECORDED', 'jobs-listing', 'BROWSE', 29],
+  ['THEHUB_HTML', 'The Hub', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
   ['WTTJ_HTML', 'Welcome to the Jungle', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
+  ['PYTHONORG_RSS', 'Python.org Jobs', 'NONE', 'NONE_RECORDED', 'rss', 'FEED_WINDOW', 1],
+  ['SOLIDJOBS_RSS', 'solid.jobs', 'NONE', 'NONE_RECORDED', 'rss', 'FEED_WINDOW', 1],
+  [
+    'BERLINSTARTUPJOBS_RSS',
+    'Berlin Startup Jobs',
+    'NONE',
+    'NONE_RECORDED',
+    'rss',
+    'FEED_WINDOW',
+    1,
+  ],
+  ['HELLOWORLD_RSS', 'helloworld.rs', 'NONE', 'NONE_RECORDED', 'rss', 'FEED_WINDOW', 1],
+  ['LARAJOBS_RSS', 'LaraJobs', 'NONE', 'NONE_RECORDED', 'rss', 'FEED_WINDOW', 1],
+  ['RELOCATEME_HTML', 'Relocate.me', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
+  ['REACTJOBS_HTML', 'ReactJobs', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
+  ['REMOTEIO_HTML', 'Remote.io', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
+  [
+    'REMOTEFIRSTJOBS_HTML',
+    'Remote First Jobs',
+    'NONE',
+    'NONE_RECORDED',
+    'jobs-sitemap',
+    'BROWSE',
+    30,
+  ],
+  ['JOBSPRESSO_HTML', 'Jobspresso', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
+  ['FOURDAYWEEK_API', '4 Day Week', 'NONE', 'NONE_RECORDED', 'engineering-jobs', 'PAGED_FEED', 10],
+  ['GERMANTECHJOBS_API', 'GermanTechJobs', 'NONE', 'NONE_RECORDED', 'jobs-light', 'LATEST_FEED', 1],
+  [
+    'JOBTECH_API',
+    'Arbetsförmedlingen',
+    'NONE',
+    'NONE_RECORDED',
+    'occupation-field-data-it',
+    'PAGED_FEED',
+    20,
+  ],
 ]
 
 type EntryRow = [
@@ -116,6 +152,14 @@ const ENTRIES: EntryRow[] = [
     null,
   ],
   ['arbeitnow.api.feed', 'ARBEITNOW_API', { maxPages: 5 }, 'arbeitnow', 24, null],
+  [
+    'workingnomads.api.development',
+    'WORKINGNOMADS_API',
+    { categories: ['development'] },
+    'workingnomads',
+    24,
+    null,
+  ],
   ['jobgether.api.jobs', 'JOBGETHER_API', {}, 'jobgether', 24, null],
   ['hn-hiring.thread.latest', 'HN_HIRING', {}, 'hn-hiring', 24, null],
   [
@@ -230,6 +274,25 @@ const ENTRIES: EntryRow[] = [
     null,
   ],
   [
+    'smartrecruiters.board.ubisoft2',
+    'SMARTRECRUITERS_ATS',
+    { board: 'ubisoft2', employer: { name: 'Ubisoft', domain: null, evidence: 'PAYLOAD_FIELD' } },
+    'smartrecruiters:ubisoft2',
+    24,
+    null,
+  ],
+  [
+    'smartrecruiters.board.smartrecruiters',
+    'SMARTRECRUITERS_ATS',
+    {
+      board: 'smartrecruiters',
+      employer: { name: 'SmartRecruiters Inc', domain: null, evidence: 'PAYLOAD_FIELD' },
+    },
+    'smartrecruiters:smartrecruiters',
+    24,
+    null,
+  ],
+  [
     'recruitee.board.bunq',
     'RECRUITEE_ATS',
     { board: 'bunq', employer: { name: 'bunq', domain: null, evidence: 'PAYLOAD_FIELD' } },
@@ -302,14 +365,6 @@ const ENTRIES: EntryRow[] = [
     MONTHLY(8),
   ],
   [
-    'muse.api.software-engineering-senior',
-    'MUSE_API',
-    { category: 'Software Engineering', level: 'Senior Level', maxPages: 5 },
-    'themuse',
-    24,
-    null,
-  ],
-  [
     'reed.api.senior-developer-remote',
     'REED_API',
     { keywords: 'senior developer', locationName: 'remote' },
@@ -317,12 +372,39 @@ const ENTRIES: EntryRow[] = [
     24,
     null,
   ],
-  ['djinni.rss.python', 'DJINNI_RSS', { primaryKeyword: 'Python' }, '', 24, null],
-  ['djinni.rss.rust', 'DJINNI_RSS', { primaryKeyword: 'Rust' }, '', 24, null],
-  ['wwr.rss.all-jobs', 'WWR_RSS', {}, '', 24, null],
-  ['wwr.rss.devops', 'WWR_RSS', { category: 'remote-devops-sysadmin-jobs' }, '', 24, null],
+  ['djinni.rss.python', 'DJINNI_RSS', { primaryKeyword: 'Python' }, 'djinni', 24, null],
+  ['djinni.rss.rust', 'DJINNI_RSS', { primaryKeyword: 'Rust' }, 'djinni', 24, null],
+  ['wwr.rss.all-jobs', 'WWR_RSS', {}, 'wwr', 24, null],
+  ['wwr.rss.devops', 'WWR_RSS', { category: 'remote-devops-sysadmin-jobs' }, 'wwr', 24, null],
   ['euremotejobs.rss.feed', 'EUREMOTEJOBS_RSS', {}, '', 24, null],
+  ['justjoin.sitemap.jobs', 'JUSTJOIN_HTML', {}, 'justjoin', 24, null],
+  ['nofluff.listing.it', 'NOFLUFF_HTML', {}, 'nofluff', 24, null],
+  ['landingjobs.sitemap.jobs', 'LANDINGJOBS_HTML', {}, 'landingjobs', 24, null],
+  ['nextleveljobs.sitemap.jobs', 'NEXTLEVELJOBS_HTML', {}, 'nextleveljobs', 24, null],
+  ['dice.listing.jobs', 'DICE_HTML', {}, 'dice', 24, null],
+  ['thehub.sitemap.jobs', 'THEHUB_HTML', {}, 'thehub', 24, null],
+  ['pythonorg.rss.jobs', 'PYTHONORG_RSS', {}, 'pythonorg', 24, null],
+  ['solidjobs.rss.job-offers', 'SOLIDJOBS_RSS', {}, 'solidjobs', 24, null],
+  ['berlinstartupjobs.rss.engineering', 'BERLINSTARTUPJOBS_RSS', {}, 'berlinstartupjobs', 24, null],
+  ['helloworld.rss.feed', 'HELLOWORLD_RSS', {}, 'helloworld', 24, null],
+  ['larajobs.rss.feed', 'LARAJOBS_RSS', {}, 'larajobs', 24, null],
+  ['relocateme.sitemap.jobs', 'RELOCATEME_HTML', {}, 'relocateme', 24, null],
+  ['reactjobs.sitemap.jobs', 'REACTJOBS_HTML', {}, 'reactjobs', 24, null],
+  ['remoteio.sitemap.jobs', 'REMOTEIO_HTML', {}, 'remoteio', 24, null],
+  ['remotefirstjobs.sitemap.jobs', 'REMOTEFIRSTJOBS_HTML', {}, 'remotefirstjobs', 24, null],
+  ['jobspresso.sitemap.jobs', 'JOBSPRESSO_HTML', {}, 'jobspresso', 24, null],
+  ['fourdayweek.api.engineering', 'FOURDAYWEEK_API', {}, 'fourdayweek', 24, null],
+  ['germantechjobs.api.jobs', 'GERMANTECHJOBS_API', {}, 'germantechjobs', 24, null],
+  ['jobtech.api.data-it', 'JOBTECH_API', {}, 'jobtech', 24, null],
 ]
+
+/** Entries at `configVersion` 2: their stored config was revised after the first seed. */
+const REVISED_ENTRY_IDS = new Set([
+  'djinni.rss.python',
+  'djinni.rss.rust',
+  'wwr.rss.all-jobs',
+  'wwr.rss.devops',
+])
 
 describe('the hand-authored half of the manifest, pinned', () => {
   it.each(TYPES)('%s: provider, auth, attribution, endpoint, scope, requests per run', (...row) => {
@@ -338,7 +420,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
     ]).toEqual(row)
   })
 
-  it('covers the 31 types and no other', () => {
+  it('covers the 43 types and no other', () => {
     expect(manifest().types.map((t) => t.type)).toEqual(TYPES.map((r) => r[0]))
   })
 
@@ -348,10 +430,17 @@ describe('the hand-authored half of the manifest, pinned', () => {
     const e = manifest().entries.find((x) => x.id === row[0])!
     const hours = rollbackCadenceHours(e.fetchProfile)
     expect([e.id, e.type, e.config, e.namespace, hours, e.budget]).toEqual(row)
-    expect([e.configVersion, e.manifestVersion, e.policyVersion]).toEqual([1, 1, 1])
+    // Entries whose stored config was revised after the first seed: the delta's revise step keys on
+    // `config_version`, so a bump here is how a prod row is rewritten (Djinni and WWR, 2026-11-19 —
+    // the stored `namespace` was `''` for both). Every other entry is still at its first version.
+    expect([e.configVersion, e.manifestVersion, e.policyVersion]).toEqual([
+      REVISED_ENTRY_IDS.has(e.id) ? 2 : 1,
+      1,
+      1,
+    ])
   })
 
-  it('covers the 34 entries and no other', () => {
+  it('covers the 55 entries and no other', () => {
     expect(manifest().entries.map((e) => e.id)).toEqual(ENTRIES.map((r) => r[0]))
   })
 
@@ -409,15 +498,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
       contract: 'LEGACY',
       note: 'stays on the legacy JobSourceProvider path by decision (plan A1h / C-20); the seed delta never touches its rows',
     })
-    for (const t of [
-      'JUSTJOIN_HTML',
-      'NOFLUFF_HTML',
-      'LANDINGJOBS_HTML',
-      'NEXTLEVELJOBS_HTML',
-      'DICE_HTML',
-      'THEHUB_HTML',
-      'WTTJ_HTML',
-    ]) {
+    for (const t of ['WTTJ_HTML']) {
       expect(d(t)).toEqual({
         kind: 'BLOCKED',
         reason: 'no adapter is implemented; the HTML adapters are plan Task 5.6',

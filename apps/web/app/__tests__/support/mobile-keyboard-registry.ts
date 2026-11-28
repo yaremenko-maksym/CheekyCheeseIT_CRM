@@ -178,6 +178,9 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
   'testid:credentials-input-password': 'PASSWORD',
   'testid:credentials-input-url': 'URL',
 
+  // ---- job-queue/ExternalSubmissionDialog.tsx (external vacancy intake) ----
+  'testid:external-url': 'URL',
+
   // ---- projects/ProjectLegendSection.tsx (per-project legend/cover story) ----
   'testid:legend-input-fullname': 'PERSON_NAME_NO_AUTOFILL', // fictional persona name — no real-name autofill
 
@@ -227,6 +230,7 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
 
   // ---- search boxes (toolbar filters across list pages) ----
   'testid:projects-search-input': 'SEARCH',
+  'testid:job-queue-filters-salary-min': 'INTEGER_TEXT', // whole monthly amount, no spinner (sources-17)
   'testid:documents-search': 'SEARCH',
   'testid:login-as-search': 'SEARCH',
   'testid:job-queue-search': 'SEARCH',
@@ -308,6 +312,9 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
  * substantive reason (checked by the guard — see module doc).
  */
 export const EXEMPT_FIELDS: Record<string, string> = {
+  // ---- job-sourcing/SourceAdminControls.tsx (reset-failures dialog) ----
+  'testid:job-source-reset-reason':
+    'Free-text reason for an admin reset, written to the audit log; it is a sentence, not a field with a keyboard type, so no inputMode or autocomplete applies.',
   // ---- archive/ArchiveConfirmDialog.tsx + users/ArchiveConfirmDialog.tsx +
   //      user-profile/admin-actions/ArchiveUserDialog.tsx ----
   'testid:archive-confirm-input':
@@ -332,9 +339,25 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   'app/components/job-queue/JobQueueActions.tsx#1':
     'Free-text ADMIN reason for assigning a triage vacancy to one team (why this team should see it) — arbitrary prose, no numeric/contact taxonomy class applies.',
 
-  // ---- job-sourcing/JobSuggestionDialog.tsx ----
-  'testid:job-exclusion-input':
-    'Company name or stop-word the user types to exclude a vacancy («EPAM», «gambling», «ТОВ Ромашка») — arbitrary free text in any alphabet; no numeric/contact taxonomy class applies and autofill would offer the wrong kind of value.',
+  // ---- job-queue/ExternalSubmissionDialog.tsx (external vacancy intake) ----
+  'testid:external-paste':
+    'The whole vacancy text pasted from another site to be read into the fields — multi-paragraph prose, no numeric/contact taxonomy class applies.',
+  'app/components/job-queue/ExternalSubmissionDialog.tsx#3':
+    'The vacancy title copied from another site — free-text job title, no numeric/contact taxonomy class applies.',
+  'app/components/job-queue/ExternalSubmissionDialog.tsx#4':
+    'The hiring company name from another site — free-text proper name, no numeric/contact taxonomy class applies.',
+  'app/components/job-queue/ExternalSubmissionDialog.tsx#5':
+    'The vacancy description copied from another site — multi-paragraph prose, no numeric/contact taxonomy class applies.',
+
+  // ---- job-queue/TailoredResumeEditDialog.tsx (tailored resume plan Task 13) ----
+  'app/components/job-queue/TailoredResumeEditDialog.tsx#1':
+    'The tailored CV summary paragraph HR edits before sending — English resume prose, no numeric/contact taxonomy class applies.',
+  'app/components/job-queue/TailoredResumeEditDialog.tsx#2':
+    'The tailored CV skills, one skill name per line — short free-text labels (React, TypeScript), not a number, email or URL.',
+  'app/components/job-queue/TailoredResumeEditDialog.tsx#3':
+    'One experience item’s CV bullets, one achievement sentence per line — resume prose, no numeric/contact taxonomy class applies.',
+  'app/components/job-queue/TailoredResumeEditDialog.tsx#4':
+    'The cover letter body HR edits before sending — multi-paragraph prose, no numeric/contact taxonomy class applies.',
 
   // ---- contracts/AddCustomVariableDialog.tsx ----
   'testid:cv-label-input':
@@ -525,6 +548,8 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   // A resume is prose end to end. The ONLY structured value anywhere in it is
   // the link URL, which is classified URL in FIELD_CATEGORIES above — every
   // field below is genuinely free text a person writes in their own words.
+  'app/components/user-profile/resume/ResumeHeaderPanel.tsx#1':
+    'One Input rendered for four header fields (name, email, phone, Telegram); type and keyboard attributes come per field from the FIELDS table, so no single static category fits the scan site.',
   'testid:resume-text-input':
     'Paste-the-whole-resume fallback textarea used when a PDF has no text layer — an entire CV as prose.',
   'testid:resume-facts-skills':

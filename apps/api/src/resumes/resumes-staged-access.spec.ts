@@ -8,9 +8,12 @@
  */
 import { HttpException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
-import { DEFAULT_RESUME_LAYOUT, type SessionUser } from '@crm/shared'
+import { DEFAULT_RESUME_LAYOUT, EMPTY_RESUME_HEADER, type SessionUser } from '@crm/shared'
 import type { ResumeRenderInput } from './resume-typst.service'
 import { SeniorResumesService } from './resumes.service'
+
+// Senior roles PR 4: the roster dirty mark is covered by resume-dirty.integration.spec.ts.
+vi.mock('../job-sourcing/dirty-producers')
 
 const OWNER_ID = 'a15e0000-0000-4000-8000-0000000000a1'
 const RUN = 'a15e0000-0000-4000-8000-000000000001'
@@ -87,6 +90,7 @@ describe('SeniorResumesService — a SENIOR cannot write their own resume', () =
     ['POST text', () => service.ingestText(owner, OWNER_ID, 'text')],
     ['DELETE', () => service.deleteResume(owner, OWNER_ID)],
     ['PUT layout', () => service.updateLayout(owner, OWNER_ID, DEFAULT_RESUME_LAYOUT)],
+    ['PUT header', () => service.updateHeader(owner, OWNER_ID, EMPTY_RESUME_HEADER)],
     ['PUT facts', () => service.saveFacts(owner, OWNER_ID, {} as never)],
     ['POST submit', () => service.submit(owner, OWNER_ID)],
     [
@@ -255,7 +259,12 @@ describe('SeniorResumesService — Task 15 allowed paths', () => {
       input,
       hr.id,
       'fp-staged',
-      expect.objectContaining({ displayName: 'Jane Doe', email: rendered?.email }),
+      expect.objectContaining({
+        displayName: 'Jane Doe',
+        email: rendered?.email,
+        // the profile the run redacted, so a profile edit under a header override is stale
+        profile: expect.objectContaining({ displayName: 'Jane Doe', email: rendered?.email }),
+      }),
     )
   })
 
@@ -314,10 +323,12 @@ describe('SeniorResumesService — a delete while a run owns the row (CD-4)', ()
     ['VERIFIED with no run', 'VERIFIED', null],
     ['FAILED', 'FAILED', null],
   ])('%s: the delete goes ahead', async (_label, status, runId) => {
-    const s3 = { delete: vi.fn() }
-    const remove = vi.fn(() => {
-      throw new Error('row delete reached')
-    })
+    const s3 = {
+      delete: vi.fn(),
+      deleteOrThrow: vi.fn(),
+      listObjects: vi.fn(async () => ({ objects: [], nextContinuationToken: undefined })),
+    }
+    const remove = vi.fn(() => ({ where: () => ({ returning: async () => [{ id: ROW.id }] }) }))
     // P5: a waiting staged PDF is a third copy of the CV and goes with the other two.
     const stagedPdfS3Key = status === 'AWAITING_CONFIRM' ? 'staged.pdf' : null
     const row = { ...ROW, verificationStatus: status, verificationRunId: runId, stagedPdfS3Key }
@@ -328,6 +339,10 @@ describe('SeniorResumesService — a delete while a run owns the row (CD-4)', ()
           seniorResumes: { findFirst: vi.fn(async () => row) },
         },
         delete: remove,
+        // C3: no tailored run or render active; the tailored row lock reads nothing.
+        execute: vi.fn(async () => ({ rows: [] })),
+        transaction: (work: (tx: unknown) => Promise<unknown>) =>
+          work({ delete: remove, execute: vi.fn(async () => ({ rows: [] })) }),
       },
     }
     const svc = new SeniorResumesService(
@@ -338,11 +353,13 @@ describe('SeniorResumesService — a delete while a run owns the row (CD-4)', ()
       {} as never,
       {} as never,
     )
-    const err = await refusal(svc.deleteResume(viewer(HR_ID, 'HR'), OWNER_ID))
-    expect((err as Error).message).toBe('row delete reached')
-    expect(s3.delete.mock.calls.map((c) => c[0])).toEqual(
+    expect(await svc.deleteResume(viewer(HR_ID, 'HR'), OWNER_ID)).toMatchObject({ resume: null })
+    expect(remove).toHaveBeenCalledTimes(1)
+    // The base objects fail closed (deleteOrThrow): a storage failure keeps the row.
+    expect(s3.deleteOrThrow.mock.calls.map((c) => c[0])).toEqual(
       stagedPdfS3Key ? ['src', 'live.pdf', stagedPdfS3Key] : ['src', 'live.pdf'],
     )
+    expect(s3.delete).not.toHaveBeenCalled()
   })
 })
 
@@ -369,5 +386,120 @@ describe('SeniorResumesService — the target lookup refuses by code (backlog 44
     )
     expect((err as HttpException).getStatus()).toBe(404)
     expect((err as HttpException).getResponse()).toMatchObject({ code: 'RESUME_SENIOR_ONLY' })
+  })
+})
+
+describe('SeniorResumesService — updateHeader (PUT header)', () => {
+  const PROFILE = {
+    id: OWNER_ID,
+    role: 'SENIOR',
+    displayName: 'Jane Doe',
+    email: 'jane@unit.spec',
+    phone: '+380 67 000 0000',
+    telegram: 'jane_doe',
+  }
+
+  function build(existing: object, returned: object[], profile: object = PROFILE) {
+    const set = vi.fn(() => ({ where: () => ({ returning: async () => returned }) }))
+    const db = { db: { update: vi.fn(() => ({ set })) } }
+    const verification = {
+      resolveMiss: vi.fn(async () => 'miss'),
+      deleteStagedObject: vi.fn(async () => undefined),
+    }
+    const svc = new SeniorResumesService(
+      db as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      verification as never,
+    )
+    const inner = svc as unknown as Record<string, unknown>
+    inner['assertAccess'] = vi.fn(async () => profile)
+    inner['ensureRow'] = vi.fn(async () => existing)
+    const enqueueRender = vi.fn(async () => undefined)
+    inner['enqueueRender'] = enqueueRender
+    inner['toResponse'] = vi.fn(async (row: unknown) => row)
+    return { svc, set, verification, enqueueRender }
+  }
+
+  const ROW = { id: 'r-1', verificationStatus: 'DRAFT', stagedPdfS3Key: null }
+
+  it('stores a value equal to the profile one as null; a different value stays', async () => {
+    const { svc, set, enqueueRender } = build(ROW, [ROW])
+    await svc.updateHeader(viewer(HR_ID, 'HR'), OWNER_ID, {
+      displayName: 'Jane Doe',
+      email: 'other@unit.spec',
+      phone: '+380 67 000 0000',
+      telegram: '@jane_doe',
+    })
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        header: { displayName: null, email: 'other@unit.spec', phone: null, telegram: null },
+      }),
+    )
+    expect(enqueueRender).toHaveBeenCalledWith('r-1', PROFILE)
+  })
+
+  it('keeps each override that differs from the profile', async () => {
+    const { svc, set } = build(ROW, [ROW])
+    const header = {
+      displayName: 'Jane Override',
+      email: null,
+      phone: '+380 50 000 0000',
+      telegram: '@jane_cv',
+    }
+    await svc.updateHeader(viewer(HR_ID, 'HR'), OWNER_ID, header)
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ header }))
+  })
+
+  it('an email equal to the profile one is stored as null', async () => {
+    const { svc, set } = build(ROW, [ROW])
+    await svc.updateHeader(viewer(HR_ID, 'HR'), OWNER_ID, {
+      ...EMPTY_RESUME_HEADER,
+      email: 'jane@unit.spec',
+    })
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ header: EMPTY_RESUME_HEADER }))
+  })
+
+  it('only a leading @ is ignored: an @ inside the profile value still differs', async () => {
+    const { svc, set } = build(ROW, [ROW], { ...PROFILE, telegram: 'jane_@doe' })
+    const header = { ...EMPTY_RESUME_HEADER, telegram: 'jane_doe' }
+    await svc.updateHeader(viewer(HR_ID, 'HR'), OWNER_ID, header)
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ header }))
+  })
+
+  it('an AWAITING_CONFIRM result is discarded: DRAFT reset and its staged PDF deleted', async () => {
+    const awaiting = {
+      ...ROW,
+      verificationStatus: 'AWAITING_CONFIRM',
+      stagedPdfS3Key: 'staged.pdf',
+    }
+    const { svc, set, verification } = build(awaiting, [awaiting])
+    await svc.updateHeader(viewer(HR_ID, 'HR'), OWNER_ID, EMPTY_RESUME_HEADER)
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ verificationStatus: 'DRAFT' }))
+    expect(verification.deleteStagedObject).toHaveBeenCalledWith('staged.pdf')
+  })
+
+  it('a DRAFT row keeps its status and deletes nothing', async () => {
+    const { svc, set, verification } = build(ROW, [ROW])
+    await svc.updateHeader(viewer(HR_ID, 'HR'), OWNER_ID, EMPTY_RESUME_HEADER)
+    expect(set).toHaveBeenCalledWith(
+      expect.not.objectContaining({ verificationStatus: expect.anything() }),
+    )
+    expect(verification.deleteStagedObject).not.toHaveBeenCalled()
+  })
+
+  it('a row that moved since the read is a miss: no render, no staged delete', async () => {
+    const awaiting = {
+      ...ROW,
+      verificationStatus: 'AWAITING_CONFIRM',
+      stagedPdfS3Key: 'staged.pdf',
+    }
+    const { svc, verification, enqueueRender } = build(awaiting, [])
+    expect(await svc.updateHeader(viewer(HR_ID, 'HR'), OWNER_ID, EMPTY_RESUME_HEADER)).toBe('miss')
+    expect(verification.resolveMiss).toHaveBeenCalledWith('r-1')
+    expect(verification.deleteStagedObject).not.toHaveBeenCalled()
+    expect(enqueueRender).not.toHaveBeenCalled()
   })
 })

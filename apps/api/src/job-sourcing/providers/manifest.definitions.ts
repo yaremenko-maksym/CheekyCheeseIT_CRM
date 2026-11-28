@@ -6,33 +6,122 @@ import { GREENHOUSE_BOARDS } from './boards/greenhouse.boards'
 import { LEVER_BOARDS } from './boards/lever.boards'
 import { PERSONIO_BOARDS } from './boards/personio.boards'
 import { RECRUITEE_BOARDS } from './boards/recruitee.boards'
+import { SMARTRECRUITERS_BOARDS } from './boards/smartrecruiters.boards'
 import { WORKABLE_BOARDS } from './boards/workable.boards'
-import { FIXED_SLOTS_INTERVAL_MINUTES } from './manifest.fetch-profile'
+import { FIXED_SLOTS_INTERVAL_MINUTES, HTML_RUN_TIMES } from './manifest.fetch-profile'
 import { ARBEITNOW_SOURCE_STATUS } from './sources/arbeitnow.provider'
 import { JOBGETHER_SOURCE_STATUS } from './sources/jobgether.provider'
 import { HN_SOURCE_STATUS } from './sources/hn-hiring.provider'
 import { JOOBLE_SOURCE_STATUS } from './sources/jooble.provider'
 import { JSEARCH_SOURCE_STATUS } from './sources/jsearch.provider'
-import { MUSE_SOURCE_STATUS } from './sources/muse.provider'
 import {
   ASHBY_OWNER_DECISION,
   DJINNI_OWNER_DECISION,
+  DICE_OWNER_DECISION,
   HN_OWNER_DECISION,
   JOBGETHER_OWNER_DECISION,
-  MUSE_OWNER_DECISION,
+  NEXTLEVELJOBS_OWNER_DECISION,
+  LANDINGJOBS_OWNER_DECISION,
+  JUSTJOIN_OWNER_DECISION,
+  THEHUB_OWNER_DECISION,
+  RELOCATEME_OWNER_DECISION,
+  REACTJOBS_OWNER_DECISION,
+  REMOTEIO_OWNER_DECISION,
+  REMOTEFIRSTJOBS_OWNER_DECISION,
+  JOBSPRESSO_OWNER_DECISION,
+  NOFLUFF_OWNER_DECISION,
   REMOTIVE_OWNER_DECISION,
   SMARTRECRUITERS_OWNER_DECISION,
   WORKABLE_OWNER_DECISION,
   WORKINGNOMADS_OWNER_DECISION,
+  HELLOWORLD_OWNER_DECISION,
+  GERMANTECHJOBS_OWNER_DECISION,
 } from './owner-decisions'
+import {
+  DICE_ENDPOINT_VARIANT,
+  DICE_HOST,
+  DICE_REQUESTS_PER_RUN,
+  DICE_SOURCE_STATUS,
+} from './sources/dice.provider'
 import { LEVER_HOSTS } from './sources/lever.provider'
+import {
+  NEXTLEVELJOBS_BOUNDS,
+  NEXTLEVELJOBS_ENDPOINT_VARIANT,
+  NEXTLEVELJOBS_HOST,
+  NEXTLEVELJOBS_SOURCE_STATUS,
+} from './sources/nextleveljobs.provider'
+import { MAX_SITEMAP_PARTS } from './sources/sitemap-jsonld'
+import {
+  LANDINGJOBS_BOUNDS,
+  LANDINGJOBS_ENDPOINT_VARIANT,
+  LANDINGJOBS_HOST,
+  LANDINGJOBS_SOURCE_STATUS,
+} from './sources/landingjobs.provider'
+import {
+  JUSTJOIN_BOUNDS,
+  JUSTJOIN_ENDPOINT_VARIANT,
+  JUSTJOIN_HOST,
+  JUSTJOIN_SOURCE_STATUS,
+} from './sources/justjoin.provider'
+import {
+  THEHUB_BOUNDS,
+  THEHUB_ENDPOINT_VARIANT,
+  THEHUB_HOST,
+  THEHUB_SOURCE_STATUS,
+} from './sources/thehub.provider'
+import {
+  RELOCATEME_BOUNDS,
+  RELOCATEME_ENDPOINT_VARIANT,
+  RELOCATEME_HOST,
+  RELOCATEME_SOURCE_STATUS,
+} from './sources/relocateme.provider'
+import {
+  REACTJOBS_BOUNDS,
+  REACTJOBS_ENDPOINT_VARIANT,
+  REACTJOBS_HOST,
+  REACTJOBS_SOURCE_STATUS,
+} from './sources/reactjobs.provider'
+import {
+  REMOTEIO_BOUNDS,
+  REMOTEIO_ENDPOINT_VARIANT,
+  REMOTEIO_HOST,
+  REMOTEIO_SOURCE_STATUS,
+} from './sources/remoteio.provider'
+import {
+  REMOTEFIRSTJOBS_BOUNDS,
+  REMOTEFIRSTJOBS_ENDPOINT_VARIANT,
+  REMOTEFIRSTJOBS_HOST,
+  REMOTEFIRSTJOBS_SOURCE_STATUS,
+} from './sources/remotefirstjobs.provider'
+import {
+  JOBSPRESSO_BOUNDS,
+  JOBSPRESSO_ENDPOINT_VARIANT,
+  JOBSPRESSO_HOST,
+  JOBSPRESSO_SOURCE_STATUS,
+} from './sources/jobspresso.provider'
+import {
+  NOFLUFF_ENDPOINT_VARIANT,
+  NOFLUFF_HOST,
+  NOFLUFF_REQUESTS_PER_RUN,
+  NOFLUFF_SOURCE_STATUS,
+} from './sources/nofluff.provider'
 import { RECRUITEE_TOKEN_DEADLINE } from './sources/recruitee.provider'
-import { smartrecruitersAllowedHosts } from './sources/smartrecruiters.provider'
+import {
+  SMARTRECRUITERS_BOUNDS,
+  smartrecruitersAllowedHosts,
+} from './sources/smartrecruiters.provider'
 import { workableAllowedHosts } from './sources/workable.provider'
 import { REED_SOURCE_STATUS } from './sources/reed.provider'
 import { REMOTIVE_SOURCE_STATUS } from './sources/remotive.provider'
 import { THEIRSTACK_SOURCE_STATUS } from './sources/theirstack.provider'
 import { WORKINGNOMADS_SOURCE_STATUS } from './sources/workingnomads.provider'
+import { HELLOWORLD_SOURCE_STATUS } from './sources/helloworld.provider'
+import { GERMANTECHJOBS_SOURCE_STATUS } from './sources/germantechjobs.provider'
+import {
+  FOURDAYWEEK_MAX_PAGES_CEILING,
+  FOURDAYWEEK_SOURCE_STATUS,
+} from './sources/fourdayweek.provider'
+import { JOBTECH_MAX_PAGES_CEILING, JOBTECH_SOURCE_STATUS } from './sources/jobtech.provider'
 
 /**
  * Every multi-board host (`scopeKind: 'BOARD'`) carries the same two U11 figures, inline on each
@@ -42,6 +131,11 @@ import { WORKINGNOMADS_SOURCE_STATUS } from './sources/workingnomads.provider'
  *  - `requestsPerRun: 1` — a board lists in ONE request a run today (`detailMode: 'IN_LIST'`), so its
  *    real current maximum is 1 (SR-H-1b). The collection context enforces this ceiling at runtime and
  *    `claimHostSlot` counts an in-flight run as this figure, so the budget is a TRUE upper bound.
+ * SmartRecruiters is the single exception since task sources-04: its adapter spends a detail
+ * request per posting. Since 2026-11-21 (owner, task sources-15) its host budget is 10 a minute,
+ * overriding the two-week rule above for SmartRecruiters only, so its `requestsPerRun` is 10 and its
+ * own bounds hold a run to nine postings. `SMARTRECRUITERS_BOUNDS.maxRequests` is that one constant,
+ * read by both the adapter and the definition below.
  * WHEN U10 wires Greenhouse detail-on-demand (`detailPerRun: 5`), Greenhouse's `requestsPerRun` MUST
  * rise to cover the detail fetches AND the per-host budget MUST be revisited then: a 5-request run
  * does not fit a 2-a-minute budget (`assertPolicy` fails loud on `requestsPerRun > perMinute`). That
@@ -180,6 +274,19 @@ const kyivAt = (time: string): FetchProfile => ({
   fixedSlots: { timeZone: 'Europe/Kyiv', times: [time] },
 })
 
+/**
+ * The live HTML types: the four Kyiv slots of the HTML cron, 6 h apart (owner, 2026-11-21, task
+ * sources-15). Fixed slots, not a working-hours grid: the HTML handler claims only when its cron
+ * fires, and a staggered grid slot that falls between two firings would leave a firing claiming
+ * nothing. The per-run bounds are unchanged; only the number of runs grows.
+ */
+const HTML_SLOTS: FetchProfile = {
+  intervalMinutes: FIXED_SLOTS_INTERVAL_MINUTES,
+  offIntervalMinutes: null,
+  window: null,
+  fixedSlots: { timeZone: 'Europe/Kyiv', times: [...HTML_RUN_TIMES] },
+}
+
 /** One map for every provider's board file: the same employer under two ATS types is refused. */
 const CLAIMED_BOARDS = new Map<string, string>()
 /** An ATS board's profile: hourly in its employer's working day, every 3 h outside (section 8). */
@@ -203,7 +310,7 @@ const blockedHtml = (type: string, provider: string): TypeDefinition => ({
 const REPORTING = { kind: 'IMPLEMENTED', contract: 'REPORTING' } as const
 
 // ---------------------------------------------------------------------------
-// The 31 types, in `jobSourceTypeSchema` order
+// The 33 types, in `jobSourceTypeSchema` order
 // ---------------------------------------------------------------------------
 
 export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
@@ -326,8 +433,15 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: 'exposed-jobs',
     scopeKind: 'LATEST_FEED',
     hostKey: () => 'www.workingnomads.com',
-    // No entries: the adapter refuses EVERY config (`SourceBlockedError`), so none can be validated.
-    entries: [],
+    // ONE request a run: the endpoint answers the whole feed in one unparameterised array, and the
+    // `categories` filter is applied client-side (measured 2026-11-19, see the capture provenance).
+    requestsPerRun: 1,
+    payloadFixtures: ['exposed-jobs.json'],
+    // The cadence the 2026-10-05 seed row already carries (24 h), unchanged by connecting it.
+    fetchProfile: DAILY,
+    // The seeded production row is `('WORKINGNOMADS_API', '{"categories":["development"]}')`, so
+    // this config must stay byte-equal to it: the delta's adopt step matches on `s.config = m.config`.
+    entries: [legacy('workingnomads.api.development', { categories: ['development'] })],
   },
   {
     type: 'JOBGETHER_API',
@@ -456,18 +570,34 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'posting-api',
     scopeKind: 'BOARD',
-    hostRequestBudget: { perMinute: 2, perHour: 120 },
-    requestsPerRun: 1,
+    // Ten a minute, not the BOARD floor of two: the owner's raise of 2026-11-21 (task sources-15),
+    // which overrides decision 11's "raise only after two weeks without a refusal" for this host
+    // only. `perHour` stays 120: two boards at the hourly working-hours cadence spend at most 20.
+    hostRequestBudget: { perMinute: 10, perHour: 120 },
+    // Ten, not the one every other board type declares: this adapter spends one list request and a
+    // detail request per posting, nine postings a run. The figure is both the collection context's runtime ceiling and
+    // what `claimHostSlot` counts against the budget above, so it has to cover the pair.
+    //
+    // WHERE THAT DETAIL REQUEST LIVES (SR-L-1). It is sent INLINE inside `collectReport`, one GET
+    // a posting, and it is therefore counted by `requestsPerRun` above and by nothing else. It is
+    // NOT the ADR 6a detail tail: this adapter carries no `collectDetail`, and `job-run-worker.ts`
+    // builds the tail port only for an adapter that has one AND a `detailPerRun >= 1`. So the
+    // declared `detailMode` stays the default `IN_LIST` with `detailPerRun` absent - declaring
+    // `ON_DEMAND` here would record a tail the worker can never run. The consequence a reader must
+    // carry away: raising `pageSize` above 9 costs ONE EXTRA REQUEST PER POSTING, and that cost
+    // lands on `requestsPerRun`, which is what this host's 10-a-minute budget is checked against.
+    // `manifest.owner-decisions.spec.ts` pins this relation so it is not a comment alone.
+    requestsPerRun: SMARTRECRUITERS_BOUNDS.maxRequests,
     hostKey: () => smartrecruitersAllowedHosts()[0]!,
-    // No entries: no board was ever captured. The only committed fixture is the host's robots.txt,
-    // which is not the postings API payload. The owner accepted the robots.txt risk on 2026-10-24,
-    // so the decision above lifts the PERMISSION blocker, but the type stays not ready
-    // (NO_API_CAPTURE) until a real capture of the postings API payload is committed under the name
-    // below. The first real call within the owner's permission (a controlled smoke) would clear it.
+    // The postings API payload is committed for each board below (task sources-04: one plain GET a
+    // board, inside the owner's permission of 2026-10-24), which is what cleared NO_API_CAPTURE.
     payloadFixtures: ['postings-list.json'],
-    // Owner, Q8: connected at the very end; never scheduled until then.
-    fetchProfile: null,
-    entries: [],
+    entries: boardEntries({
+      prefix: 'smartrecruiters',
+      lines: SMARTRECRUITERS_BOARDS,
+      profileFor: BOARD_PROFILE,
+      claimed: CLAIMED_BOARDS,
+    }),
   },
   {
     type: 'RECRUITEE_ATS',
@@ -589,29 +719,6 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     ],
   },
   {
-    type: 'MUSE_API',
-    provider: 'The Muse',
-    disposition: REPORTING,
-    fixtureDir: 'muse',
-    status: { symbol: 'MUSE_SOURCE_STATUS', value: MUSE_SOURCE_STATUS },
-    ownerDecisions: [MUSE_OWNER_DECISION],
-    auth: 'NONE',
-    attribution: 'LINK_BACK_REQUIRED',
-    endpointVariant: 'public-jobs',
-    scopeKind: 'CATEGORY',
-    hostKey: () => 'www.themuse.com',
-    requestsPerRun: 5,
-    // Blocked (section 8: no schedule change); the daily cadence it had.
-    fetchProfile: DAILY,
-    entries: [
-      legacy('muse.api.software-engineering-senior', {
-        category: 'Software Engineering',
-        level: 'Senior Level',
-        maxPages: 5,
-      }),
-    ],
-  },
-  {
     type: 'REED_API',
     provider: 'Reed',
     disposition: REPORTING,
@@ -654,8 +761,13 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
       },
     },
     entries: [
-      fresh('djinni.rss.python', { primaryKeyword: 'Python' }),
-      fresh('djinni.rss.rust', { primaryKeyword: 'Rust' }),
+      // configVersion 2: the revise step rewrites the stored `namespace` from `''` to `djinni`.
+      // Both prod rows carried the empty one, which is no namespace at all, so every item of
+      // every run was refused `INVALID_NAMESPACE` before the record store saw it and nothing was
+      // persisted — a run row reading `received 0` because that counter counts what reached the
+      // store. Full mechanism: `DJINNI_NAMESPACE` in `sources/djinni.provider.ts`.
+      fresh('djinni.rss.python', { primaryKeyword: 'Python' }, { configVersion: 2 }),
+      fresh('djinni.rss.rust', { primaryKeyword: 'Rust' }, { configVersion: 2 }),
     ],
   },
   {
@@ -671,8 +783,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     // A Chicago-based board (A1 on the region).
     fetchProfile: workingHours('America/Chicago', 180, 360),
     entries: [
-      fresh('wwr.rss.all-jobs', {}),
-      fresh('wwr.rss.devops', { category: 'remote-devops-sysadmin-jobs' }),
+      fresh('wwr.rss.all-jobs', {}, { configVersion: 2 }),
+      fresh('wwr.rss.devops', { category: 'remote-devops-sysadmin-jobs' }, { configVersion: 2 }),
     ],
   },
   {
@@ -689,11 +801,408 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     fetchProfile: DAILY,
     entries: [legacy('euremotejobs.rss.feed', {})],
   },
-  blockedHtml('JUSTJOIN_HTML', 'JustJoin.it'),
-  blockedHtml('NOFLUFF_HTML', 'No Fluff Jobs'),
-  blockedHtml('LANDINGJOBS_HTML', 'Landing.jobs'),
-  blockedHtml('NEXTLEVELJOBS_HTML', 'Next Level Jobs'),
-  blockedHtml('DICE_HTML', 'Dice'),
-  blockedHtml('THEHUB_HTML', 'The Hub'),
+  {
+    type: 'JUSTJOIN_HTML',
+    provider: 'JustJoin.it',
+    disposition: REPORTING,
+    fixtureDir: 'justjoin',
+    status: { symbol: 'JUSTJOIN_SOURCE_STATUS', value: JUSTJOIN_SOURCE_STATUS },
+    ownerDecisions: [JUSTJOIN_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: JUSTJOIN_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => JUSTJOIN_HOST,
+    // robots.txt + the index + at most 2 parts (`MAX_SITEMAP_PARTS`) + at most 20 detail pages
+    // (`JUSTJOIN_BOUNDS`) = 24, under this bound of 27. No redirect is followed (task sources-16):
+    // the sitemaps are requested at the CDN host directly, so none costs a hop.
+    requestsPerRun: JUSTJOIN_BOUNDS.maxDetails + MAX_SITEMAP_PARTS + 1 + 4,
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'active-jobs-index.xml',
+      'active-jobs-part0.trimmed.xml',
+      'job-fullstack-developer-java-angular.jsonld.html.txt',
+    ],
+    // A Warsaw-based board with a large inflow (~160 new postings a day). The backlog of ~11 000
+    // unseen postings never drains.
+    fetchProfile: HTML_SLOTS,
+    entries: [fresh('justjoin.sitemap.jobs', {})],
+  },
+  {
+    type: 'NOFLUFF_HTML',
+    provider: 'No Fluff Jobs',
+    disposition: REPORTING,
+    fixtureDir: 'nofluff',
+    status: { symbol: 'NOFLUFF_SOURCE_STATUS', value: NOFLUFF_SOURCE_STATUS },
+    ownerDecisions: [NOFLUFF_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: NOFLUFF_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => NOFLUFF_HOST,
+    // 1 robots + 8 category pages + at most 25 detail pages (`NOFLUFF_REQUESTS_PER_RUN`). No
+    // redirect is followed (each 3xx is its own counted request), so nothing is reserved for one.
+    // The adapter waits at least 3 s before each request after the first.
+    requestsPerRun: NOFLUFF_REQUESTS_PER_RUN,
+    // One run's worth a minute, two an hour: a second run inside the hour waits for the next.
+    hostRequestBudget: { perMinute: 40, perHour: 80 },
+    payloadFixtures: ['backend-listing.trimmed.html.txt', 'job-detail.trimmed.html.txt'],
+    // A Polish board.
+    fetchProfile: HTML_SLOTS,
+    entries: [fresh('nofluff.listing.it', {})],
+  },
+  {
+    type: 'LANDINGJOBS_HTML',
+    provider: 'Landing.jobs',
+    disposition: REPORTING,
+    fixtureDir: 'landingjobs',
+    status: { symbol: 'LANDINGJOBS_SOURCE_STATUS', value: LANDINGJOBS_SOURCE_STATUS },
+    ownerDecisions: [LANDINGJOBS_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: LANDINGJOBS_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => LANDINGJOBS_HOST,
+    // robots.txt + 1 sitemap + at most 25 detail pages (`LANDINGJOBS_BOUNDS`) = 27, under this
+    // bound of 30. No redirect is followed (task sources-16), so none costs a hop.
+    requestsPerRun: LANDINGJOBS_BOUNDS.maxDetails + 5,
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'sitemap.trimmed.xml',
+      'job-aws-cloud-solutions-architect.jsonld.html.txt',
+      'job-application-integration-consultant.jsonld.html.txt',
+    ],
+    // A Lisbon-based board with a small inflow (75 open jobs in the sitemap on 2026-11-21).
+    fetchProfile: HTML_SLOTS,
+    entries: [fresh('landingjobs.sitemap.jobs', {})],
+  },
+  {
+    type: 'NEXTLEVELJOBS_HTML',
+    provider: 'Next Level Jobs',
+    disposition: REPORTING,
+    fixtureDir: 'nextleveljobs',
+    status: { symbol: 'NEXTLEVELJOBS_SOURCE_STATUS', value: NEXTLEVELJOBS_SOURCE_STATUS },
+    ownerDecisions: [NEXTLEVELJOBS_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: NEXTLEVELJOBS_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => NEXTLEVELJOBS_HOST,
+    // robots.txt + 1 sitemap + at most 25 detail pages (`NEXTLEVELJOBS_BOUNDS`) = 27, under this
+    // bound of 30; no redirect is followed (task sources-16). The adapter itself waits 3 to 4.5 s
+    // before each request after the first, so a run of 27 takes about two minutes and never
+    // exceeds 0.34 requests a second.
+    requestsPerRun: NEXTLEVELJOBS_BOUNDS.maxDetails + 5,
+    // One run's worth a minute, two an hour: a second run inside the hour waits for the next.
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'jobs-sitemap.trimmed.xml',
+      'job-security-engineer.html.txt',
+      'job-engineering-manager.html.txt',
+    ],
+    // A Berlin-based board, with an inflow measured at 50 to 110 a day (sitemap ids, 2026-11-20).
+    fetchProfile: HTML_SLOTS,
+    entries: [fresh('nextleveljobs.sitemap.jobs', {})],
+  },
+  {
+    type: 'DICE_HTML',
+    provider: 'Dice',
+    disposition: REPORTING,
+    fixtureDir: 'dice',
+    status: { symbol: 'DICE_SOURCE_STATUS', value: DICE_SOURCE_STATUS },
+    // PROHIBITED by the terms; runnable ONLY through the ACCEPT_PROHIBITED_RISK decision (sources-14).
+    ownerDecisions: [DICE_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: DICE_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => DICE_HOST,
+    // 1 robots + 3 listing pages + at most 25 detail pages (`DICE_BOUNDS`). No redirect is
+    // followed (each 3xx is its own counted request), so nothing is reserved for one.
+    // The adapter waits at least 3 s before each request after the first.
+    requestsPerRun: DICE_REQUESTS_PER_RUN,
+    hostRequestBudget: { perMinute: 40, perHour: 80 },
+    payloadFixtures: ['jobs-listing.trimmed.html.txt', 'job-detail.trimmed.html.txt'],
+    // A US board.
+    fetchProfile: HTML_SLOTS,
+    entries: [fresh('dice.listing.jobs', {})],
+  },
+  {
+    type: 'THEHUB_HTML',
+    provider: 'The Hub',
+    disposition: REPORTING,
+    fixtureDir: 'thehub',
+    status: { symbol: 'THEHUB_SOURCE_STATUS', value: THEHUB_SOURCE_STATUS },
+    ownerDecisions: [THEHUB_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: THEHUB_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => THEHUB_HOST,
+    // robots.txt + 1 sitemap + at most 25 detail pages (`THEHUB_BOUNDS`) = 27, under this bound of
+    // 30. No redirect is followed (task sources-16), so none costs a hop.
+    requestsPerRun: THEHUB_BOUNDS.maxDetails + 5,
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'jobs-sitemap.trimmed.xml',
+      'job-sar-annotation-consultant.jsonld.html.txt',
+      'job-people-operations-specialist.jsonld.html.txt',
+    ],
+    // A Copenhagen-based board, with a sitemap of ~1 300 open jobs.
+    fetchProfile: HTML_SLOTS,
+    entries: [fresh('thehub.sitemap.jobs', {})],
+  },
   blockedHtml('WTTJ_HTML', 'Welcome to the Jungle'),
+  {
+    type: 'PYTHONORG_RSS',
+    provider: 'Python.org Jobs',
+    disposition: REPORTING,
+    fixtureDir: 'pythonorg',
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'rss',
+    scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'www.python.org',
+    // Daily, the cadence of the other RSS boards (no measured cadence for this feed).
+    fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
+    entries: [fresh('pythonorg.rss.jobs', {}, { configVersion: 1 })],
+  },
+  {
+    type: 'SOLIDJOBS_RSS',
+    provider: 'solid.jobs',
+    disposition: REPORTING,
+    fixtureDir: 'solidjobs',
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'rss',
+    scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'solid.jobs',
+    // Daily: the site says real-time RSS; the daily cadence is the conservative choice until measured.
+    fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
+    entries: [fresh('solidjobs.rss.job-offers', {}, { configVersion: 1 })],
+  },
+  {
+    type: 'BERLINSTARTUPJOBS_RSS',
+    provider: 'Berlin Startup Jobs',
+    disposition: REPORTING,
+    fixtureDir: 'berlinstartupjobs',
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'rss',
+    scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'berlinstartupjobs.com',
+    fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
+    entries: [fresh('berlinstartupjobs.rss.engineering', {}, { configVersion: 1 })],
+  },
+  {
+    type: 'HELLOWORLD_RSS',
+    provider: 'helloworld.rs',
+    disposition: REPORTING,
+    fixtureDir: 'helloworld',
+    status: { symbol: 'HELLOWORLD_SOURCE_STATUS', value: HELLOWORLD_SOURCE_STATUS },
+    ownerDecisions: [HELLOWORLD_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'rss',
+    scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'www.helloworld.rs',
+    fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
+    entries: [fresh('helloworld.rss.feed', {}, { configVersion: 1 })],
+  },
+  {
+    type: 'LARAJOBS_RSS',
+    provider: 'LaraJobs',
+    disposition: REPORTING,
+    fixtureDir: 'larajobs',
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'rss',
+    scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'larajobs.com',
+    // Daily, the cadence of the other RSS boards (no measured cadence for this feed).
+    fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
+    entries: [fresh('larajobs.rss.feed', {}, { configVersion: 1 })],
+  },
+  {
+    type: 'RELOCATEME_HTML',
+    provider: 'Relocate.me',
+    disposition: REPORTING,
+    fixtureDir: 'relocateme',
+    status: { symbol: 'RELOCATEME_SOURCE_STATUS', value: RELOCATEME_SOURCE_STATUS },
+    ownerDecisions: [RELOCATEME_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: RELOCATEME_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => RELOCATEME_HOST,
+    // robots.txt + the sitemap (+ a part, for an index) + at most 25 detail pages (RELOCATEME_BOUNDS).
+    requestsPerRun: RELOCATEME_BOUNDS.maxDetails + 5,
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'jobs-sitemap.trimmed.xml',
+      'job-senior-manager-data-engineering-machine-learning-10310.jsonld.html.txt',
+    ],
+    // Relocation roles, one sitemap of 25 jobs.
+    fetchProfile: HTML_SLOTS,
+    entries: [fresh('relocateme.sitemap.jobs', {})],
+  },
+  {
+    type: 'REACTJOBS_HTML',
+    provider: 'ReactJobs',
+    disposition: REPORTING,
+    fixtureDir: 'reactjobs',
+    status: { symbol: 'REACTJOBS_SOURCE_STATUS', value: REACTJOBS_SOURCE_STATUS },
+    ownerDecisions: [REACTJOBS_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: REACTJOBS_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => REACTJOBS_HOST,
+    // robots.txt + the sitemap (+ a part, for an index) + at most 25 detail pages (REACTJOBS_BOUNDS).
+    requestsPerRun: REACTJOBS_BOUNDS.maxDetails + 5,
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'sitemap-index.xml',
+      'sitemap3.trimmed.xml',
+      'job-frontend-developer-typescript-react.jsonld.html.txt',
+    ],
+    // React frontend roles; one index plus one job part.
+    fetchProfile: HTML_SLOTS,
+    entries: [fresh('reactjobs.sitemap.jobs', {})],
+  },
+  {
+    type: 'REMOTEIO_HTML',
+    provider: 'Remote.io',
+    disposition: REPORTING,
+    fixtureDir: 'remoteio',
+    status: { symbol: 'REMOTEIO_SOURCE_STATUS', value: REMOTEIO_SOURCE_STATUS },
+    ownerDecisions: [REMOTEIO_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: REMOTEIO_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => REMOTEIO_HOST,
+    // robots.txt + the sitemap (+ a part, for an index) + at most 25 detail pages (REMOTEIO_BOUNDS).
+    requestsPerRun: REMOTEIO_BOUNDS.maxDetails + 5,
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'sitemap-active-jobs.trimmed.xml',
+      'job-senior-software-engineer-partner-integrations-at-airbnb.jsonld.html.txt',
+    ],
+    // Remote roles, IT categories kept by URL.
+    fetchProfile: HTML_SLOTS,
+    entries: [fresh('remoteio.sitemap.jobs', {})],
+  },
+  {
+    type: 'REMOTEFIRSTJOBS_HTML',
+    provider: 'Remote First Jobs',
+    disposition: REPORTING,
+    fixtureDir: 'remotefirstjobs',
+    status: { symbol: 'REMOTEFIRSTJOBS_SOURCE_STATUS', value: REMOTEFIRSTJOBS_SOURCE_STATUS },
+    ownerDecisions: [REMOTEFIRSTJOBS_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: REMOTEFIRSTJOBS_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => REMOTEFIRSTJOBS_HOST,
+    // robots.txt + the sitemap (+ a part, for an index) + at most 25 detail pages (REMOTEFIRSTJOBS_BOUNDS).
+    requestsPerRun: REMOTEFIRSTJOBS_BOUNDS.maxDetails + 5,
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'sitemap-jobs.trimmed.xml',
+      'job-director-performance-acceleration-emea-888098.jsonld.html.txt',
+    ],
+    // Remote roles across functions; the scope gate filters.
+    fetchProfile: HTML_SLOTS,
+    entries: [fresh('remotefirstjobs.sitemap.jobs', {})],
+  },
+  {
+    type: 'JOBSPRESSO_HTML',
+    provider: 'Jobspresso',
+    disposition: REPORTING,
+    fixtureDir: 'jobspresso',
+    status: { symbol: 'JOBSPRESSO_SOURCE_STATUS', value: JOBSPRESSO_SOURCE_STATUS },
+    ownerDecisions: [JOBSPRESSO_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: JOBSPRESSO_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => JOBSPRESSO_HOST,
+    // robots.txt + the sitemap (+ a part, for an index) + at most 25 detail pages (JOBSPRESSO_BOUNDS).
+    requestsPerRun: JOBSPRESSO_BOUNDS.maxDetails + 5,
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'sitemap-index.xml',
+      'job-listing-sitemap1.trimmed.xml',
+      'job-jr-ui-developer.jsonld.html.txt',
+    ],
+    // Remote tech roles; two job-listing parts of the index.
+    fetchProfile: HTML_SLOTS,
+    entries: [fresh('jobspresso.sitemap.jobs', {})],
+  },
+  {
+    type: 'FOURDAYWEEK_API',
+    provider: '4 Day Week',
+    disposition: REPORTING,
+    fixtureDir: 'fourdayweek',
+    status: { symbol: 'FOURDAYWEEK_SOURCE_STATUS', value: FOURDAYWEEK_SOURCE_STATUS },
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'engineering-jobs',
+    scopeKind: 'PAGED_FEED',
+    hostKey: () => '4dayweek.io',
+    // One request a page, up to the configured `maxPages` (default 4): the newest engineering listings.
+    // Declared at the `maxPages` ceiling, as the bounded types derive theirs from their bounds, so a
+    // run configured to the ceiling never sends more than it declares.
+    requestsPerRun: FOURDAYWEEK_MAX_PAGES_CEILING,
+    payloadFixtures: ['jobs-engineering.json'],
+    // Once a day, as the other paged API feeds are.
+    fetchProfile: DAILY,
+    entries: [fresh('fourdayweek.api.engineering', {})],
+  },
+  {
+    type: 'GERMANTECHJOBS_API',
+    provider: 'GermanTechJobs',
+    disposition: REPORTING,
+    fixtureDir: 'germantechjobs',
+    status: { symbol: 'GERMANTECHJOBS_SOURCE_STATUS', value: GERMANTECHJOBS_SOURCE_STATUS },
+    ownerDecisions: [GERMANTECHJOBS_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'jobs-light',
+    scopeKind: 'LATEST_FEED',
+    hostKey: () => 'germantechjobs.de',
+    // ONE request a run: the light listing is the whole feed in one unparameterised array.
+    requestsPerRun: 1,
+    payloadFixtures: ['jobs-light.json'],
+    // Once a day: the slowest cadence an API type has, as Jobgether does for its single feed.
+    fetchProfile: DAILY,
+    entries: [fresh('germantechjobs.api.jobs', {})],
+  },
+  {
+    type: 'JOBTECH_API',
+    provider: 'Arbetsförmedlingen',
+    disposition: REPORTING,
+    fixtureDir: 'jobtech',
+    status: { symbol: 'JOBTECH_SOURCE_STATUS', value: JOBTECH_SOURCE_STATUS },
+    auth: 'NONE',
+    // CC0 per the API documentation: no attribution is required, and none is recorded.
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'occupation-field-data-it',
+    scopeKind: 'PAGED_FEED',
+    hostKey: () => 'jobsearch.api.jobtechdev.se',
+    // One request a page, up to the configured `maxPages` (default 4): the newest Data/IT ads.
+    // Declared at the `maxPages` ceiling, as the bounded types derive theirs from their bounds, so a
+    // run configured to the ceiling never sends more than it declares.
+    requestsPerRun: JOBTECH_MAX_PAGES_CEILING,
+    payloadFixtures: ['jobs-data-it.json'],
+    // Once a day, as the other paged API feeds are.
+    fetchProfile: DAILY,
+    entries: [fresh('jobtech.api.data-it', {})],
+  },
 ]

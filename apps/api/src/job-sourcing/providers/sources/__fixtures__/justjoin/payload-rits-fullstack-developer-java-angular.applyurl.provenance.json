@@ -1,0 +1,12 @@
+{
+  "url": "https://justjoin.it/job-offer/rits-fullstack-developer-java-angular--warszawa-java",
+  "fetchedAt": "2026-11-21T05:30:37.000Z",
+  "httpStatus": 200,
+  "rawSha256": "5293b9f41132ccf775cdcb1c0c26f1587c439e4eb502aedff37824c65fe4aecd",
+  "fileSha256": "310c2c3d7d17c3b7359cad4347107346a79cad17a74bb92af3e41ceb85c0de09",
+  "trimmedBy": "python3 -I excerpt script (task sources-13 fix round 1): the one span of the Next.js payload from the offer's \\\"workingTime\\\" key through its first multilocation \\\"slug\\\" key, copied verbatim (still escaped once, as in the script string) plus a final newline; key boundaries only, nothing redacted because the span holds no e-mail address, phone number or person's name",
+  "termsUrl": "https://justjoin.it/terms-and-privacy-policies",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "PROHIBITED",
+  "notes": "200 text/html, 653510 bytes (a Next.js page; the rest of it is not kept). The page holds the string applyUrl exactly 1 time(s) and 59 \\\"slug\\\" keys (similar and recommended offers carry no applyUrl key). The offer's own object writes applyUrl, publishedAt, lastPublishedAt and coverImage in that order, and the coverImage URL ends in the offer's slug: the anchor justJoinApplyUrl matches. This offer's applyUrl is a recruiting-agency form (traffit.com), not an ATS-hosted job. One plain GET with the transport's own User-Agent (CheekyCheeseIT-CRM/1.0), owner-approved for review-round-1 captures; no challenge, no block. JustJoin.it users' terms (PDF of 2026-11-04) section 11.3 forbids automatic extraction: PROHIBITED, collected under the owner's 2026-11-20 ACCEPT_PROHIBITED_RISK decision (an accepted risk, not a permission)."
+}

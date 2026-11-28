@@ -86,7 +86,7 @@ const scripted = (type: 'JOBICY_API' | 'JUSTJOIN_HTML'): ReportingJobSourceProvi
 
 /** Three paid requests in a row, whatever happens (the ban spec's adapter). */
 const keepGoing: ReportingJobSourceProvider = {
-  type: 'MUSE_API',
+  type: 'ARBEITNOW_API',
   parseConfig: (raw) => raw as never,
   async collectReport(_config, ctx: CollectionContext) {
     for (let i = 0; i < 3; i += 1) {
@@ -117,6 +117,7 @@ function handler(
   const svc = new JobSourcingCronService(stubService as never, w.ledger, worker, {
     get: () => windowMs,
   } as never)
+  svc.tuning.random = () => 0
   svc.tuning.intervalMs = 100
   svc.tuning.onlyIds = ids
   // U3: the API types moved from 05:00 to the tick; its 9-minute window is shortened for specs
@@ -454,7 +455,7 @@ describe.skipIf(!hasDatabaseUrl())('the daily collection handlers against Postgr
       limit: 10,
     })
     const s = await w.source({
-      type: 'MUSE_API',
+      type: 'ARBEITNOW_API',
       config: { n: seq },
       hostKey: BAN_HOST,
       accountMeterId: meterId,

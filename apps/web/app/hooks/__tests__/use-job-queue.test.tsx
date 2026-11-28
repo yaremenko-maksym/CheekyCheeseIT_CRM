@@ -64,6 +64,7 @@ const page = (nextCursor: string | null, items = [item()]) => ({
   nextCursor,
   counts: { NEW: 7, SUBMITTED: 1, HIDDEN: 0 },
   generation: { ruleVersion: 'r5', evaluatedAt: '2026-10-02T00:00:00.000Z', capped: false },
+  sourcingNotice: null,
 })
 
 const senior = (n: number) => ({
@@ -73,6 +74,8 @@ const senior = (n: number) => ({
   matchApproximate: false,
   matchedKeywords: ['react'],
   matchEvidence: [{ keyword: 'react', strength: 'CORE' }],
+  skillOverlap: null,
+  relevancePercent: null,
   submission: null,
 })
 
@@ -168,7 +171,7 @@ describe('canonicalSeniorIds', () => {
 })
 
 describe('useJobQueueSeniorOptions', () => {
-  const options = { items: [{ id: OPP, name: 'Анна Коваль', teamName: 'Команда А' }] }
+  const options = { items: [{ id: OPP, name: 'Анна Коваль', teamName: 'Команда А', technicalRoles: [] }] }
 
   it('reads the picker of the team under the scope key', async () => {
     get.mockResolvedValueOnce({ data: options })
@@ -189,7 +192,13 @@ describe('useJobQueueSeniorOptions', () => {
   it('refuses a body with more than id, name and team name', async () => {
     get.mockResolvedValueOnce({
       data: {
-        items: [{ id: OPP, name: 'Анна Коваль', teamName: 'Команда А', email: 'a@example.test' }],
+        items: [{
+          id: OPP,
+          name: 'Анна Коваль',
+          teamName: 'Команда А',
+          technicalRoles: [],
+          email: 'a@example.test',
+        }],
       },
     })
     const { result } = renderHook(() => useJobQueueSeniorOptions(scope), { wrapper })
@@ -236,6 +245,28 @@ describe('useJobQueue', () => {
     })
     await waitFor(() => expect(result.current.hasNextPage).toBe(false))
     expect(result.current.data?.pages).toHaveLength(2)
+  })
+
+  it('sends the salary filters as strings and omits an unset filter (sources-17)', async () => {
+    get.mockResolvedValueOnce({ data: page(null) })
+    const filters = {
+      salary: ['STATED' as const],
+      salaryCurrency: 'EUR',
+      salaryMinMonthly: 4000,
+      search: undefined,
+    }
+    const { result } = renderHook(() => useJobQueue(scope, 'NEW', filters), { wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(get).toHaveBeenCalledWith('/job-queue', {
+      params: {
+        teamId: TEAM,
+        tab: 'NEW',
+        salary: 'STATED',
+        salaryCurrency: 'EUR',
+        salaryMinMonthly: '4000',
+        limit: 20,
+      },
+    })
   })
 
   it('comma-joins the selected seniors on the wire', async () => {

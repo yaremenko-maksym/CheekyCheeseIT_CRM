@@ -135,7 +135,7 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
 
   const telegramHref = application.telegram ? safeTelegramHref(application.telegram) : undefined
 
-  // fix-round B round 2 (CI-MUT) — `layoutId` only scopes framer-motion's
+  // fix-round B round 2 (CI-MUT) — `layoutId` only scopes motion's
   // shared-layout animation between the two SegmentedToggle instances below;
   // it is never read by anything a test can assert on (no visual-diff
   // harness here), so both string mutants on it are genuinely unobservable.
@@ -143,9 +143,9 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
   // `descriptionLabelClassName`) because a JSX `{/* */}` comment inside the
   // opening tag below does NOT work as a Stryker suppression — only a real
   // `//`-commented JS statement does.
-  // Stryker disable next-line StringLiteral: layoutId only scopes a framer-motion animation, never asserted by a test — see comment above
+  // Stryker disable next-line StringLiteral: layoutId only scopes a motion animation, never asserted by a test — see comment above
   const statusToggleLayoutIdMobile = `candidate-status-pill-${application.id}-mobile`
-  // Stryker disable next-line StringLiteral: layoutId only scopes a framer-motion animation, never asserted by a test — see comment above
+  // Stryker disable next-line StringLiteral: layoutId only scopes a motion animation, never asserted by a test — see comment above
   const statusToggleLayoutIdDesktop = `candidate-status-pill-${application.id}`
 
   return (

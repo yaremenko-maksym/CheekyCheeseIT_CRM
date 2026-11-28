@@ -72,6 +72,8 @@ export interface AtsCheckInput {
   layout: ResumeLayoutOptions
   displayName: string
   email: string
+  phone: string
+  telegram: string
   /** One string per page, line breaks preserved (`extractRenderedPages`). */
   pages: string[]
   pdfBytes: number
@@ -95,11 +97,22 @@ function readLines(pages: string[]): Line[] {
 
 /** Lines as one text, so a string wrapped over several lines still matches. */
 function joinLines(lines: Line[]): string {
-  return lines.map((line) => line.text).join(' ')
+  return normalise(lines.map((line) => line.text).join(' '))
 }
 
+/**
+ * Whitespace collapsed, and a hyphen inside a word keeps no space after it: Typst breaks a line
+ * after the hyphen of `multi-developer`, and the joined lines read `multi- developer`. Applied to
+ * both the text and the needle, so a source `pre- and post-` still matches itself.
+ */
 function normalise(value: string): string {
-  return value.replace(/\s+/gu, ' ').trim()
+  return (
+    value
+      .replace(/\s+/gu, ' ')
+      // The token characters of TOKEN_CHAR, so a wrapped `C++-based` mends too.
+      .replace(/(?<=[\p{L}\p{N}#+])- /gu, '-')
+      .trim()
+  )
 }
 
 /** Token characters, as in `mentionsSkill` (`@crm/shared`): `C` is not in `C#`, `Go` is not in `Google`. */
@@ -268,18 +281,18 @@ export function checkResumeAts(input: AtsCheckInput): AtsReport {
     checkExperience(input.content, sectionText('experience'), failures)
   }
 
-  // Name and email in the body of page 1, before the first heading.
+  // Name and contacts in the body of page 1, before the first heading.
   const firstHeading = lines.findIndex((line) => TITLES.has(line.text))
-  const contact = lines
-    .slice(0, firstHeading === -1 ? lines.length : firstHeading)
-    .filter((line) => line.page === 0)
-    .map((line) => line.text)
-    .join(' ')
+  const contact = joinLines(
+    lines.slice(0, firstHeading === -1 ? lines.length : firstHeading).filter((l) => l.page === 0),
+  )
   for (const [path, label, value] of [
     ['displayName', 'Name', input.displayName],
     ['email', 'Email', input.email],
+    ['phone', 'Phone', input.phone],
+    ['telegram', 'Telegram', input.telegram],
   ] as const) {
-    // An empty name or email is not printed, and `includes('')` is true.
+    // An empty name or contact is not printed, and `includes('')` is true.
     if (!contact.includes(normalise(value))) {
       failures.push({
         code: 'CONTACT_NOT_IN_BODY',

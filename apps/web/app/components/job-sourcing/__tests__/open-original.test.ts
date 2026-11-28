@@ -18,8 +18,8 @@ const CANONICAL = 'https://host.test/a'
  * in a desktop E2E run; on a phone the button silently does nothing (PR #476).
  * `openOriginalPosting` is therefore a plain synchronous function — the test
  * below asserts it calls `open` before returning, which no `await`-first
- * implementation can satisfy. The mobile-profile Playwright spec
- * (apps/e2e/tests/job-sourcing-mobile.spec.ts) covers the same contract in a
+ * implementation can satisfy. The mobile scenario of the Playwright spec
+ * apps/e2e/tests/job-queue.spec.ts (Scenario 13) covers the same contract in a
  * real browser.
  */
 describe('isSafeExternalUrl', () => {

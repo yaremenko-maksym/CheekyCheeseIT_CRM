@@ -1,0 +1,12 @@
+{
+  "url": "https://www.dice.com/job-detail/0f607ad0-18b8-459d-9641-445d11e58a95",
+  "fetchedAt": "2026-11-21T01:02:26.000Z",
+  "httpStatus": 200,
+  "rawSha256": "2a751e779e15d94ed42f6c9d3d60c3e6d7fde31c5197ed148d107e66bcf211a5",
+  "fileSha256": "0b40e55375fb2e3bf10bb7d567bd2a44ba5fa1b61987dadb6bd48e25a4ee95f8",
+  "trimmedBy": "python3 -I trim-dice-nofluff-captures.py detail (the canonical <link> and the application/ld+json script copied byte for byte into a minimal shell); never a byte cut",
+  "termsUrl": "https://www.dice.com/about/legal",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "PROHIBITED",
+  "notes": "200 text/html; charset=utf-8, 257685 bytes. One application/ld+json JobPosting: title, description (HTML), datePosted and validThrough as zoned ISO date-times, url = the canonical, identifier {PropertyValue, value = guid}, hiringOrganization {name, sameAs, logo}, jobLocation.address, applicantLocationRequirements {Country}, employmentType FULL_TIME. No baseSalary on this posting (the listing item has no salary either). robots.txt (captured beside this file) disallows /job, /jobs?q*, /feed/, /rss/ and /apply-redirect*, and allows /jobs and /job-detail; longest match lets /jobs and /job-detail/<uuid> through. Dice Terms and Conditions (LAST UPDATED 12/03/2025) section 8.2 j) and aa) ban robots and spiders that store or reproduce site content: PROHIBITED. The owner overrode it on 2026-11-20 (A3, task sources-14: \"connect, I accept the risk for every site\"); the provenance keeps saying what the terms say. One plain GET with the transport's own User-Agent, owner-approved 2026-11-20; no challenge. E-mail addresses are replaced by the trim script; personal NAMES in free text cannot be found by a parser and were not redacted."
+}

@@ -12,6 +12,8 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import {
+  jobQueueBlockPickRequestSchema,
+  jobQueueBlockPickResponseSchema,
   jobQueueCancelSubmissionRequestSchema,
   jobQueueCardResponseSchema,
   jobQueueDismissalResponseSchema,
@@ -19,6 +21,8 @@ import {
   jobQueueListQuerySchema,
   jobQueueListResponseSchema,
   jobQueueManualCardRequestSchema,
+  jobQueueManualParseRequestSchema,
+  jobQueueManualParseResponseSchema,
   jobQueueOpenedRequestSchema,
   jobQueueRecomputeResponseSchema,
   jobQueueScopeQuerySchema,
@@ -41,7 +45,9 @@ import { CurrentUser } from '../../auth/current-user.decorator'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { RolesGuard } from '../../common/guards/roles.guard'
 import { RelaxableThrottle } from '../../config/throttle-decorators'
+import { BlockPickService } from './block-pick.service'
 import { JobQueueService } from './job-queue.service'
+import { ManualParseService } from './manual-parse.service'
 import { JobQueueActionsService } from './queue-actions.service'
 import { JobQueueRecomputeService } from './queue-recompute.service'
 
@@ -63,6 +69,7 @@ export const JOB_QUEUE_THROTTLE = {
   OPENED: 120,
   SUPPRESS: 30,
   MANUAL: 30,
+  PARSE: 10,
   TRIAGE: 30,
   SUBSCRIPTION: 30,
   RECOMPUTE: 6,
@@ -97,6 +104,8 @@ export const JOB_QUEUE_THROTTLE = {
  * MANUAL (r5 Phase 6) is 30 per minute, like submit: each request is one card and one submission a
  * person types by hand, and every one writes an opportunity row and a description blob that no
  * retention job reclaims, so the cap bounds that growth per user without slowing a person.
+ * PARSE (external vacancy intake PR 2) is 10 per minute: each request is up to two model calls
+ * (Jev, then the hosted extraction) on the free routes, and a person pastes one vacancy at a time.
  * TRIAGE and SUBSCRIPTION (r5 Task 6.4b) are 30 per minute, like MANUAL: ADMIN-only writes, each one
  * audited and each retiring a team's published generation, so a person never nears the cap.
  */
@@ -109,6 +118,8 @@ export class JobQueueController {
     @Inject(JobQueueService) private readonly queue: JobQueueService,
     @Inject(JobQueueActionsService) private readonly actions: JobQueueActionsService,
     @Inject(JobQueueRecomputeService) private readonly recomputes: JobQueueRecomputeService,
+    @Inject(ManualParseService) private readonly parses: ManualParseService,
+    @Inject(BlockPickService) private readonly picks: BlockPickService,
   ) {}
 
   /**
@@ -137,6 +148,34 @@ export class JobQueueController {
     return jobQueueSubmissionResponseSchema.parse(
       await this.actions.createManualCard(user, request),
     )
+  }
+
+  /**
+   * External vacancy intake PR 2: the vacancy fields read from pasted text (or the bookmarklet's
+   * page text), 200 with `{ isVacancy, title?, companyName?, descriptionMd? }`; nothing is stored.
+   * Declared before every `:id` route; the service re-checks the role before any model call.
+   */
+  @Post('manual/parse')
+  @Roles('ADMIN', 'HR')
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.PARSE)
+  @HttpCode(200)
+  async parseManual(@Body() body: unknown, @CurrentUser() user: SessionUser) {
+    const { text } = jobQueueManualParseRequestSchema.parse(body)
+    return jobQueueManualParseResponseSchema.parse(await this.parses.parse(user, text))
+  }
+
+  /**
+   * Bookmarklet block map: the page's visible blocks in, the vacancy fields copied from the blocks
+   * the model picked out, 200 with `{ isVacancy, title?, companyName?, descriptionMd? }`; nothing is
+   * stored. Before every `:id` route; the service re-checks the role before any model call.
+   */
+  @Post('manual/pick')
+  @Roles('ADMIN', 'HR')
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.PARSE)
+  @HttpCode(200)
+  async pickManual(@Body() body: unknown, @CurrentUser() user: SessionUser) {
+    const request = jobQueueBlockPickRequestSchema.parse(body)
+    return jobQueueBlockPickResponseSchema.parse(await this.picks.pick(user, request))
   }
 
   /**

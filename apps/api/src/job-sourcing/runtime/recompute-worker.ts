@@ -1,8 +1,10 @@
 import type { JobSourceType } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { findPgError } from '../../database/pg-errors'
-import { type Evaluated, type Excluded, evaluate } from '../funnel/evaluate'
+import { type Evaluated, type Excluded, evaluate, invalidRevision } from '../funnel/evaluate'
+import { RULE_VERSION, classifyLayer1 } from '../funnel/layer1'
 import { ROLE_CLASSIFIER_VERSION } from '../funnel/role-classifier'
+import { reachableRoles, roleScopeGate } from '../funnel/role-scope-gate'
 import type { MeterDb } from '../metering/account-meter.store'
 import {
   type ClaimedDirtyWork,
@@ -17,10 +19,15 @@ import {
   enqueueDirty,
   failDirty,
 } from '../ownership/dirty-work.store'
+import { loadRelevanceFits } from '../relevance/relevance.store'
 import type { SqlExecutor } from '../scheduling/host-state'
 import { CanonicalStateError, resolveRecords } from '../store/canonical.store'
 import { LockContentionError, setLockTimeout, withLockRetry } from '../store/lock-order'
-import { deriveOpportunityRoles, writeOpportunityRoles } from '../store/opportunity-roles'
+import {
+  type OpportunityRoles,
+  deriveOpportunityRoles,
+  writeOpportunityRoles,
+} from '../store/opportunity-roles'
 import { STORE_LOCK_TIMEOUT_MS } from '../store/source-record.store'
 import {
   type LoadedOpportunity,
@@ -239,6 +246,7 @@ function verdictOf(
   batch: RecomputeBatch,
   loaded: LoadedOpportunity,
   roster: RosterInputs,
+  relevance: Readonly<Record<string, number>>,
 ): Evaluated | Excluded {
   let result: ReturnType<typeof evaluate>
   try {
@@ -249,9 +257,9 @@ function verdictOf(
       rosterSeniorIds: roster.rosterSeniorIds,
       profiles: roster.profiles,
       exclusions: roster.exclusions,
-      teamTriageGrants: loaded.teamTriageGrants,
+      roles: loaded.roles,
       unavailable: [],
-      detailPending: loaded.detailPending,
+      relevance,
     })
   } catch {
     throw new RecomputePoisonError('EVALUATION_THREW')
@@ -259,6 +267,44 @@ function verdictOf(
   if (result.kind === 'INVALID_INPUT') throw new RecomputePoisonError(result.code)
   if (result.kind === 'RETRYABLE') throw new RecomputeNotReadyError(result.code)
   return result
+}
+
+/**
+ * Role-AI spend (spec 2026-11-19 §3): a vacancy the rule left unclassified (PENDING or
+ * OUT_OF_SCOPE) is re-gated against the roster loaded under the row lock. Returns `loaded.roles`
+ * itself when nothing moves. An invalid revision is never gated: it reaches `verdictOf` and
+ * poisons there as before; a layer-1 throw is left to `verdictOf` the same way.
+ */
+function scopeGatedRoles(
+  loaded: LoadedOpportunity,
+  roster: RosterInputs,
+  batch: RecomputeBatch,
+): OpportunityRoles {
+  const { roles } = loaded
+  if (roles.status !== 'PENDING' && roles.status !== 'OUT_OF_SCOPE') return roles
+  if (invalidRevision(loaded.canonical) !== null) return roles
+  let layer1Rejected: boolean
+  try {
+    layer1Rejected =
+      classifyLayer1(loaded.canonical.fields, {
+        ruleVersion: RULE_VERSION,
+        evaluationTime: batch.evaluationTime,
+      }).rejectedBy.length > 0
+  } catch {
+    return roles
+  }
+  // `fields` = the locked row's title + stack_keywords, read in this transaction (and well formed:
+  // `invalidRevision` checked them above)
+  const status = roleScopeGate({
+    title: loaded.canonical.fields.title,
+    // Stryker disable next-line ArrayDeclaration: unreachable fallback, `invalidRevision` above rejects non-array tags.
+    tags: loaded.canonical.fields.tags ?? [],
+    layer1Rejected,
+    reachable: reachableRoles(roster.profiles),
+  })
+  return status === roles.status
+    ? roles
+    : { status, roles: [], classifierVersion: ROLE_CLASSIFIER_VERSION }
 }
 
 /**
@@ -272,6 +318,7 @@ function recomputeOpportunity(
   work: ClaimedDirtyWork,
   batch: RecomputeBatch,
   onDemandTypes: readonly JobSourceType[],
+  roleAiEnabled: boolean,
 ): Promise<CompleteOutcome> {
   return inTx(db, async (tx) => {
     const { rows } = await tx.execute(
@@ -305,9 +352,26 @@ function recomputeOpportunity(
     // visibility of it (SR-M-1). Work that reached it anyway completes without evaluation.
     if (row['manual'] === true) return completeDirty(tx, work)
     // Locked above at the target revision, so it exists.
-    const loaded = (await loadOpportunity(tx, work.entityId, onDemandTypes)) as LoadedOpportunity
+    const locked = (await loadOpportunity(tx, work.entityId, onDemandTypes)) as LoadedOpportunity
     const roster = await loadRoster(tx)
-    const verdict = verdictOf(work, batch, loaded, roster)
+    // The gate writes before the verdict, so the verdict and the DETAIL_FETCH check below both
+    // read the gated status: an OUT_OF_SCOPE row is hidden and never fetched for the AI pass.
+    const gated = scopeGatedRoles(locked, roster, batch)
+    if (gated !== locked.roles) await writeOpportunityRoles(tx, work.entityId, gated)
+    const loaded: LoadedOpportunity = { ...locked, roles: gated }
+    // eval.3: current-key Jev fits only (the locked row's vacancy key and the gated roles); a
+    // stale-key grade is left out and the senior ranks at neutral until regraded.
+    const fits = await loadRelevanceFits(
+      tx,
+      work.entityId,
+      {
+        titleKey: String(row['title_key']),
+        descriptionSha256: row['description_sha256'] as string | null,
+        roles: gated.roles,
+      },
+      roster.versions,
+    )
+    const verdict = verdictOf(work, batch, loaded, roster, fits)
     await installMatches(tx, work.entityId, work.targetVersion, verdict, roster)
     // SFS U10 (ADR 6a, "Want"): an opportunity that came out LEAD or TRIAGE for any senior enqueues
     // one DETAIL_FETCH per backing ON_DEMAND record whose detail is still missing. The dirty row's
@@ -320,6 +384,17 @@ function recomputeOpportunity(
         await enqueueDirty(tx, 'SOURCE_RECORD', rec.recordId, rec.version, DETAIL_FETCH)
       }
     }
+    // Senior roles 4.4 (plan Review Focus 5, Owner decision 2): a role-`PENDING` vacancy comes out
+    // EXCLUDED, so the wanted branch above never fires for it, yet the AI pass needs the full
+    // description to classify it. Its missing detail is fetched only while the AI pass is on: with
+    // the flag off the fetch buys nothing, so no external GET is made for it. The plan's
+    // `loaded.detailPending` conjunct is the loop itself — `detailPending` IS
+    // `onDemandMissing.length > 0` (`recompute-inputs.ts`), so an empty list enqueues nothing.
+    if (roleAiEnabled && loaded.roles.status === 'PENDING') {
+      for (const rec of loaded.onDemandMissing) {
+        await enqueueDirty(tx, 'SOURCE_RECORD', rec.recordId, rec.version, DETAIL_FETCH)
+      }
+    }
     return completeDirty(tx, work)
   })
 }
@@ -329,6 +404,8 @@ export function createRecomputeSteps(
   db: MeterDb,
   fanout: FanoutOptions = {},
   onDemandTypes: readonly JobSourceType[] = [],
+  /** Senior roles 4.4: `JOB_ROLE_AI_ENABLED`. Off by default, like the flag itself. */
+  roleAiEnabled = false,
 ): RecomputeSteps {
   return {
     claim: (owner, batchSize, freshOnly) =>
@@ -336,7 +413,7 @@ export function createRecomputeSteps(
     process: (work, batch) => {
       if (work.entityKind === 'SOURCE_RECORD') return resolveSourceRecord(db, work)
       if (work.entityKind === 'OPPORTUNITY')
-        return recomputeOpportunity(db, work, batch, onDemandTypes)
+        return recomputeOpportunity(db, work, batch, onDemandTypes, roleAiEnabled)
       // SENIOR / EXCLUSION / PROJECT_CLIENT (S5): enqueue the opportunities, then complete.
       return inTx(db, async (tx) => (await fanOutDirty(tx, work, fanout)).outcome)
     },

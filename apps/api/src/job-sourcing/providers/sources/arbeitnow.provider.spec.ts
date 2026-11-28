@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import { sourceFixture, sourceProvenance } from '../../../test/source-fixtures'
 import { PG_INT_MAX } from '../api-json.provider'
-import { MAX_RESPONSE_BYTES_CEILING } from '../../http/bounded-fetch'
+import {
+  ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,
+  MAX_RESPONSE_BYTES_CEILING,
+} from '../../http/bounded-fetch'
 import { UnvalidatedConfigError } from '../reporting-provider'
 import { validateObservation } from '../../store/record-payload'
 import {
@@ -196,7 +199,8 @@ describe('large pages under the declared per-source byte cap (owner decision: no
   // The two authentic pages are not committed (they hold recruiters' personal data: e-mail addresses,
   // LinkedIn profile links and mobile numbers). What the test needs from them is their SIZE and their
   // 300 items, so the body is GENERATED: 300 distinct synthetic jobs plus a pad field, sized to the
-  // exact byte counts the provenance records (page 1: 4209793 bytes decoded, page 2: 2311796).
+  // exact byte counts the provenance records (page 1: 4209793 bytes decoded on 2026-10-24 and
+  // 9569670 on 2026-11-19, page 2: 2311796).
   const slugOf = (i: number) => `synthetic-job-${String(i).padStart(3, '0')}`
   const syntheticJob = (i: number) => ({
     slug: slugOf(i),
@@ -236,7 +240,7 @@ describe('large pages under the declared per-source byte cap (owner decision: no
     expect(f.sent).toHaveLength(1)
   }
 
-  it.each([4209793, 2311796])(
+  it.each([9569670, 4209793, 2311796])(
     'a 300-job page of the measured size, %i bytes, is collected: 300 observations, no PAYLOAD_TOO_LARGE',
     async (size) => {
       const body = bodyOfBytes(size)
@@ -279,15 +283,23 @@ describe('large pages under the declared per-source byte cap (owner decision: no
     ])
   })
 
-  it('declares the 8 MiB cap on the request (pinned apart from any whole-request equality)', async () => {
+  it('declares the 24 MiB cap on the request (pinned apart from any whole-request equality)', async () => {
     const { f } = await run(page())
-    expect(ARBEITNOW_MAX_BYTES).toBe(8 * 1024 * 1024)
-    expect(f.sent[0]?.maxBytes).toBe(8_388_608)
+    expect(ARBEITNOW_MAX_BYTES).toBe(24 * 1024 * 1024)
+    expect(f.sent[0]?.maxBytes).toBe(25_165_824)
   })
 
-  it('the cap is under the shared ceiling and above the largest page measured', () => {
-    expect(ARBEITNOW_MAX_BYTES).toBeLessThanOrEqual(MAX_RESPONSE_BYTES_CEILING)
-    expect(ARBEITNOW_MAX_BYTES).toBeGreaterThan(4209793)
+  it('the cap is at the allowlisted ceiling and above the shared ceiling and largest page measured', () => {
+    expect(ARBEITNOW_MAX_BYTES).toBe(ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING)
+    expect(ARBEITNOW_MAX_BYTES).toBeGreaterThan(MAX_RESPONSE_BYTES_CEILING)
+    expect(ARBEITNOW_MAX_BYTES).toBeGreaterThan(9569670)
+  })
+
+  it('each page decoded byte size is observable by the context', async () => {
+    const body = page()
+    const rawText = JSON.stringify(body)
+    const { f } = await run(body)
+    expect(f.pageBytes).toEqual([Buffer.byteLength(rawText)])
   })
 
   it('a body of exactly the declared cap is read; one byte more is PAYLOAD_TOO_LARGE with nothing kept', async () => {
@@ -304,10 +316,13 @@ describe('large pages under the declared per-source byte cap (owner decision: no
     expect(ARBEITNOW_SOURCE_STATUS.blocked).toBe(false)
     expect(ARBEITNOW_SOURCE_STATUS.permission).toBe('PUBLIC_API_DOCUMENTED')
     expect(ARBEITNOW_SOURCE_STATUS.reason).toContain('4209793')
-    expect(ARBEITNOW_SOURCE_STATUS.reason).toContain('8388608')
+    expect(ARBEITNOW_SOURCE_STATUS.reason).toContain(String(ARBEITNOW_MAX_BYTES))
+    expect(ARBEITNOW_SOURCE_STATUS.reason).toContain('9569670')
     const p = sourceProvenance('arbeitnow', 'page-1') as { permission: string; notes: string }
     expect(p.permission).toBe(ARBEITNOW_SOURCE_STATUS.permission)
     expect(p.notes).toContain('4209793')
+    expect(p.notes).toContain('9569670')
+    expect(p.notes).toContain(String(ARBEITNOW_MAX_BYTES))
     expect(p.notes).toContain('per_page, limit, page_size, size and perPage were tried and ignored')
     expect(p.notes).toContain('link back to Arbeitnow.com')
   })
@@ -384,7 +399,8 @@ describe('pagination, coverage and requests', () => {
     const batch = await arbeitnowProvider.collectReport(cfg({ maxPages: 2 }), f.ctx)
     expect(f.sent).toHaveLength(2)
     expect(batch.counts.normalized).toBe(2)
-    expect(batch.coverage).toBe('WINDOW')
+    // CR-M-4: a capped run claims no window (it was WINDOW under AC1).
+    expect(batch.coverage).toBe('PARTIAL')
   })
 
   it('a clean run is WINDOW, never FULL_INVENTORY, with the feed as its scope', async () => {
@@ -427,6 +443,22 @@ describe('item bounds, at the limit and past it', () => {
   const job = (over: Record<string, unknown>) => ({ ...jobs()[0], ...over })
   const invalid = async (over: Record<string, unknown>) =>
     (await run(withJobs([job(over)]))).batch.counts.invalid
+
+  it('a description past 100 000 chars only because of an inline base64 image parses, the text kept, no data: URI', async () => {
+    // the DPG Media shape (prod, 2026-11-23): ~7 K of text around megabytes of inline base64
+    const base64 = 'iVBORw0KGgo'.repeat(20_000) // 220 000 chars
+    const description = `<p>Senior Fullstack Developer in Hilversum</p><img alt="logo" src="data:image/png;base64,${base64}"><p>Apply now</p>`
+    expect(description.length).toBeGreaterThan(100_000)
+    const { batch } = await run(withJobs([job({ slug: 'dpg-272619', description })]))
+    expect(batch.counts.invalid).toBe(0)
+    const md = bySlug(batch, 'dpg-272619')?.normalized.descriptionMd ?? ''
+    expect(md).toContain('Senior Fullstack Developer in Hilversum')
+    expect(md).toContain('Apply now')
+    expect(JSON.stringify(bySlug(batch, 'dpg-272619'))).not.toContain('data:')
+  })
+  it('a description past 100 000 chars with no data: URI is still invalid (the bound is not raised)', async () => {
+    expect(await invalid({ description: `<p>${'x'.repeat(100_000)}</p>` })).toBe(1)
+  })
 
   it('title 2000 ok / 2001 invalid', async () => {
     expect(await invalid({ title: 'T'.repeat(2000) })).toBe(0)
@@ -639,6 +671,11 @@ describe('an over-limit description (prod 2026-11-16: PERSISTENCE, description o
       discarded: 0,
     })
     expect(bySlug(batch, FIRST)?.normalized.descriptionMd).toHaveLength(20_000)
+    expect(bySlug(batch, FIRST)?.evidence).toContainEqual({
+      field: 'description',
+      kind: 'DISPLAY_TRUNCATED',
+      detail: 'exceeds display limit',
+    })
     for (const o of batch.observations) expect(() => validateObservation(o)).not.toThrow()
   })
 })

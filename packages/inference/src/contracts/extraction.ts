@@ -18,6 +18,12 @@ export type ExtractionRequest<T> = {
    * vision-capable pairs: with none healthy it fails.
    */
   images?: readonly string[]
+  /**
+   * Sent to the gpt-oss models on Groq (as `low`, the least they take) and to OpenRouter; every
+   * other pair ignores it. It cuts the hidden reasoning that otherwise fills the answer reserve
+   * before the JSON ends.
+   */
+  reasoningEffort?: 'low' | 'minimal'
 }
 
 /** The provider's own token count, the only cost the free tiers report (ADR §6.2). */

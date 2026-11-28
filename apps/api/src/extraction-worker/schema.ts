@@ -12,14 +12,20 @@ import {
   type RouterEnvWarning,
 } from '../inference/build-inference-config'
 import {
+  feedbackLinesSchema,
   isUsableWorkerSecret,
   MAX_PAGE_BYTES,
   MAX_PAGE_CHARS,
   MAX_PAGES,
+  PAYLOAD_REFUSALS,
+  parseJson,
   visualCheckBodySchema,
+  writingPayloadStringSchema,
+  type PayloadRefusal,
 } from './link-contract'
 
-export { MAX_PAGE_BYTES, MAX_PAGES, visualCheckBodySchema }
+export { MAX_PAGE_BYTES, MAX_PAGES, PAYLOAD_REFUSALS, visualCheckBodySchema }
+export type { PayloadRefusal }
 
 /** The delimited user message from `buildExtractionPrompt`, bounded by the port's own input cap. */
 export const MAX_WORKER_INPUT_CHARS = MAX_EXTRACTION_INPUT_CHARS
@@ -33,10 +39,17 @@ export const extractBodySchema = z
   })
   .strict()
 
-/** The facts arrive as one JSON object; an array, a primitive or a non-JSON string is refused. */
-function isJsonObject(text: string): boolean {
-  const parsed = parseJson(text)
-  return typeof parsed?.value === 'object' && parsed.value !== null && !Array.isArray(parsed.value)
+/**
+ * The payload's own refusal category for a failed body parse, read back from the issue
+ * `payloadRefusal` added, or `body` for any other defect (another field, a missing, empty or
+ * oversize payload). Reading the issue rather than the body means the oversize `abort` below still
+ * holds: the payload is parsed once, never again for the log line — and nothing
+ * attacker-controlled can reach the log, because only a member of `PAYLOAD_REFUSALS` is ever
+ * returned.
+ */
+export function refusalCategory(error: z.ZodError): PayloadRefusal {
+  // The categories are a closed set of our own wording, so a Zod message never collides with one.
+  return PAYLOAD_REFUSALS.find((r) => error.issues.some((i) => i.message === r)) ?? 'body'
 }
 
 /**
@@ -46,18 +59,8 @@ function isJsonObject(text: string): boolean {
 export const resumeWriteBodySchema = z
   .object({
     task: z.enum(['summary', 'bullets']),
-    // `abort`: an oversize payload stops here, before the JSON parse of the refine.
-    payload: z.string().min(1).max(MAX_WORKER_INPUT_CHARS, { abort: true }).refine(isJsonObject),
-    // One line each: a line break could fake a `FACTS` or `FEEDBACK` heading in the user message.
-    feedback: z
-      .array(
-        z
-          .string()
-          .min(1)
-          .max(1000, { abort: true })
-          .regex(/^[^\r\n]*$/),
-      )
-      .max(20),
+    payload: writingPayloadStringSchema,
+    feedback: feedbackLinesSchema,
   })
   .strict()
 export type ResumeWriteBody = z.infer<typeof resumeWriteBodySchema>
@@ -94,14 +97,6 @@ export type WorkerEnvResult =
       ok: false
       reason: 'SECRET' | 'PROVIDER' | 'ROUTER_ENV' | 'ROUTER_CONFIG' | 'STATE_FILE' | 'PORT'
     }
-
-function parseJson(text: string): { value: unknown } | null {
-  try {
-    return { value: JSON.parse(text) as unknown }
-  } catch {
-    return null
-  }
-}
 
 /**
  * The worker's own env (its owner-created `0600` file, never `.env.production`). A refusal names

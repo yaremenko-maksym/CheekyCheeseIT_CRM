@@ -13,7 +13,13 @@ import {
   scriptedFetch,
   type Reply,
 } from './__test-helpers__/router-harness'
-import { createRouter, createRouterExtractionAdapter, modelSizeB, type RouterEvent } from './router'
+import {
+  createRouter,
+  createRouterExtractionAdapter,
+  modelSizeB,
+  reasoningEffortFor,
+  type RouterEvent,
+} from './router'
 import { createMemoryRouteStatePort, createOwnCapPort, type RouteStatePort } from './state'
 
 const NOON = Date.parse('2026-11-04T12:00:00Z')
@@ -517,5 +523,42 @@ describe('router: modelSizeB (R15)', () => {
     ['', undefined],
   ] as [string, number | undefined][])('%s -> %s', (id, size) => {
     expect(modelSizeB(id)).toBe(size)
+  })
+})
+
+describe('router: reasoningEffortFor', () => {
+  it('passes the effort only to gpt-oss on Groq and minimal to OpenRouter', () => {
+    expect(
+      reasoningEffortFor('openrouter', 'baidu/ernie-5.5-flash-preview:free', 'low'),
+    ).toBeUndefined()
+    expect(
+      reasoningEffortFor('openrouter', 'baidu/ernie-5.5-flash-preview:free', undefined),
+    ).toBeUndefined()
+    expect(reasoningEffortFor('openrouter', 'baidu/ernie-5.5-flash-preview:free', 'minimal')).toBe(
+      'minimal',
+    )
+    expect(reasoningEffortFor('groq', 'openai/gpt-oss-120b', 'low')).toBe('low')
+    // Groq's gpt-oss takes low / medium / high: minimal there is asked as low
+    expect(reasoningEffortFor('groq', 'openai/gpt-oss-120b', 'minimal')).toBe('low')
+    expect(reasoningEffortFor('groq', 'llama-3.3-70b-versatile', 'minimal')).toBeUndefined()
+    expect(reasoningEffortFor('gemini', 'gemini-3-flash-preview', 'minimal')).toBeUndefined()
+    expect(reasoningEffortFor('groq', 'openai/gpt-oss-120b', undefined)).toBeUndefined()
+    expect(reasoningEffortFor('groq', 'llama-3.3-70b-versatile', 'low')).toBeUndefined()
+    expect(reasoningEffortFor('cloudflare', '@cf/openai/gpt-oss-20b', 'low')).toBeUndefined()
+    expect(reasoningEffortFor('gemini', 'gemini-3-flash-preview', 'low')).toBeUndefined()
+  })
+
+  it('a requested effort reaches the Groq gpt-oss body and never the Gemini one', async () => {
+    const f = scriptedFetch(() => answer('not json'))
+    const groq = { ...GROQ, models: ['openai/gpt-oss-120b'] }
+    await createRouter(config([GEMINI, groq]), deps(f.fetchImpl)).run({
+      ...REQ,
+      reasoningEffort: 'low',
+    })
+    const byHost = (h: string) => f.sent.filter((s) => s.host === h)
+    expect(byHost(hostOf.groq).length).toBeGreaterThan(0)
+    expect(byHost(hostOf.gemini).length).toBeGreaterThan(0)
+    for (const s of byHost(hostOf.groq)) expect(s.body.reasoning_effort).toBe('low')
+    for (const s of byHost(hostOf.gemini)) expect(s.body).not.toHaveProperty('reasoning_effort')
   })
 })

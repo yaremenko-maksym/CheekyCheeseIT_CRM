@@ -28,6 +28,7 @@ CRM for recruiting workspaces (outsource/outstaffing company: AI, EdTech, E-Comm
 - **How much human a decision needs** (A1 decide yourself / A2 accumulate / A3 stop) → `.claude/rules/common/autonomy-levels.md` + `.claude/skills/decision-frontier/`
 - **Token economy (mandatory for ALL agents: terse narration, bounded reads, bulk output to a file, code-restraint ladder)** → `.claude/rules/common/token-economy.md` + skill `token-economy`
 - What to do with context at a phase boundary (continue / clear / handoff / subagent / compact) → `.claude/rules/common/phase-boundaries.md`
+- **Any product AI call** (new feature, plan, or change to what a model is asked) — first ask "can Jev answer this?" → `.claude/rules/common/jev-first.md`
 - Actions only the owner can perform (and how to kill them) → `docs/runbooks/human-only.md`
 - Deliberately rejected requests (so they are not reconsidered again) → `.out-of-scope/README.md`
 - Claude Design UI gate + workflow → `.claude/rules/common/design-gate.md` + `.claude/skills/claude-design-workflow/`

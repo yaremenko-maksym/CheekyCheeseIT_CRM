@@ -43,6 +43,14 @@ export const JOB_SOURCING_ERROR_CODES = [
   // Backlog 426, 422: the opportunity is not a triage item (a live LEAD match, or EXCLUDED at its
   // current revision), so the ADMIN grant is refused.
   'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE',
+  // ADR 2026-11-03 §H.8, 503: the ADMIN manual run collected nothing and its model stage stopped on
+  // the AI limits. Static: no provider, count or reset time.
+  'JOB_SOURCING_AI_LIMITS_EXHAUSTED',
+  // 503: a manual run collected nothing because no source completed (an error or a deliberate stop); the causes go to the log.
+  'JOB_SOURCING_COLLECTION_FAILED',
+  // External vacancy intake PR 2, 503: `POST /job-queue/manual/parse` could not reach the model, or
+  // it timed out or answered unusably. Static: no provider and no cause.
+  'JOB_QUEUE_PARSE_UNAVAILABLE',
 ] as const
 export type JobSourcingErrorCode = (typeof JOB_SOURCING_ERROR_CODES)[number]
 
@@ -66,6 +74,9 @@ export const JOB_SOURCING_ERROR_PARAMS = {
   JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND: [],
   JOB_QUEUE_TRIAGE_ALREADY_GRANTED: ['expiresAt'],
   JOB_QUEUE_TRIAGE_NOT_ELIGIBLE: [],
+  JOB_SOURCING_AI_LIMITS_EXHAUSTED: [],
+  JOB_SOURCING_COLLECTION_FAILED: [],
+  JOB_QUEUE_PARSE_UNAVAILABLE: [],
 } as const satisfies Record<JobSourcingErrorCode, readonly string[]>
 
 export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDescriptor> = {
@@ -150,6 +161,19 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
     message:
       'Цю вакансію вже не можна призначити команді: для неї знайшовся сеньйор або її прибрали з черги.',
   },
+  JOB_SOURCING_AI_LIMITS_EXHAUSTED: /* i18n */ {
+    id: 'api-error.JOB_SOURCING_AI_LIMITS_EXHAUSTED',
+    message:
+      'Пошук вакансій тимчасово недоступний: ліміти AI-моделей вичерпано. Спробуйте пізніше.',
+  },
+  JOB_SOURCING_COLLECTION_FAILED: /* i18n */ {
+    id: 'api-error.JOB_SOURCING_COLLECTION_FAILED',
+    message: 'Збір не вдався: жодне джерело не відпрацювало. Спробуйте пізніше.',
+  },
+  JOB_QUEUE_PARSE_UNAVAILABLE: /* i18n */ {
+    id: 'api-error.JOB_QUEUE_PARSE_UNAVAILABLE',
+    message: 'Розпізнавання тексту зараз недоступне. Спробуйте ще раз або заповніть поля вручну.',
+  },
 }
 
 export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string> = {
@@ -180,4 +204,9 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
     'This team can already see this vacancy until the end of {expiresAt}. Choose another team.',
   JOB_QUEUE_TRIAGE_NOT_ELIGIBLE:
     'This vacancy can no longer be assigned to a team: a senior now matches it, or it has left the queue.',
+  JOB_SOURCING_AI_LIMITS_EXHAUSTED:
+    'Vacancy search is temporarily unavailable: AI model limits are used up. Try again later.',
+  JOB_SOURCING_COLLECTION_FAILED: 'Collection failed: no source completed. Try again later.',
+  JOB_QUEUE_PARSE_UNAVAILABLE:
+    'Reading the vacancy text is unavailable right now. Try again or fill in the fields by hand.',
 }

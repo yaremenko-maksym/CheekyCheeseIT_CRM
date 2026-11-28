@@ -1,26 +1,35 @@
 /**
  * /job-queue — r5 Task 7.2. The external vacancy queue (ADMIN | HR): status tabs with authorized
  * counts, search + bounded filters (URL state, applied explicitly), the infinite-scroll list,
- * the HR team switcher and the refresh / partial / access-lost notices. Opening a row writes
+ * the refresh / partial / access-lost notices. An HR reads all of their teams at once (no team
+ * switch, task-hr-queue-all-teams). Opening a row writes
  * `?card=<id>`, which opens the card (Task 7.3); closing it clears `card`. Layout and copy:
  * docs/design/vacancy-queue.md.
  */
-import { useId, useRef, useState, type FormEvent, type RefObject } from 'react'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { useEffect, useId, useRef, useState, type FormEvent, type RefObject } from 'react'
+import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { AlertTriangle, RefreshCw, Search, X } from 'lucide-react'
+import { AlertTriangle, Bookmark, CircleHelp, Plus, RefreshCw, Search, X } from 'lucide-react'
 import { z } from 'zod'
 import {
+  JOB_QUEUE_SALARY_MIN_MONTHLY_MAX,
   JOB_QUEUE_SENIOR_FILTER_MAX,
   jobAvailabilitySchema,
   jobQueueEligibilitySchema,
+  jobQueueSalaryCurrencySchema,
+  jobQueueSalaryStatedSchema,
+  jobQueueSortSchema,
   jobQueueTabSchema,
   jobSourceTypeSchema,
+  type ExternalVacancyPrefill,
+  type JobQueueSort,
   type JobQueueTab,
+  type TeamDto,
 } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
-import { useActiveTeams } from '@/hooks/use-active-team'
+import { useQuery } from '@tanstack/react-query'
+import { TEAMS_QUERY, useActiveTeams } from '@/hooks/use-active-team'
 import {
   canonicalSeniorIds,
   useJobQueue,
@@ -30,21 +39,35 @@ import {
 import { Button } from '@/components/ui/button'
 import { JobQueueCard } from '@/components/job-queue/JobQueueCard'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { JobQueueStatusTabs } from '@/components/job-queue/JobQueueStatusTabs'
+import { AiLimitsNotice } from '@/components/job-sourcing/AiLimitsNotice'
 import { JobQueueList, StateBlock } from '@/components/job-queue/JobQueueList'
 import { SourceBudgetPanel } from '@/components/job-sourcing/SourceBudgetPanel'
-import { TeamSwitcher } from '@/components/job-queue/TeamSwitcher'
+import { BookmarkletInstallDialog } from '@/components/job-queue/BookmarkletInstallDialog'
+import { ExternalSubmissionDialog } from '@/components/job-queue/ExternalSubmissionDialog'
+import { ExternalSourcesBlock } from '@/components/job-queue/ExternalSourcesBlock'
+import { bookmarkletUsed, takeStashedPrefill } from '@/lib/external-prefill'
 import {
   JobQueueAppliedFilters,
   JobQueueFilters,
   appliedFilterCount,
+  coherentSalary,
   type JobQueueFilterValue,
 } from '@/components/job-queue/JobQueueFilters'
 
 // Every param degrades to its default on a bad value (`.catch`) — a hand-edited URL never 500s the page.
 const searchSchema = z.object({
   tab: jobQueueTabSchema.catch('NEW').default('NEW'),
+  // absent = relevance, the default order; only «спочатку нові» shows in the URL
+  sort: jobQueueSortSchema.optional().catch(undefined),
   search: z.string().trim().min(1).max(200).optional().catch(undefined),
   source: z.array(jobSourceTypeSchema).min(1).optional().catch(undefined),
   eligibility: z.array(jobQueueEligibilitySchema).min(1).optional().catch(undefined),
@@ -57,7 +80,15 @@ const searchSchema = z.object({
     .pipe(z.array(z.string()).max(JOB_QUEUE_SENIOR_FILTER_MAX))
     .optional()
     .catch(undefined),
-  teamId: z.string().uuid().optional().catch(undefined),
+  salary: z.array(jobQueueSalaryStatedSchema).min(1).optional().catch(undefined),
+  salaryCurrency: jobQueueSalaryCurrencySchema.optional().catch(undefined),
+  salaryMinMonthly: z
+    .number()
+    .int()
+    .min(1)
+    .max(JOB_QUEUE_SALARY_MIN_MONTHLY_MAX)
+    .optional()
+    .catch(undefined),
   card: z.string().uuid().optional().catch(undefined),
 })
 type QueueSearch = z.infer<typeof searchSchema>
@@ -77,7 +108,10 @@ function compact<T extends object>(value: T): { [K in keyof T]?: Exclude<T[K], u
 export function JobQueuePage() {
   const { denied } = useRoleGuard(['ADMIN', 'HR'])
   const { user } = useAuth()
+  // a live team of either type (SENIOR or DROP) is a queue scope (owner decision 2026-11-24)
   const { teams, isError: teamsFailed, refetch: refetchTeams } = useActiveTeams()
+  // an ADMIN may register for any live team, not only the ones they belong to
+  const allTeams = useQuery({ ...TEAMS_QUERY, enabled: user?.role === 'ADMIN' }).data
   const search = Route.useSearch()
   // these buttons unmount on click, so focus parks here: the team-list retry (error block becomes
   // the skeleton) and the two refresh buttons (returnToTop)
@@ -85,6 +119,11 @@ export function JobQueuePage() {
   // state, not a ref: the sentinel's observer has to rebuild once the scroller exists
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null)
   const headingId = useId()
+  // an HR without a team never mounts the queue, so a stashed hand-off would bounce `/` here forever
+  const noTeam = user?.role === 'HR' && teams?.length === 0
+  useEffect(() => {
+    if (noTeam) takeStashedPrefill()
+  }, [noTeam])
 
   if (denied || !user || (user.role !== 'ADMIN' && user.role !== 'HR')) return null
 
@@ -101,6 +140,7 @@ export function JobQueuePage() {
       <QueueBody
         scope={{ actorId: user.id, role: 'ADMIN', teamId: null }}
         search={search}
+        submissionTeams={allTeams?.filter((t) => !t.archivedAt) ?? []}
         scrollRoot={scrollRoot}
         focusPark={bodyRef}
         onReturnToTop={returnToTop}
@@ -153,12 +193,15 @@ export function JobQueuePage() {
       </div>
     )
   } else {
-    const teamId = teams.some((t) => t.id === search.teamId) ? search.teamId! : teams[0]!.id
+    // every own team at once: with no team id the server reads the union of the HR's teams
     body = (
       <QueueBody
-        scope={{ actorId: user.id, role: 'HR', teamId }}
+        scope={{ actorId: user.id, role: 'HR', teamId: null }}
         search={search}
-        teams={teams.map((t) => ({ id: t.id, name: t.name }))}
+        // senior options lack team ids, so we filter by active SENIOR members already loaded in TeamDto.members
+        submissionTeams={teams.filter((t) =>
+          t.members.some((m) => m.role === 'SENIOR' && !m.leftAt),
+        )}
         scrollRoot={scrollRoot}
         focusPark={bodyRef}
         onReturnToTop={returnToTop}
@@ -200,30 +243,47 @@ export function JobQueuePage() {
 function QueueBody({
   scope,
   search,
-  teams,
+  submissionTeams,
   scrollRoot,
   focusPark,
   onReturnToTop,
 }: {
   scope: QueueScopeSignature & { role: 'ADMIN' | 'HR' }
   search: QueueSearch
-  teams?: ReadonlyArray<{ id: string; name: string }>
+  submissionTeams: readonly TeamDto[]
   scrollRoot: HTMLElement | null
   focusPark: RefObject<HTMLDivElement | null>
   onReturnToTop: () => void
 }) {
   const { t } = useLingui()
   const navigate = useNavigate()
-  const filterValue: JobQueueFilterValue = compact({
-    source: search.source,
-    eligibility: search.eligibility,
-    availability: search.availability,
-    seniorIds: search.seniorIds,
+  const router = useRouter()
+  // a hand-edited URL with bounds the API refuses is read without them, never sent as a 400
+  const filterValue: JobQueueFilterValue = coherentSalary(
+    compact({
+      source: search.source,
+      eligibility: search.eligibility,
+      availability: search.availability,
+      seniorIds: search.seniorIds,
+      salary: search.salary,
+      salaryCurrency: search.salaryCurrency,
+      salaryMinMonthly: search.salaryMinMonthly,
+    }),
+  )
+  const sort: JobQueueSort = search.sort ?? 'relevance'
+  // part of the query key: a sort change starts a fresh list from page 1
+  const filters = compact({
+    ...filterValue,
+    search: search.search,
+    sort: sort === 'relevance' ? undefined : sort,
   })
-  const filters = compact({ ...filterValue, search: search.search })
   const queue = useJobQueue(scope, search.tab, filters)
   const seniorOptions = useJobQueueSeniorOptions(scope)
-  // the box shows the applied search and follows the URL (team switch, back / forward)
+  // an HR none of whose teams has a senior has nobody to register for
+  const canRegister = scope.role === 'ADMIN' || submissionTeams.length > 0
+  // the feed links follow the first selected senior, as the submission dialog does
+  const feedSenior = seniorOptions.data?.items.find((s) => s.id === search.seniorIds?.[0])
+  // the box shows the applied search and follows the URL (back / forward)
   const [draftSearch, setDraftSearch] = useState(search.search ?? '')
   const [appliedSearch, setAppliedSearch] = useState(search.search)
   if (appliedSearch !== search.search) {
@@ -233,7 +293,23 @@ function QueueBody({
 
   const go = (next: Partial<QueueSearch>) =>
     void navigate({ to: '/job-queue', search: compact(next) })
-  const base = { tab: search.tab, teamId: search.teamId }
+
+  // the bookmarklet's payload, stashed at boot (client.tsx); taken once, so a reload does not reopen
+  // it. StrictMode calls this initializer twice and keeps the first result (the second take is null).
+  const [external, setExternal] = useState<{
+    open: boolean
+    prefill: ExternalVacancyPrefill | null
+  }>(() => {
+    const prefill = takeStashedPrefill()
+    return { open: prefill !== null, prefill }
+  })
+  // after the take above, which marks the bookmarklet used: an HR arriving with a payload is not nagged
+  // not over a card deep link: a row opened in a new tab must not stack two dialogs
+  const [installOpen, setInstallOpen] = useState(
+    () => scope.role === 'HR' && !bookmarkletUsed() && !search.card,
+  )
+  // the order is not a filter: applying or resetting filters keeps it
+  const base = { tab: search.tab, sort: search.sort }
   const page = queue.data?.pages[0]
   const items = queue.data?.pages.flatMap((p) => p.items)
   const clearSearch = () => go({ ...search, search: undefined })
@@ -296,16 +372,66 @@ function QueueBody({
     <div className="flex min-w-0 flex-col gap-4">
       {/* ADMIN only, collapsed: at the top because the list below is infinite and would bury it */}
       <SourceBudgetPanel canView={scope.role === 'ADMIN'} collapsible />
-      {/* below 560 px of content only the team switcher stacks; search + filters keep one row */}
-      <div className="flex flex-col gap-2 @min-[560px]:flex-row @min-[560px]:items-center">
-        {/* only the HR scope carries a team list, and it always has a team id */}
-        {teams && (
-          <TeamSwitcher
-            teams={teams}
-            value={scope.teamId!}
-            onChange={(teamId) => go({ tab: search.tab, teamId })}
-          />
+      <div className="flex flex-col gap-2 @min-[560px]:flex-row @min-[560px]:justify-end">
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="job-queue-bookmarklet-open"
+            className="min-h-11 flex-1 @min-[560px]:flex-none"
+            onClick={() => setInstallOpen(true)}
+          >
+            <Bookmark aria-hidden="true" />
+            <Trans>Додати закладку «До CRM»</Trans>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="job-queue-bookmarklet-help"
+            aria-label={t`Як працює закладка «До CRM»`}
+            className="size-11 shrink-0"
+            onClick={() => setInstallOpen(true)}
+          >
+            <CircleHelp aria-hidden="true" />
+          </Button>
+        </div>
+        {canRegister && (
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="job-queue-external-open"
+            className="min-h-11 w-full @min-[560px]:w-auto"
+            onClick={() => setExternal({ open: true, prefill: null })}
+          >
+            <Plus aria-hidden="true" />
+            <Trans>Записати зовнішню подачу</Trans>
+          </Button>
         )}
+      </div>
+      <ExternalSourcesBlock
+        // Stryker disable next-line ArrayDeclaration: equivalent, an unknown role builds the same general links
+        roles={feedSenior?.technicalRoles ?? []}
+        seniorName={feedSenior?.name}
+        onRegister={canRegister ? () => setExternal({ open: true, prefill: null }) : undefined}
+      />
+      <BookmarkletInstallDialog open={installOpen} onOpenChange={setInstallOpen} />
+      <ExternalSubmissionDialog
+        open={external.open}
+        onOpenChange={(open) => setExternal((e) => ({ ...e, open }))}
+        scope={scope}
+        teams={submissionTeams}
+        seniorId={search.seniorIds?.[0]}
+        prefill={external.prefill}
+        onSubmitted={() => {
+          setExternal({ open: false, prefill: null })
+          go({ ...search, tab: 'SUBMITTED', card: undefined })
+        }}
+        onOpenCard={(card) => {
+          setExternal({ open: false, prefill: null })
+          go({ ...search, card })
+        }}
+      />
+      <div className="flex flex-col gap-2 @min-[560px]:flex-row @min-[560px]:items-center">
         <div data-testid="job-queue-search-row" className="flex min-w-0 flex-1 items-center gap-2">
           <form role="search" onSubmit={onSearchSubmit} className="relative min-w-0 flex-1">
             <Search
@@ -350,10 +476,31 @@ function QueueBody({
                 eligibility: next.eligibility,
                 availability: next.availability,
                 seniorIds: next.seniorIds,
+                salary: next.salary,
+                salaryCurrency: next.salaryCurrency,
+                salaryMinMonthly: next.salaryMinMonthly,
               })
             }
           />
         </div>
+        <Select
+          value={sort}
+          onValueChange={(next) =>
+            go({ ...search, sort: next === 'published' ? 'published' : undefined })
+          }
+        >
+          <SelectTrigger
+            data-testid="job-queue-sort"
+            aria-label={t`Сортування`}
+            className="min-h-11 w-full @min-[560px]:w-56"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="relevance">{t`За релевантністю`}</SelectItem>
+            <SelectItem value="published">{t`Спочатку нові`}</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <JobQueueAppliedFilters
@@ -367,6 +514,8 @@ function QueueBody({
         counts={page?.counts ?? null}
         onChange={(tab: JobQueueTab) => go({ ...search, tab, card: undefined })}
       >
+        {/* H.8: global state, shown beside (not instead of) the refresh / partial notice */}
+        <AiLimitsNotice notice={page?.sourcingNotice} testId="job-queue-ai-limits" />
         {notice}
 
         {queue.accessLost ? (
@@ -405,7 +554,16 @@ function QueueBody({
             onLoadMore={() => void queue.fetchNextPage()}
             onRetry={() => void queue.refetch()}
             onRestart={onRestart}
-            onOpen={(card) => go({ ...search, card })}
+            onOpen={(card, newTab) =>
+              newTab
+                ? window.open(
+                    router.buildLocation({ to: '/job-queue', search: compact({ ...search, card }) })
+                      .href,
+                    '_blank',
+                    'noopener',
+                  )
+                : go({ ...search, card })
+            }
             onResetFilters={resetFilters}
             onClearSearch={clearSearch}
           />

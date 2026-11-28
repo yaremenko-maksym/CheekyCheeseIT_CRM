@@ -20,12 +20,12 @@ they noticed.
 
 ## The three halves
 
-|                | Pre-push hook (`.claude/hooks/pre-bash-mutation-gate.sh`) | PR gate (`ci.yml`, `mutation` job — split out of `quality` 2026-09-03, task-infra-split-mutation-gate, so it runs in parallel instead of adding to `quality`'s wall time; further split into a 3-package matrix the same day, task-infra-mutation-gate-matrix, so the three packages also run in parallel with EACH OTHER instead of sequentially inside one job — `mutation_summary` rolls the three legs back into the single `Mutation Gate` required-check context, same shape as `e2e`/`e2e_summary`) | Nightly (`mutation-nightly.yml`) |
-| -------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| Scope          | same as the PR gate — the LINES this branch changed       | only the LINES this branch changed                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | whole packages on `main`         |
-| Verdict        | BLOCK on a real finding, visible SKIP on anything else    | one survivor → build red                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | inventory → alert issue          |
-| Cost           | budget-capped at 120s locally (see the hook's own header) | proportional to the diff (see numbers below)                                                                                                                                                                                                                                                                                                                                                                                                                                                               | up to 5h per package leg         |
-| Blocks a merge | no — only slows a `git push` locally                      | yes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | no                               |
+|                | Pre-push hook (`.claude/hooks/pre-bash-mutation-gate.sh`) | PR gate (`ci.yml`, `mutation` job — split out of `quality` 2026-09-03, task-infra-split-mutation-gate, so it runs in parallel instead of adding to `quality`'s wall time; further split into a per-package matrix the same day, task-infra-mutation-gate-matrix, so the packages also run in parallel with EACH OTHER instead of sequentially inside one job — `mutation_summary` rolls the legs back into the single `Mutation Gate` required-check context, same shape as `e2e`/`e2e_summary`. Three legs at the split; `@crm/inference` is the fourth, added by backlog 461 on 2026-11-19) | Nightly (`mutation-nightly.yml`) |
+| -------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| Scope          | same as the PR gate — the LINES this branch changed       | only the LINES this branch changed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | whole packages on `main`         |
+| Verdict        | BLOCK on a real finding, visible SKIP on anything else    | one survivor → build red                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | inventory → alert issue          |
+| Cost           | budget-capped at 120s locally (see the hook's own header) | proportional to the diff (see numbers below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | up to 5h per package leg         |
+| Blocks a merge | no — only slows a `git push` locally                      | yes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | no                               |
 
 The PR gate is affordable because it is line-scoped. It is also blind to
 everything written before it existed — that is the nightly's job.
@@ -65,7 +65,7 @@ the gate itself out of Stryker's report. A file-scoped `// Stryker disable`
 (without `next-line`) is always rejected: it silences code nobody has written
 yet.
 
-### `mutant NOT VERIFIED (...)` — tool failure, not a surviving mutant (warning)
+### `mutant NOT VERIFIED (...)` — tool failure, not a surviving mutant (re-run once, then red)
 
 **What it means:** the test runner executed **zero tests** for this specific
 mutant. Stryker's own report says so directly — `testsCompleted: 0` — and that
@@ -85,16 +85,45 @@ gate now tells them apart per mutant (not per file, not per package — two
 mutants on the very same line can land in different buckets, see the "mixed
 report" test case in `scripts/devops/tests/test-mutation-gate-reporting.sh`)
 and treats them differently: a real survivor still blocks the build exactly as
-before; a tool failure is reported loudly — its own report section, `::warning::`
-annotations, counted in the per-package table's `tool` column — but **never**
-counted toward the exit code.
+before; a tool failure gets a **second chance, then blocks**.
 
-**Why it does NOT block:** the defect, whatever it is, is in the test
-runner's ability to associate a mutant with the tests that cover it — not in
-the code that was changed. Blocking a PR over a fact about the CI machine's
-tooling, on code that may well be perfectly tested, would train exactly the
-kind of learned mistrust ("the gate is just flaky, re-run it") that a mutation
-gate exists to prevent for everything else.
+**What the gate does with it (backlog 465, 2026-11-19):** every mutant that ran
+zero tests is **re-mutated alone** — a second, narrowed Stryker run over exactly
+`rel:line-line` for each of them (`retryToolFailures()` in
+`scripts/devops/mutation-gate.mjs`) — and the build fails (exit 1) only for the
+ones that ran zero tests **twice**. A mutant that the isolated re-run verified
+is reported as a `::notice::` and changes nothing.
+
+**Why a re-run and not a straight red:** the cause (below) is per-process
+mutable state in Vitest's module graph, so it depends on run order and
+concurrency, never on the changed code. An isolated re-run is therefore the
+cheap discriminator: a graph-state flap resolves, while a genuine "no test can
+reach this line" reproduces. Blocking on the first occurrence would train
+exactly the kind of learned mistrust ("the gate is just flaky, re-run it") that
+a mutation gate exists to prevent; never blocking at all — the behaviour until
+2026-11-19 — let a real coverage hole ride through on a plausible excuse.
+
+**Why a missing retry report is exit 2, not a pass:** if the narrowed re-run
+produces no report, the mutants are still unverified, and "I do not know" is
+red (`verification-integrity.md`). The exit-2 message distinguishes a re-run the
+gate's own time budget killed from one that crashed, because the next move
+differs: raise `MUTATION_BUDGET_SECONDS`, or read the Stryker output above it.
+
+**`NoCoverage` is a different finding from "ran zero tests", and the two must not
+be read as synonyms** (SPEC-L-2). Both mean no test executed the mutant, and
+that is where the resemblance ends:
+
+|                    | `NoCoverage`                                                                                | tool failure (`Survived` + `testsCompleted: 0`)                   |
+| ------------------ | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Who says so        | Stryker's own perTest coverage analysis, BEFORE running anything: no test covers the mutant | the test runner, AFTER a run it reported as complete              |
+| `coveredBy`        | empty — that is the finding                                                                 | typically non-zero (measured: 69), which is the contradiction     |
+| What it is about   | the test suite: a real gap in it                                                            | the tooling: tests exist and reach the line, and none of them ran |
+| What the gate does | warns, and is red only with `MUTATION_NO_COVERAGE_IS_RED=1`                                 | re-verifies in isolation, then red if it is still zero            |
+| What fixes it      | write a test                                                                                | nothing in the code — the mutant usually dies on the re-run       |
+
+So a mutant can never be both, and a tool failure is NOT "NoCoverage the gate
+was too polite to call": `coveredBy` beside `testsCompleted` is what tells them
+apart, which is why every tool-failure annotation prints both.
 
 **Live reproduction (2026-08-25, this repo, before this fix existed):** a
 `@crm/web` diff (task 5/6, cascade edit-preview — `cascade-preview.ts` +
@@ -104,24 +133,89 @@ clear-text reporter said as much in plain English — `Ran 0.00 tests per mutant
 on average` — and the gate still went red, on code the runner had not
 executed a single assertion against. After the fix, the identical run: `killed
 0, survived 0, tool-failure 33` — `mutation-gate: PASS`, with the same 33
-mutants still listed, now correctly labeled and non-blocking.
+mutants still listed and correctly labeled. (That run predates the isolated
+re-run added on 2026-11-19: today the same 33 would be re-mutated one line at a
+time, and only the ones that ran zero tests again would turn the gate red.)
 
-**Suspected mechanism, named but deliberately NOT fixed here:** the
-`@stryker-mutator/vitest-runner` plugin resolves, per mutant, which test files
-to run via Vitest's own `related` (dependency-graph) file selection, pointed
-at the SANDBOXED copy of the mutated file
-(`vitest-test-runner.js`'s `mutantRun()`: `relatedFiles: [options.sandboxFileName]`).
-If that resolution comes back empty for a mutant Stryker's coverage analysis
-otherwise believed was covered, `mutantRun()` runs zero tests, `Complete` with
-no failure, `Survived`, `testsCompleted: 0` — silently, because the one
-warning this runner does emit for that situation
+**The mechanism, read out of the installed sources (backlog 465, 2026-11-19).**
+Three links, each one checkable in the pinned dependencies:
+
+1. `@stryker-mutator/vitest-runner`'s `VitestTestRunner.mutantRun()`
+   (`dist/src/vitest-test-runner.js`) asks for the sandbox copy of the mutated
+   file by name — `relatedFiles: [options.sandboxFileName]` — and its own
+   `run()` in the same class hands that to Vitest by assigning
+   `ctx.config.related`.
+2. Vitest decides which specs are "related" by walking each spec's import graph
+   in `filterTestsBySource()` / `getTestDependencies()`
+   (`vitest/dist/chunks/cli-api.*.js`, `getTestDependencies`). That walk reads
+   `moduleGraph.getModuleById(filepath)?.transformResult` and **returns early,
+   silently, when the result is absent** — so an intermediate module whose
+   transform result is not in the graph truncates the walk, the mutated file
+   never lands in `deps`, and every spec that reaches it only through that
+   module is filtered out. The graph is per-process, mutable state, so which
+   modules have a transform result depends on run order, concurrency and
+   invalidation — not on the code under test.
+3. With no spec left, `ctx.start()` throws `FILES_NOT_FOUND`, and `mutantRun()`
+   **catches exactly that code and continues** — its own comment in
+   `vitest-test-runner.js` reads `// No tests found, this isn't a problem, we
+can continue`. The run then reports `status: Complete` with an empty `tests`
+   array, which Stryker reads as `Survived` with `testsCompleted: 0`.
+
+**Reproduced on demand, 2026-11-19, and the decisive field.** The condition does
+not reproduce on a small diff: nine full runs over the same `@crm/api` diff (230
+mutants each) produced zero of them. It reproduces on a **large single-file**
+diff — `apps/api/src/resumes/verification/content-gates.ts` taken against
+`3650374b1^`, where the whole file is new, 317 mutants in ~430s. Both runs of
+that diff produced exactly one zero-test mutant, at a DIFFERENT line each time
+(`361` `ObjectLiteral`, then `312` `ConditionalExpression`) — the run-to-run
+drift the mechanism predicts. The first one's report entry settles the cause
+without any further argument:
+
+```
+status=Survived  testsCompleted=0  static=false  coveredBy=69  killedBy=-
+```
+
+**`coveredBy` is Stryker's own perTest coverage analysis**: 69 tests cover that
+mutant, and the mutant run executed none of them. A coverage gap cannot look
+like that — only a runner that failed to resolve the specs it had already
+measured can. The gate now prints `coveredBy` beside every `NOT VERIFIED`
+mutant for exactly this reason: a non-zero count says "the runner is at fault",
+a zero says "no test reaches this line at all".
+
+This is form (A) of `verification-integrity.md` inside a dependency: the channel
+that would have said "I could not find the tests" is discarded, and the silence
+is reported as a result. It also explains the shape the warnings take in
+practice — **clusters per file, different ones per run**: the truncation happens
+at one intermediate module, so the whole set of mutants behind it goes
+unverified together. Measured in this repo's own transcripts: 21 distinct
+`NOT VERIFIED` mutants across 6 files, up to 7 in a single run
+(`resume-typst.service.ts`), none of them repeating run to run.
+
+**Why the runner itself is not fixed, and why `vitest.related` is the wrong
+knob.** The one warning the runner emits for this situation
 (`"Vitest failed to find test files related to mutated files"`) is logged only
-during the DRY run, never during an individual mutant run. **Fixing the
-runner's related-file resolution is separate, harder work and explicitly out
-of scope for this fix** — this fix is about the gate's HONESTY given whatever
-the runner reports, not the runner's behavior. If you find yourself tempted to
-"fix" this by touching `vitest.related` config, stop: that is the follow-up
-task, not this one.
+during the DRY run, never during an individual mutant run — so there is nothing
+to react to inside the plugin without patching it. The obvious config knob,
+`vitest.related: false`, was tried and rejected on two separate grounds, both
+measured 2026-11-19:
+
+- **It breaks the run, not just its cost.** The flag also un-narrows Stryker's
+  INITIAL DRY RUN, so the whole package suite executes there. On `@crm/api`
+  that ended in `ConfigError: There were failed tests in the initial test run`
+  (specs that need a database are in no mutated file's related set and are
+  never meant to run at the gate), Stryker wrote no report, and a flap became a
+  red for an unrelated reason.
+- **Globally it is unaffordable anyway.** On one `@crm/api` diff, 139 of 230
+  mutants were static (`ignoreStatic` is deliberately off — owner decision
+  2026-09-03) and the run averaged `94.23 tests per mutant`; without `related`
+  every static mutant runs the full package suite.
+
+So the retry runs with the ordinary config and relies on the fresh process:
+measured, the reproduced mutant was KILLED by its isolated re-run in 80s
+(`testsCompleted: 2`). That is one narrowed run per affected line, and only
+when the condition appears. It is not a proof — the same dice are re-rolled
+once — which is why the verdict says "ran zero tests twice" and never "this
+code has no test".
 
 **Where this can still hide a real gap:** a tool failure is not proof the code
 IS tested elsewhere — it is proof the gate could not verify one way or the
@@ -236,17 +330,10 @@ is never even reached — Stryker's instrumented-count line covers the WHOLE
 package run, not one file at a time, so a diff touching both a CSS-only file
 and a file with real logic reports a nonzero total, a report gets written
 normally, and the CSS-only file simply contributes no entries to it (nothing
-to report for lines with no mutable AST). Verified live, same session: the
-`notifications-bell.tsx` CSS-only change (0 mutants) plus `JobSuggestionDialog
-.tsx`'s defence block (the same 5-mutant scope arm 1 of the vacuum proof
-above uses) in one `MUTATION_ONLY_FILES`-scoped run —
-`Instrumented 2 source file(s) with 5 mutant(s)` (nonzero total), a report was
-written, and it named exactly the ONE real survivor in
-`JobSuggestionDialog.tsx` (`img: () => null` → `() => undefined`, the same
-documented equivalent-mutant case as the module header's `Ignored` example) —
-`notifications-bell.tsx` appears nowhere in the report at all, not even as a
-zero row. The zero-mutant bypass above did not fire, because it does not need
-to: a nonzero total already takes the ordinary path.
+to report for lines with no mutable AST). No mixed-diff run is quoted here,
+and `mutation-gate-vacuum-proof.sh` does not cover this case (each of its arms
+scopes the gate to a single file); the claim follows from
+`parseInstrumentedMutantCount()` reading one package-wide total.
 
 **How this is different from `no mutable source lines changed vs the base`**
 (printed earlier, before Stryker even runs): that one means the diff touched
@@ -283,6 +370,32 @@ being treated. Either split the PR, or raise `MUTATION_BUDGET_SECONDS` in
 
 Startup dominates a small diff (~3s of the 3.5s); after that the cost tracks the
 mutant count, which tracks changed lines.
+
+**`@crm/inference` (added to the matrix by backlog 461, measured 2026-11-19, 4
+workers, local, load average 21 with another agent's Stryker running):** the diff
+of the OpenRouter-router commit (PR #1396 — 12 files, 10 of them under
+`src/router`) produced **623 mutants in 170.0s** (Stryker's own `Done in 2
+minutes and 48 seconds`), of which 463 were under `src/router` itself: 587
+killed, 2 timeout, 32 survived, 2 no-coverage, **0 tool failures**. That is the
+largest single-commit diff the package has ever had, so it bounds the PR leg
+rather than describing it; the matrix leg is nevertheless given the same
+`budget: 3600` / `timeout: 75` as `@crm/shared`, because the cost of a too-small
+budget is a SKIP on exactly the change that needed the gate.
+
+The 32 survivors are pre-existing gaps in that historical diff, not a
+regression introduced by adding the leg: the gate is diff-scoped, so they only
+become red again if a PR changes those same lines.
+
+**What the leg costs on a PR that does not touch the package** (SPEC-M-2 — the
+CI number beside the local one): on PR #1424, whose own diff is workflows,
+scripts and docs, `Mutation Gate (@crm/inference)` ran **30s** wall
+(`00:01:25Z` → `00:01:55Z`), almost all of it install and the whole-repo
+suppression scan, ending in `mutation-gate: no mutable source lines changed vs
+the base — nothing to mutate.` That is the price every unrelated PR pays for the
+leg's existence; it is NOT a mutation-run measurement, because nothing was
+mutated. The only CI measurement of a real inference mutation run will come from
+the first PR that changes `packages/inference/src` — until then the local 170.0s
+figure above is what the budget rests on.
 
 **This table has NO `apps/api` row, and that gap was itself the bug** — the
 2026-08-18 pre-push hook (`.claude/hooks/pre-bash-mutation-gate.sh`) shipped
@@ -440,8 +553,8 @@ bash scripts/devops/mutation-gate-vacuum-proof.sh
 Four arms against the render-side XSS defence in `PostingMarkdown.tsx`
 (`MARKDOWN_URL_TRANSFORM` through the end of `MARKDOWN_COMPONENTS`, including
 `NO_IMAGES`). The defence moved there from `JobSuggestionDialog.tsx` in r5 Task
-7.3; the dialog still renders it, so the dialog's 2026-08-07 vacuum test is
-still the subject.
+7.3; after task-sources-07c deleted the dialog and its test, `PostingMarkdown.tsx`
+is the sole home of the defence and `PostingMarkdown.test.tsx` its primary test.
 
 Every arm plants `export const VACUUM_PROOF_PLANT = 'inert'` just above
 `MARKDOWN_COMPONENTS` of the working copy. Nothing reads it, so its one
@@ -454,10 +567,10 @@ defence mutants into survivors.
 1. the real tests → at least 4 killed, 1 survivor (the plant) → **red**
 2. real tests + suppression **with** a reason → **green**
 3. real tests + suppression **without** a reason → **red**
-4. the actual pre-fix vacuum test from 2026-08-07
-   (`apps/web/app/test/fixtures/2026-08-07-JobSuggestionDialog.vacuum.tsx.txt`,
-   11 passing tests), with the newer suites that also pin the defence
-   (`PostingMarkdown.test.tsx`, `JobQueueCard.test.tsx`) set aside →
+4. the vacuous test suite
+   (`apps/web/app/test/fixtures/PostingMarkdown.vacuum.tsx.txt`,
+   15 passing tests), with the other suite that also pins the defence
+   (`JobQueueCard.test.tsx`) set aside →
    **0 killed, every defence mutant survives** → **red**
 
 Arm 4 is the one that matters, and its assertion is deliberately harsh: the
@@ -533,8 +646,9 @@ keeping the gate honest instead of fast.
 **What the prototype broke, verified by running `mutation-gate-vacuum-proof.sh`
 itself, not by reasoning about it:** with `ignoreStatic` active, 4 of the
 self-check's 5 XSS-defence mutants (`MARKDOWN_URL_TRANSFORM` and
-`MARKDOWN_COMPONENTS` in `JobSuggestionDialog.tsx`, both module-level
-`export const`s) came back `Ignored` (static) and were never exercised.
+`MARKDOWN_COMPONENTS` in `PostingMarkdown.tsx` — module-level bindings, the
+first exported, the second a plain module-level const) came back `Ignored`
+(static) and were never exercised.
 `arm 1`'s "the real test kills the defence mutants (>= 4)" assertion — true
 since this file was written — dropped to 1, and the gate reported PASS for a
 diff that deletes the render-side XSS defence. The self-check's assertions
@@ -547,9 +661,11 @@ finding that ended the prototype.
   verified throughout.
 - `@crm/web` — the self-check's `arm 4` crash (frozen vacuum fixture
   predating `matchScore`/`matchedKeywords` and `SourceBudgetPanel`/
-  `useJobSources` from PR #515) is fixed, AND with `ignoreStatic` reverted,
+  `useJobSources` from PR #515) was fixed, and following the deletion of
+  `JobSuggestionDialog.tsx` in task-sources-07c, retargeted to
+  `PostingMarkdown.tsx` and `PostingMarkdown.vacuum.tsx.txt`. With `ignoreStatic` reverted,
   the whole self-check passes end to end again: `mutation-gate-vacuum-proof.sh`
-  run fresh — 9/9 assertions, all 4 arms, 5/5 reference mutants in arm 4
+  run fresh — 10/10 assertions (fix round 6 added the arm-1 Timeout check), all 4 arms, reference mutants in arm 4
   actually exercised (0 skipped as static). The `Gate self-check` step no
   longer blocks `Full mutation sweep` for this leg.
 - `@crm/api` — still blocked, for a third, unrelated reason: Stryker's

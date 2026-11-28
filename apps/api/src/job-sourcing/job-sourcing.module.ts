@@ -15,13 +15,26 @@ import { JobMatchReconciliationCronService } from './job-match-reconciliation.cr
 import { JobQueueActionRetentionCronService } from './job-queue-action-retention.cron'
 import { JobQueueGenerationRetentionCronService } from './job-queue-generation-retention.cron'
 import { JobSourcingController } from './job-sourcing.controller'
+import {
+  BLOCK_PICK_PORTS,
+  BlockPickService,
+  createBlockPickPorts,
+} from './queue/block-pick.service'
 import { JobQueueController } from './queue/job-queue.controller'
 import { JobQueueActionsService } from './queue/queue-actions.service'
 import { JobQueueRecomputeService } from './queue/queue-recompute.service'
+import {
+  createManualParsePorts,
+  MANUAL_PARSE_PORTS,
+  ManualParseService,
+} from './queue/manual-parse.service'
 import { JobQueueService } from './queue/job-queue.service'
 import { JobQueueScopeService } from './queue/queue-scope.service'
 import { JobRoleAiCronService } from './role-ai/role-ai.cron'
+import { JevRoleClassifierClient } from './role-ai/jev-role-classifier'
 import { RoleClassifierClient } from './role-ai/role-classifier.client'
+import { JevRelevanceGraderClient } from './relevance/jev-relevance-grader'
+import { JobRelevanceCronService } from './relevance/relevance.cron'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { JobSourceHealthService } from './health/job-source-health.service'
 import { SourceHealthAlertService } from './health/source-health-alert.service'
@@ -43,6 +56,7 @@ import {
   lateBoundDb,
 } from './runtime/production-worker'
 import { JobRunLedger } from './ownership/job-run-ledger'
+import { VacancyRetentionCronService } from './vacancy-retention.cron'
 
 /**
  * Job sourcing (task-job-sourcing-slice1).
@@ -85,12 +99,28 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     JobQueueActionRetentionCronService,
     // r5 Task 6.2 (MP-13): removes expired queue generations; flag default OFF.
     JobQueueGenerationRetentionCronService,
+    // Vacancy retention (owner 2026-11-25): the daily 60-day sweep + CLOSED/EXPIRED safety net.
+    VacancyRetentionCronService,
     // r5 Task 6.1: the queue scope (ADMIN studio / HR one active team); read by Tasks 6.2-6.4.
     JobQueueScopeService,
     // r5 Task 6.3: the queue's writes (submit, cancel, dismiss, undo, opened, suppress); Task 6.4 calls them.
     JobQueueActionsService,
     // r5 Task 6.4: POST /job-queue/recompute enqueues a match recompute run (never inline).
     JobQueueRecomputeService,
+    // External vacancy intake PR 2: POST /job-queue/manual/parse (Jev isVacancy + hosted extraction).
+    ManualParseService,
+    {
+      provide: MANUAL_PARSE_PORTS,
+      useFactory: (config?: ConfigService<Env, true>) => createManualParsePorts(config),
+      inject: [{ token: ConfigService, optional: true }],
+    },
+    // Bookmarklet block map: POST /job-queue/manual/pick (Jev isVacancy + the worker's block ids).
+    BlockPickService,
+    {
+      provide: BLOCK_PICK_PORTS,
+      useFactory: (config?: ConfigService<Env, true>) => createBlockPickPorts(config),
+      inject: [{ token: ConfigService, optional: true }],
+    },
     // r5 Task 6.2: the queue's list and card reads; the Task 6.4 controller calls them.
     JobQueueService,
     // r5 Task 4.6 S4b: periodic reconciliation + drain of the recompute worker; flag default OFF.
@@ -99,7 +129,11 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     JobAvailabilityReconciliationCronService,
     // Senior roles PR 3: the bounded AI role pass over the worker's /classify-roles; flag default OFF.
     RoleClassifierClient,
+    JevRoleClassifierClient,
     JobRoleAiCronService,
+    // Queue relevance PR1: the bounded Jev vacancy-senior relevance pass; flag default OFF.
+    JevRelevanceGraderClient,
+    JobRelevanceCronService,
     DouRssProvider,
     {
       provide: JobSourceRegistry,
@@ -144,14 +178,21 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     // r5 Task 4.6 S4a: the dirty-work recompute consumer; S4b's reconciliation cron calls `runOnce`.
     {
       provide: RecomputeWorker,
-      useFactory: (db: DatabaseService) =>
+      useFactory: (db: DatabaseService, config: ConfigService<Env, true> | null) =>
         // U10: pass the ON_DEMAND source types so a wanted opportunity enqueues one DETAIL_FETCH per
         // backing ON_DEMAND record (empty until a source's manifest is flipped — ADR 6a, step 10).
+        // Senior roles 4.4: the same flag the AI pass reads also gates the detail fetch of a
+        // role-PENDING vacancy, so no external GET is made while the pass is dark.
         new RecomputeWorker(
-          createRecomputeSteps(lateBoundDb(db), {}, productionLedgerCatalog().onDemandTypes()),
+          createRecomputeSteps(
+            lateBoundDb(db),
+            {},
+            productionLedgerCatalog().onDemandTypes(),
+            config?.get('JOB_ROLE_AI_ENABLED', { infer: true }) === true,
+          ),
           { owner: `recompute-${process.pid}` },
         ),
-      inject: [DatabaseService],
+      inject: [DatabaseService, { token: ConfigService, optional: true }],
     },
     // r5 Task 4.6 S8d: the availability consumer instance the reconciliation cron drains. A distinct
     // token from RecomputeWorker — same claim loop, the availability port.
@@ -164,6 +205,6 @@ import { JobRunLedger } from './ownership/job-run-ledger'
       inject: [DatabaseService],
     },
   ],
-  exports: [JobSourcingService],
+  exports: [JobSourcingService, JobQueueScopeService],
 })
 export class JobSourcingModule {}

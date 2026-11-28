@@ -11,11 +11,13 @@ import { createServer, type AddressInfo } from 'node:net'
 import { Logger } from '@nestjs/common'
 import { decodeResumeMessage, encodeResumeMessage } from '@crm/shared'
 import {
+  RESUME_EXTRACTION_MODELS,
   ResumeAiService,
   coerceToContentShape,
   extractJsonObject,
   failedBeforeRequest,
   nextUtcMidnight,
+  readContacts,
 } from './resume-ai.service'
 
 /**
@@ -519,16 +521,18 @@ describe('ResumeAiService', () => {
         expect(budget.used()).toBe(1)
       })
 
+      // A 5xx falls back to the next model (finding 6): that second request is spent too.
       it.each([
         [
           '3040 inside a 400',
           400,
           '{"success":false,"errors":[{"code":3040,"message":"daily quota"}]}',
+          1,
         ],
-        ['a 500', 500, '{"success":false,"errors":[{"message":"boom"}]}'],
-        ['a 400', 400, '{"success":false,"errors":[{"message":"bad"}]}'],
-      ])('any other answer (%s) keeps the call spent', async (_name, status, body) => {
-        fetchSpy.mockResolvedValueOnce({
+        ['a 500', 500, '{"success":false,"errors":[{"message":"boom"}]}', 2],
+        ['a 400', 400, '{"success":false,"errors":[{"message":"bad"}]}', 1],
+      ])('any other answer (%s) keeps the call spent', async (_name, status, body, calls) => {
+        fetchSpy.mockResolvedValue({
           ok: false,
           status,
           text: () => Promise.resolve(body),
@@ -538,8 +542,10 @@ describe('ResumeAiService', () => {
 
         expect(result.ok).toBe(false)
         expect(result).not.toHaveProperty('unbilled')
+        expect(result).not.toHaveProperty('modelGone')
+        expect(fetchSpy).toHaveBeenCalledTimes(calls)
         expect(budget.releaseCall).not.toHaveBeenCalled()
-        expect(budget.used()).toBe(1)
+        expect(budget.used()).toBe(calls)
       })
 
       it('a success or an invalid answer keeps every call spent', async () => {
@@ -636,6 +642,144 @@ describe('ResumeAiService', () => {
     expect(String(fetchSpy.mock.calls[0]?.[0])).toMatch(
       /\/ai\/run\/@cf\/mistralai\/mistral-small-3\.1-24b-instruct$/,
     )
+  })
+
+  describe('model fallback (finding 6)', () => {
+    const MISTRAL = /\/ai\/run\/@cf\/mistralai\/mistral-small-3\.1-24b-instruct$/
+    const GEMMA = /\/ai\/run\/@cf\/google\/gemma-4-26b-a4b-it$/
+    const status = (code: number, body = '{"success":false,"errors":[{"message":"gone"}]}') =>
+      ({ ok: code < 400, status: code, text: () => Promise.resolve(body) }) as unknown as Response
+    /** The OpenAI-style body the gemma model answers with. */
+    const chatResponse = (content: string, usageTokens = 50) =>
+      ({
+        ok: true,
+        status: 200,
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              success: true,
+              result: {
+                choices: [{ message: { role: 'assistant', content } }],
+                usage: { total_tokens: usageTokens },
+              },
+            }),
+          ),
+      }) as unknown as Response
+    const urls = () => fetchSpy.mock.calls.map((c) => String(c[0]))
+
+    it('the model list is mistral, then gemma', () => {
+      expect(RESUME_EXTRACTION_MODELS).toEqual([
+        '@cf/mistralai/mistral-small-3.1-24b-instruct',
+        '@cf/google/gemma-4-26b-a4b-it',
+      ])
+    })
+
+    it.each([404, 410, 500, 503])(
+      'model 1 answers %i → model 2 is called, one budget call per attempt',
+      async (code) => {
+        fetchSpy.mockResolvedValueOnce(status(code)).mockResolvedValueOnce(chatResponse(VALID_JSON))
+        const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+        const budget = fakeBudget()
+        const result = await makeService({}, budget).extractStructure('a'.repeat(200))
+
+        expect(result).toMatchObject({ ok: true, tokensUsed: 50 })
+        expect(urls()).toHaveLength(2)
+        expect(urls()[0]).toMatch(MISTRAL)
+        expect(urls()[1]).toMatch(GEMMA)
+        expect(budget.reserveCall).toHaveBeenCalledTimes(2)
+        expect(budget.releaseCall).not.toHaveBeenCalled()
+        expect(budget.used()).toBe(2)
+        expect(warn).toHaveBeenCalledWith(
+          'Resume extraction falls back to @cf/google/gemma-4-26b-a4b-it',
+        )
+      },
+    )
+
+    it('both models gone → MODEL_ERROR, never a third call', async () => {
+      fetchSpy.mockResolvedValue(status(410))
+      const budget = fakeBudget()
+      const result = await makeService({}, budget).extractStructure('a'.repeat(200))
+
+      expect(result).toMatchObject({ ok: false, code: 'MODEL_ERROR' })
+      expect(urls()).toHaveLength(2)
+      expect(budget.reserveCall).toHaveBeenCalledTimes(2)
+    })
+
+    it('the fallback model keeps its corrective retry: at most 3 calls in all', async () => {
+      fetchSpy
+        .mockResolvedValueOnce(status(410))
+        .mockResolvedValueOnce(chatResponse('not json'))
+        .mockResolvedValueOnce(chatResponse(VALID_JSON))
+      const budget = fakeBudget()
+      const result = await makeService({}, budget).extractStructure('a'.repeat(200))
+
+      expect(result.ok).toBe(true)
+      expect(urls()).toHaveLength(3)
+      expect(urls()[2]).toMatch(GEMMA)
+      expect(String((fetchSpy.mock.calls[2]?.[1] as RequestInit | undefined)?.body)).toContain(
+        'the answer holds no JSON object',
+      )
+      expect(budget.reserveCall).toHaveBeenCalledTimes(3)
+    })
+
+    it('a model that went away on the corrective retry also falls back', async () => {
+      fetchSpy
+        .mockResolvedValueOnce(aiResponse('not json'))
+        .mockResolvedValueOnce(status(410))
+        .mockResolvedValueOnce(chatResponse(VALID_JSON))
+      const result = await makeService().extractStructure('a'.repeat(200))
+
+      expect(result.ok).toBe(true)
+      expect(urls().map((u) => GEMMA.test(u))).toEqual([false, false, true])
+    })
+
+    it('no budget left for the fallback → QUOTA_EXCEEDED, no second request', async () => {
+      fetchSpy.mockResolvedValueOnce(status(410))
+      const result = await makeService({}, fakeBudget(1)).extractStructure('a'.repeat(200))
+
+      expect(result).toMatchObject({ ok: false, code: 'QUOTA_EXCEEDED' })
+      expect(urls()).toHaveLength(1)
+    })
+
+    it.each([
+      ['400', status(400)],
+      ['401', status(401)],
+      ['403', status(403)],
+      ['429', status(429, '{"success":false,"errors":[{"code":3040}]}')],
+      ['3040 in a 400 body', status(400, '{"success":false,"errors":[{"code":3040}]}')],
+      ['200 with success false', status(200, '{"success":false,"errors":[]}')],
+    ])('%s is not a fallback trigger: one call, as before', async (_name, res) => {
+      fetchSpy.mockResolvedValueOnce(res)
+      const result = await makeService().extractStructure('a'.repeat(200))
+
+      expect(result.ok).toBe(false)
+      expect(urls()).toHaveLength(1)
+    })
+
+    it('a transport failure is not a fallback trigger', async () => {
+      fetchSpy.mockRejectedValueOnce(fetchFailed('ECONNRESET'))
+      const result = await makeService().extractStructure('a'.repeat(200))
+
+      expect(result).toMatchObject({ ok: false, code: 'MODEL_ERROR' })
+      expect(urls()).toHaveLength(1)
+    })
+
+    it.each([
+      ['no choices', '{"success":true,"result":{"choices":[]}}'],
+      ['a choice with no message', '{"success":true,"result":{"choices":[{}]}}'],
+      ['no result', '{"success":true}'],
+      ['a body that is not JSON', 'upstream said hi'],
+    ])('a 200 with %s is invalid output, not a crash', async (_name, text) => {
+      fetchSpy.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(text),
+      } as unknown as Response)
+      const result = await makeService().extractStructure('a'.repeat(200))
+
+      expect(result).toMatchObject({ ok: false, code: 'MODEL_INVALID_JSON' })
+      expect(fetchSpy).toHaveBeenCalledTimes(2)
+    })
   })
 
   it('accepts a response the model returned already parsed as an object', async () => {
@@ -778,5 +922,48 @@ describe('nextUtcMidnight', () => {
   it('returns the next 00:00 UTC boundary', () => {
     const at = nextUtcMidnight(new Date('2026-08-07T13:45:00Z'))
     expect(at.toISOString()).toBe('2026-08-08T00:00:00.000Z')
+  })
+})
+
+describe('ResumeAiService — the contacts the model reads', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('asks for the name and contacts as written, and returns them', async () => {
+    const contacts = {
+      name: 'Ivan Petrenko',
+      email: 'ivan@unit.spec',
+      phone: '+380 67 000 0000',
+      telegram: '@ivan_petrenko',
+    }
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(aiResponse(JSON.stringify({ ...JSON.parse(VALID_JSON), contacts })))
+    const result = await makeService().extractStructure('a'.repeat(200))
+    expect(result).toMatchObject({ ok: true, contacts })
+    const sent = JSON.parse(String((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.body))
+    const prompt = JSON.stringify(sent)
+    expect(prompt).toContain(
+      JSON.stringify(
+        'Схема: {"contacts":{"name":string,"email":string,"phone":string,"telegram":string},"summary":string,',
+      ).slice(1, -1),
+    )
+    expect(prompt).toContain(
+      'contacts — имя и фамилия кандидата, email, телефон и Telegram точно так, как они написаны в тексте.',
+    )
+  })
+
+  it('reads each contact as a capped string, and a missing one as empty', () => {
+    expect(
+      readContacts({ contacts: { name: '  Ivan Petrenko ', phone: 380, email: 'x'.repeat(300) } }),
+    ).toEqual({ name: 'Ivan Petrenko', email: 'x'.repeat(255), phone: '380', telegram: '' })
+    expect(
+      readContacts({
+        contacts: { phone: '1'.repeat(40), telegram: 't'.repeat(80), name: 'n'.repeat(300) },
+      }),
+    ).toEqual({ name: 'n'.repeat(255), email: '', phone: '1'.repeat(30), telegram: 't'.repeat(64) })
+    expect(readContacts({})).toEqual({ name: '', email: '', phone: '', telegram: '' })
+    expect(readContacts(null)).toEqual({ name: '', email: '', phone: '', telegram: '' })
   })
 })

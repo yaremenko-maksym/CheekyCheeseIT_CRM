@@ -19,7 +19,9 @@ import {
   type EntailmentScores,
   type WriterReply,
   type WriterTask,
+  type WritingPayload,
 } from './inference-clients'
+import { callWriter, type WriterPace } from './model-retry'
 import type { RunOrigin } from './run-columns'
 
 /** One entry of `verification_report.gates`: a run writes only the shared reason codes (R46). */
@@ -47,6 +49,8 @@ export interface ContentDeps {
   entailment: { score(claims: EntailmentClaim[]): Promise<EntailmentScores> }
   /** Runs before every model call; throws `RunFailure('STALLED')` past the run budget. */
   beforeModelCall(): Promise<void>
+  /** The run's writer-call spacing and retry delay (`writerPace` over the run budget). */
+  pace: WriterPace
 }
 
 export interface ContentInput {
@@ -65,32 +69,24 @@ export interface WrittenContent {
   fallbacks: string[]
 }
 
-interface PayloadItem {
-  company: string
-  role: string
-  start: string | null
-  end: string | null
-  current: boolean
-  technologies: string[]
-  notes: string[]
-}
-/** The minimised facts (spec §5.2): never the name, an email, location, education, languages or links. */
-export interface WritingPayload {
-  headline: string
-  skills: string[]
-  yearsOfExperience: number
-  experience: PayloadItem[]
-}
+/**
+ * The minimised facts (spec §5.2): never the name, an email, location, education, languages or
+ * links. The shape is the worker link contract's `writingPayloadSchema`, inferred rather than
+ * restated, so the producer below cannot build a key the worker would refuse (item 460).
+ */
+export type { WritingPayload }
+type PayloadItem = WritingPayload['experience'][number]
 
-type Failure = { index: number; reason: ResumeReportReason; detail: string }
+export type Failure = { index: number; reason: ResumeReportReason; detail: string }
 
 /** The first draft and two regenerations. */
 const MAX_ATTEMPTS = 3
-const MAX_FEEDBACK_ITEMS = 20
+/** The most feedback lines one writer request carries (the tailored writer shares the cap). */
+export const MAX_FEEDBACK_ITEMS = 20
 const MAX_FEEDBACK_CHARS = 1000
 /** Well under the entailment client's 256 KB request cap, leaving room for the questions. */
 const MAX_CLAIM_GROUP_BYTES = 128_000
-const REDACTED = '[REDACTED]'
+export const REDACTED = '[REDACTED]'
 
 /** Every contact of every name context replaced, one raw field at a time (P8). */
 export function redactAll(text: string, contacts: readonly ContactContext[]): string {
@@ -128,18 +124,26 @@ export function writingPayload(input: ContentInput): WritingPayload {
   }
 }
 
+/** Whether the worker accepts a request of this payload JSON and these feedback lines. */
+export type WorkerFits = (payload: string, feedback: string[]) => boolean
+
+/** `/resume-write`: its user message is at most 50 000 chars (P9). */
+const resumeWriteFits: WorkerFits = (payload, feedback) =>
+  resumeWriteInput(payload, feedback).length <= MAX_EXTRACTION_INPUT_CHARS
+
 /**
- * The payload and feedback the worker accepts: its user message is at most 50 000 chars (P9).
+ * The payload and feedback the worker accepts (`fits`, by default `/resume-write`'s cap).
  * Trailing experience items go first, never the first one (so a bullets call keeps its one item);
  * then feedback lines go, last first.
  */
 export function fitToWorker(
   payload: WritingPayload,
   feedback: string[],
+  workerFits: WorkerFits = resumeWriteFits,
 ): { payload: WritingPayload; feedback: string[] } {
   let p = payload
   let f = feedback
-  const fits = () => resumeWriteInput(JSON.stringify(p), f).length <= MAX_EXTRACTION_INPUT_CHARS
+  const fits = () => workerFits(JSON.stringify(p), f)
   while (!fits() && p.experience.length > 1) {
     p = { ...p, experience: p.experience.slice(0, -1) }
   }
@@ -193,14 +197,19 @@ export function groupClaims(claims: readonly EntailmentClaim[]): EntailmentClaim
   return groups
 }
 
-/** Contact scan, then the fact gate, then Jev for the texts that passed both. Fails closed. */
-async function gateTexts(
+/**
+ * Contact scan, then the fact gate, then Jev for the texts that passed both. Fails closed.
+ * `sources` is the entailment source of every text, or of text `i` when it is a function (a
+ * tailored bullet is judged against its own source bullets).
+ */
+export async function gateTexts(
   texts: string[],
   source: FactSource,
-  sources: string[],
-  input: ContentInput,
-  deps: ContentDeps,
+  sources: string[] | ((index: number) => string[]),
+  input: Pick<ContentInput, 'contacts'>,
+  deps: Pick<ContentDeps, 'entailment' | 'beforeModelCall'>,
 ): Promise<Failure[]> {
+  const sourcesOf = typeof sources === 'function' ? sources : () => sources
   const failures: Failure[] = []
   const claims: EntailmentClaim[] = []
   texts.forEach((text, index) => {
@@ -221,7 +230,7 @@ async function gateTexts(
           detail: `it states things that are not in FACTS: ${ungrounded.join(', ')}`,
         })
       } else {
-        claims.push({ id: `c${index}`, text, sources })
+        claims.push({ id: `c${index}`, text, sources: sourcesOf(index) })
       }
     }
   })
@@ -248,7 +257,30 @@ async function gateTexts(
   return failures.sort((a, b) => a.index - b.index)
 }
 
-/** One line per failure, redacted, no CR/LF, at most 1000 chars and 20 lines (the worker's limits). */
+/**
+ * `text` cut to at most `max` UTF-16 units, never inside a redaction marker (the cut moves before
+ * it) nor between the two halves of a surrogate pair.
+ */
+export function safeCut(text: string, max: number): string {
+  let end = max
+  const marker = text.lastIndexOf(REDACTED, end - 1)
+  if (marker >= 0 && marker + REDACTED.length > end) end = marker
+  const last = text.charCodeAt(end - 1)
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1
+  return text.slice(0, end)
+}
+
+/**
+ * One feedback line the worker accepts: every line break it refuses (CR, LF, NEL, LS, PS, VT, FF)
+ * becomes a space (SPEC-M-1) BEFORE the redaction, so a contact split by a break is redacted as
+ * the joined text the model reads; then cut to 1000 chars (`safeCut`).
+ */
+export function feedbackLine(text: string, contacts: readonly ContactContext[]): string {
+  const joined = text.replace(/[\r\n\u0085\u2028\u2029\x0B\x0C]+/gu, ' ')
+  return safeCut(redactAll(joined, contacts), MAX_FEEDBACK_CHARS)
+}
+
+/** One line per failure (`feedbackLine`), at most 20 lines (the worker's limits). */
 export function toFeedback(
   label: string,
   failures: readonly Failure[],
@@ -256,9 +288,7 @@ export function toFeedback(
 ): string[] {
   return failures.slice(0, MAX_FEEDBACK_ITEMS).map((f) => {
     const line = f.index < 0 ? `${f.detail}.` : `${label} ${f.index + 1}: ${f.detail}.`
-    return redactAll(line, contacts)
-      .replace(/[\r\n]+/gu, ' ')
-      .slice(0, MAX_FEEDBACK_CHARS)
+    return feedbackLine(line, contacts)
   })
 }
 
@@ -267,8 +297,9 @@ async function write(
   sent: { payload: WritingPayload; feedback: string[] },
   deps: ContentDeps,
 ): Promise<Exclude<WriterReply, { kind: 'unavailable' }>> {
-  await deps.beforeModelCall()
-  const reply = await deps.writer.write(task, JSON.stringify(sent.payload), sent.feedback)
+  const reply = await callWriter(deps, () =>
+    deps.writer.write(task, JSON.stringify(sent.payload), sent.feedback),
+  )
   if (reply.kind === 'unavailable') {
     throw new RunFailure('WRITER_UNAVAILABLE', [], unavailableOrigin(WRITER_PROVIDER, reply))
   }
@@ -334,7 +365,7 @@ async function writeBullets(
 }
 
 /** Model text as one renderable line: toRenderableText trims each line and drops blank edges. */
-function cleaner(template: GlyphFontSet): (text: string) => string {
+export function cleaner(template: GlyphFontSet): (text: string) => string {
   return (text) =>
     toRenderableText(text, template, { insertBreaks: false }).text.replace(/\s+/gu, ' ')
 }

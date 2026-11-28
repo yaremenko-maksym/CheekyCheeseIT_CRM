@@ -6,7 +6,7 @@
 import { Logger } from '@nestjs/common'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
   RESUME_SECTION_ORDER,
@@ -25,10 +25,14 @@ import {
 } from '../../test/resume-run-fakes'
 import type { ResumeRenderInput } from '../resume-typst.service'
 import type { EntailmentClaim, VisualReply, WriterReply, WriterTask } from './inference-clients'
+import { redactAll } from './content-gates'
+import { WRITER_RETRY_DELAY_MS } from './model-retry'
 import { renderOwnerKey } from './run-columns'
 import {
   CLEARED_STAGED,
   deleteStagedQuietly,
+  loadOwnerContacts,
+  ownerContactContexts,
   regenerateTarget,
   stagedOwnerKey,
   stagedPdfKey,
@@ -90,6 +94,8 @@ const USER = {
   displayName: 'Jane Doe',
   email: 'jane.doe@unit.spec',
   legalFullName: 'Jana Kowalska',
+  phone: null,
+  telegram: null,
 }
 
 /** `dropLine`: a text line every render loses, for an ATS miss on one exact text. */
@@ -140,11 +146,33 @@ function runner(results: unknown[][]) {
     vision as never,
     entailment as never,
   )
-  return { run: () => r.run(RESUME, RUN), log: db.log }
+  return { run: () => settled(r.run(RESUME, RUN)), log: db.log }
 }
 
 /** Claim, owner and the user's extra email: the reads every run that gets going makes first. */
 const START = [[ROW], [USER], [{ email: 'jana.home@unit.spec' }]]
+
+const DOWN = { kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply
+/** The first writer call and its one retry both come back unavailable. */
+function writerDownTwice(): void {
+  writer.write.mockResolvedValueOnce(DOWN).mockResolvedValueOnce(DOWN)
+}
+
+/**
+ * Settles a run on fake timers, so the writer gap and retry delays cost no real time. Only the
+ * timers are faked: a test moves the clock with a `Date.now` spy (the RUN_BUDGET tests).
+ */
+async function settled(run: Promise<void>): Promise<void> {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    let done = false
+    void run.finally(() => (done = true))
+    for (let i = 0; !done && i < 50; i++) await vi.advanceTimersByTimeAsync(WRITER_RETRY_DELAY_MS)
+    await run
+  } finally {
+    vi.useRealTimers()
+  }
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -233,7 +261,7 @@ describe('VerificationRunner.run', () => {
     expect(claim?.where?.params).toEqual([RESUME, RUN, 'QUEUED'])
     expect(log.map((q) => q.columns)).toEqual([
       undefined,
-      ['displayName', 'email', 'legalFullName', 'telegram'],
+      ['displayName', 'email', 'legalFullName', 'phone', 'telegram', 'header'],
       ['email'],
       ['key'],
       ['id'],
@@ -365,7 +393,7 @@ describe('VerificationRunner.run', () => {
   })
 
   it('writer unavailable: FAILED WRITER_UNAVAILABLE under a run-id CAS, old object deleted', async () => {
-    writer.write.mockResolvedValueOnce({ kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply)
+    writerDownTwice()
     const { run, log } = runner([...START, [{ key: OLD_KEY }], [{ id: RESUME }]])
     await run()
     const [lock, fail] = log.slice(3)
@@ -402,9 +430,53 @@ describe('VerificationRunner.run', () => {
   })
 
   it('a lost FAILED CAS deletes nothing', async () => {
-    writer.write.mockResolvedValueOnce({ kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply)
+    writerDownTwice()
     await runner([...START, [{ key: OLD_KEY }], []]).run()
     expect(s3.delete).not.toHaveBeenCalled()
+  })
+
+  it('every entailment request gets what is left of the reaper deadline', async () => {
+    let now = 1_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const seen: number[] = []
+    const original = entailment.score.getMockImplementation()
+    onTestFinished(() => void entailment.score.mockImplementation(original!))
+    entailment.score.mockImplementation(async (claims: EntailmentClaim[], left?: () => number) => {
+      now += 7_000
+      seen.push(left?.() ?? -1)
+      return new Map(claims.map((c) => [c.id, 0.95]))
+    })
+    const { run, log } = runner([...START, [{ key: OLD_KEY }], [{ id: RESUME }]])
+    await run()
+    expect(log.at(-1)?.set?.verificationStatus).toBe('AWAITING_CONFIRM')
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen).toEqual(seen.map((_, i) => VERIFICATION_DEADLINE_MS - 7_000 * (i + 1)))
+  })
+
+  it('writer unavailable once, then OK after the retry delay: the run goes on to AWAITING_CONFIRM', async () => {
+    writer.write.mockResolvedValueOnce(DOWN)
+    const { run, log } = runner([...START, [{ key: OLD_KEY }], [{ id: RESUME }]])
+    await run()
+    expect(log.at(-1)?.set?.verificationStatus).toBe('AWAITING_CONFIRM')
+    expect(payloads[1]).toBe(payloads[0])
+  })
+
+  it.each([
+    ['exactly the delay left of the budget: retried, the run goes on', 0, 'AWAITING_CONFIRM', null],
+    ['1 ms less than the delay left: no retry', 1, 'FAILED', 'WRITER_UNAVAILABLE'],
+  ])('%s', async (_label, over, status, code) => {
+    let now = 1_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    // The first writer call comes back once the run has used all but the delay (less `over`) of its budget.
+    writer.write.mockImplementationOnce(async () => {
+      now = 1_000 + VERIFICATION_RUN_BUDGET_MS - WRITER_RETRY_DELAY_MS + over
+      return DOWN
+    })
+    const { run, log } = runner([...START, [{ key: OLD_KEY }], [{ id: RESUME }]])
+    await run()
+    expect(log.at(-1)?.set?.verificationStatus).toBe(status)
+    expect(log.at(-1)?.set?.verificationErrorCode ?? null).toBe(code)
+    expect(writer.write.mock.calls[1]?.[0]).toBe(over === 0 ? 'summary' : undefined)
   })
 
   it('a won promote over a row whose lock read found nothing deletes nothing', async () => {
@@ -415,7 +487,7 @@ describe('VerificationRunner.run', () => {
   })
 
   it('a won FAILED CAS over a row whose lock read found nothing deletes nothing', async () => {
-    writer.write.mockResolvedValueOnce({ kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply)
+    writerDownTwice()
     const { run, log } = runner([...START, [], [{ id: RESUME }]])
     await run()
     expect(log).toHaveLength(5)
@@ -647,7 +719,7 @@ describe('VerificationRunner.run', () => {
   )
 
   it('logs carry ids, codes and keys only: never a name, an email or model text', async () => {
-    writer.write.mockResolvedValueOnce({ kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply)
+    writerDownTwice()
     await runner([...START, [{ key: OLD_KEY }], []]).run()
     s3.upload.mockRejectedValueOnce(new Error('Jane Doe jane.doe@unit.spec'))
     await runner([...START, [{ key: null }], [{ id: RESUME }]]).run()
@@ -904,6 +976,8 @@ describe('VerificationRunner.run — template kind (Task 16)', () => {
       pdfFingerprint: JSON.stringify({
         displayName: 'Jane Doe',
         email: 'jane.doe@unit.spec',
+        phone: '',
+        telegram: '',
         content,
         layout: LOOK,
         templateName: 'modern',
@@ -1100,6 +1174,7 @@ describe('stagedOwnerKey (backlog 442)', () => {
     email: 'jane.doe@unit.spec',
     legalFullName: 'Jana Kowalska',
     telegram: '@jane',
+    phone: null,
   }
   const PRIOR = { gates: [], fallbacks: [], ownerKey: 'prior-key' }
 
@@ -1119,5 +1194,124 @@ describe('stagedOwnerKey (backlog 442)', () => {
     expect(
       stagedOwnerKey({ verificationKind: 'item', verificationReport: { gates: [] } }, OWNER),
     ).toBe('')
+  })
+})
+
+/**
+ * Backlog 464: which contact context the redaction may match both edge parts of is decided HERE, at
+ * the only place that builds them from a user row. Every other spec of the behaviour builds its
+ * context by hand, so a wrong marker here would ship no fix with all of them green.
+ *
+ * All names invented.
+ */
+describe('ownerContactContexts (backlog 464)', () => {
+  const owner = {
+    displayName: 'Ivan Petrenko',
+    legalFullName: '\u041f\u0435\u0442\u0440\u0435\u043d\u043a\u043e \u0406\u0432\u0430\u043d',
+    telegram: '@ivan_p',
+  }
+
+  it('marks the legal context surname-first and the displayName context not at all', () => {
+    expect(ownerContactContexts(owner, ['ivan@unit.spec'])).toEqual([
+      {
+        fullName: owner.displayName,
+        emails: ['ivan@unit.spec'],
+        telegram: '@ivan_p',
+      },
+      {
+        fullName: owner.legalFullName,
+        emails: ['ivan@unit.spec'],
+        telegram: '@ivan_p',
+        surnameFirst: true,
+      },
+    ])
+  })
+
+  it('redacts the surname of the legal name alone, in both spellings (AC1)', () => {
+    const contacts = ownerContactContexts(owner, [])
+    expect(
+      redactAll('Reviewed by \u041f\u0435\u0442\u0440\u0435\u043d\u043a\u043e last week', contacts),
+    ).toBe('Reviewed by [REDACTED] last week')
+    expect(redactAll('Reviewed by Petrenko last week', contacts)).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+  })
+
+  it('still marks the legal context when there is no displayName', () => {
+    const contexts = ownerContactContexts({ ...owner, displayName: null }, [])
+    expect(contexts).toHaveLength(1)
+    expect(contexts[0]).toMatchObject({ fullName: owner.legalFullName, surnameFirst: true })
+  })
+
+  it('redacts the given name of the legal name too, in both spellings (the accepted cost)', () => {
+    const contacts = ownerContactContexts(owner, [])
+    expect(redactAll('Reviewed by \u0406\u0432\u0430\u043d last week', contacts)).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+    expect(redactAll('Reviewed by Ivan last week', contacts)).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+  })
+
+  it('leaves the displayName context unmarked when there is no legal name', () => {
+    expect(ownerContactContexts({ ...owner, legalFullName: null }, [])).toEqual([
+      { fullName: owner.displayName, emails: [], telegram: '@ivan_p' },
+    ])
+  })
+
+  it('collapses two equal names into one marked context', () => {
+    const same = { ...owner, displayName: owner.legalFullName }
+    const contexts = ownerContactContexts(same, [])
+    expect(contexts).toHaveLength(1)
+    expect(contexts[0]).toMatchObject({ surnameFirst: true })
+    // a marked context matches both edges, so neither is left in the text
+    for (const part of [
+      '\u041f\u0435\u0442\u0440\u0435\u043d\u043a\u043e',
+      '\u0406\u0432\u0430\u043d',
+    ]) {
+      expect(redactAll(`by ${part}`, contexts)).toBe('by [REDACTED]')
+    }
+  })
+
+  it('adds no context when the owner has no name at all', () => {
+    expect(
+      ownerContactContexts({ displayName: null, legalFullName: null, telegram: null }, [
+        'a@unit.spec',
+      ]),
+    ).toEqual([])
+  })
+})
+
+describe('loadOwnerContacts', () => {
+  const PROFILE = {
+    displayName: 'Jane Doe',
+    email: 'jane@unit.spec',
+    legalFullName: null,
+    phone: '+380 50 111 1111',
+    telegram: '@jane_doe',
+  }
+
+  it('prints the header overrides and keeps the redaction contexts on the profile', async () => {
+    const header = {
+      displayName: 'Jana Doe',
+      email: null,
+      phone: '+380 50 222 2222',
+      telegram: null,
+    }
+    const db = fakeRunDb([[{ ...PROFILE, header }], []])
+    const owner = await loadOwnerContacts(db.service, 'u-1')
+    expect(owner).toMatchObject({
+      displayName: 'Jana Doe',
+      email: 'jane@unit.spec',
+      phone: '+380 50 222 2222',
+      telegram: '@jane_doe',
+    })
+    expect(owner?.contacts).toEqual(ownerContactContexts(PROFILE, ['jane@unit.spec']))
+  })
+
+  it('no resume row: the profile values print', async () => {
+    const db = fakeRunDb([[{ ...PROFILE, header: null }], []])
+    const owner = await loadOwnerContacts(db.service, 'u-1')
+    expect(owner).toMatchObject({ displayName: 'Jane Doe', phone: '+380 50 111 1111' })
   })
 })

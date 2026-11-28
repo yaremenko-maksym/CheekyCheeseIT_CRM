@@ -62,6 +62,7 @@ describe('toSafeFailureMessage — length (the 400 this caused)', () => {
           budgetExhausted: false,
         },
       ],
+      sourcingNotice: null,
     }
     expect(() => jobCollectionRunSchema.parse(run)).not.toThrow()
   })

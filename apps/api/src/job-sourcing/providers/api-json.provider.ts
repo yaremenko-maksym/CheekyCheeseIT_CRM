@@ -1,7 +1,14 @@
 import { createHash } from 'node:crypto'
+import { Logger } from '@nestjs/common'
 import type { JobMeterUnit, JobSourceType } from '@crm/shared'
 import { z, type ZodType } from 'zod'
-import { DEFAULT_MAX_BYTES, MAX_RESPONSE_BYTES_CEILING } from '../http/bounded-fetch'
+import {
+  ALLOWLISTED_BYTE_CAP_SOURCES,
+  ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,
+  DEFAULT_MAX_BYTES,
+  MAX_RESPONSE_BYTES_CEILING,
+  NEAR_CAP_WARNING_RATIO,
+} from '../http/bounded-fetch'
 import { SourcePayloadTooLargeError } from '../http/source-errors'
 import { canonicalNativeId } from '../normalize/identity-key'
 import { isRunFenced } from '../ownership/run-ownership'
@@ -196,6 +203,13 @@ export interface PagedSourceSpec<TConfig extends SourceConfigFields, TEnvelope, 
   readonly itemSchema: ZodType<TItem>
   pageRequest(config: TConfig, at: PageTarget): PageRequest
   extractItems(envelope: TEnvelope, config: TConfig): readonly unknown[]
+  /**
+   * Optional: `true` drops an item before it is validated (a NON_IT title, a deactivated listing).
+   * It runs AFTER the page item cap, which counts the raw items, so a page over the cap is refused
+   * whatever it contains. A skipped item is neither refused nor counted. It runs inside the page
+   * loop, so its cost counts against the loop's turn budget (`OBSERVE_TURN_BUDGET_MS`).
+   */
+  skipItem?(item: unknown, config: TConfig): boolean
   /**
    * The cursor for the NEXT page, or `null` when the provider's inventory is exhausted.
    *
@@ -629,13 +643,23 @@ function isWholeNumber(value: number | null): value is number {
   return Number.isSafeInteger(value)
 }
 
+// Stryker disable next-line StringLiteral: the logger context is a cosmetic label in log output only; no behaviour depends on it, so there is nothing to assert
+const logger = new Logger('JobSourcePages')
+
 /**
  * A source's declared response cap must be a whole number of bytes the transport will accept:
  * refused here, with nothing yet reserved or sent, rather than discovered as a failed fetch.
+ * Allow-listed sources (Arbeitnow, owner decision 2026-11-20) may declare up to 24 MiB
+ * (ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING); every other source remains capped at 10 MiB.
  */
-export function assertByteCap(maxBytes: number): void {
-  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_RESPONSE_BYTES_CEILING) {
-    throw new Error(`invalid maxBytes: ${maxBytes} (must be 1..${MAX_RESPONSE_BYTES_CEILING})`)
+export function assertByteCap(maxBytes: number, sourceType?: JobSourceType): void {
+  const ceiling =
+    // Stryker disable next-line ConditionalExpression: type narrowing only; ALLOWLISTED_BYTE_CAP_SOURCES[undefined] is undefined, so the outcome is identical
+    sourceType !== undefined && ALLOWLISTED_BYTE_CAP_SOURCES[sourceType] !== undefined
+      ? ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING
+      : MAX_RESPONSE_BYTES_CEILING
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > ceiling) {
+    throw new Error(`invalid maxBytes: ${maxBytes} (must be 1..${ceiling})`)
   }
 }
 
@@ -723,7 +747,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
   // At config time, at the seam that consumes the field: before the checkpoint is read, a
   // reservation is taken or a request is built, whichever binding set it.
   const requestMaxBytes = spec.requestMaxBytes ?? DEFAULT_MAX_BYTES
-  assertByteCap(requestMaxBytes)
+  assertByteCap(requestMaxBytes, spec.type)
 
   const stored = await ctx.checkpoints.load()
   const decision = decideCheckpoint(stored, {
@@ -780,6 +804,8 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     decision.kind === 'RESUME' ? [decision.from.position.cursor] : [],
   )
   const nativeIdByIdentityKey = new Map<string, string>()
+  // Backlog 470: the quarantined items that do not cost the inventory claim (`deriveCoverage`).
+  const presence = { held: [], quarantined: [] as string[], notOpen: 0, listingComplete: false }
 
   let pagesCompleted = 0
   // Store refusals on LANDED pages only, and the last page one came from (for the failure report).
@@ -1171,11 +1197,28 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     }
 
     if (failure === null) {
+      const decodedBytes = Buffer.byteLength(bodyText)
+      ctx.observePageBytes?.(decodedBytes)
+      // Only for a source with a declared (allow-listed) cap, today Arbeitnow: a source on a default
+      // cap would log at 80% of it on every large page, which is noise, not the owner's signal.
+      if (
+        ALLOWLISTED_BYTE_CAP_SOURCES[spec.type] !== undefined &&
+        decodedBytes >= NEAR_CAP_WARNING_RATIO * requestMaxBytes
+      ) {
+        // Stryker disable next-line StringLiteral: log text is human-readable diagnostic output only; the threshold condition and warning event are asserted
+        logger.warn(
+          `[JobSourcePages] ${spec.type} page ${at.page} response size ${decodedBytes} bytes is at or above 80% of declared cap ${requestMaxBytes} bytes`,
+        )
+      }
       const envelope = decodePage(spec, bodyText)
       if (!envelope.ok) {
         failure = { code: envelope.code, message: envelope.message, status }
       } else {
-        if (envelope.fingerprint !== undefined) ctx.observeEnvelope?.(envelope.fingerprint)
+        // A resumed walk starts mid-sequence (HN: thread page, Jobicy: last page), whose envelope
+        // differs from page 1's; fingerprinting it would raise a false SCHEMA_DRIFT (CR-M-1, #1478).
+        if (envelope.fingerprint !== undefined && !resumed) {
+          ctx.observeEnvelope?.(envelope.fingerprint)
+        }
         const pageResult = await observePage(
           spec,
           config,
@@ -1183,6 +1226,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
           envelope.value,
           at,
           nativeIdByIdentityKey,
+          presence,
           addSample,
           limits,
         )
@@ -1441,7 +1485,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
 
   return buildCollectionBatch({
     observations,
-    facts: { stop, pagesCompleted, counts, scope, resumed },
+    facts: { stop, pagesCompleted, counts, scope, resumed, presence },
     requests,
     checkpoint,
     invalidSamples: samples,
@@ -1556,6 +1600,16 @@ type PageResult =
   | { ok: false; failure: { code: CollectionErrorCode; message: string }; counts: PageCounts }
 
 /**
+ * The longest stretch of page items between two turns of the event loop. A warm `skipItem` title
+ * classification costs up to ~10 ms (Node 22, a 500-char `інженер` + emoji title), so a stretch
+ * ends within ~30 ms. A page that finishes inside the budget never yields, so an ordinary small
+ * page runs exactly as before.
+ */
+export const OBSERVE_TURN_BUDGET_MS = 20
+
+const yieldToLoop = () => new Promise<void>((resolve) => setImmediate(resolve))
+
+/**
  * Validate and observe one page's items.
  *
  * It RETURNS this page's counts rather than adding them to the attempt's, which is the whole of
@@ -1570,13 +1624,14 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
   envelope: TEnvelope,
   at: PageTarget,
   nativeIdByIdentityKey: Map<string, string>,
+  presence: { quarantined: string[]; notOpen: number },
   addSample: (page: number, reason: string, raw: unknown) => void,
   limits: PageLimits,
 ): Promise<PageResult> {
   const counts: PageCounts = emptyPageCounts()
-  let items: readonly unknown[]
+  let pageItems: readonly unknown[]
   try {
-    items = spec.extractItems(envelope, config)
+    pageItems = spec.extractItems(envelope, config)
   } catch (error) {
     return {
       ok: false,
@@ -1588,24 +1643,42 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     }
   }
 
-  if (items.length > limits.maxItemsPerPage) {
+  if (pageItems.length > limits.maxItemsPerPage) {
     // More items than the cap: drift (the provider ignored the page size we asked for) or a board
     // over an unpaged source's cap. Treated as a failure rather than silently truncated, so we never
-    // report a coverage we did not have.
+    // report a coverage we did not have. Counted on the raw items, before `skipItem` drops any.
     return {
       ok: false,
       counts,
       failure: {
         code: 'PAYLOAD_TOO_LARGE',
-        message: `page carried ${items.length} items, over the ${limits.maxItemsPerPage} cap`,
+        message: `page carried ${pageItems.length} items, over the ${limits.maxItemsPerPage} cap`,
       },
     }
   }
 
   const observations: SourceObservation[] = []
   let storeRefused = 0
+  let turnStart = performance.now()
 
-  for (const item of items) {
+  for (const item of pageItems) {
+    // One page is up to 5,000 items and one synchronous pass over them blocked the event loop for
+    // ~22 s on Node 22 (PR #1500 SR-H-2, round 4). Giving the loop a turn once the budget is spent
+    // bounds every stretch instead.
+    if (performance.now() - turnStart >= OBSERVE_TURN_BUDGET_MS) {
+      await yieldToLoop()
+      // The run can be cancelled while the loop has its turn; a cancelled run persists nothing of this page.
+      if (ctx.signal.aborted) {
+        return {
+          ok: false,
+          counts,
+          failure: { code: 'CANCELLED', message: 'the run was cancelled during this page' },
+        }
+      }
+      turnStart = performance.now()
+    }
+    if (spec.skipItem?.(item, config)) continue
+
     counts.raw += 1
 
     const validated = spec.itemSchema.safeParse(item)
@@ -1638,6 +1711,8 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     const result = buildSourceObservation(raw, { now: ctx.now() })
     if (!result.ok) {
       counts.quarantined += 1
+      if (result.reason === 'NOT_AN_OPEN_VACANCY') presence.notOpen += 1
+      else if (result.identityKey !== undefined) presence.quarantined.push(result.identityKey)
       addSample(at.page, `QUARANTINED: ${result.reason}`, item)
       continue
     }

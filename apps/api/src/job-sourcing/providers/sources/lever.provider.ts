@@ -2,7 +2,8 @@ import { z } from 'zod'
 import { ORIGINAL_LIMITS } from '../../normalize/observation'
 import { type ApiJsonSourceSpec, defineApiJsonProvider } from '../api-json.provider'
 import { atsBoardConfigSchema, type AtsRegion, LEVER_KIND, presentStrings } from './ats-config'
-import { boundedString, dateRaw, optionalString, urlString } from './as'
+import { periodIn, salaryOf } from '../../normalize/salary'
+import { boundedString, dateRaw, optionalString, salaryAmount, salaryWord, urlString } from './as'
 
 /**
  * Lever Postings API: `GET https://api.lever.co/v0/postings/{site}?mode=json`, and
@@ -39,10 +40,18 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  * - DATES: `createdAt` (epoch milliseconds) is the only date. It is observed, NOT in the
  *   documented field list, and it is a creation time, which can precede publication; it is read as
  *   `PUBLISHED` for want of a better-named semantic and a reviewer should know it is a proxy.
- * - Not mapped: `salaryRange` / `salaryDescription` (the observation contract has no salary field).
+ * - SALARY (sources-17) is `salaryRange {min, max, currency, interval}`. `per-year-salary` is the
+ *   observed interval (the Siteimprove capture); `per-month-salary` and `per-hour-wage` are Lever's
+ *   documented spellings, not yet observed. Any other interval is no salary. `salaryDescription` is
+ *   free text and is never parsed.
  */
 
-export const LEVER_ADAPTER_VERSION = 'lever-1'
+export const LEVER_ADAPTER_VERSION = 'lever-2'
+/**
+ * Per-request timeout: large boards (QuantCo, Spotify) aborted at the 15 s transport default on prod
+ * (2026-11-23, median 2-3 s, max exactly 15 s). Twice that, half the 60 s transport ceiling.
+ */
+export const LEVER_TIMEOUT_MS = 30_000
 export const LEVER_LIMITS = {
   maxBytes: 10 * 1024 * 1024,
   maxItemsPerPage: 2_000,
@@ -85,8 +94,29 @@ const itemSchema = z.object({
     .nullish()
     .transform((v) => v ?? []),
   additional: optionalString(ORIGINAL_LIMITS.description),
+  salaryRange: z
+    .object({
+      min: salaryAmount(),
+      max: salaryAmount(),
+      currency: salaryWord(),
+      interval: salaryWord(),
+    })
+    .nullish()
+    .catch(null),
 })
 type Item = z.infer<typeof itemSchema>
+
+const leverPeriod = periodIn({
+  'per-year-salary': 'YEAR',
+  'per-month-salary': 'MONTH',
+  'per-hour-wage': 'HOUR',
+})
+
+/** The structured `salaryRange`, or `null`. */
+export function leverSalaryOf(item: Pick<Item, 'salaryRange'>) {
+  const r = item.salaryRange
+  return r ? salaryOf(r.min, r.max, r.currency, leverPeriod(r.interval)) : null
+}
 
 /** The whole page IS the array; its items stay OPAQUE so one bad posting is isolated. */
 const envelopeSchema = z.array(z.unknown())
@@ -128,6 +158,7 @@ export const leverSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     request: {
       url: `https://${LEVER_HOSTS[config.region]}/v0/postings/${config.board}?mode=json`,
       headers: { accept: 'application/json' },
+      timeoutMs: LEVER_TIMEOUT_MS,
     },
     cacheKey: 'board',
   }),
@@ -147,6 +178,7 @@ export const leverSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     employmentType: item.categories?.commitment ?? null,
     tags: presentStrings([item.categories?.department, item.categories?.team]),
     dates: [{ raw: item.createdAt, contract: 'UNIX_MILLISECONDS', semantics: 'PUBLISHED' }],
+    salary: leverSalaryOf(item),
   }),
   scopeOf: (config) => ({
     namespace: config.namespace,

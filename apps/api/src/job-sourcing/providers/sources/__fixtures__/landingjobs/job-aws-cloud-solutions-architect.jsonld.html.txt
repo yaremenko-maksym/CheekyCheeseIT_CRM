@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html><head>
+<link href="https://landing.jobs/at/volkswagen-group-digital-solutions-portugal/aws-cloud-solutions-architect" rel="canonical" />
+<script type="application/ld+json">[{"@context": "http://schema.org","@type": "WebSite","url": "https://landing.jobs/","name": "Landing.jobs","potentialAction": {"@type": "SearchAction","target": "https://landing.jobs/jobs?query={search_term_string}","query-input": "required name=search_term_string"}},{"@context": "http://schema.org","@type": "Organization","url": "https://landing.jobs","logo": "https://landing.jobs/assets/logo_square.png","sameAs": ["https://www.facebook.com/LandingJobsPage","https://www.instagram.com/landing.jobs","https://twitter.com/Landing_jobs","https://www.linkedin.com/company/3363375"]}]</script>
+<script type='application/ld+json'>
+{
+  "@context": "https://schema.org",
+  "@type": "JobPosting",
+  "title": "AWS Cloud Solutions Architect",
+  "description": "<p>Description</p>\nAbout VW Group Digital Solutions [Portugal]Technology-driven trends such as diverse mobility, electrification and connectivity will revolutionize the mobility industry in the next decade. Volkswagen Group, as world leader in the automotive industry, is setting the pace for this revolution.<br><br>At Volkswagen Group Digital Solutions [Portugal] we are the go-to team to tackle complex systems and programming challenges. We make sure that our products flow smoothly in all stages of the digital value chain.<br><br>Our main areas of focus: vehicle software &amp; operations, mobile online services, IT security, fleet management, sales &amp; after sales, purchasing &amp; logistics and product portfolio management.<br><br>Ready to #ExploreNewRoads? Join us!<br><br>About the ProductThe CI/CD and Cloud Enablers Platform guarantees enablement, empowerment, and best-practices for improving, through CI/CD practices, the development within MAN and the AWS cloud.<br><br>You'll be focused in<ul>\n<li>Collaborating and manage different stakeholders, such as IT security, different management levels, AWS Service Team, providers and customers</li>\n<li>Working closely with the development team, your CSA Peers and bridge the gap to the MAN Senior Management and stakeholders;</li>\n<li>Setting and aligning the main Focus for the Team with your CSA Peers and the MAN Management;</li>\n<li>Aligning with the Engineering Manager and Agile Enabler to increase the overall team maturity</li>\n<li>Leading, together with peers, the Product Management and Service Management of both Platform and Business Service - AWS Platform and CI/CD Platform (Gitlab, SonarQube);</li>\n<li>Driving the standards and guidelines for these platforms;</li>\n<li>Evangelizing and consult internally project and product teams;</li>\n<li>Taking care about the big picture of how the Platforms are integrated with the overall MAN Truck &amp; Bus landscape; manage the development of a long-term vision</li>\n<li>Ensuring a smooth and continuous development experience for the dev team (prevent obstacles); you balance and funnel the distraction from the operational needs of the Platforms;</li>\n<li>Managing incoming demands, meaning to register, clarify and prioritize them, which sometimes will also mean to challenge clearness of expectations</li>\n<li>Aligning and work together on new challenges with your peers and the dev team; </li>\n</ul><br>In order to succeed you'll need<ul>\n<li>Bachelor's degree in computer science, software engineering, or comparable work experience </li>\n<li>Proven experience working as a Cloud Solution Architect or related role </li>\n<li>Product Management Skills such as backlog organization, requirements management;</li>\n<li>Strong communication skills around consulting and managing requirements , negotiation and ability to say “no”. </li>\n<li>Strong presentation skills, e.g. in order to share knowledge and adapt way of presenting to the audience (lean and focused for management vs. technically deep for tech experts)</li>\n<li>Experience with cloud services (especially AWS) and with cloud paradigms and serverless architecture (IaaS, PaaS, microservice architectures, continuous delivery);</li>\n<li>Knowledge in software development (e.g., Python, Bash, Javascript/Typescript);</li>\n<li>Knowledge with Infrastructure-as-a-Code concepts like Terraform or AWS CloudFormation or AWS CDK;</li>\n<li>Experience in using CI/CD tools (e.g., GitLab CI, SonarQube);</li>\n<li>High quality and security awareness, fun at solving challenging problems and ability for the understanding of complex relationships;</li>\n<li>Great English skills, both written and spoken</li>\n</ul><br>Nice to Have:<ul><li>Understanding Service Management Processes (ITIL);</li></ul>\n<p>Perks</p>\nCompany benefits<ul>\n<li>1200€ to equip your home office</li>\n<li>Flex allowance: 720€/year (60€ per month x12)</li>\n<li>Performance bonus</li>\n<li>Health insurance extendable to your household</li>\n<li>Wellbeing program extendable to your household</li>\n<li>Life insurance</li>\n<li>Pension fund</li>\n<li>Smartphone &amp; phone data plan</li>\n<li>Discounts on VW Group cars and special financing conditions</li>\n</ul><br>Cool things you’ll experience in our work environment<ul>\n<li>Tailored remote-friendly setup for every team's vibe!</li>\n<li>Flexible working hours</li>\n<li>Multicultural reality with + 30 different nationalities</li>\n<li>Pet friendly environment</li>\n<li>Boost your career with our internal mobility program, focused on your personal &amp; professional growth</li>\n<li>Mix and mingle across teams for idea-sharing and bonding</li>\n</ul>\n<p>Skills</p>\n<p>Required: AWS Lambda, AWS S3, Terraform, IaC, CI/CD, GitLab, SonarQube, Scripting, Amazon Web Services</p>",
+  "datePosted": "2026-10-28",
+  "employmentType": "FULL_TIME",
+  "hiringOrganization": {
+    "@type": "Organization",
+    "name": "Volkswagen Group Digital Solutions [Portugal]",
+    "sameAs": "https://vwg-digitalsolutions.pt/",
+    "logo": "https://s3.eu-central-1.amazonaws.com/storage.landing.jobs/93i8vnei30sv9lzcncwhlaflyjcz"
+  },
+  "identifier": {
+    "@type": "PropertyValue",
+    "name": "Volkswagen Group Digital Solutions [Portugal]",
+    "value": "aws-cloud-solutions-architect"
+  },
+  "validThrough": "2027-01-05",
+  "directApply": true,
+  "educationRequirements": "no requirements",
+  "experienceRequirements": {
+    "@type": "OccupationalExperienceRequirements",
+    "monthsOfExperience": 72
+  },
+  "jobLocation": [
+    {
+      "@type": "Place",
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "Lisbon",
+        "addressRegion": "Lisbon",
+        "addressCountry": "PT"
+      }
+    },
+    {
+      "@type": "Place",
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "Porto",
+        "addressRegion": "Porto",
+        "addressCountry": "PT"
+      }
+    }
+  ]
+}
+</script>
+</head><body></body></html>

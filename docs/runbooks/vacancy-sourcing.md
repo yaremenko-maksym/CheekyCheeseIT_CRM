@@ -52,16 +52,16 @@ is `UNREGISTERED` > `BLOCKED` > `NOT_VERIFIED` > `ACTIVATABLE`; **an `enabled` f
 
 ## 2. Scheduling (Europe/Kyiv) and catch-up
 
-| Cron                   | Expression     | What it does                                                                                             | State in production                 |
-| ---------------------- | -------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| `API_COLLECTION_CRON`  | `0 5 * * *`    | legacy DOU + retention; opens no cycle                                                                   | runs (see §13.3)                    |
-| `HTML_COLLECTION_CRON` | `30 2 * * *`   | `*_HTML` types                                                                                           | claims nothing (all BLOCKED)        |
-| `TICK_CRON`            | `*/10 * * * *` | due API types (`tick:<Kyiv date>T<HH:M0>`, window `TICK_WINDOW_MS` 9 min), then the health detector pass | opens an empty cycle each tick      |
-| `SWEEP_CRON`           | `0 8 * * *`    | every enabled sweepable API source once (`sweep:<date>`)                                                 | claims nothing                      |
-| `DETAIL_PASS_CRON`     | `30 8 * * 1-5` | `DETAIL_ONLY` pass                                                                                       | inert until a source is `ON_DEMAND` |
-| `WEEKLY_REPORT_CRON`   | `0 9 * * 1`    | `SourceHealthWeeklyReportCron`                                                                           | —                                   |
+| Cron                   | Expression           | What it does                                                                                             | State in production                   |
+| ---------------------- | -------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `API_COLLECTION_CRON`  | `0 5 * * *`          | legacy DOU + retention; opens no cycle                                                                   | runs (see §13.3)                      |
+| `HTML_COLLECTION_CRON` | `30 2,8,14,20 * * *` | due `*_HTML` types, one cycle per Kyiv slot (`daily-html:<Kyiv date>T<HH>`)                              | six live HTML types claimed each slot |
+| `TICK_CRON`            | `*/10 * * * *`       | due API types (`tick:<Kyiv date>T<HH:M0>`, window `TICK_WINDOW_MS` 9 min), then the health detector pass | opens an empty cycle each tick        |
+| `SWEEP_CRON`           | `0 8 * * *`          | every enabled sweepable API source once (`sweep:<date>`)                                                 | claims nothing                        |
+| `DETAIL_PASS_CRON`     | `30 8 * * 1-5`       | `DETAIL_ONLY` pass                                                                                       | inert until a source is `ON_DEMAND`   |
+| `WEEKLY_REPORT_CRON`   | `0 9 * * 1`          | `SourceHealthWeeklyReportCron`                                                                           | —                                     |
 
-Server-time crons (no `timeZone`): match reconciliation `17 */6 * * *`, availability reconciliation `37 */6 * * *`,
+Server-time crons (no `timeZone`): match reconciliation `17 */6 * * *`, availability reconciliation `37 * * * *` (hourly since #1426), relevance pass `5-59/10 * * * *` (gated by `JOB_RELEVANCE_AI_ENABLED`, §7),
 queue-action retention `15 4 * * *`, generation retention `25 4 * * *`, legacy vacancy retention `0 3 * * *` and
 `0 4 * * 1`. Match and availability reconciliation and generation retention are gated by their flags (§9);
 queue-action retention is statutory and always runs; the legacy vacancy retention crons (`VacanciesRetentionCronService`)
@@ -71,6 +71,8 @@ have no flag and always run.
 `next_attempt_at` (`scheduling/due-policy.ts`, `next-slot.ts`; early slack `MAX_EARLY_DUE_SLACK_MS` 10 min). The repeated
 DST fall-back hour finds its cycle already closed by `trigger_key`. The collection window is `JOB_COLLECTION_WINDOW_MS`
 (default 1 h, ceiling 2 h).
+
+**Request jitter (load-spreading).** To prevent synchronous daily request bursts, collection, sweep, and detail runs start up to 10 min after the cron minute; for the windowed runs the wait spends the window budget (the deadline is unchanged), and the 05:00 DOU run, which has no window, simply starts and ends up to 10 min later. Host gaps are 1-1.5x the minimum (never below).
 
 **Leases and limits** (`DEFAULT_LEDGER_OPTIONS`, `DEFAULT_WORKER_OPTIONS`): lease 5 min (ceiling 1 h), run max age 2 h,
 refusal recheck 6 h, claim scan 50, claim lock timeout 2 s, back-off 1 h doubling to 1 day,
@@ -88,6 +90,21 @@ after MP-05.**
   inventory-miss closure; `PARTIAL` never claims inventory.
 - **Error codes that change state:** `ACCESS_POLICY` (`AUTH_PAUSE_CODE`) pauses the source until an ADMIN resets
   failures; `RATE_LIMIT`, `UPSTREAM`, `TRANSIENT_NETWORK` raise `slowdown_level` by one (0..4), a clean run lowers it.
+- **A host refusal pauses the row, on either contract.** A reporting source gets `ACCESS_POLICY` from its run ending.
+  The LEGACY source (DOU) has no run row to end on, so the collection loop writes the SAME cell itself
+  (`JobRunLedger.pauseLegacyAccess`) when the transport reports a refusal: HTTP 401, 403 or 451, or any status served
+  with `cf-mitigated: challenge` (`refusalKind` in `http/source-errors.ts` is the one predicate, so every adapter on
+  the house transport classifies refusals identically). From then on each run reports the source as paused and does
+  not call it. **Recovery is the one audited action: ADMIN reset failures** (table in §4) — there is no second state
+  to clear, and readiness is untouched.
+- **By decision, a LEGACY refusal writes NO `job_source_health_events` row and raises no health alert.** The detector
+  pass and the alert path select reporting types only (`REPORTING_TYPES` excludes `DOU_RSS` and every `*_HTML` type),
+  so a hand-written event row would be a state no classifier pass can produce or refresh. A legacy refusal is
+  surfaced through the collection report's `failures[]` entry and through `lastErrorCode` in the ADMIN sources
+  response. Note the admin card renders that code only while it reads the row as paused, which needs a cooldown or
+  an admin pause — an `ACCESS_POLICY` pause alone does not set one (backlog: the card should read the code too).
+  Verify: pause a scratch DOU row's `last_error_code` to `ACCESS_POLICY`, run a collect, and expect a `failures[]`
+  entry naming the code and no new `job_source_health_events` row for that source.
 - **Cooldown:** `job_sources.cooldown_until`, `consecutive_failures`, `next_attempt_at`. **Host pause:**
   `job_source_hosts.paused_until` (24 h to 720 h).
 - **Checkpoint:** `job_collection_runs.checkpoint` (bounded cursors); a `config_version` bump invalidates it.
@@ -154,10 +171,12 @@ action. Split recovery exists only inside the resolver (`revokedPairs`); reopen 
 
 - **Catalog:** 31 `job_source_type` values; production holds 36 `job_sources` rows (1 DOU, 35 manifest rows, all
   disabled). Dispositions: `DOU_RSS` legacy; 23 reporting types; 7 `*_HTML` types `BLOCKED` until Task 5.6.
-- **Blocked by status constant** (`*_SOURCE_STATUS`): Jooble, JSearch, Reed, TheirStack (key required); Muse,
-  Working Nomads (terms unclear). Owner-accepted risk (2026-10-24): Jobgether, HN Hiring, Remotive,
+- **Blocked by status constant** (`*_SOURCE_STATUS`): Jooble, JSearch, Reed, TheirStack (key required);
+  Working Nomads (terms unclear). The Muse was removed (vendor removed its public API, 2026-11-23). Owner-accepted risk (2026-10-24): Jobgether, HN Hiring, Remotive,
   SmartRecruiters (`providers/owner-decisions.ts`).
-- **Attribution** (`Attribution`): `LINK_BACK_REQUIRED` (RemoteOK, Remotive, Arbeitnow, Muse), `CREDIT_REQUIRED`
+- **SmartRecruiters host budget** (owner, 2026-11-21): `api.smartrecruiters.com` 10 requests a minute and 120 an
+  hour; one run reads up to 9 postings (1 list + 9 details). Every other BOARD host stays at 2 a minute.
+- **Attribution** (`Attribution`): `LINK_BACK_REQUIRED` (RemoteOK, Remotive, Arbeitnow), `CREDIT_REQUIRED`
   (Himalayas, Jobicy), else `NONE_RECORDED`; `checkAttribution` checks fixtures. Whether the UI renders the
   attribution is **not verified** — check before a `LINK_BACK_REQUIRED` source is enabled.
 - **Credentials** (human-only item 9): `JOOBLE_API_KEY`, `RAPIDAPI_KEY` (JSearch), `THEIRSTACK_API_KEY`,
@@ -166,6 +185,9 @@ action. Split recovery exists only inside the resolver (`revokedPairs`); reopen 
   `THEIRSTACK_API_KEY`, `REED_API_KEY` and the worker's model keys have **no** check script yet. RapidAPI has a hard
   cap of 200 requests a month: run the check once per rotation, never in a loop.
 - **Dice:** `DICE_HTML` is blocked like every HTML type; its denied route stays off — no adapter will be written for it.
+- **HTML listings use conditional GET** (U6b, same as JSON): a fresh one-page listing stores the validators of its
+  first request; the next run sends `If-None-Match` / `If-Modified-Since`, and a `304` ends it `SUCCEEDED` with nothing
+  new. A paged or resumed listing stores nothing; detail requests are never conditional.
 
 **Review dates** (no code enforces them; the owner's calendar does):
 
@@ -193,6 +215,17 @@ Earlier triggers for a catalog review: any `ACCESS_CHANGED` transition, a terms 
   `JOB_QUEUE_POLICY_UNAVAILABLE`. A stale generation answers `JOB_QUEUE_REFRESH_REQUIRED`: the client reloads.
 - **Match reconciliation / backfill of evaluation columns:** flag `JOB_MATCH_RECONCILIATION_ENABLED`, pages of 200,
   at most 500 pages, stop after 3 failed periods.
+- **Role AI pass:** flag `JOB_ROLE_AI_ENABLED`; classifies `PENDING` vacancies through the extraction worker's
+  `/classify-roles` route, at most `JOB_ROLE_AI_DAILY_BUDGET` calls a day (default 72). A vacancy that fails
+  `ROLE_AI_MAX_ATTEMPTS` (10) times is not retried for that classifier version, so a worker without the route must not
+  stay in place for days: see `docs/runbooks/extraction-worker.md`.
+- **Relevance pass (queue relevance, Jev only):** flag `JOB_RELEVANCE_AI_ENABLED`, default off; the deploy sets it
+  when the GitHub secret `JEV_API_KEY` is set. Server-time cron `5-59/10 * * * *` (5 minutes after each role-AI
+  tick), at most 20 opportunities per pass; a tick while a pass still runs is skipped. It writes a Jev fit grade per
+  (vacancy, senior) pair into `job_opportunity_relevance`. Jev receives only the contact-stripped vacancy body (title,
+  description, categories), the vacancy's technical roles, and per senior an opaque key (`s0`, `s1`, ...) with that
+  senior's technical roles and canonical skills. Jev never receives ids, names, contacts, employers or experience.
+  Without `JEV_API_KEY` the pass stops at its first call and writes nothing.
 - **Legacy recovery:** the DOU bridge is forward-only; there is no backfill of old DOU postings into the new store.
 - **Claim conflicts:** expired leases end `LEASE_EXPIRED` via `recoverExpired`; a fenced writer gets `RUN_FENCED`. In
   the queue, a possible duplicate answers 409 `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED` until the HR confirms; a stale card
@@ -205,32 +238,50 @@ Earlier triggers for a catalog review: any `ACCESS_CHANGED` transition, a terms 
   runtime on the server, ever, for extraction.
 - **Separation:** `GEMINI_API_KEY`, `GROQ_API_KEY` are worker-only (`WORKER_ONLY_ENV_KEYS`); the API refuses to boot with
   them. The API reaches the worker through `EXTRACTION_WORKER_URL` + `EXTRACTION_WORKER_SECRET`; both absent = no model
-  path (the production state). The API's own `OPENROUTER_API_KEY` / `JEV_API_KEY` serve resumes and relevance, not
+  path. Production has both: the deploy writes them when the GitHub secret `EXTRACTION_WORKER_SECRET` is set, and the
+  worker runs in its own compose project (`extraction-worker.md`). The API's own `OPENROUTER_API_KEY` / `JEV_API_KEY` serve resumes and relevance, not
   vacancy extraction.
 - **Rotation:** routes rotate in process memory on failure; credential rotation is a human step (human-only item 9).
   Limits come from each provider's free tier; exhaustion pauses the route, and the cycle stops `PARTIAL` with its
   checkpoint kept.
 - **Engine:** no browser service exists in any compose file. The extraction compose project
-  (`docker-compose.extraction.yml`) was removed from production; `docs/runbooks/extraction-worker.md` is historical
-  for its local-runtime parts.
+  (`docker-compose.extraction.yml`, project `crm-extraction`) runs the hosted-model worker in production; its
+  local-runtime parts in `docs/runbooks/extraction-worker.md` are historical.
 
 ## 9. Flags and environment (activation switches)
 
-All boolean flags are read from `apps/api/src/config/env.ts`, default `false`, and are **not written by
-`deploy.yml`**; a value in production exists only if set by hand in `/opt/crm/.env.production`. The API reads that file
+All boolean flags are read from `apps/api/src/config/env.ts`, default `false`. Three are **written by `deploy.yml` on
+every deploy**: `JOB_MATCH_RECONCILIATION_ENABLED` (always), `JOB_ROLE_AI_ENABLED` (only when the extraction worker
+secret is set) and `JOB_RELEVANCE_AI_ENABLED` (only when `JEV_API_KEY` is set). The deploy rewrites
+`/opt/crm/.env.production` from scratch, so a hand edit of any of these keys holds only
+until the next deploy. To stop one now, turn the flag off and recreate; to keep it off, also remove its write from
+`deploy.yml` before the next deploy. Every other flag is **not written by
+`deploy.yml`**; its value in production exists only if set by hand in `/opt/crm/.env.production`. The API reads that file
 through compose `env_file` when its container is **created**, so a change takes effect only after the container is
-recreated: `cd /opt/crm && docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml up -d --no-deps api`. A plain `docker restart crm-api-1` keeps the old values. "Recreate" below means
-this command.
+recreated: `cd /opt/crm && docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml --env-file .env.production up -d --no-deps api`. Keep `--env-file`: the image tag (`IMAGE_TAG`) lives only in that file, and without it compose falls back to the `main` tag. A plain `docker restart crm-api-1` keeps the old values. Two steps
+follow that command. A deploy needs neither: its `up` names no service, so it recreates `nginx` together with `api`,
+and the deploy script re-attaches `api` right after. A hand recreate of `api` alone does neither:
 
-| Key                                  | Turns on                                  | Rollback by         |
-| ------------------------------------ | ----------------------------------------- | ------------------- |
-| `JOB_QUEUE_BRIDGE_ENABLED`           | DOU bridge into the new store             | flag off + recreate |
-| `JOB_MATCH_RECONCILIATION_ENABLED`   | match recompute and reconciliation writes | flag off + recreate |
-| `JOB_AVAILABILITY_RECONCILE_ENABLED` | availability consumer                     | flag off + recreate |
-| `JOB_DETAIL_GONE_CLOSURE_ENABLED`    | Greenhouse detail-gone closure            | flag off + recreate |
-| `JOB_QUEUE_GENERATION_PURGE_ENABLED` | generation purge                          | flag off + recreate |
-| `JOB_COLLECTION_WINDOW_MS`           | window length (default 1 h, max 2 h)      | unset               |
-| `JOB_MATCH_THRESHOLD`                | match threshold (default 0.2)             | unset               |
+1. `docker network connect crm-extraction-entry crm-api-1`, when that network exists. A recreated `api` loses this
+   attachment, and every role-AI and extraction call then fails until it is back (`extraction-worker.md`, "An `api`
+   recreated outside the deploy script").
+2. `docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml --env-file .env.production exec nginx nginx -s reload`.
+   nginx resolves `api` once, when it loads its config; without a reload it keeps the old container's address and
+   `/api/` answers 502.
+
+"Recreate" below means the command and both steps.
+
+| Key                                  | Turns on                                  | Rollback by                                             |
+| ------------------------------------ | ----------------------------------------- | ------------------------------------------------------- |
+| `JOB_QUEUE_BRIDGE_ENABLED`           | DOU bridge into the new store             | flag off + recreate                                     |
+| `JOB_MATCH_RECONCILIATION_ENABLED`   | match recompute and reconciliation writes | flag off + recreate; then remove the `deploy.yml` write |
+| `JOB_AVAILABILITY_RECONCILE_ENABLED` | availability consumer                     | flag off + recreate                                     |
+| `JOB_ROLE_AI_ENABLED`                | bounded AI role-classification pass       | flag off + recreate; then remove the `deploy.yml` write |
+| `JOB_RELEVANCE_AI_ENABLED`           | bounded Jev relevance pass (§7)           | flag off + recreate; then remove the `deploy.yml` write |
+| `JOB_DETAIL_GONE_CLOSURE_ENABLED`    | Greenhouse detail-gone closure            | flag off + recreate                                     |
+| `JOB_QUEUE_GENERATION_PURGE_ENABLED` | generation purge                          | flag off + recreate                                     |
+| `JOB_COLLECTION_WINDOW_MS`           | window length (default 1 h, max 2 h)      | unset                                                   |
+| `JOB_MATCH_THRESHOLD`                | match threshold (default 0.2)             | unset                                                   |
 
 There is no feature flag for the HR queue UI: the route is always mounted. Per-source activation is the ADMIN switch
 (§4), never an env key.
@@ -450,6 +501,7 @@ blanket revert without checking new-schema / old-binary and enum compatibility.
 | New portfolio   | switch off every non-DOU source                                                            | §13.2: no run except DOU; the DOU legacy path untouched                              |
 | New queue       | flags off (§9) and recreate; the route stays mounted and authorized                        | assignment, dismissal and `job_queue_actions` row counts unchanged                   |
 | Projection      | `JOB_MATCH_RECONCILIATION_ENABLED`, `JOB_AVAILABILITY_RECONCILE_ENABLED` off               | `job_dirty_work` stops moving; DOU delivery continues; replay later                  |
+| Role AI pass    | `JOB_ROLE_AI_ENABLED` off, recreate; then remove its `deploy.yml` write (§9)               | no new `job_role_classifications` rows; `PENDING` vacancies stay `PENDING`           |
 | DOU bridge      | `JOB_QUEUE_BRIDGE_ENABLED` off and recreate                                                | the 05:00 run completes on the legacy path; `job_bridge_deliveries` stops growing    |
 | Schema          | none: additive DDL stays; no DROP, no type or decision rollback                            | —                                                                                    |
 | Model worker    | stop its compose project only, revoke its keys                                             | the API keeps running; never a whole-stack `compose down`                            |

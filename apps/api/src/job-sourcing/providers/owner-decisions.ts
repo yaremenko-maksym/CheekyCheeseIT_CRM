@@ -11,12 +11,18 @@
  *
  * READINESS RULE (enforced in `buildManifest`, stated here once):
  *  - `UNCLEAR` is lifted ONLY by an `ACCEPT_RISK` decision whose `endpointVariant` equals the type's own;
- *  - `PROHIBITED` is never lifted, by any decision;
+ *  - `PROHIBITED` is lifted ONLY by an `ACCEPT_PROHIBITED_RISK` decision whose `endpointVariant` equals
+ *    the type's own: the owner, knowing the terms forbid collection, accepted that legal risk. A plain
+ *    `ACCEPT_RISK` never lifts it, and `ACCEPT_PROHIBITED_RISK` lifts nothing else;
  *  - `KEY_REQUIRED` is not a question of permission and is never lifted;
  *  - an `INFORMATIONAL` decision records how the owner reads a clause and changes nothing.
  */
 
-export const OWNER_DECISION_KINDS = ['ACCEPT_RISK', 'INFORMATIONAL'] as const
+export const OWNER_DECISION_KINDS = [
+  'ACCEPT_RISK',
+  'ACCEPT_PROHIBITED_RISK',
+  'INFORMATIONAL',
+] as const
 export type OwnerDecisionKind = (typeof OWNER_DECISION_KINDS)[number]
 
 export interface OwnerDecision {
@@ -48,7 +54,7 @@ export function isWellFormedDecision(d: OwnerDecision): boolean {
 /**
  * Does any decision lift an `UNCLEAR` permission for the endpoint variant? Only `ACCEPT_RISK`, only
  * the variant the decision names. Nothing here can lift `PROHIBITED`: the caller applies this to
- * `UNCLEAR` alone.
+ * `UNCLEAR` alone (`liftsProhibited` is the separate, stronger decision).
  */
 export function liftsUnclear(
   decisions: readonly OwnerDecision[],
@@ -56,6 +62,19 @@ export function liftsUnclear(
 ): boolean {
   return decisions.some(
     (d) => d.decision === 'ACCEPT_RISK' && d.endpointVariant === endpointVariant,
+  )
+}
+
+/**
+ * Does any decision lift a `PROHIBITED` permission for the endpoint variant? Only
+ * `ACCEPT_PROHIBITED_RISK`, only the variant the decision names.
+ */
+export function liftsProhibited(
+  decisions: readonly OwnerDecision[],
+  endpointVariant: string,
+): boolean {
+  return decisions.some(
+    (d) => d.decision === 'ACCEPT_PROHIBITED_RISK' && d.endpointVariant === endpointVariant,
   )
 }
 
@@ -111,7 +130,7 @@ export const WORKABLE_OWNER_DECISION: OwnerDecision = Object.freeze({
 
 // Owner decision, 2026-11-16: consent to every source whose only permission question is UNCLEAR.
 // Each record is still scoped to the type's own endpoint variant, and lifts `UNCLEAR` alone.
-const ALL_SOURCES_REFERENCE = `Owner decision, 2026-11-16 (answer given in the vacancy-sourcing session), verbatim: "Мне нужно доставать вакансии со всех возможных источников и даю своё согласие на использование всех источников" ("I need to pull vacancies from every possible source, and I give my consent to use all sources."). Accepted risk, not a documented permission.`
+const ALL_SOURCES_REFERENCE = `Owner decision, 2026-11-16 (answer given in the vacancy-sourcing session), (owner's words, translated): "I need to pull vacancies from every possible source, and I give my consent to use all sources." Accepted risk, not a documented permission.`
 const NO_EVASION =
   'A 403, a 429, a Cloudflare/bot challenge or any explicit block ends the run with no further request; no user-agent change, proxy, headless browser or other evasion, ever.'
 
@@ -139,10 +158,116 @@ export const WORKINGNOMADS_OWNER_DECISION: OwnerDecision = Object.freeze({
   reference: ALL_SOURCES_REFERENCE,
 })
 
-export const MUSE_OWNER_DECISION: OwnerDecision = Object.freeze({
-  decidedAt: '2026-11-16',
+export const GERMANTECHJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
   decision: 'ACCEPT_RISK',
-  endpointVariant: 'public-jobs',
-  scope: `Exactly www.themuse.com/api/public/jobs; the vendor limits stay binding (500 requests an hour without a key, link back to www.themuse.com), and terms 2.2 (a registered app) and 3.1 (display-only licence, storage not addressed) are knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
-  reference: ALL_SOURCES_REFERENCE,
+  endpointVariant: 'jobs-light',
+  scope: `Exactly germantechjobs.de/api/jobsLight, one plain GET a run. The site's terms position is knowingly accepted as risk, NOT resolved; robots.txt for * does not disallow /api/. The 4 MiB byte cap applies to this host only. ${NO_EVASION}`,
+  reference:
+    'docs/superpowers/research/2026-11-24-sources-wave-3-discovery.md (owner decisions 2026-11-24)',
+})
+
+export const NEXTLEVELJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-20',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly nextleveljobs.eu/jobs/sitemap.xml and the job pages it lists (/companies/<company>/jobs/<id>), read for their JSON-LD JobPosting; robots.txt allows every agent, and the combined terms and privacy page (nextleveljobs.eu/privacy-policy) says nothing on automated access, scraping or reuse of listings, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. The manifest budget and the adapter's per-run detail cap stay binding. ${NO_EVASION}`,
+  reference: `Owner decision, 2026-11-20 (A3, recorded in task sources-12): connect Next Level Jobs and accept the risk of the UNCLEAR permission, the same acceptance as for the sources of 2026-11-16. Accepted risk, not a documented permission.`,
+})
+
+// The three sources of task sources-13: their terms FORBID automated collection (PROHIBITED, not
+// UNCLEAR), and the owner accepted that legal risk explicitly. Hence the stronger kind.
+const ALL_PROHIBITED_REFERENCE =
+  'Owner decision, 2026-11-20 (A3, recorded in task sources-13): "connect, I accept the risk for every site" (owner\'s words, translated) — connect every site whose only obstacle is its terms; the owner accepts the legal risk. Technical blocks stay excluded.'
+
+export const THEHUB_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-20',
+  decision: 'ACCEPT_PROHIBITED_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly thehub.io/sitemap-jobs.xml and the job pages it lists; the terms (https://thehub.io/terms, Last Updated 08.08.2024: "you may view and print the contents … for personal, non-commercial use only. You may not otherwise copy, save or otherwise reproduce … without our prior written consent.") are knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: ALL_PROHIBITED_REFERENCE,
+})
+
+export const JUSTJOIN_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-20',
+  decision: 'ACCEPT_PROHIBITED_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly justjoin.it/sitemaps/active-jobs.xml (and its parts, served from public.justjoin.com) and the job pages it lists; the Users' ToS (2026-11-04) §11.3 ("no one may automatically extract any data from the Website without our express written consent", Polish Database Protection Act, civil and criminal liability cited) is knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: ALL_PROHIBITED_REFERENCE,
+})
+
+export const LANDINGJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-20',
+  decision: 'ACCEPT_PROHIBITED_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly landing.jobs/sitemap.xml and the /at/ job pages it lists; the terms (https://landing.jobs/tos, 13 Nov 2026) §8.2(vii) ("Use … scripts, robots … to access, monitor, scrape or copy the Platform") and §5.7 (no download/store) are knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: ALL_PROHIBITED_REFERENCE,
+})
+
+export const DICE_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-20',
+  decision: 'ACCEPT_PROHIBITED_RISK',
+  endpointVariant: 'jobs-listing',
+  scope: `Exactly www.dice.com/jobs, /jobs?page=2 and /jobs?page=3 (no search query) and the /job-detail/<guid> pages they list, read for the flight-payload job list and the JSON-LD JobPosting; robots.txt is obeyed in code (/job, /jobs?q*, /feed/, /rss/ and /apply-redirect* are never fetched). The Dice Terms and Conditions (section 8.2 j and aa) PROHIBIT robots that store or reproduce site content: the owner was told so and accepted that legal risk, so the permission stays PROHIBITED and is knowingly accepted as risk, NOT resolved. The manifest budget and the adapter's per-run detail cap stay binding. ${NO_EVASION}`,
+  reference: `Owner decision, 2026-11-20 (A3, recorded in task sources-14): "I accept the risk for every site" (owner's words, translated): connect every source except EU Remote Jobs, Dice included although its terms prohibit automated collection; the owner accepts the legal risk. Technical blocks stay excluded.`,
+})
+
+export const NOFLUFF_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-20',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'category-listing',
+  scope: `Exactly the nofluffjobs.com IT category pages /pl/<category>?page=2 (backend, frontend, fullstack, mobile, devops, data, artificial-intelligence, testing) and the /pl/job/<slug> pages they list, read for the serverApp-state posting list and the JSON-LD JobPosting; robots.txt is obeyed in code (/api/, /posting/, /pl/posting/ and */job/job/* are never fetched), and the terms (nofluffjobs.com/pl/regulamin) could not be read: the page renders its text only with JavaScript. Whether they allow automated reading of public listings is therefore unknown, so the permission is UNCLEAR for that reason and knowingly accepted as risk, NOT resolved. The manifest budget and the adapter's per-run detail cap stay binding. ${NO_EVASION}`,
+  reference: `Owner decision, 2026-11-20 (A3, recorded in task sources-14): connect No Fluff Jobs and accept the risk of the UNCLEAR permission, the same acceptance as for the sources of 2026-11-16. Accepted risk, not a documented permission.`,
+})
+
+export const HELLOWORLD_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'rss',
+  scope: `Exactly the public RSS feed www.helloworld.rs/rss/ (one GET per run, 15 items measured on 2026-11-24). The terms page could not be read: the Next.js site answers 404 on the common terms paths (/pravila-i-uslovi-koriscenja, /uslovi-koriscenja), so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. robots.txt allows every agent. ${NO_EVASION}`,
+  reference: `Owner decision, 2026-11-24 (wave 3 RSS task, pre-approved: "add everything possible"): connect the helloworld.rs public RSS feed and accept the risk of the UNCLEAR permission. Accepted risk, not a documented permission.`,
+})
+// Wave 3, sitemap family (task-sources-w3-sitemap): terms unread or unclear, owner pre-approved
+// "add everything possible", so the decision is the accepted kind, not a documented permission.
+const WAVE3_SITEMAP_REFERENCE =
+  'Owner decision, 2026-11-24 (wave 3, task sources-w3-common, owner = chat): "add everything possible" for every site whose terms are unread or unclear. Accepted risk, not a documented permission.'
+
+export const RELOCATEME_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly relocate.me/sitemap-jobs.xml and the job pages it lists (relocate.me/<country>/<city>/<company>/<slug>-<id>); the terms page was not found, the privacy policy says nothing on automated access, and robots.txt disallows only /api/, /admin/ and /user/, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: WAVE3_SITEMAP_REFERENCE,
+})
+
+export const REACTJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly reactjobs.io/sitemap3.xml (the job part of sitemap.xml) and the job pages it lists; the terms page was not found, the privacy policy says nothing on automated access, and robots.txt has an empty Disallow, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: WAVE3_SITEMAP_REFERENCE,
+})
+
+export const REMOTEIO_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly remote.io/sitemap-active-jobs.xml and the IT job pages it lists (software-development, devops-sysadmin, data, quality-assurance); the terms page renders only with JavaScript and could not be read, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: WAVE3_SITEMAP_REFERENCE,
+})
+
+export const REMOTEFIRSTJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly remotefirstjobs.com/sitemap_jobs_0.xml and the job pages it lists; the terms restrict copying and downloading without permission and do not address automated access, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: WAVE3_SITEMAP_REFERENCE,
+})
+
+export const JOBSPRESSO_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `The newest two jobspresso.co/job_listing-sitemapN.xml parts (N up to 4 digits), read via jobspresso.co/sitemap_index.xml, and the job pages they list; the terms restrict commercial use and copying of the materials and do not mention automated access, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: WAVE3_SITEMAP_REFERENCE,
 })

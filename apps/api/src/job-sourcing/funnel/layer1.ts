@@ -60,7 +60,8 @@ export type * from './layer1.types'
 
 /** Owner policy A1o: monthly gross USD floor, applied only where a figure exists. */
 export const SALARY_FLOOR_USD_MONTHLY = 3500
-const HOURS_PER_MONTH = 160
+/** Exported for the canonical salary column (`normalize/salary.ts`): one conversion, not two. */
+export const HOURS_PER_MONTH = 160
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 /** Same tolerance as `FUTURE_TOLERANCE_MS` in the date policy (24h). */
 const FUTURE_TOLERANCE_MS = MS_PER_DAY
@@ -534,7 +535,13 @@ const ROLE_FAMILY_RES = ROLE_FAMILIES.map(([family, phrases]) => ({
   re: phraseRegex(phrases),
 }))
 
-function classifyRoleFamily(input: Layer1Input): Dimension<RoleFamily> {
+/**
+ * The role family of a posting from its title, then its tags. Reads nothing else, so a provider can
+ * ask it of a feed entry before the full Layer-1 input exists.
+ */
+export function classifyRoleFamily(
+  input: Pick<Layer1Input, 'title' | 'tags'>,
+): Dimension<RoleFamily> {
   const probes: Array<{ source: EvidenceSource; field: string; text: string }> = [
     { source: 'TITLE', field: 'title', text: input.title },
     ...(input.tags ?? []).map((t) => ({ source: 'STRUCTURED' as const, field: 'tags', text: t })),
@@ -777,7 +784,7 @@ function classifyGeography(input: Layer1Input): Dimension<GeographyValue> {
 // Salary
 // ---------------------------------------------------------------------------------------------
 
-function toMonthly(amount: number, period: 'HOUR' | 'MONTH' | 'YEAR'): number {
+export function toMonthly(amount: number, period: 'HOUR' | 'MONTH' | 'YEAR'): number {
   if (period === 'YEAR') return amount / 12
   if (period === 'HOUR') return amount * HOURS_PER_MONTH
   return amount

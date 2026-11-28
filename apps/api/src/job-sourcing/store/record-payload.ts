@@ -92,6 +92,9 @@ export function revisionPayload(o: SourceObservation): RevisionPayload {
       title: n.title,
       companyName: n.companyName,
       companyNameNormalized: n.companyNameNormalized,
+      // Emitted ONLY when the employer is withheld, so a payload with a disclosed employer keeps
+      // the exact key set (and the exact bytes) it had before this field existed.
+      ...(n.employerDisclosure === undefined ? {} : { employerDisclosure: n.employerDisclosure }),
       location: n.location,
       publishedAt,
       remote: n.remote ?? null,
@@ -99,6 +102,8 @@ export function revisionPayload(o: SourceObservation): RevisionPayload {
       seniorityHint: n.seniorityHint ?? null,
       tags: n.tags ?? [],
       dates: n.dates,
+      // Emitted ONLY when stated, like `employerDisclosure`: a payload without one keeps its bytes.
+      ...(n.salary ? { salary: n.salary } : {}),
     },
     originalIdentity: {
       provider: o.identity.provider,

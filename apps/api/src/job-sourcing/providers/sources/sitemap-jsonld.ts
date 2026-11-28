@@ -1,0 +1,934 @@
+import type { JobSourceType } from '@crm/shared'
+import { z } from 'zod'
+import { atsJobKey } from '../../identity/ats-job-key'
+import { buildIdentity } from '../../normalize/identity-key'
+import {
+  buildSourceObservation,
+  type RawObservationFields,
+  type SourceObservation,
+} from '../../normalize/observation'
+import { type Random, jitteredGapMs } from '../../scheduling/jitter'
+import {
+  extractJobPostings,
+  type IdentitySelection,
+  type JsonLdJobPosting,
+} from '../../structuring/json-ld'
+import { xmlPort } from '../../xml/bounded-xml-port'
+import { DEFAULT_XML_LIMITS } from '../../xml/xml-limits'
+import type { XmlElementNode, XmlLimits } from '../../xml/xml-port'
+import { findChildren } from '../../xml/xml-tree'
+import { baseSourceConfigSchema } from '../api-json.provider'
+import { type Sleep } from '../html/html-ports'
+import {
+  buildCollectionBatch,
+  buildInvalidSample,
+  buildRequestReport,
+  type CollectionContext,
+  type CollectionCounts,
+  type InvalidSample,
+  type RequestReport,
+  type StopReason,
+  type ValidatedCheckpoint,
+} from '../reporting-provider'
+import { decodeXmlBody } from '../xml-source.provider'
+import { RobotsPolicy } from '../../structuring/robots-policy'
+import { createMeteredFetch, type Failure } from './metered-fetch'
+import {
+  hasDeclaredSitemap,
+  isNotRobotsFile,
+  MAX_REDIRECTED_DETAILS,
+  ROBOTS_MAX_BYTES,
+  ROBOTS_PRODUCT_TOKEN,
+} from './robots-file'
+
+/**
+ * The sitemap + JSON-LD adapter (sources-12, generalised in sources-13): a job board that lists
+ * every posting in a sitemap and describes each on its own page with one JSON-LD `JobPosting`.
+ * Parsed deterministically; no model. Next Level Jobs, The Hub, JustJoin.it and Landing.jobs are
+ * each one `SitemapJsonLdSite` on it; only what really differs between them is a field here.
+ *
+ * A DELTA SOURCE. A run reads the sitemap, asks the store which postings it already holds
+ * (`ctx.heldIdentityKeys`), and fetches the detail page of at most `maxDetails` of the rest, in the
+ * site's own newest-first order. A held posting is never re-fetched.
+ *
+ * COVERAGE IS NEVER FULL. The run reads the sitemap whole but the details of only the unseen part,
+ * so it ends `PAGE_CAP` with no query: SUCCEEDED, PARTIAL coverage. It must never claim
+ * FULL_INVENTORY or WINDOW, because the postings it did not re-read would then be closed or
+ * expired by the availability reconcilers.
+ */
+
+/** The most child sitemaps a sitemap index may name, each one request. */
+export const MAX_SITEMAP_PARTS = 2
+
+export interface SitemapJob {
+  readonly id: string
+  readonly url: string
+  /** Epoch ms of `<lastmod>`, read only for a site ordered by it (`null`: absent or unparseable). */
+  readonly lastmod?: number | null
+}
+
+export type SitemapResult =
+  | { readonly ok: true; readonly jobs: SitemapJob[] }
+  | { readonly ok: false; readonly message: string }
+
+export interface SitemapJsonLdSite {
+  readonly type: JobSourceType
+  readonly adapterVersion: string
+  readonly namespace: string
+  readonly sitemapUrl: string
+  /**
+   * The URL a sitemap document is requested at, for a site that serves its sitemaps from another
+   * host behind a redirect (JustJoin.it, to its CDN): no redirect is followed (task sources-16,
+   * H-2), so the canonical target is requested itself. robots.txt and the part pattern still judge
+   * the site's own form. Absent: the listed URL is the request.
+   */
+  readonly sitemapRequestUrl?: (listed: string) => string
+  /** The sitemap's limits: its byte cap and, for a large one, a wider parse budget. */
+  readonly sitemapLimits: XmlLimits
+  /** A job page URL; group 1 is its native id. Any other `<loc>` is skipped. */
+  readonly jobUrl: RegExp
+  /**
+   * `ID`: the id sorts by creation (descending, as text). `NUMERIC_ID`: a decimal id that rises
+   * with creation, compared as a number (descending). `LASTMOD`: by `<lastmod>`, newest first.
+   */
+  readonly order: 'ID' | 'NUMERIC_ID' | 'LASTMOD'
+  /**
+   * The child sitemaps a `<sitemapindex>` may name. Absent: an index is drift. Group 1, when the
+   * pattern has one, is the part's number: the highest parts are read first (a Yoast index numbers
+   * its parts oldest first, so the newest postings sit in the last part).
+   */
+  readonly sitemapPart?: RegExp
+  readonly descriptionKind: 'html' | 'text'
+  /**
+   * When the posting was created, as far as the sitemap says (null: unknown). A bad page counts
+   * toward drift only while its posting is younger than `DRIFT_WINDOW_MS` (CR-L-1, PR #1443).
+   */
+  readonly createdAtMs: (job: SitemapJob) => number | null
+  /** The page's posting for this job (the JSON-LD rarely carries the same key on every site). */
+  readonly select: (
+    postings: JsonLdJobPosting[],
+    job: SitemapJob,
+    html: string,
+  ) => IdentitySelection
+  /**
+   * The employer's original posting the page links for THIS job, when the site has one (dedup);
+   * else null. `job` carries the identity URL and the lower-cased id.
+   */
+  readonly applyUrl?: (html: string, job: SitemapJob) => string | null
+  /**
+   * Whether the page carries the site's apply button, for a site that always has one (D-3, PR
+   * #1443). A posting read whole without it leaves an `apply-button: none` sample: a renamed button
+   * would otherwise stop ATS dedup silently. Absent: the site has no such notion, no sample.
+   */
+  readonly hasApplyButton?: (html: string) => boolean
+}
+
+export interface SitemapJsonLdBounds {
+  /** Detail pages fetched per run, at most. */
+  readonly maxDetails: number
+  /** The floor of the gap before every request after the first. */
+  readonly minGapMs: number
+}
+
+export interface SitemapJsonLdDeps {
+  readonly sleep: Sleep
+  readonly random: Random
+}
+
+/**
+ * The ONE ATS-hosted job every candidate apply link names, or null: none, a link that is not an
+ * ATS-hosted job, or two distinct jobs. A wrong apply URL would merge two postings, so any doubt
+ * answers null (dedup lost for that posting, never poisoned).
+ */
+export function oneAtsHostedJob(urls: Iterable<string>): string | null {
+  const found = new Map<string, string>()
+  for (const url of urls) {
+    const key = atsJobKey(url)
+    if (key === null || key.scope !== 'ATS_HOSTED') return null
+    if (!found.has(key.key)) found.set(key.key, url)
+  }
+  return found.size === 1 ? [...found.values()][0]! : null
+}
+
+/** A site's config: its namespace and the base fields, no query, no window. */
+export function sitemapConfigSchema(namespace: string, name: string) {
+  return baseSourceConfigSchema
+    .extend({ namespace: z.literal(namespace).default(namespace) })
+    .strict()
+    .refine((c) => c.query === null, { message: `${name} has no search parameter` })
+    .refine((c) => c.window === null, { message: `${name} has no date window` })
+}
+
+interface SiteConfig {
+  readonly namespace: string
+  readonly configVersion: number
+}
+
+/** The default limits with another byte cap (and optionally parse budget and element cap). */
+export function sitemapLimits(
+  maxBytes: number,
+  maxWallClockMs?: number,
+  maxElements?: number,
+): XmlLimits {
+  return {
+    ...DEFAULT_XML_LIMITS,
+    maxBytes,
+    ...(maxWallClockMs === undefined ? {} : { maxWallClockMs }),
+    ...(maxElements === undefined ? {} : { maxElements }),
+  }
+}
+
+type Decoded =
+  | { readonly ok: true; readonly root: XmlElementNode }
+  | { readonly ok: false; readonly message: string }
+
+function decode(site: SitemapJsonLdSite, bodyText: string): Decoded {
+  const decoded = decodeXmlBody(bodyText, site.sitemapLimits, xmlPort)
+  return decoded.ok
+    ? { ok: true, root: decoded.value.root }
+    : { ok: false, message: decoded.message }
+}
+
+function jobsOf(site: SitemapJsonLdSite, root: XmlElementNode): SitemapResult {
+  if (root.localName !== 'urlset') return { ok: false, message: `root is <${root.localName}>` }
+  const seen = new Set<string>()
+  const jobs: SitemapJob[] = []
+  for (const entry of findChildren(root, 'url')) {
+    const loc = findChildren(entry, 'loc')[0]
+    // Stryker disable next-line StringLiteral: any fallback fails jobUrl the same way; the missing-<loc> case is tested
+    const url = loc?.text.trim() ?? ''
+    const listedId = site.jobUrl.exec(url)?.[1]
+    if (listedId === undefined) continue
+    // The id is the identity: one spelling of it, whatever case the sitemap lists.
+    const id = listedId.toLowerCase()
+    if (seen.has(id)) continue
+    seen.add(id)
+    if (site.order === 'LASTMOD') {
+      const raw = findChildren(entry, 'lastmod')[0]?.text.trim()
+      // Stryker disable next-line ConditionalExpression: equivalent, Date.parse(undefined) is NaN too
+      const ms = raw === undefined ? Number.NaN : Date.parse(raw)
+      jobs.push({ id, url, lastmod: Number.isNaN(ms) ? null : ms })
+    } else {
+      jobs.push({ id, url })
+    }
+  }
+  return { ok: true, jobs }
+}
+
+/** Every job URL of a `<urlset>` sitemap, once each, in document order. A non-job `<loc>` is skipped. */
+export function parseSitemapOf(site: SitemapJsonLdSite, bodyText: string): SitemapResult {
+  const decoded = decode(site, bodyText)
+  return decoded.ok ? jobsOf(site, decoded.root) : decoded
+}
+
+/**
+ * The child sitemaps a `<sitemapindex>` names that the site allows, at most `MAX_SITEMAP_PARTS`:
+ * the highest-numbered first when the pattern numbers them (group 1), else in index order.
+ */
+export function sitemapPartsOf(pattern: RegExp, root: XmlElementNode): string[] {
+  return pickParts(allowedPartsOf(pattern, root))
+}
+
+/**
+ * Each allowed part once, in index order, with its number (group 1; NaN when it is empty or
+ * missing). A Map keeps the first position of a repeated URL and de-dups in linear time: an
+ * index may list thousands of parts (SR4-H-1, PR #1498).
+ */
+function allowedPartsOf(pattern: RegExp, root: XmlElementNode): Map<string, number> {
+  const parts = new Map<string, number>()
+  for (const entry of findChildren(root, 'sitemap')) {
+    // Stryker disable next-line StringLiteral: any fallback fails the pattern the same way
+    const url = findChildren(entry, 'loc')[0]?.text.trim() ?? ''
+    const match = pattern.exec(url)
+    // An empty or missing group is no number (`Number('')` would be part 0).
+    if (match !== null) parts.set(url, match[1] ? Number(match[1]) : NaN)
+  }
+  return parts
+}
+
+function pickParts(parts: Map<string, number>): string[] {
+  // A part the pattern does not number, or a number past the safe range: no number to sort on,
+  // so every part stays in index order.
+  if (![...parts.values()].every(Number.isSafeInteger)) {
+    return [...parts.keys()].slice(0, MAX_SITEMAP_PARTS)
+  }
+  return [...parts]
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, MAX_SITEMAP_PARTS)
+    .map(([url]) => url)
+}
+
+/** The identity key a record of this posting is stored under (the same encoder the store uses). */
+export function siteIdentityKey(
+  site: Pick<SitemapJsonLdSite, 'type' | 'namespace'>,
+  id: string,
+): string {
+  const built = buildIdentity({
+    provider: site.type,
+    namespace: site.namespace,
+    nativeId: id,
+    url: null,
+  })
+  // A sitemap id always builds; an id with no identity (the empty one) throws, and a spec pins it.
+  if (!built.ok) throw new Error(`no identity for ${id}: ${built.reason}`)
+  return built.identity.identityKey
+}
+
+/**
+ * One indices-enabled copy of each site's `jobUrl`, compiled once (`d` only if the pattern lacks
+ * it). `g` and `y` are dropped: the copy is shared across calls, and either flag would carry
+ * `lastIndex` from one URL to the next.
+ */
+const indexedJobUrl = new WeakMap<SitemapJsonLdSite, RegExp>()
+
+function indexedJobUrlOf(site: SitemapJsonLdSite): RegExp {
+  const cached = indexedJobUrl.get(site)
+  // Stryker disable next-line ConditionalExpression: the `false` variant is equivalent (the memo only saves a RegExp compile; the same span comes back); the `true` variant returns undefined on the first call and is killed by the identityUrlOf tests in sitemap-wave3.spec.ts (the 'identityUrlOf' describe)
+  if (cached !== undefined) return cached
+  const stateless = site.jobUrl.flags.replace(/[gy]/g, '')
+  const flags = stateless.includes('d') ? stateless : `${stateless}d`
+  const compiled = new RegExp(site.jobUrl.source, flags)
+  indexedJobUrl.set(site, compiled)
+  return compiled
+}
+
+/**
+ * The URL a posting is matched by: the id part spelled as `jobsOf` keys it, lower-cased (D-4, PR
+ * #1443). A URL that is not a job page is returned as is. The fetch keeps the sitemap's spelling.
+ */
+export function identityUrlOf(site: SitemapJsonLdSite, url: string): string {
+  // The id's position comes from the capture indices: it is the URL's tail for some sites and a
+  // mid-URL segment for others (ReactJobs `/<id>-<slug>`), so slicing by the id's length is wrong.
+  // Stryker disable next-line OptionalChaining: the `?.` after `indices` is equivalent (indices is always set under the d flag this module adds); the `?.` after `exec(url)` is not, and is killed in sitemap-sites.spec.ts by the `identityUrlOf(NEXTLEVELJOBS_SITE, 'https://nextleveljobs.eu/companies/a')` assertion of the test "the identity URL lower-cases the id; an upper-case trio loc is listed by its lower-case id (D-4, S-4)" (a non-job URL returns as is, so exec gives null)
+  const span = indexedJobUrlOf(site).exec(url)?.indices?.[1]
+  if (span === undefined) return url
+  const [start, end] = span
+  return `${url.slice(0, start)}${url.slice(start, end).toLowerCase()}${url.slice(end)}`
+}
+
+const byLastmod = (a: SitemapJob, b: SitemapJob) =>
+  (b.lastmod ?? Number.NEGATIVE_INFINITY) - (a.lastmod ?? Number.NEGATIVE_INFINITY)
+
+/** Each site order as a comparator, newest first. */
+const ORDERS: Record<SitemapJsonLdSite['order'], (a: SitemapJob, b: SitemapJob) => number> = {
+  ID: (a, b) => b.id.localeCompare(a.id),
+  // `ID` would put 999 above 1000: a decimal id is compared as a number.
+  NUMERIC_ID: (a, b) => Number(b.id) - Number(a.id),
+  LASTMOD: byLastmod,
+}
+
+const HOUR_MS = 3_600_000
+/** One detail slot in this many turns through the unseen jobs below the newest (CR-L-1). */
+const TURNING_SHARE = 5
+/** A bad page counts toward drift only while its posting is younger than this (CR-L-1). */
+export const DRIFT_WINDOW_MS = 24 * HOUR_MS
+
+/** A 24-hex id that starts with Unix seconds (a MongoDB ObjectId): its first 8 digits. */
+export const hexIdCreatedAtMs = (job: SitemapJob): number => parseInt(job.id.slice(0, 8), 16) * 1000
+
+/**
+ * A site whose ids carry no time: the `<lastmod>`. It is the last change, not the creation, so a
+ * page edited today counts as new; the error is toward reporting drift, never toward hiding it.
+ */
+export const lastmodCreatedAtMs = (job: SitemapJob): number | null => job.lastmod ?? null
+
+/**
+ * The jobs not held yet to read this run, at most `max`: the newest first in the site's order,
+ * plus one slot in `TURNING_SHARE` for the unseen jobs below them, taken at an offset the run draws
+ * (`turn`, in [0, 1)). A wall-clock offset aliased with the 2 h / 6 h schedule and never reached
+ * some jobs (D-1, PR #1443).
+ *
+ * Why the turning slots (CR-L-1, PR #1443): a page that keeps failing (a 404, or a 200 without its
+ * JSON-LD) is never held, so it is unseen again on the next run. Newest first alone lets enough
+ * such jobs at the top fill every slot of every run, and nothing below them would ever be read.
+ *
+ * shortcut: the adapter keeps no record of which jobs failed before, so it cannot skip them; the
+ * turning slots only guarantee the rest is still reached. Upgrade to a per-id failure ledger if
+ * stuck jobs ever crowd out the newest slots.
+ */
+export function detailsToReadOf(
+  site: SitemapJsonLdSite,
+  jobs: readonly SitemapJob[],
+  heldKeys: ReadonlySet<string>,
+  max: number,
+  turn: number,
+): SitemapJob[] {
+  const unseen = jobs.filter((j) => !heldKeys.has(siteIdentityKey(site, j.id)))
+  // The site's comparator from `ORDERS`. Lowercase hex ids (`ID`): collation order is code-point
+  // order, and `localeCompare` is used rather than a ternary, whose mutants V8's insertion sort
+  // cannot tell apart (a 0 for "less" sorts the same as a 1). A tie (`LASTMOD`) keeps document
+  // order (the sort is stable).
+  return turningSelectionOf(unseen.sort(ORDERS[site.order]), max, turn)
+}
+
+/**
+ * At most `max` of `sorted` (newest first): the head, plus one slot in `TURNING_SHARE` taken from
+ * the rest at the run's offset `turn` (in [0, 1)). Shared by every detail loop (S1, PR #1445).
+ */
+export function turningSelectionOf<J>(sorted: readonly J[], max: number, turn: number): J[] {
+  const turning = Math.floor(max / TURNING_SHARE)
+  const below = sorted.slice(max - turning)
+  const start = Math.floor(turn * below.length)
+  return [
+    ...sorted.slice(0, max - turning),
+    ...Array.from(
+      { length: Math.min(turning, below.length) },
+      (_, i) => below[(start + i) % below.length]!,
+    ),
+  ]
+}
+
+/**
+ * Whether a bad page of a posting created at `createdAtMs` counts toward drift: only while the
+ * posting is under `DRIFT_WINDOW_MS` old. Unknown age counts; a future-dated one (negative age) is
+ * not recent, not inside the window.
+ */
+export function countsTowardDrift(createdAtMs: number | null, nowMs: number): boolean {
+  const ageMs = createdAtMs === null ? 0 : nowMs - createdAtMs
+  return ageMs >= 0 && ageMs < DRIFT_WINDOW_MS
+}
+
+/** Drift, not bad luck: most pages read were bad and recent, and at least three of them. */
+export const isDetailDrift = (recentInvalid: number, normalized: number): boolean =>
+  recentInvalid > normalized && recentInvalid >= 3
+
+const CANONICAL_REL = /\brel="canonical"/
+const HREF = /\bhref="([^"]{1,2000})"/
+
+/**
+ * The page's `<link rel="canonical">` href, or null. A linear scan (SR2-M-1, PR #1445): a regex
+ * spanning `<link\b[^>]*` was quadratic on a page of unclosed `<link ` (2 MiB of untrusted NFJ
+ * page). Each `<link` is read up to its `>` once; a `<link` inside that span shares the same `>`,
+ * so its tag is a suffix of the one already tested and the scan resumes after the `>`.
+ */
+export function canonicalUrlOf(html: string): string | null {
+  // A fresh literal per call: its `lastIndex` is this scan's cursor.
+  const open = /<link\b/g
+  for (let m = open.exec(html); m !== null; m = open.exec(html)) {
+    const end = html.indexOf('>', m.index)
+    if (end === -1) return null
+    const tag = html.slice(m.index, end + 1)
+    if (CANONICAL_REL.test(tag)) return HREF.exec(tag)?.[1] ?? null
+    // The `>` itself cannot open a `<link`: resuming on it reads nothing twice.
+    open.lastIndex = end
+  }
+  return null
+}
+
+/**
+ * For a page whose JSON-LD names neither an identifier nor a url (JustJoin.it): the page's one
+ * posting, only when the page's canonical link IS the sitemap URL. Two postings: ambiguous.
+ */
+export function selectByCanonical(
+  postings: JsonLdJobPosting[],
+  job: SitemapJob,
+  html: string,
+): IdentitySelection {
+  const first = postings[0]
+  if (first === undefined || canonicalUrlOf(html) !== job.url) return { kind: 'none' }
+  if (postings.length > 1) return { kind: 'ambiguous', count: postings.length }
+  return { kind: 'match', posting: first }
+}
+
+/** The page's JobPosting, mapped. */
+export function mapSitePosting(
+  site: SitemapJsonLdSite,
+  posting: JsonLdJobPosting,
+  job: SitemapJob,
+  applyUrl: string | null,
+): RawObservationFields {
+  return {
+    provider: site.type,
+    adapterVersion: site.adapterVersion,
+    namespace: site.namespace,
+    nativeId: job.id,
+    url: applyUrl ?? posting.url ?? job.url,
+    title: posting.title,
+    companyName: posting.hiringOrganization,
+    location: posting.jobLocations.length > 0 ? posting.jobLocations.join('; ') : null,
+    description: posting.description,
+    descriptionKind: site.descriptionKind,
+    remote: posting.jobLocationType === 'TELECOMMUTE' ? true : null,
+    employmentType: posting.employmentType[0] ?? null,
+    tags: posting.skills,
+    applicationUrl: applyUrl,
+    salary: posting.baseSalary,
+    dates: [
+      ...(posting.datePosted === null
+        ? []
+        : [
+            {
+              raw: posting.datePosted.raw,
+              contract: 'ISO_ZONED' as const,
+              semantics: 'PUBLISHED' as const,
+            },
+          ]),
+      ...(posting.validThrough === null
+        ? []
+        : [
+            {
+              raw: posting.validThrough.raw,
+              contract: 'ISO_ZONED' as const,
+              semantics: 'EXPIRY' as const,
+            },
+          ]),
+    ],
+  }
+}
+
+/** A sitemap read: its jobs, or (an index) the child sitemaps still to read. */
+interface Listing {
+  readonly ok: true
+  readonly jobs: SitemapJob[]
+  readonly parts: string[]
+  /** Every allowed child is in `parts`: none was cut by `MAX_SITEMAP_PARTS` (backlog 470). */
+  readonly whole: boolean
+}
+
+function readListing(
+  site: SitemapJsonLdSite,
+  bodyText: string,
+  partPattern: RegExp | undefined,
+): Listing | { readonly ok: false; readonly message: string } {
+  const decoded = decode(site, bodyText)
+  if (!decoded.ok) return decoded
+  if (partPattern !== undefined && decoded.root.localName === 'sitemapindex') {
+    const allowed = allowedPartsOf(partPattern, decoded.root)
+    const parts = pickParts(allowed)
+    if (parts.length === 0)
+      return { ok: false, message: 'the index names no allowed child sitemap' }
+    return { ok: true, jobs: [], parts, whole: parts.length === allowed.size }
+  }
+  const listed = jobsOf(site, decoded.root)
+  return listed.ok ? { ok: true, jobs: listed.jobs, parts: [], whole: true } : listed
+}
+
+const emptyCounts = (): CollectionCounts => ({
+  raw: 0,
+  normalized: 0,
+  invalid: 0,
+  quarantined: 0,
+  discarded: 0,
+})
+
+const scopeOf = (config: SiteConfig) => ({
+  namespace: config.namespace,
+  query: null,
+  configVersion: config.configVersion,
+  window: null,
+})
+
+/** One run of a site: the sitemap (and its parts), then the unseen details. */
+export async function collectSitemapJsonLd(
+  site: SitemapJsonLdSite,
+  bounds: SitemapJsonLdBounds,
+  deps: SitemapJsonLdDeps,
+  config: SiteConfig,
+  ctx: CollectionContext,
+) {
+  const scope = scopeOf(config)
+  // Drawn once, first, before any gap: this run's turning offset (D-1).
+  const turn = deps.random()
+  const observations: SourceObservation[] = []
+  const requests: RequestReport[] = []
+  const samples: InvalidSample[] = []
+  const counts = emptyCounts()
+  let checkpoint: ValidatedCheckpoint | null = null
+  let pagesCompleted = 0
+  let stop: StopReason = 'PAGE_CAP'
+  // Backlog 470: the listing is the inventory once it was read whole; set only then.
+  // Stryker disable next-line BooleanLiteral: unobservable, every path that keeps this initial value ends on ERROR or CANCELLED (the meter budget covers every listing request, see listRequests), and deriveCoverage makes those PARTIAL first
+  let listed: { held: string[]; whole: boolean } = { held: [], whole: false }
+
+  const report = (
+    at: number,
+    url: string,
+    status: number | null,
+    startedAt: Date,
+    cost: RequestReport['cost'],
+    error: Failure | null,
+    endedAt: Date = ctx.now(),
+  ) =>
+    requests.push(
+      buildRequestReport(
+        {
+          attempt: 1,
+          page: at,
+          url,
+          status,
+          startedAt,
+          endedAt,
+          cost,
+          error: error === null ? null : { code: error.code, message: error.message },
+        },
+        ctx.secrets,
+      ),
+    )
+  // Stryker disable next-line ConditionalExpression: a backstop the run never reaches; a site without parts makes at most 1 + maxDetails requests whatever this adds
+  const listRequests = 1 + (site.sitemapPart === undefined ? 0 : MAX_SITEMAP_PARTS)
+  // robots.txt, every sitemap document, the detail cap.
+  const metered = createMeteredFetch(ctx, 1 + listRequests + bounds.maxDetails, report)
+  const finish = () =>
+    buildCollectionBatch({
+      observations,
+      // Every run lists the sitemap and never resumes from a stored position. It ends on PAGE_CAP
+      // or a failure; on PAGE_CAP with the listing read whole the listing is the inventory
+      // (`presence.listingComplete`, backlog 470), otherwise its coverage is PARTIAL.
+      // Stryker disable next-line BooleanLiteral: unobservable, see above (deriveCoverage)
+      facts: {
+        stop,
+        pagesCompleted,
+        counts,
+        scope,
+        resumed: false,
+        presence: { held: listed.held, quarantined: [], notOpen: 0, listingComplete: listed.whole },
+      },
+      requests,
+      checkpoint,
+      invalidSamples: samples,
+    })
+  let page = 1
+
+  // H-1 (task sources-16): robots.txt of the site's origin, read ONCE per run, before anything else,
+  // and fail closed exactly as the listing collector does (a 3xx, a refusal, a 5xx, or a 200 that
+  // is not a robots file end the run; an empty file or a 404 allows all). Reported at page 1, with
+  // the sitemap, so no later page number moves.
+  const origin = new URL(site.sitemapUrl).origin
+  const robotsUrl = `${origin}/robots.txt`
+  const robotsFetched = await metered(
+    page,
+    {
+      url: robotsUrl,
+      headers: { accept: 'text/plain' },
+      maxBytes: ROBOTS_MAX_BYTES,
+      followRedirects: false,
+    },
+    true,
+  )
+  if (!robotsFetched.ok) {
+    stop = robotsFetched.stop
+    return finish()
+  }
+  const notRobots =
+    robotsFetched.status === 200 &&
+    isNotRobotsFile(robotsFetched.bodyText, robotsFetched.headers['content-type'])
+  report(
+    page,
+    robotsUrl,
+    robotsFetched.status,
+    robotsFetched.startedAt,
+    robotsFetched.cost,
+    notRobots
+      ? {
+          code: 'PARSE_DRIFT',
+          message: 'robots: the body is not a robots.txt file',
+          status: robotsFetched.status,
+        }
+      : null,
+  )
+  if (notRobots) {
+    stop = 'ERROR'
+    return finish()
+  }
+
+  // F2 (task sources-16): when the sitemap is read from a CDN via sitemapRequestUrl (Branch 1 authority),
+  // assert that the robots.txt body already in hand explicitly declares it with a Sitemap: line.
+  if (
+    site.sitemapRequestUrl !== undefined &&
+    !hasDeclaredSitemap(robotsFetched.bodyText, [
+      site.sitemapUrl,
+      site.sitemapRequestUrl(site.sitemapUrl),
+    ])
+  ) {
+    report(page, site.sitemapUrl, null, ctx.now(), null, {
+      code: 'ACCESS_POLICY',
+      message: 'robots: sitemap not declared',
+      status: null,
+    })
+    stop = 'ERROR'
+    return finish()
+  }
+
+  const robots = new RobotsPolicy({
+    productToken: ROBOTS_PRODUCT_TOKEN,
+    fetchRobots: () =>
+      Promise.resolve({
+        status: robotsFetched.status,
+        bodyText: robotsFetched.bodyText,
+        headers: {},
+        etag: null,
+      }),
+  })
+
+  /**
+   * Robots, then the gap, before every request after robots. Returns false when the run must stop (already reported).
+   * Any non-ALLOWED verdict fails the run closed: another origin or an unhonourable crawl delay was never judged.
+   */
+  const beforeRequest = async (url: string): Promise<boolean> => {
+    const check = await robots.check(url, { baseOrigin: origin })
+    if (check.verdict !== 'ALLOWED') {
+      report(page, url, null, ctx.now(), null, {
+        code: 'ACCESS_POLICY',
+        message: `robots: ${check.reason}`,
+        status: null,
+      })
+      stop = 'ERROR'
+      return false
+    }
+    const gapMs = Math.max(bounds.minGapMs, (check.crawlDelaySeconds ?? 0) * 1000)
+    try {
+      await deps.sleep(jitteredGapMs(gapMs, deps.random), ctx.signal)
+    } catch {
+      report(page, url, null, ctx.now(), null, {
+        code: 'CANCELLED',
+        message: 'the run was cancelled before this request',
+        status: null,
+      })
+      stop = 'CANCELLED'
+      return false
+    }
+    return true
+  }
+
+  /**
+   * One sitemap document: fetched, decoded and read as a job list (or, given `partPattern`, as an index
+   * of child sitemaps), with exactly ONE request report. null when the run must stop.
+   */
+  const readSitemap = async (
+    url: string,
+    partPattern: RegExp | undefined,
+  ): Promise<Listing | null> => {
+    if (!(await beforeRequest(url))) return null
+    const requestUrl = site.sitemapRequestUrl?.(url) ?? url
+    const listed = await metered(
+      page,
+      {
+        url: requestUrl,
+        headers: { accept: 'application/xml' },
+        maxBytes: site.sitemapLimits.maxBytes,
+        followRedirects: false,
+      },
+      false,
+      true,
+    )
+    if (!listed.ok) {
+      stop = listed.stop
+      return null
+    }
+    // H-2: an unfollowed redirect on a sitemap is drift: the site moved it, and we never follow.
+    const read: Listing | { ok: false; message: string } =
+      listed.status >= 300
+        ? { ok: false, message: `redirected (HTTP ${listed.status})` }
+        : readListing(site, listed.bodyText, partPattern)
+    report(
+      page,
+      requestUrl,
+      listed.status,
+      listed.startedAt,
+      listed.cost,
+      read.ok
+        ? null
+        : { code: 'PARSE_DRIFT', message: `sitemap: ${read.message}`, status: listed.status },
+    )
+    if (!read.ok) {
+      stop = 'ERROR'
+      return null
+    }
+    return read
+  }
+
+  const first = await readSitemap(site.sitemapUrl, site.sitemapPart)
+  if (first === null) return finish()
+  const jobs = first.jobs
+  const seen = new Set<string>()
+  for (const part of first.parts) {
+    page += 1
+    const listed = await readSitemap(part, undefined)
+    if (listed === null) return finish()
+    for (const j of listed.jobs) {
+      if (seen.has(j.id)) continue
+      seen.add(j.id)
+      jobs.push(j)
+    }
+  }
+  const sitemapUrl = site.sitemapUrl
+
+  let held: ReadonlySet<string>
+  try {
+    held = (await ctx.heldIdentityKeys?.(jobs.map((j) => siteIdentityKey(site, j.id)))) ?? new Set()
+  } catch (error) {
+    report(page, sitemapUrl, null, ctx.now(), null, {
+      code: 'PERSISTENCE',
+      message: `the held postings could not be read: ${error instanceof Error ? error.message : 'the store failed'}`,
+      status: null,
+    })
+    stop = 'ERROR'
+    return finish()
+  }
+
+  const allowed: SitemapJob[] = []
+  const disallowed: SitemapJob[] = []
+  for (const job of jobs) {
+    const check = await robots.check(job.url, { baseOrigin: origin })
+    if (check.verdict !== 'ALLOWED') {
+      if (check.reason === 'DISALLOWED_BY_ROBOTS') {
+        if (!held.has(siteIdentityKey(site, job.id))) disallowed.push(job)
+        continue
+      }
+      report(page, job.url, null, ctx.now(), null, {
+        code: 'ACCESS_POLICY',
+        message: `robots: ${check.reason}`,
+        status: null,
+      })
+      stop = 'ERROR'
+      return finish()
+    }
+    allowed.push(job)
+  }
+
+  if (disallowed.length > 0) {
+    samples.push(
+      buildInvalidSample(
+        page,
+        `robots: DISALLOWED_BY_ROBOTS (${disallowed.length} jobs)`,
+        { url: disallowed[0]!.url },
+        ctx.secrets,
+      ),
+    )
+  }
+
+  if (jobs.length > 0 && allowed.length === 0) {
+    report(page, sitemapUrl, null, ctx.now(), null, {
+      code: 'ACCESS_POLICY',
+      message: 'robots: every job page disallowed',
+      status: null,
+    })
+    stop = 'ERROR'
+    return finish()
+  }
+  // Every sitemap document read and no allowed part cut: a held posting it lists is present, and
+  // one it no longer lists is gone, however many detail pages the budget leaves unread. CR-M-2: only
+  // with the held lookup; without it a held posting left unread would be absent from the run.
+  listed = {
+    held: jobs.map((j) => siteIdentityKey(site, j.id)).filter((key) => held.has(key)),
+    whole: first.whole && ctx.heldIdentityKeys !== undefined,
+  }
+
+  // Bad pages that count toward drift: only those of postings created within DRIFT_WINDOW_MS.
+  let recentInvalid = 0
+  let redirects = 0
+  const nowMs = ctx.now().getTime()
+  for (const job of detailsToReadOf(site, allowed, held, bounds.maxDetails, turn)) {
+    page += 1
+    if (!(await beforeRequest(job.url))) break
+    // A 404 or a 410 (gone, H-4) and an unfollowed 3xx (H-2) come back as answers.
+    const fetched = await metered(
+      page,
+      { url: job.url, headers: { accept: 'text/html' }, followRedirects: false },
+      true,
+      true,
+      true,
+    )
+    // shortcut: a lasting 5xx ends the run here (shared metered fetch), so a newest job that keeps
+    // answering one blocks every page after it, every run; upgrade with the backlog item.
+    if (!fetched.ok) {
+      stop = fetched.stop
+      break
+    }
+    // H-5: exactly ONE request report per fetch, carrying the error the page ended with.
+    const fetchedAt = ctx.now()
+    const reportPage = (error: Failure | null) =>
+      report(page, job.url, fetched.status, fetched.startedAt, fetched.cost, error, fetchedAt)
+    // No page: the posting left between the sitemap and its page (404, 410), or a redirect whose
+    // target is never requested. Nothing to record, and never drift; redirects in a row are a block.
+    if (fetched.status >= 300) {
+      // Stryker disable next-line EqualityOperator: only a 3xx, 404 or 410 reaches here (metered refuses every other status >= 400), so < 400 and <= 400 agree
+      redirects = fetched.status < 400 ? redirects + 1 : 0
+      if (redirects >= MAX_REDIRECTED_DETAILS) {
+        reportPage({
+          code: 'ACCESS_POLICY',
+          message: `${redirects} job pages in a row answered with a redirect (HTTP ${fetched.status})`,
+          status: fetched.status,
+        })
+        stop = 'ERROR'
+        break
+      }
+      reportPage(null)
+      continue
+    }
+    redirects = 0
+    counts.raw += 1
+    // Both sides by their normalised URL; the fetch above kept the sitemap's own spelling (D-4).
+    const postings = extractJobPostings(fetched.bodyText, { now: ctx.now() }).postings.map((p) => ({
+      ...p,
+      url: p.url && identityUrlOf(site, p.url),
+    }))
+    const identityJob = { ...job, url: identityUrlOf(site, job.url) }
+    const selected = site.select(postings, identityJob, fetched.bodyText)
+    if (selected.kind !== 'match') {
+      reportPage(null)
+      counts.invalid += 1
+      if (countsTowardDrift(site.createdAtMs(job), nowMs)) recentInvalid += 1
+      samples.push(
+        buildInvalidSample(page, `json-ld: ${selected.kind}`, { url: job.url }, ctx.secrets),
+      )
+      continue
+    }
+    const applyUrl = site.applyUrl?.(fetched.bodyText, identityJob) ?? null
+    const built = buildSourceObservation(
+      mapSitePosting(site, selected.posting, identityJob, applyUrl),
+      {
+        now: ctx.now(),
+      },
+    )
+    if (!built.ok) {
+      reportPage(null)
+      counts.quarantined += 1
+      samples.push(buildInvalidSample(page, built.reason, { url: job.url }, ctx.secrets))
+      continue
+    }
+    const next: ValidatedCheckpoint = {
+      configVersion: config.configVersion,
+      policyVersion: ctx.policyVersion,
+      adapterVersion: site.adapterVersion,
+      position: { kind: 'RESTART', page },
+      completedAt: ctx.now(),
+    }
+    try {
+      await ctx.checkpoints.savePage({ observations: [built.observation], checkpoint: next })
+    } catch (error) {
+      counts.discarded += 1
+      reportPage({
+        code: 'PERSISTENCE',
+        message: error instanceof Error ? error.message : 'the page could not be persisted',
+        status: fetched.status,
+      })
+      stop = 'ERROR'
+      break
+    }
+    reportPage(null)
+    counts.normalized += 1
+    observations.push(built.observation)
+    checkpoint = next
+    pagesCompleted += 1
+    // Read whole, but no apply button: a renamed button stops ATS dedup silently (D-3).
+    if (site.hasApplyButton?.(fetched.bodyText) === false) {
+      samples.push(buildInvalidSample(page, 'apply-button: none', { url: job.url }, ctx.secrets))
+    }
+  }
+  // Drift, not bad luck: most pages read had no usable posting. Fails the run so health sees it.
+  // CR-L-1 (PR #1443), the choice: a bad page counts only while its posting is under a day old. A
+  // page that keeps failing is never held, so it is read again every run; counted forever, a few of
+  // them would fail every run once new postings are few. A real markup change breaks the new
+  // postings too, and those are inside the window. A 404 never counts: it is an answer (the posting
+  // left), not a page we could not read. Older bad pages still leave their invalid sample.
+  if (stop === 'PAGE_CAP' && isDetailDrift(recentInvalid, counts.normalized)) {
+    report(page, sitemapUrl, null, ctx.now(), null, {
+      code: 'PARSE_DRIFT',
+      message: `${recentInvalid} of ${counts.raw} job pages had no matching JSON-LD JobPosting`,
+      status: null,
+    })
+    stop = 'ERROR'
+  }
+  return finish()
+}

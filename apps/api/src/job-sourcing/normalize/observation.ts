@@ -1,6 +1,7 @@
 import type { JobSourceType } from '@crm/shared'
 import { MAX_DESCRIPTION_CHARS } from '../html-to-markdown'
 import type { NormalizedPosting } from '../job-source.provider'
+import { employerWithheldForItem } from './employer-disclosure'
 import {
   buildNormalizedPosting,
   cleanLine,
@@ -10,6 +11,7 @@ import {
 import { computeContentHash } from './content-hash'
 import { type DateInput, type ObservedDate, parseSourceDate } from './date-policy'
 import { buildIdentity, type IdentityFailure, type ObservationIdentity } from './identity-key'
+import { normalizeSalary, type SalaryObservation } from './salary'
 import { checkStoredLink } from './url-policy'
 
 /**
@@ -155,8 +157,14 @@ export type QuarantineReason =
   | 'INVALID_ADAPTER_VERSION'
   | 'NOT_AN_OPEN_VACANCY'
 
+/**
+ * `identityKey` is set on a refusal that came AFTER the identity was built (UNSAFE_URL,
+ * MISSING_TITLE, MISSING_COMPANY, INVALID_RECORD): the posting is listed and nameable, only not keepable, so the
+ * run can still count an existing record of it as present (backlog 470).
+ */
 export type ObservationResult =
-  { ok: true; observation: SourceObservation } | { ok: false; reason: QuarantineReason }
+  | { ok: true; observation: SourceObservation }
+  | { ok: false; reason: QuarantineReason; identityKey?: string }
 
 /** Untrusted adapter output. */
 export interface RawObservationFields {
@@ -188,6 +196,11 @@ export interface RawObservationFields {
    * version is reported first.
    */
   notOpenVacancy?: true
+  /**
+   * The source's STRUCTURED salary, mapped by the adapter (`salaryOf`), never parsed from text.
+   * Re-validated by `normalizeSalary`; a refused one is dropped and never quarantines the posting.
+   */
+  salary?: SalaryObservation | null
   /** Accepted so adapters can pass it through; deliberately never read by anything that hashes. */
   fetch?: { fetchedAt?: Date; requestId?: string }
 }
@@ -245,8 +258,8 @@ function descriptionDisplayTruncated(
   )
 }
 
-function quarantine(reason: QuarantineReason): ObservationResult {
-  return { ok: false, reason }
+function quarantine(reason: QuarantineReason, identityKey?: string): ObservationResult {
+  return identityKey === undefined ? { ok: false, reason } : { ok: false, reason, identityKey }
 }
 
 export function buildSourceObservation(
@@ -274,9 +287,21 @@ export function buildSourceObservation(
   if (!identity.ok) return quarantine(identity.reason)
 
   const link = checkStoredLink(raw.url)
-  if (!link.ok) return quarantine('UNSAFE_URL')
-  if (cleanLine(raw.title, Infinity).length === 0) return quarantine('MISSING_TITLE')
-  if (cleanLine(raw.companyName, Infinity).length === 0) return quarantine('MISSING_COMPANY')
+  const listedKey = identity.identity.identityKey
+  if (!link.ok) return quarantine('UNSAFE_URL', listedKey)
+  if (cleanLine(raw.title, Infinity).length === 0) return quarantine('MISSING_TITLE', listedKey)
+  // THE EMPLOYER HAS THREE STATES, AND ONLY ONE OF THEM IS A DEFECT. A source declared as
+  // publishing no employer by design (`employer-disclosure.ts`, keyed on the provider the
+  // collection loop stamps, not on anything the adapter said) produces a stored posting carrying
+  // an explicit "withheld at the source". Every other feed's missing employer is still a defect
+  // in the item or the adapter and stays quarantined.
+  const employerWithheldAtSource = employerWithheldForItem(
+    cleanLine(raw.companyName, Infinity),
+    raw.provider,
+  )
+  if (cleanLine(raw.companyName, Infinity).length === 0 && !employerWithheldAtSource) {
+    return quarantine('MISSING_COMPANY', listedKey)
+  }
 
   // The shipped normalizer receives the already-validated, host-normalized link.
   const posting = buildNormalizedPosting(raw.provider, {
@@ -291,8 +316,9 @@ export function buildSourceObservation(
     ...optional('seniorityHint', raw.seniorityHint),
     ...optional('tags', raw.tags),
     ...optional('keepQueryParams', raw.identityParams),
+    ...(employerWithheldAtSource ? { employerWithheldAtSource: true as const } : {}),
   })
-  if (posting === null) return quarantine('INVALID_RECORD')
+  if (posting === null) return quarantine('INVALID_RECORD', listedKey)
 
   const evidence: FieldEvidence[] = []
 
@@ -377,6 +403,7 @@ export function buildSourceObservation(
   }
 
   const { sourceType: _s, externalId: _e, fingerprint: _f, url: _u, ...display } = posting
+  const salary = normalizeSalary(raw.salary)
   const normalized: NormalizedVacancyFields = {
     ...display,
     // htmlToMarkdown's cut appends an ellipsis PAST the cap (MAX + 1); the store refuses that, so the
@@ -387,6 +414,8 @@ export function buildSourceObservation(
         : posting.descriptionMd,
     publishedAt: published?.value ?? null,
     dates,
+    // Only when stated: a posting without one keeps the exact field set it had before.
+    ...(salary === null ? {} : { salary }),
   }
 
   return {
@@ -413,6 +442,7 @@ export function buildSourceObservation(
         tags: [...new Set(normalized.tags)],
         applicationUrl,
         dates,
+        salary,
       }),
     },
   }

@@ -37,6 +37,7 @@ import {
   useIngestResumeText,
   useResumeSourceUrl,
   useSaveResumeFacts,
+  useSaveResumeHeader,
   useSaveResumeLayout,
   useSeniorResume,
   useSetResumeTemplate,
@@ -46,6 +47,7 @@ import {
 import { PROGRESS_FOCUS_IDS, useFocusAfterRender } from './ResumeConfirmStep'
 import { ResumeFactsForm } from './ResumeFactsForm'
 import { ResumeIntake } from './ResumeIntake'
+import { ResumeHeaderPanel } from './ResumeHeaderPanel'
 import { ResumeLayoutPanel } from './ResumeLayoutPanel'
 import { ResumePdfPreview } from './ResumePdfPreview'
 import { ResumeReadOnlyView } from './ResumeReadOnlyView'
@@ -72,6 +74,7 @@ export function ResumeTab({ userId, displayName, telegram, onDirtyChange }: Resu
   const textMutation = useIngestResumeText(userId)
   const deleteMutation = useDeleteResume(userId)
   const layoutMutation = useSaveResumeLayout(userId)
+  const headerMutation = useSaveResumeHeader(userId)
   const templateMutation = useSetResumeTemplate(userId)
   // `resume` is null until the senior has one; `canEdit` sits OUTSIDE it
   // precisely so the empty state still knows whether to offer the upload UI.
@@ -403,8 +406,9 @@ export function ResumeTab({ userId, displayName, telegram, onDirtyChange }: Resu
         <div hidden={staged !== null && !changingFacts}>
           <ResumeFactsForm
             facts={resume?.facts ?? EMPTY_RESUME_FACTS}
-            displayName={displayName}
-            telegram={telegram}
+            // The completeness check reads what the PDF prints: HR's override, else the profile.
+            displayName={resume?.header.displayName ?? displayName}
+            telegram={resume?.header.telegram ?? telegram}
             disabled={verificationBusy}
             alreadyVerified={resume?.verificationStatus === 'VERIFIED' && !resume.recheckNeededAt}
             onSave={(facts, { silent }) => saveFacts.mutateAsync({ facts, silent })}
@@ -424,6 +428,19 @@ export function ResumeTab({ userId, displayName, telegram, onDirtyChange }: Resu
       )}
 
       {/* ── Layout + the finished document ───────────────────────────────── */}
+
+      {/* HR's overrides of the PDF header; the profile values are the defaults. */}
+      {canEdit && resume && (
+        <ResumeHeaderPanel
+          key={JSON.stringify([resume.header, resume.headerDefaults])}
+          header={resume.header}
+          defaults={resume.headerDefaults}
+          disabled={verificationBusy}
+          isSaving={headerMutation.isPending}
+          staged={resume.staged !== null}
+          onSave={(header) => headerMutation.mutate(header)}
+        />
+      )}
 
       {/* [owner 2026-11-14] A SENIOR only views their resume: no layout or template control. */}
       {canEdit && resume && (

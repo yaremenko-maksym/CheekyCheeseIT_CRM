@@ -26,10 +26,11 @@
  * (all this file needs) and a `.useSearch()` that returns the page's actual
  * default search state instead of throwing.
  *
- * Heavy board children (`KanbanColumn`, the four dialogs) are replaced with
- * lightweight stubs — this test is about the toolbar gate, not the kanban
- * board or any one dialog's own behaviour (each has its own test file where
- * one exists). `JobSuggestionDialog`'s stub is what AC2 checks for absence.
+ * Heavy board children (`KanbanColumn`, the remaining dialogs) are replaced with
+ * lightweight stubs — this test is about the toolbar, not the kanban board or any
+ * one dialog's own behaviour (each has its own test file where one exists). The
+ * job-sourcing dialog has no stub any more: task-sources-07c deleted the component,
+ * so what is asserted here is the absence of its entry point, per role.
  */
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
@@ -68,8 +69,8 @@ vi.mock('@/hooks/use-active-team', () => ({
   useActiveTeam: () => ({ team: null, isTeamless: false, isLoading: false }),
 }))
 
-vi.mock('framer-motion', () => ({
-  motion: {
+vi.mock('motion/react', () => ({
+  m: {
     div: ({
       children,
       ...props
@@ -77,10 +78,6 @@ vi.mock('framer-motion', () => ({
       <div {...props}>{children}</div>
     ),
   },
-}))
-
-vi.mock('@/components/job-sourcing/JobSuggestionDialog', () => ({
-  JobSuggestionDialog: () => <div data-testid="job-suggestion-dialog-stub" />,
 }))
 
 vi.mock('../components/KanbanColumn', () => ({
@@ -135,7 +132,7 @@ beforeEach(async () => {
   } as ReturnType<typeof useAuth>)
 })
 
-describe('/interviews — job-sourcing entry point (paused, task-hide-job-sourcing-button)', () => {
+describe('/interviews — the job-sourcing entry point is gone (task-sources-07c)', () => {
   it('does not render the «Підбір вакансій» button for an ADMIN viewer (canCreate=true)', async () => {
     renderPage()
 
@@ -170,10 +167,24 @@ describe('/interviews — job-sourcing entry point (paused, task-hide-job-sourci
     expect(screen.queryByText("Неприв'язані записи")).not.toBeInTheDocument()
   })
 
-  it('never mounts JobSuggestionDialog, even indirectly — the dialog import stays, its render does not', async () => {
-    renderPage()
+  // task-sources-07c AC3/AC5: the entry point is deleted for EVERY role, not hidden
+  // behind a flag for some of them. ADMIN is covered above (it had the widest
+  // `canCreate`); these two are the roles that could still reach the board.
+  it.each(['SENIOR', 'HR'] as const)(
+    'does not render the «Підбір вакансій» button for a %s viewer either',
+    async (role) => {
+      vi.mocked(useAuth).mockReturnValue({
+        user: { id: 'user-uuid-1', role },
+        isLoading: false,
+      } as ReturnType<typeof useAuth>)
 
-    await screen.findByTestId('interviews-page')
-    expect(screen.queryByTestId('job-suggestion-dialog-stub')).not.toBeInTheDocument()
-  })
+      renderPage()
+
+      await screen.findByTestId('interviews-page')
+      expect(screen.queryByTestId('open-job-sourcing')).not.toBeInTheDocument()
+      expect(screen.queryByText('Підбір вакансій')).not.toBeInTheDocument()
+      // the board itself still works for them — the removal took nothing else down
+      expect(screen.getByText('Нова співбесіда')).toBeInTheDocument()
+    },
+  )
 })

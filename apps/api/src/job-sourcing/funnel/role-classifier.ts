@@ -19,7 +19,19 @@
  */
 import { sortRoles, type TechnicalRole } from '@crm/shared'
 
-export const ROLE_CLASSIFIER_VERSION = 'rc.1'
+/**
+ * A bump is a visibility-bearing deploy action, not a constant edit (SR-L-2): the reconciliation
+ * sweep re-enqueues every OPEN/UNKNOWN opportunity at once and `deriveOpportunityRoles` re-answers
+ * each from the rule, then from an AI cache filtered to this version — which a fresh bump leaves
+ * empty. So every row the new rule does not classify becomes `role_status = 'PENDING'` with no
+ * roles, and is hidden in every scope until the AI pass answers it, which needs
+ * `JOB_ROLE_AI_ENABLED` (default off) and is paced by `JOB_ROLE_AI_DAILY_BUDGET`. Pair a bump with
+ * either copying `job_role_classifications` rows forward under the new version, or an accepted
+ * recovery window; watch `SELECT role_status, count(*) FROM job_opportunities GROUP BY 1`.
+ * rc.2 (foreign developer nouns) was bumped without copy-forward: every rc.1 AI answer was irrelevant.
+ * The role-scope gate (`role-scope-gate.ts`) reads these lists too, so a change to them bumps the version.
+ */
+export const ROLE_CLASSIFIER_VERSION = 'rc.2'
 
 export type RoleClassification =
   { kind: 'ROLES'; roles: readonly TechnicalRole[] } | { kind: 'NON_IT' } | { kind: 'UNCLASSIFIED' }
@@ -27,15 +39,21 @@ export type RoleClassification =
 const W = String.raw`[\p{L}\p{N}_]`
 const WORD_BOUNDARY = String.raw`(?:(?<=${W})(?!${W})|(?<!${W})(?=${W}))`
 
+/** Every pattern `rx` built, for the warm-up at the end of this module. */
+const COMPILED: RegExp[] = []
+
 /** Compiles a Python-flavoured pattern with Unicode `\b` / `\w` / `\W`. */
-const rx = (pattern: RegExp): RegExp =>
-  new RegExp(
+const rx = (pattern: RegExp): RegExp => {
+  const compiled = new RegExp(
     pattern.source
       .replace(/\\b/g, WORD_BOUNDARY)
       .replace(/\\w/g, W)
       .replace(/\\W/g, String.raw`[^\p{L}\p{N}_]`),
     'u',
   )
+  COMPILED.push(compiled)
+  return compiled
+}
 
 /**
  * A keyword bounded on the left only: `backend` matches "backends". The bound is Unicode, so
@@ -248,9 +266,16 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
     /cybersecurity engineer/,
     /security architect/,
     /information security/,
-    // an engineer noun + a security domain, in either order (research §1.6 uk label «Інженер з кібербезпеки»)
-    /(?=.*інженер).*(кібербезпек|інформаційн\w* безпек)/,
-    /(?=.*инженер).*(кибербезопасн|информационн\w* безопасн)/,
+    // an engineer noun + a security domain, in either order (research §1.6 uk label «Інженер з кібербезпеки»).
+    // Tried only at a line start (`.` stops at these four terminators, so a later start finds nothing
+    // the line start misses): unanchored, every position rescanned the line, 2,000 chars = 80 ms (SR-H-2).
+    // The adjective is checked backwards from the space before the domain word (` (?<=…\w* )безпек`),
+    // not forwards from the adjective: `інформаційн\w*` re-read the rest of the word from every
+    // `інформаційн` in it, so one word of repeated `інформаційн` was quadratic (PR #1500 SR-M-1). The
+    // literal space comes first, so the lookbehind runs only where a space is. Same matches: `\w*`
+    // cannot cross the space, so either form needs the adjective's word to end right before ` безпек`.
+    /(?<![^\n\r\u2028\u2029])(?=.*інженер).*(кібербезпек| (?<=інформаційн\w* )безпек)/,
+    /(?<![^\n\r\u2028\u2029])(?=.*инженер).*(кибербезопасн| (?<=информационн\w* )безопасн)/,
   ],
   SECURITY_ANALYST: [
     /security analyst/,
@@ -370,7 +395,51 @@ const ROLE_KEYWORDS = (Object.entries(ROLE_PATTERNS) as [SpecificRole, readonly 
   ([role, patterns]) => ({ role, patterns: patterns.map(keyword) }),
 )
 
-const GENERIC_KEYWORDS = [
+/**
+ * rc.2: non-English developer nouns (de / fr / es / it / nl / pl). German / Dutch `entwickler` /
+ * `ontwikkelaar` count only as a separate word or after an allowlisted software prefix
+ * (`softwareentwickler`, `webentwickler`, `ki-entwickler`, `softwareontwikkelaar`); a compound with any
+ * other prefix (`personal`, `immobilien`, `projekt`, `projectontwikkelaar`) is no developer noun. The
+ * Romance nouns (`développeur`, `desarrollador`, `sviluppatore`) are vetoed only by a business /
+ * real-estate qualifier immediately after the noun (`développeur foncier`, `desarrollador de negocios`),
+ * so `développeur java - projets innovants` still matches. Guards live here, not in `EXCLUDE_*` (which
+ * would make the title NON_IT).
+ *
+ * Review round 2: stack prefixes join the compound allowlist (`javaentwickler`, `backendontwikkelaar`);
+ * the Romance veto sees through gender / plural suffixes (`desarrollador(a)`, `développeur·se`,
+ * `desarrolladoras`) and one space-separated word (`développeur senior projets immobiliers`; a
+ * space-only separator keeps `développeur java - projets innovants` a developer), and `projets` /
+ * `proyectos` / `progetti` veto only without a software qualifier (`de projets informatiques`).
+ *
+ * Review round 3: a separated Dutch qualifier vetoes `ontwikkelaar` (`vastgoed ontwikkelaar`), the
+ * short prefixes `ki` / `mobile` do not match as a word suffix (`skientwickler`, `automobileentwickler`),
+ * and the Italian plural `sviluppatori` / `sviluppatrici` is a developer noun.
+ *
+ * Review round 4: an allowlisted compound prefix counts only at a word start (a hyphen is one), so a
+ * short stem at the end of another word is no developer noun (`magnetentwickler`, `biosentwickler`,
+ * `kabinetontwikkelaar`); this anchoring replaces the round-3 `ki` / `mobile` suffix guards.
+ */
+const DE_PREFIX_ALLOW = String.raw`software|applikations|anwendungs|web|app|ki|spiele|game|datenbank|frontend|backend|fullstack|full-stack|java|python|php|javascript|typescript|net|sap|abap|ios|android|mobile|cloud|daten|bi|embedded-software|c\+\+|golang|rust|kotlin|swift|react|angular|node`
+const DE_SEPARATED_DENY = String.raw`hardware|elektronik|projekt|produkt|personal|organisations|immobilien|stadt|geschäftsfeld|elektro|mechanik|konstruktions|maschinenbau`
+const ROMANCE_SUFFIX = String.raw`(a|e?se|trices?|s|es|as|ses)`
+const ROMANCE_SOFTWARE_QUALIFIER = String.raw`\W+((de|del|di)\W+|d['’])?(informatiques?|logiciels?|it\b|web|digital|software|inform[aá]tic)`
+const ROMANCE_VETO = String.raw`(\s?\(${ROMANCE_SUFFIX}\)|[/.·]${ROMANCE_SUFFIX}|${ROMANCE_SUFFIX})?(\W+|\s+\w+\s+)((de|del|di)\W+|d['’])?(immobili|inmobili|foncier|nouveaux|(projets?|proyectos?|progett\w*)\b(?!${ROMANCE_SOFTWARE_QUALIFIER})|commercial|comercial|affaires|negocio|business(?!\W*intelligence)|territo|vendite|ventas)`
+const FOREIGN_DEV_NOUN = String.raw`((?:(?<!\w)|(?<=(?<!\w)(?:${DE_PREFIX_ALLOW})))(?<!(${DE_SEPARATED_DENY})[\s-])entwickler|softwareentwicklung|(d[ée]veloppeu(r|se)|desarrollador|sviluppat(ore|rice|ori|rici))(?!${ROMANCE_VETO})|(?:(?<!\w)|(?<=(?<!\w)(?:software|applicatie|web|app|frontend|backend|fullstack|java|python|php|net)))(?<!(vastgoed|project(en)?|gebieds|business)[\s-])ontwikkelaar(?!\W+(vastgoed|project(en)?\b|gebieds|business))|programist(a|ka))`
+/**
+ * Gate safety net (`role-scope-gate.ts`): any `entwickler` / `ontwikkelaar` compound outside the
+ * non-software deny list, and every Romance developer noun with no qualifier veto, so a title the
+ * rule allowlist misses reaches the AI instead of being hidden.
+ */
+export const FOREIGN_DEV_NOUN_LOOSE = rx(
+  new RegExp(
+    String.raw`(?<!(hardware|elektronik|projekt|produkt|personal|organisations|immobilien|stadt|geschäftsfeld|vastgoed|project)[\s-]?)(entwickler|ontwikkelaar)|d[ée]veloppeu(r|se)|desarrollador|sviluppat(ore|rice|ori|rici)`,
+  ),
+)
+/** Appends the foreign developer nouns to an alternation-group noun pattern. */
+const withForeignNouns = (pattern: RegExp): RegExp =>
+  rx(new RegExp(String.raw`${pattern.source}|${FOREIGN_DEV_NOUN}`))
+
+export const GENERIC_KEYWORDS: readonly RegExp[] = [
   /software (engineer|developer)/,
   /\bswe\b/,
   /product engineer/,
@@ -382,8 +451,10 @@ const GENERIC_KEYWORDS = [
   /разработчик/,
   /програміст/,
   /программист/,
-].map(keyword)
-const GENERIC_NOUN = rx(
+]
+  .map(keyword)
+  .concat(rx(new RegExp(FOREIGN_DEV_NOUN)))
+const GENERIC_NOUN = withForeignNouns(
   /(software|developer|programmer|розробник|разработчик|програміст|программист|\bswe\b)/,
 )
 
@@ -391,16 +462,16 @@ const EXCLUDE_PHRASE = rx(
   /\b(aso|sales engineer|solutions engineer|presales|pre-sales|business development|sales (manager|representative|executive|lead|specialist)|account (executive|manager)|recruiter|recruiting|talent acquisition|hr (manager|business partner|generalist)|marketing (manager|specialist|lead)|seo (specialist|manager)|copywriter|customer (success|support|service)|accountant|finance manager|product manager|project manager|delivery manager|product owner|scrum master|lawyer|landscape architect|ландшафтн\w* (архітектор|архитектор)\w*|(архітектор|архитектор)\w*\W(інтер\Sєр|интерьер|будів|здани)\w*|(архітектор|архитектор)\w*\W(проєктувальн|проектировщ|дизайнер)\w*(?=\W*$)|interior architect|building architect)\b/,
 )
 const EXCLUDE_BARE = rx(/\b(sales|marketing|recruit\w*|hr|legal|seo|finance)\b/)
-const ENG_NOUN = rx(
+const ENG_NOUN = withForeignNouns(
   /(developer|engineer|programmer|architect|devops|\bqa\b|tester|scientist|analyst|administrator|\bsre\b|\bdba\b|розробник|разработчик|програміст|программист|інженер|инженер)/,
 )
-const JOB_NOUN = rx(
+const JOB_NOUN = withForeignNouns(
   /(developer|engineer|programmer|architect|designer|analyst|administrator|admin\b|tester|\bqa\b|aqa|sdet|scientist|\bdba\b|\bsre\b|devops|pentester|hacker|\bcto\b|chief technology officer|chief technical officer|head of|director|vp\b|development manager|r&d manager|lead\b|specialist|expert|consultant|researcher|\bdev\b|розробник|разработчик|програміст|программист|тестувальник|тестировщик|адміністратор|администратор|аналітик|аналитик|архітектор|архитектор|дизайнер|інженер|инженер|сисадм|верстальщик|верстальник)/,
 )
 /** A Cyrillic engineer title with no analyst noun (either script): the security engineer, not the analyst. */
 const CYRILLIC_ENGINEER = rx(/^(?!.*(аналіт|аналит|analyst)).*(інженер|инженер)/)
 const AI_FOCUS = rx(/\b(llm|genai|generative|agent|rag|prompt)/)
-const HINT_NOUN = rx(
+const HINT_NOUN = withForeignNouns(
   /(developer|engineer|programmer|розробник|разработчик|програміст|программист|dev\b|lead\b)/,
 )
 
@@ -409,7 +480,7 @@ const HINT_NOUN = rx(
  * match (`#` and `.` are not word characters), so C# / .NET fell through to SOFTWARE_ENGINEER; the
  * §3.2 table names them backend, so they get their own bounds here.
  */
-const TECH_HINTS: readonly { pattern: RegExp; role: TechnicalRole | null }[] = [
+export const TECH_HINTS: readonly { pattern: RegExp; role: TechnicalRole | null }[] = [
   {
     pattern: rx(
       /\b(java|golang|go(?![\s\p{Pd}]+to\b)|python|php|ruby|rails|scala|elixir|rust|node\.?js|nestjs|django|laravel|spring)\b/u,
@@ -447,7 +518,7 @@ const ARCHITECT_DOMAINS: readonly { pattern: RegExp; role: TechnicalRole }[] = [
  * `Design`), and technology tags that name no role (`SQL`, `Kotlin`, `C++`).
  */
 // a Map, not an object: a tag like `constructor` must not read an `Object.prototype` member
-const EQ_BOARD_CATEGORIES: ReadonlyMap<string, TechnicalRole> = new Map(
+export const EQ_BOARD_CATEGORIES: ReadonlyMap<string, TechnicalRole> = new Map(
   (
     [
       ['SOFTWARE_ENGINEER', ['software-development']],
@@ -590,3 +661,16 @@ export function classifyRoles(input: {
   const roles = fromBoard.length > 0 ? fromBoard : fromTitle
   return roles.length > 0 ? { kind: 'ROLES', roles: sortRoles(roles) } : { kind: 'UNCLASSIFIED' }
 }
+
+/**
+ * Compile every pattern at import (boot), not inside the first classifications. V8 interprets a
+ * pattern on its first run and compiles it to native code on its second, separately for one-byte
+ * (Latin-1) and two-byte (e.g. Cyrillic) subjects. For these ~285 patterns that cost landed on the
+ * first titles of a process: 180 ms and 93 ms of one synchronous block each on a 500-char title
+ * (Node 22, PR #1500 SR-H-2 round 4), against ~10 ms warm. Two runs on a short subject of each
+ * kind pay it at boot instead, where nothing is waiting.
+ */
+// One string, one StringLiteral mutant (to ''): it only skips the warm-up, and compile timing changes no
+// verdict and is not observable from a unit test.
+// Stryker disable next-line StringLiteral: the warm-up subjects change compile timing only, never a verdict.
+for (const pattern of COMPILED) for (const subject of 'aaйй') pattern.test(subject)

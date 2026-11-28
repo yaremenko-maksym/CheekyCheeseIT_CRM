@@ -99,11 +99,23 @@ describe('buildSourceObservation: quarantine', () => {
       { nativeId: null, url: 'https://u:p@a.example/j' },
       'NO_IDENTITY',
     ],
+  ] as const)('quarantines %s as %s, naming no posting', (_n, over, reason) => {
+    expect(build(over as Partial<RawObservationFields>)).toEqual({ ok: false, reason })
+  })
+
+  // Backlog 470: refused after the identity was built, so the run can count the record present.
+  it.each([
     ['a native id but an unsafe posting link', { url: 'https://10.0.0.1/j' }, 'UNSAFE_URL'],
     ['a missing title', { title: ' ‎ ' }, 'MISSING_TITLE'],
     ['a missing employer', { companyName: null }, 'MISSING_COMPANY'],
-  ] as const)('quarantines %s as %s', (_n, over, reason) => {
-    expect(build(over as Partial<RawObservationFields>)).toEqual({ ok: false, reason })
+  ] as const)('quarantines %s as %s, naming the posting', (_n, over, reason) => {
+    const valid = build()
+    if (!valid.ok) throw new Error('the base record must build')
+    expect(build(over as Partial<RawObservationFields>)).toEqual({
+      ok: false,
+      reason,
+      identityKey: valid.observation.identity.identityKey,
+    })
   })
 
   it('accepts the same record once the defect is removed (the quarantine is not unconditional)', () => {
@@ -349,5 +361,26 @@ describe('buildSourceObservation: Unicode tags', () => {
     expect(ok({ tags: ['Київ', 'Львів'] }).contentHash).toBe(
       ok({ tags: ['Львів', 'Київ'] }).contentHash,
     )
+  })
+})
+
+describe('buildSourceObservation: structured salary (sources-17)', () => {
+  const salary = { min: 4000, max: 5500, currency: 'eur', period: 'MONTH' } as const
+
+  it('keeps a valid salary, normalized, and it moves the content hash', () => {
+    const o = ok({ salary })
+    expect(o.normalized.salary).toEqual({ ...salary, currency: 'EUR' })
+    expect(o.contentHash).not.toBe(ok().contentHash)
+  })
+
+  it('a refused salary is dropped, never quarantines, and hashes like no salary', () => {
+    const o = ok({ salary: { ...salary, period: 'DAY' as never } })
+    expect('salary' in o.normalized).toBe(false)
+    expect(o.contentHash).toBe(ok().contentHash)
+  })
+
+  it('no salary leaves no key on the normalized fields', () => {
+    expect('salary' in ok().normalized).toBe(false)
+    expect('salary' in ok({ salary: null }).normalized).toBe(false)
   })
 })

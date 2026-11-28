@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Logger } from '@nestjs/common'
 import { z } from 'zod'
 import type { SourceObservation } from '../normalize/observation'
 
@@ -26,6 +27,7 @@ import {
   ALLOWED_JSON_REQUEST_HEADERS,
   DEFAULT_OVERLAP_MS,
   defineApiJsonProvider,
+  OBSERVE_TURN_BUDGET_MS,
   UNBUILT_REQUEST_URL,
 } from './api-json.provider'
 import { DEFAULT_API_JSON_LIMITS } from './api-json.limits'
@@ -143,6 +145,8 @@ interface Harness {
   cache: Map<string, CachedResponse>
   /** U6b: how many times the loop told the context the run was a single page. */
   singlePage: { count: number }
+  /** Observed decoded page byte sizes reported to the context. */
+  observedPageBytes: number[]
 }
 
 /**
@@ -194,6 +198,7 @@ function harness(opts: {
   const saved: ValidatedCheckpoint[] = []
   const cache = new Map<string, CachedResponse>(Object.entries(opts.cacheSeed ?? {}))
   const singlePage = { count: 0 }
+  const observedPageBytes: number[] = []
   const controller = new AbortController()
   if (opts.aborted === true) controller.abort()
   let fetches = 0
@@ -208,6 +213,9 @@ function harness(opts: {
     secrets: opts.secrets ?? [],
     observeSinglePage() {
       singlePage.count += 1
+    },
+    observePageBytes(bytes) {
+      observedPageBytes.push(bytes)
     },
     async fetchText(request) {
       const page = opts.pages[fetches]
@@ -299,7 +307,7 @@ function harness(opts: {
     },
   }
 
-  return { ctx, calls, reconciles, saved, sent, cache, singlePage }
+  return { ctx, controller, calls, reconciles, saved, sent, cache, singlePage, observedPageBytes }
 }
 
 const onePage = (jobs: unknown[]) => ({ body: { jobs, next: null } })
@@ -505,6 +513,38 @@ describe('bad items are isolated, not fatal', () => {
     expect(batch.invalidSamples[0]?.reason).toContain('QUARANTINED')
   })
 
+  // Backlog 470: a quarantine that still has its identity is listed present and keeps the claim;
+  // one with no identity is not present and costs it.
+  it('a quarantined item with an identity is marked present, not counted as not-open', async () => {
+    const h = harness({
+      pages: [onePage([job('1'), job('2', { url: 'http://jobs.example.com/j/2' })])],
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+    expect(batch.coverage).toBe('FULL_INVENTORY')
+    expect(batch.present?.held).toEqual([])
+    expect(batch.present?.quarantined).toHaveLength(1)
+    expect(batch.present?.quarantined[0]).toContain('"2"')
+  })
+
+  it('a quarantined item with no identity is not present, and the run claims no inventory', async () => {
+    const h = harness({
+      pages: [onePage([job('1'), job('2', { url: 'http://jobs.example.com/j/2' })])],
+    })
+    const spec = makeSpec({
+      mapItem: (item, cfg) => ({
+        namespace: cfg.namespace,
+        ...(item.id !== '2' && { nativeId: item.id }),
+        url: item.url,
+        title: item.title,
+        companyName: item.company,
+      }),
+    })
+    const batch = await collectJsonPages(spec, config(), h.ctx)
+    expect(batch.invalidSamples[0]?.reason).toBe('QUARANTINED: NO_IDENTITY')
+    expect(batch.coverage).toBe('PARTIAL')
+    expect(batch.present).toBeUndefined()
+  })
+
   it('bounds the samples it keeps, however many items were refused', async () => {
     const bad = Array.from({ length: 40 }, (_, i) => ({ id: String(i) }))
     const h = harness({ pages: [onePage(bad)] })
@@ -525,6 +565,113 @@ describe('bad items are isolated, not fatal', () => {
     const batch = await collectJsonPages(spec, config(), pastCap.ctx)
     expect(batch.requests.at(-1)?.error?.code).toBe('PAYLOAD_TOO_LARGE')
     expect(batch.outcome).toBe('FAILED')
+  })
+
+  it('drops what skipItem names before counting, and checks the item cap on the page as sent', async () => {
+    const skipTwo = makeSpec({ skipItem: (item) => (item as Item).id === '2' })
+    const h = harness({ pages: [onePage([job('1'), job('2'), job('3')])] })
+    const batch = await collectJsonPages(skipTwo, config(), h.ctx)
+    // A skipped item is not a raw item: it never reaches the counts or the store.
+    expect(batch.counts.raw).toBe(2)
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(['1', '3'])
+
+    // Three items over a cap of two fail the page, although skipItem would leave two of them.
+    const capped = makeSpec({
+      limits: { maxItemsPerPage: 2, maxPages: 5 },
+      skipItem: (item) => (item as Item).id === '3',
+    })
+    const pastCap = harness({ pages: [onePage([job('1'), job('2'), job('3')])] })
+    const failed = await collectJsonPages(capped, config(), pastCap.ctx)
+    expect(failed.requests.at(-1)?.error?.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(failed.outcome).toBe('FAILED')
+  })
+
+  it('gives the event loop a turn once a page has spent its turn budget (PR #1500 SR-H-2)', async () => {
+    // A page of up to 5,000 items, each with a costly `skipItem`, blocked the loop for ~22 s in
+    // one synchronous pass. A clock only the items move (8 ms each) makes the turn count exact; a
+    // real clock adds a yield whenever a loaded runner deschedules an item.
+    expect(OBSERVE_TURN_BUDGET_MS).toBe(20)
+    const ITEMS = 12
+    let clock = 0
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const immediate = vi.spyOn(globalThis, 'setImmediate')
+    try {
+      const costly = makeSpec({
+        skipItem: () => {
+          clock += 8
+          return false
+        },
+      })
+      const h = harness({
+        pages: [onePage(Array.from({ length: ITEMS }, (_, i) => job(String(i + 1))))],
+      })
+      const batch = await collectJsonPages(costly, config(), h.ctx)
+      expect(batch.observations).toHaveLength(ITEMS)
+      // 12 items x 8 ms in 20 ms turns: a turn before items 4, 7 and 10, so exactly 3 yields. One
+      // synchronous pass gives 0, a yield before every item 11, a budget never reset 9.
+      expect(immediate).toHaveBeenCalledTimes(3)
+    } finally {
+      now.mockRestore()
+      immediate.mockRestore()
+    }
+  })
+
+  it('ends the run CANCELLED and persists nothing from a page cancelled during a yield', async () => {
+    // The run is cancelled while the page has given the loop a turn: the page must not persist.
+    let clock = 0
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const h = harness({ pages: [onePage([job('1'), job('2'), job('3')])] })
+    const realImmediate = globalThis.setImmediate
+    const immediate = vi.spyOn(globalThis, 'setImmediate').mockImplementation(((
+      callback: () => void,
+    ) => {
+      h.controller.abort()
+      return realImmediate(callback)
+    }) as typeof setImmediate)
+    try {
+      const timed = makeSpec({
+        skipItem: () => {
+          clock += OBSERVE_TURN_BUDGET_MS
+          return false
+        },
+      })
+      const batch = await collectJsonPages(timed, config(), h.ctx)
+      expect(immediate).toHaveBeenCalledTimes(1)
+      expect(batch.outcome).toBe('CANCELLED')
+      expect(batch.observations).toEqual([])
+      expect(h.saved).toEqual([])
+      expect(batch.requests.at(-1)?.error).toEqual({
+        code: 'CANCELLED',
+        message: 'the run was cancelled during this page',
+      })
+    } finally {
+      now.mockRestore()
+      immediate.mockRestore()
+    }
+  })
+
+  it('yields once a stretch has run exactly the turn budget, not only past it', async () => {
+    // A clock only the items move: each item costs exactly OBSERVE_TURN_BUDGET_MS. A stretch that
+    // has spent its whole budget ends, so items 2 and 3 each start a new turn: 2 yields (1 if the
+    // stretch had to run past the budget).
+    let clock = 0
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const immediate = vi.spyOn(globalThis, 'setImmediate')
+    try {
+      const timed = makeSpec({
+        skipItem: () => {
+          clock += OBSERVE_TURN_BUDGET_MS
+          return false
+        },
+      })
+      const h = harness({ pages: [onePage([job('1'), job('2'), job('3')])] })
+      const batch = await collectJsonPages(timed, config(), h.ctx)
+      expect(batch.observations).toHaveLength(3)
+      expect(immediate).toHaveBeenCalledTimes(2)
+    } finally {
+      now.mockRestore()
+      immediate.mockRestore()
+    }
   })
 })
 
@@ -813,7 +960,8 @@ describe('bounded page iteration', () => {
     expect(batch.observations).toHaveLength(3)
   })
 
-  it('calls a page cap on a SEARCH scope a WINDOW', async () => {
+  // CR-M-4 (backlog 470): WINDOW under AC1; a capped search claims nothing now.
+  it('calls a page cap on a SEARCH scope PARTIAL', async () => {
     const h = harness({ pages: endless })
     const batch = await collectJsonPages(
       makeSpec({ limits: { maxPages: 2 } }),
@@ -822,7 +970,7 @@ describe('bounded page iteration', () => {
     )
 
     expect(batch.outcome).toBe('SUCCEEDED')
-    expect(batch.coverage).toBe('WINDOW')
+    expect(batch.coverage).toBe('PARTIAL')
   })
 
   it('calls the SAME page cap on a full-inventory scope PARTIAL', async () => {
@@ -3510,6 +3658,93 @@ describe('the response cap a source declares', () => {
     expect(batch.requests.at(-1)?.error?.code).toBe('PAYLOAD_TOO_LARGE')
     expect(batch.observations).toEqual([])
   })
+
+  it('ARBEITNOW_API accepts up to 24 MiB cap at config time; non-allowlisted source is capped at 10 MiB', async () => {
+    const TWENTY_FOUR_MIB = 24 * 1024 * 1024
+    const h = harness({ pages: [onePage([job('1')])] })
+    // Non-allowlisted source (default REMOTEOK_API) declaring 24 MiB is refused at config time
+    await expect(collectJsonPages(withCap(TWENTY_FOUR_MIB), config(), h.ctx)).rejects.toThrow(
+      'invalid maxBytes: 25165824 (must be 1..10485760)',
+    )
+
+    // ARBEITNOW_API declaring 24 MiB is accepted and attached to the request
+    const arbeitnowSpec = makeSpec({
+      type: 'ARBEITNOW_API',
+      limits: { maxPages: 5, maxBytes: TWENTY_FOUR_MIB },
+    })
+    await collectJsonPages(arbeitnowSpec, config(), h.ctx)
+    expect(h.sent[0]?.maxBytes).toBe(TWENTY_FOUR_MIB)
+
+    // ARBEITNOW_API declaring 24 MiB + 1 is refused at config time
+    const overSpec = makeSpec({
+      type: 'ARBEITNOW_API',
+      limits: { maxPages: 5, maxBytes: TWENTY_FOUR_MIB + 1 },
+    })
+    await expect(collectJsonPages(overSpec, config(), h.ctx)).rejects.toThrow(
+      'invalid maxBytes: 25165825 (must be 1..25165824)',
+    )
+  })
+
+  it('page decoded byte size is observable by context and warns when >= 80% of declared cap', async () => {
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    try {
+      const cap = 10_000
+      // Only a source with a declared (allow-listed) cap warns (sources-10 SO-5): today Arbeitnow.
+      const declared = makeSpec({ type: 'ARBEITNOW_API', limits: { maxPages: 5, maxBytes: cap } })
+      // 80% of 10,000 = 8000 bytes
+      const nearCapPayload = JSON.stringify({
+        jobs: [],
+        next: null,
+        padding: 'x'.repeat(8000),
+      })
+      const nearCapBytes = Buffer.byteLength(nearCapPayload)
+      expect(nearCapBytes).toBeGreaterThanOrEqual(8000)
+
+      const hNear = harness({ pages: [{ bodyText: nearCapPayload }] })
+      await collectJsonPages(declared, config(), hNear.ctx)
+      expect(hNear.observedPageBytes).toEqual([nearCapBytes])
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('is at or above 80% of declared cap'),
+      )
+
+      // The same page on a source without a declared cap (REMOTEOK_API) observes but never warns.
+      warnSpy.mockClear()
+      const hUndeclared = harness({ pages: [{ bodyText: nearCapPayload }] })
+      await collectJsonPages(withCap(cap), config(), hUndeclared.ctx)
+      expect(hUndeclared.observedPageBytes).toEqual([nearCapBytes])
+      expect(warnSpy).not.toHaveBeenCalled()
+
+      // Sub-80% payload (no warning)
+      warnSpy.mockClear()
+      const smallPayload = JSON.stringify({ jobs: [], next: null })
+      const smallBytes = Buffer.byteLength(smallPayload)
+      expect(smallBytes).toBeLessThan(8000)
+
+      const hSmall = harness({ pages: [{ bodyText: smallPayload }] })
+      await collectJsonPages(declared, config(), hSmall.ctx)
+      expect(hSmall.observedPageBytes).toEqual([smallBytes])
+      expect(warnSpy).not.toHaveBeenCalled()
+
+      // The boundary is inclusive: exactly 80% warns, one byte under does not.
+      const sized = (bytes: number): string => {
+        const shell = JSON.stringify({ jobs: [], next: null, padding: '' })
+        return JSON.stringify({ jobs: [], next: null, padding: 'x'.repeat(bytes - shell.length) })
+      }
+      for (const [bytes, warns] of [
+        [8000, true],
+        [7999, false],
+      ] as const) {
+        warnSpy.mockClear()
+        const body = sized(bytes)
+        const hEdge = harness({ pages: [{ bodyText: body }] })
+        await collectJsonPages(declared, config(), hEdge.ctx)
+        expect(hEdge.observedPageBytes, String(bytes)).toEqual([bytes])
+        expect(warnSpy.mock.calls.length > 0, String(bytes)).toBe(warns)
+      }
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
 })
 
 describe('a failure BEFORE the request leaves is named for what it is', () => {
@@ -3697,7 +3932,7 @@ describe('collectPages validates the cap it consumes (SR-M-5)', () => {
 })
 
 describe('U2: a JSON page`s envelope fingerprint reaches the context', () => {
-  it('is the fingerprint of the page body`s field names', async () => {
+  it('is the fingerprint of the page body`s top-level envelope keys', async () => {
     const page = onePage([job('1')])
     const h = harness({ pages: [page] })
     const seen: string[] = []
@@ -3708,5 +3943,23 @@ describe('U2: a JSON page`s envelope fingerprint reaches the context', () => {
     expect(seen).toHaveLength(1)
     expect(seen[0]).toMatch(/^[0-9a-f]{64}$/)
     expect(seen[0]).toBe(jsonEnvelopeFingerprint(page.body))
+  })
+
+  it('is not observed on a RESUMED walk (its first page is mid-sequence, CR-M-1)', async () => {
+    const resumed: ValidatedCheckpoint = {
+      configVersion: 1,
+      policyVersion: 1,
+      adapterVersion: 'test-1',
+      position: { kind: 'CURSOR', page: 10, cursor: 'cursor-from-run-1' },
+      completedAt: new Date('2026-10-20T09:00:00Z'),
+    }
+    const h = harness({ pages: endlessPages(3), stored: resumed })
+    const seen: string[] = []
+    h.ctx.observeEnvelope = (fp) => {
+      seen.push(fp)
+    }
+    await collectJsonPages(makeSpec({ limits: { maxPages: 2 } }), config(), h.ctx)
+    expect(h.calls.filter((c) => c.startsWith('fetch')).length).toBe(2)
+    expect(seen).toEqual([])
   })
 })

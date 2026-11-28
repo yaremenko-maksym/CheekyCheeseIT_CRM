@@ -118,7 +118,7 @@ The User explicitly asked to "save on taxes" — give legitimate tactics:
 **CRITICAL before reading:**
 
 - This is a **practical roadmap**, not a replacement for professional supervision. At least **3 human professionals are mandatory** (see section 6): a tax consultant with a Diia City specialization, a corporate lawyer for the contracts, a permanent accountant. Without them the roadmap turns into a risk.
-- **The figures in section 2 are a conditional example** (5M UAH turnover, 2M UAH net profit). For the real turnovers of ₴50-90M/year (our scale per the [previous consultation](2026-05-31-tov-multi-channel-revenue.md)) apply with **proportional scaling and a mandatory tax consultation** — this falls into the zone of **§ 4 [escalation-zones.md](../../legal/cross-cutting/escalation-zones.md)** (tax amounts > 100k UAH).
+- **The figures in section 2 are a conditional example** (5M UAH turnover, 2M UAH net profit). For the real turnovers of ₴50-90M/year (our scale per the [previous consultation](2026-05-31-tov-multi-channel-revenue.md)) apply with **proportional scaling and a mandatory tax consultation** — this falls into the zone of **§ 4 [escalation-zones.md](../legal/cross-cutting/escalation-zones.md)** (tax amounts > 100k UAH).
 - **All "money" in the roadmap are recommendations in UAH at the rate of 2026-05-31.** The real amounts at the moment of implementation may differ, especially for the services of lawyers/accountants (the market fluctuates ±30%).
 
 ### TL;DR
@@ -967,10 +967,10 @@ These tactics exist, but **the line between optimization and evasion here is blu
 
 #### Internal consultations
 
-- [`docs/specs/legal-consultations/2026-05-31-tov-multi-channel-revenue.md`](2026-05-31-tov-multi-channel-revenue.md) — the previous consultation with the recommended structure
-- [`docs/specs/legal-consultations/2026-05-31-usdt-payouts-phase8.md`](2026-05-31-usdt-payouts-phase8.md) — the crypto part (already excluded from multi-channel)
-- [`docs/legal/cross-cutting/escalation-zones.md`](../../legal/cross-cutting/escalation-zones.md) — the zones of mandatory escalation
-- [`docs/legal/cross-cutting/citation-rules.md`](../../legal/cross-cutting/citation-rules.md) — the citation format
+- [`.claude/knowledge/legal-consultations/2026-05-31-tov-multi-channel-revenue.md`](2026-05-31-tov-multi-channel-revenue.md) — the previous consultation with the recommended structure
+- [`.claude/knowledge/legal-consultations/2026-05-31-usdt-payouts-phase8.md`](2026-05-31-usdt-payouts-phase8.md) — the crypto part (already excluded from multi-channel)
+- [`.claude/knowledge/legal/cross-cutting/escalation-zones.md`](../legal/cross-cutting/escalation-zones.md) — the zones of mandatory escalation
+- [`.claude/knowledge/legal/cross-cutting/citation-rules.md`](../legal/cross-cutting/citation-rules.md) — the citation format
 
 ### Disclaimer
 

@@ -85,6 +85,13 @@ export function makeResponse(
     verifiedAt: null,
     verifiedByName: null,
     recheckNeededAt: null,
+    header: { displayName: null, email: null, phone: null, telegram: null },
+    headerDefaults: {
+      displayName: 'Jane Doe',
+      email: 'jane@example.com',
+      phone: null,
+      telegram: null,
+    },
     staged: STAGED,
     verificationBusy: false,
     ...overrides,

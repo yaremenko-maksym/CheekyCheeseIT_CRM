@@ -9,9 +9,13 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 import type { ResumeFacts } from '@crm/shared'
 import type { SeniorResume } from '../../database/schema'
+import { markSeniorResumeDirty } from '../../job-sourcing/dirty-producers'
 import { fakeRunDb } from '../../test/fake-run-db'
 import { ResumeVerificationService } from './resume-verification.service'
 import { CLEARED_STAGED } from './verification-runner'
+
+// Senior roles PR 4: the roster dirty mark is covered by resume-dirty.integration.spec.ts.
+vi.mock('../../job-sourcing/dirty-producers')
 
 const FACTS: ResumeFacts = {
   headline: 'Senior Backend Engineer',
@@ -68,8 +72,9 @@ async function refusal(p: Promise<unknown>): Promise<HttpException> {
 
 describe('ResumeVerificationService.submit', () => {
   it('queues a full run with a new run id, clears the staged columns, then fires the runner', async () => {
-    const queued = { ...ROW, verificationStatus: 'QUEUED' }
+    const queued = { ...ROW, verificationStatus: 'QUEUED', userId: 'u-1' }
     const { svc, s3, runner, log } = service([[queued]])
+    vi.mocked(markSeniorResumeDirty).mockClear()
     const out = await svc.submit(ROW, 'Jane Doe', 'viewer-1')
 
     expect(out).toBe(queued)
@@ -95,6 +100,11 @@ describe('ResumeVerificationService.submit', () => {
       params: [],
     })
     expect(runner.run).toHaveBeenCalledWith('r-1', set.verificationRunId)
+    // Senior roles PR 4: the queued write marks the senior's resume dirty, inside its transaction.
+    // SR-L-1: it carries the row before and after the write, so the guard can compare skills.
+    expect(vi.mocked(markSeniorResumeDirty).mock.calls).toEqual([
+      [expect.anything(), 'u-1', { before: expect.anything(), after: expect.anything() }],
+    ])
     // The old staged object goes after the write.
     expect(s3.delete.mock.calls).toEqual([['resumes/r-1/staged/old.pdf']])
 
@@ -245,11 +255,14 @@ describe('ResumeVerificationService.submit', () => {
 
   it('a write that misses on a row that still exists is 409 and starts nothing', async () => {
     const { svc, s3, runner, log } = service([[], [{ id: 'r-1' }]])
+    vi.mocked(markSeniorResumeDirty).mockClear()
     const err = await refusal(svc.submit(ROW, 'Jane Doe', 'v'))
     expect(err.getStatus()).toBe(409)
     expect(log.map((q) => q.op)).toEqual(['update', 'select'])
     expect(runner.run).not.toHaveBeenCalled()
     expect(s3.delete).not.toHaveBeenCalled()
+    // A write that matched nothing marks nothing: the dirty row would never be cleared.
+    expect(markSeniorResumeDirty).not.toHaveBeenCalled()
   })
 
   it('a write that misses on a deleted row is 404', async () => {

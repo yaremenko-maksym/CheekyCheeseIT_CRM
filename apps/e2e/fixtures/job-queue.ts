@@ -83,6 +83,8 @@ export function cardSenior(overrides: Partial<QueueCardSenior> = {}): QueueCardS
     matchApproximate: false,
     matchedKeywords: ['React'],
     matchEvidence: [{ keyword: 'React', strength: 'CORE' }],
+    skillOverlap: null,
+    relevancePercent: null,
     submission: null,
     ...overrides,
   })
@@ -130,6 +132,7 @@ export function listResponse(
     nextCursor: null,
     counts: { NEW: items.length, SUBMITTED: 0, HIDDEN: 0 },
     generation: { ruleVersion: 'rules-v1', evaluatedAt: T0, capped: false },
+    sourcingNotice: null,
     ...overrides,
   })
 }
@@ -236,7 +239,14 @@ export async function mockJobQueue(
     answer(r, {
       status: 200,
       body: jobQueueSeniorOptionsResponseSchema.parse({
-        items: [{ id: MOCK_IDS.seniorA, name: 'Senior Alpha', teamName: 'Alpha Team' }],
+        items: [
+          {
+            id: MOCK_IDS.seniorA,
+            name: 'Senior Alpha',
+            teamName: 'Alpha Team',
+            technicalRoles: ['BACKEND_ENGINEER'],
+          },
+        ],
       }),
     }),
   )

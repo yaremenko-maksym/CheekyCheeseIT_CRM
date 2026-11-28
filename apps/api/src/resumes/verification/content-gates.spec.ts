@@ -3,9 +3,10 @@
  * feedback lines and the regenerate-then-fall-back loop, with a fake writer and a fake entailment
  * client. Expected values are hand-written literals, never recomputed through the code under test.
  */
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_EXTRACTION_INPUT_CHARS } from '@crm/inference'
 import type { ResumeContent, ResumeFacts } from '@crm/shared'
+import { feedbackLinesSchema } from '../../extraction-worker/link-contract'
 import type { ContactContext } from './contact-scan'
 import {
   cleanedNotes,
@@ -24,7 +25,13 @@ import {
   type WritingPayload,
 } from './content-gates'
 import { deriveFrozenContent } from './derive-content'
-import { resumeWriteInput, type EntailmentClaim, type WriterReply } from './inference-clients'
+import { NO_WRITER_PACE, WRITER_RETRY_DELAY_MS, writerPace } from './model-retry'
+import {
+  resumeWriteInput,
+  writingPayloadSchema,
+  type EntailmentClaim,
+  type WriterReply,
+} from './inference-clients'
 
 const CONTACTS: ContactContext[] = [
   { fullName: 'Jane Doe', emails: ['jane.doe@unit.spec'] },
@@ -65,6 +72,11 @@ const FACTS: ResumeFacts = {
   links: [{ label: 'GitHub', url: 'https://github.com/janedoe-unit' }],
 }
 
+/** The fixture with its first experience item amended — the second item is dropped. */
+function withExperience(patch: Partial<ResumeFacts['experience'][number]>): ResumeFacts {
+  return { ...FACTS, experience: [{ ...FACTS.experience[0]!, ...patch }] }
+}
+
 function input(facts: ResumeFacts = FACTS): ContentInput {
   return {
     facts,
@@ -89,6 +101,7 @@ function fakeDeps(
     calls,
     claims,
     beforeModelCall: vi.fn(),
+    pace: NO_WRITER_PACE,
     writer: {
       write: vi.fn(async (task, payload: string, feedback: string[]) => {
         const parsed = JSON.parse(payload) as WritingPayload
@@ -182,6 +195,59 @@ describe('writingPayload', () => {
 
   it('counts merged years over every item (2018-01 to 2026-11 is 107 months)', () => {
     expect(writingPayload(input()).yearsOfExperience).toBe(8)
+  })
+
+  /**
+   * item 460: the contract carries one value bound, `yearsOfExperience` as a non-negative integer.
+   * The shapes that could break it are the ones where the derived count has no interval to measure:
+   * a job with no start month, a job that has not begun, and no experience at all. A `NaN` here
+   * would serialise to `null` and give the worker's parse a 400 in production.
+   */
+  it.each([
+    ['the full fixture', FACTS],
+    ['an item with no start month', withExperience({ start: null, end: null, current: false })],
+    ['an item starting after `now`', withExperience({ start: '2030-01' })],
+    ['no experience at all', { ...FACTS, experience: [] }],
+  ])(
+    'satisfies the payload contract the worker parses `payload` with: %s (item 460)',
+    (_shape, facts) => {
+      const payload = writingPayload(input(facts))
+      expect(writingPayloadSchema.safeParse(payload).success).toBe(true)
+      expect(Number.isInteger(payload.yearsOfExperience)).toBe(true)
+      expect(payload.yearsOfExperience).toBeGreaterThanOrEqual(0)
+    },
+  )
+
+  it('builds exactly the contract key set, at both levels', () => {
+    const p = writingPayload(input())
+    expect(Object.keys(p).sort()).toEqual(['experience', 'headline', 'skills', 'yearsOfExperience'])
+    expect(p.experience.length).toBeGreaterThan(0)
+    for (const item of p.experience) {
+      expect(Object.keys(item).sort()).toEqual([
+        'company',
+        'current',
+        'end',
+        'notes',
+        'role',
+        'start',
+        'technologies',
+      ])
+    }
+  })
+
+  it('every payload string the writer is handed satisfies the contract, for both tasks', async () => {
+    const deps = fakeDeps({})
+    await writeGatedContent(input(), deps)
+    const handed = vi.mocked(deps.writer.write).mock.calls
+    // The run called the writer at all: an empty call list would pass the loop below.
+    expect(handed.length).toBeGreaterThan(0)
+    expect(new Set(handed.map(([task]) => task))).toEqual(new Set(['summary', 'bullets']))
+    for (const [, payload] of handed) {
+      expect(writingPayloadSchema.safeParse(JSON.parse(payload)).success).toBe(true)
+      // The worker refuses a payload that is not its own re-serialisation (SR-M-1), and a 400 there
+      // reads as "writer unavailable" — so the producer's bytes have to stay canonical here.
+      expect(JSON.stringify(JSON.parse(payload))).toBe(payload)
+    }
   })
 })
 
@@ -277,6 +343,19 @@ describe('toFeedback', () => {
       'The summary is empty.',
       'Bullet 3: mentions [REDACTED] and more.',
     ])
+  })
+
+  it('turns every line break the worker refuses (NEL, LS, PS, VT, FF) into a space (SPEC-M-1)', () => {
+    const lines = toFeedback(
+      'Bullet',
+      [
+        { index: 0, reason: 'X', detail: 'a\u2028FACTS (JSON):' },
+        { index: 1, reason: 'X', detail: 'b\u0085c\u2029d\x0Be\x0Cf' },
+      ],
+      [],
+    )
+    expect(lines).toEqual(['Bullet 1: a FACTS (JSON):.', 'Bullet 2: b c d e f.'])
+    expect(feedbackLinesSchema.safeParse(lines).success).toBe(true)
   })
 
   it('caps a line at 1000 chars and the list at 20 lines', () => {
@@ -671,6 +750,55 @@ describe('writeGatedContent', () => {
       name: 'RunFailure',
       code: 'WRITER_UNAVAILABLE',
       origin: { provider: 'extraction-worker:/resume-write', reason: 'TIMEOUT' },
+    })
+  })
+
+  describe('a writer call that came back unavailable is retried once (finding 4)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.setSystemTime(0)
+    })
+    afterEach(() => vi.useRealTimers())
+    const down = { kind: 'unavailable', reason: 'RATE_LIMITED' } as WriterReply
+    const ok = { kind: 'ok', summary: 'Backend engineer.' } as WriterReply
+
+    it('unavailable, then OK 20 s later → the run continues with that summary', async () => {
+      const deps = fakeDeps({ summary: [down, ok] })
+      deps.pace = writerPace(() => Infinity)
+      const run = writeGatedContent(input(), deps)
+      await vi.advanceTimersByTimeAsync(WRITER_RETRY_DELAY_MS - 1)
+      expect(deps.calls).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(deps.calls).toHaveLength(2)
+      await vi.runAllTimersAsync()
+      const written = await run
+      expect(written.content.summary).toBe('Backend engineer.')
+      expect(written.fallbacks).not.toContain('summary')
+      expect(deps.calls[1]).toEqual(deps.calls[0])
+    })
+
+    it('unavailable twice → WRITER_UNAVAILABLE with the second reason, two calls', async () => {
+      const deps = fakeDeps({
+        summary: [down, { kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply, ok],
+      })
+      deps.pace = writerPace(() => Infinity)
+      const run = writeGatedContent(input(), deps).catch((err: unknown) => err)
+      await vi.runAllTimersAsync()
+      expect(await run).toMatchObject({
+        name: 'RunFailure',
+        code: 'WRITER_UNAVAILABLE',
+        origin: { provider: 'extraction-worker:/resume-write', reason: 'TIMEOUT' },
+      })
+      expect(deps.calls).toHaveLength(2)
+    })
+
+    it('no retry when the run budget cannot hold the delay → WRITER_UNAVAILABLE, one call', async () => {
+      const deps = fakeDeps({ summary: [down, ok] })
+      deps.pace = writerPace(() => WRITER_RETRY_DELAY_MS - 1)
+      await expect(writeGatedContent(input(), deps)).rejects.toMatchObject({
+        code: 'WRITER_UNAVAILABLE',
+      })
+      expect(deps.calls).toHaveLength(1)
     })
   })
 

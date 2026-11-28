@@ -9,6 +9,7 @@ import {
 import * as schema from '../../database/schema'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import type { Evaluated, Excluded } from '../funnel/evaluate'
+import type { SeniorTechProfile } from '../funnel/tech-match'
 import { type RosterInputs, installMatches, rosterVersions } from './recompute-inputs'
 
 /**
@@ -58,7 +59,9 @@ const excluded: Excluded = {
 }
 
 function oneSenior(): RosterInputs {
-  const profiles = [{ seniorId: senior, teamIds: ['t'], techStack: ['Go'] }]
+  const profiles: SeniorTechProfile[] = [
+    { seniorId: senior, teamIds: ['t'], roles: ['BACKEND_ENGINEER'], skills: ['Go'] },
+  ]
   return {
     rosterSeniorIds: [senior],
     profiles,
@@ -169,13 +172,14 @@ describe.skipIf(!hasDatabaseUrl())('installMatches: the evaluation record (SR-M-
       return rows[0]?.evaluated_inputs_version as string | null
     }
     await installMatches(db, o, 5, open, empty)
-    // opportunityInputsVersion of no studio keyword at rule version 'eval.1+l1.1+rf.2'.
-    expect(await inputs()).toBe('15448b9ad280193b0540103bfb609f6f')
+    // opportunityInputsVersion of no studio keyword at rule version 'eval.3+l1.1+rf.3' (senior
+    // roles PR 4), computed by hand: sha256(JSON.stringify(['eval.3+l1.1+rf.3', []])).slice(0, 32).
+    expect(await inputs()).toBe('8d25602abfde59cdab3f14e7374ffb9b')
     await installMatches(db, o, 4, open, { ...empty, exclusions: [studioPhp] })
-    expect(await inputs()).toBe('15448b9ad280193b0540103bfb609f6f')
+    expect(await inputs()).toBe('8d25602abfde59cdab3f14e7374ffb9b')
     await installMatches(db, o, 5, open, { ...empty, exclusions: [studioPhp] })
     // ...and of the keyword 'php'.
-    expect(await inputs()).toBe('b2b289254b1bcf82a89f7284015ef800')
+    expect(await inputs()).toBe('7850cf3cfd49ee91e5610f2d8bdfc886')
   })
 
   it('the record carries the role family of either verdict; UNKNOWN is stored as NULL', async () => {

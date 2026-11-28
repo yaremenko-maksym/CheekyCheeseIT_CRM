@@ -8,6 +8,7 @@ import { lingui } from '@lingui/vite-plugin'
 import path from 'path'
 import { pwaRuntimeCaching } from './app/lib/pwa-runtime-caching'
 import { findMonorepoRoot } from './vite.shared-root'
+import { bookmarkletPlugin } from './vite-bookmarklet'
 
 // See `vite.shared-root.ts` for why this walks up to `pnpm-workspace.yaml`
 // instead of assuming `__dirname` is always exactly two levels below the
@@ -118,7 +119,14 @@ export default defineConfig({
           }
 
           // ── Анимации ────────────────────────────────────────────────────
-          if (id.includes('node_modules/framer-motion/')) {
+          // `motion/react` is a thin re-export of `framer-motion` (a transitive
+          // dependency of `motion`), so all four packages share one chunk.
+          if (
+            id.includes('node_modules/motion/') ||
+            id.includes('node_modules/framer-motion/') ||
+            id.includes('node_modules/motion-dom/') ||
+            id.includes('node_modules/motion-utils/')
+          ) {
             return 'vendor-motion'
           }
 
@@ -304,6 +312,7 @@ export default defineConfig({
     lingui(),
     tailwindcss(),
     tsConfigPaths(),
+    bookmarkletPlugin(),
     VitePWA({
       // autoUpdate: SW обновляется автоматически в фоне без промпта
       registerType: 'autoUpdate',

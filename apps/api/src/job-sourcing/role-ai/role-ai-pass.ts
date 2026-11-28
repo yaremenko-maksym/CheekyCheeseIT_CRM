@@ -3,6 +3,7 @@ import { dbErrorLogSuffix, strictErrorStack } from '../../database/pg-errors'
 import type { MeterDb } from '../metering/account-meter.store'
 import { unavailableOrigin, type Unavailable } from '../../resumes/verification/inference-clients'
 import { ROLE_CLASSIFIER_VERSION } from '../funnel/role-classifier'
+import { JEV_ROLE_PROVIDER } from './jev-role-classifier'
 import { createRoleAiStore } from './role-ai.store'
 import {
   ROLE_AI_PROVIDER,
@@ -26,6 +27,8 @@ export const ROLE_AI_REASON = `ROLE_AI:${ROLE_CLASSIFIER_VERSION}`
 export const ROLE_AI_MAX_ATTEMPTS = 10
 /** Thrown candidates in a row that stop the pass: a broken store, not one poison row. */
 export const ROLE_AI_MAX_CONSECUTIVE_ERRORS = 3
+/** Per-row Jev failures (bad reply, bad input) in one pass that turn Jev off for it (SR-M-1, PR #1469). */
+export const ROLE_AI_JEV_MAX_ITEM_FAILURES = 3
 
 const BACKOFF_BASE_MS = 15 * 60_000
 const BACKOFF_CAP_MS = 24 * 60 * 60_000
@@ -92,18 +95,18 @@ export type RoleAiDecision =
 /** Codes a next vacancy may answer differently: the pass continues past them. */
 const PER_ITEM_FAILURES: ReadonlySet<string> = new Set(['INVALID_OUTPUT', 'INVALID_INPUT'])
 
-export function decideRoleAi(reply: RoleAiReply): RoleAiDecision {
-  if (reply.kind === 'ok') {
-    const ai = reply.roles.length > 0 && reply.confidence >= ROLE_AI_MIN_CONFIDENCE
-    return {
-      kind: 'terminal',
-      terminal: {
-        outcome: ai ? 'AI' : 'UNCLEAR',
-        roles: ai ? sortRoles(reply.roles) : [],
-        confidence: reply.confidence,
-      },
-    }
+/** An answer as the terminal: AI with at least one role at the confidence gate, else UNCLEAR. */
+function roleAiTerminal(reply: Extract<RoleAiReply, { kind: 'ok' }>): RoleAiTerminal {
+  const ai = reply.roles.length > 0 && reply.confidence >= ROLE_AI_MIN_CONFIDENCE
+  return {
+    outcome: ai ? 'AI' : 'UNCLEAR',
+    roles: ai ? sortRoles(reply.roles) : [],
+    confidence: reply.confidence,
   }
+}
+
+export function decideRoleAi(reply: RoleAiReply): RoleAiDecision {
+  if (reply.kind === 'ok') return { kind: 'terminal', terminal: roleAiTerminal(reply) }
   if (reply.reason === 'NOT_CONFIGURED') return { kind: 'not-configured' }
   // Any other code is the provider's state (error, timeout, rate limit): the circuit opens.
   return { kind: 'failed', stop: !PER_ITEM_FAILURES.has(reply.reason), reply }
@@ -132,6 +135,12 @@ export function logRoleAiError(log: RoleAiLog, err: unknown, opportunityId?: str
  */
 export async function runRoleAiLoop(p: {
   store: RoleAiStore
+  /**
+   * Asked first (jev-first.md), outside the daily budget: Jev is paid per token, not the hosted free
+   * quota the budget protects. Its answer is the terminal; when it is unavailable, `client` answers.
+   */
+  jev?: RoleClassifier | undefined
+  /** The hosted worker route: the fallback, one reserved budget call each. */
   client: RoleClassifier
   log: RoleAiLog
   now: Date
@@ -151,6 +160,9 @@ export async function runRoleAiLoop(p: {
     else r.unclear += 1
   }
   let budgetSpent = false
+  let jevOff = false
+  let jevItemFailures = 0
+  let viaJev = 0
   let thrownInRow = 0
   for (const c of candidates) {
     try {
@@ -160,19 +172,51 @@ export async function runRoleAiLoop(p: {
         thrownInRow = 0
         continue
       }
-      if (budgetSpent) continue
-      if (!(await p.store.reserveCall(p.now, p.dailyBudget))) {
+      const input = { title: c.title, description: c.description, categories: c.categories }
+      let jevItemFailed = false
+      if (p.jev !== undefined && !jevOff) {
+        const jevReply = await p.jev.classify(input)
+        thrownInRow = 0
+        if (jevReply.kind === 'ok') {
+          const t = roleAiTerminal(jevReply)
+          if (await p.store.applyTerminal(c, t, true)) {
+            count(t)
+            viaJev += 1
+          }
+          continue
+        }
+        jevItemFailed = PER_ITEM_FAILURES.has(jevReply.reason)
+        // A provider state (down, slow, rate-limited, no key) holds for the rest of the pass, and so
+        // do repeated per-row failures (SR-M-1); only a per-row failure is counted.
+        jevOff = !jevItemFailed || ++jevItemFailures >= ROLE_AI_JEV_MAX_ITEM_FAILURES
+        // jevOff makes this once per pass: a hosted-only pass is visible, not silent (B-2, PR #1469).
+        if (jevReply.reason === 'NOT_CONFIGURED')
+          p.log.warn({
+            event: 'role_ai_jev_unconfigured',
+            provider: JEV_ROLE_PROVIDER,
+            cause: 'JEV_API_KEY is not set or ConfigService is absent',
+            fallback: ROLE_AI_PROVIDER,
+          })
+        else
+          p.log.warn({
+            event: 'ROLE_AI_JEV_FAILED',
+            opportunityId: c.id,
+            ...unavailableOrigin(JEV_ROLE_PROVIDER, jevReply),
+            fallback: ROLE_AI_PROVIDER,
+          })
+      }
+      if (!budgetSpent && !(await p.store.reserveCall(p.now, p.dailyBudget))) {
         budgetSpent = true
         r.stoppedBy = 'DAILY_BUDGET'
         p.log.log({ event: 'ROLE_AI_SKIPPED', reason: 'DAILY_BUDGET' })
+      }
+      if (budgetSpent) {
+        // No hosted call can follow: a per-row Jev failure gets its backoff here, so the next pass
+        // does not ask Jev the same row again (SR-M-1). A row reclassified meanwhile is not counted.
+        if (jevItemFailed && (await p.store.recordFailure(c, p.now))) r.failed += 1
         continue
       }
-      const reply = await p.client.classify({
-        title: c.title,
-        description: c.description,
-        categories: c.categories,
-      })
-      const d = decideRoleAi(reply)
+      const d = decideRoleAi(await p.client.classify(input))
       thrownInRow = 0
       if (d.kind === 'not-configured') {
         await p.store.releaseCall(p.now)
@@ -209,7 +253,12 @@ export async function runRoleAiLoop(p: {
       }
     }
   }
-  p.log.log({ event: 'ROLE_AI_PASS', candidates: candidates.length, ...r })
+  p.log.log({
+    event: 'ROLE_AI_PASS',
+    candidates: candidates.length,
+    ...r,
+    ...(p.jev === undefined ? {} : { viaJev }),
+  })
   return r
 }
 
@@ -232,6 +281,7 @@ async function recordThrown(
 /** The production pass: the loop over the Postgres store. */
 export function runRoleAiPass(deps: {
   db: MeterDb
+  jev?: RoleClassifier | undefined
   client: RoleClassifier
   log: RoleAiLog
   now: () => Date
@@ -243,6 +293,7 @@ export function runRoleAiPass(deps: {
 }): Promise<RoleAiPassResult> {
   return runRoleAiLoop({
     store: createRoleAiStore(deps.db, deps.onDemandTypes, deps.meterAccountKey),
+    jev: deps.jev,
     client: deps.client,
     log: deps.log,
     now: deps.now(),

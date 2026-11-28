@@ -1,3 +1,5 @@
+import type { TechnicalRole, UserProfileDto } from '@crm/shared'
+
 export const ROLE_VARIANT: Record<
   string,
   'admin' | 'senior' | 'junior' | 'hr' | 'accountant' | 'drop'
@@ -52,4 +54,39 @@ export function normalizeTelegram(value: string): string {
   const trimmed = value.trim()
   if (!trimmed) return ''
   return trimmed.startsWith('@') ? trimmed : `@${trimmed}`
+}
+
+/** The fields the users-list search box matches on. */
+export type UserSearchable = Pick<
+  UserProfileDto,
+  'displayName' | 'email' | 'telegram' | 'techStack' | 'technicalRoles'
+>
+
+/**
+ * The users-list search predicate. Technical roles match on both the stored key
+ * (`BACKEND_ENGINEER`) and the label the row actually renders (SPEC-M-1) — what the user
+ * reads is what they can search for. `label` is the caller's localized resolver: the
+ * catalog lives in the React tree, so this stays pure.
+ */
+export function matchesUserQuery(
+  u: UserSearchable,
+  query: string,
+  label: (role: TechnicalRole) => string,
+): boolean {
+  const q = query.trim().toLowerCase()
+  // A fast path only: with an empty `q` every `includes(q)` below is true anyway.
+  // Stryker disable next-line ConditionalExpression: equivalent mutant — skipping this early return still returns true, because includes('') holds for every field
+  if (!q) return true
+  // An absent field contributes no haystack at all (a `?? ''` fallback is one typo away from a
+  // placeholder that matches real queries), so the optional chain decides it rather than a literal.
+  const has = (text: string | null | undefined) => !!text && text.toLowerCase().includes(q)
+  const techStack = Array.isArray(u.techStack) ? u.techStack.join(', ') : u.techStack
+  return (
+    has(u.displayName) ||
+    has(u.email) ||
+    has(u.telegram) ||
+    has(techStack) ||
+    // No `?? []`: the DTO schema carries `.default([])`, so a parsed profile always has the array.
+    u.technicalRoles.some((r) => has(r) || has(label(r)))
+  )
 }

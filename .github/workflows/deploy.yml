@@ -687,7 +687,17 @@ jobs:
             apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql \
             apps/api/drizzle/manual/2026-11-11_senior_resumes_verification.sql \
             apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql \
+            apps/api/drizzle/manual/2026-11-24_senior_resumes_header.sql \
             apps/api/drizzle/manual/2026-11-17_technical_roles.sql \
+            apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql \
+            apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql \
+            apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql \
+            apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql \
+            apps/api/drizzle/manual/2026-11-21_job_opportunities_salary.sql \
+            apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql \
+            apps/api/drizzle/manual/2026-11-23_remove_muse_api.sql \
+            apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql \
+            apps/api/drizzle/manual/2026-11-25_job_queue_entries_published_at.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -1136,6 +1146,12 @@ jobs:
             # container via env_file .env.production). The api env default is false, so
             # without this line collected records never reach job_opportunities / HR queue.
             printf 'JOB_MATCH_RECONCILIATION_ENABLED=true\n' >> /opt/crm/.env.production
+            # Not a secret: availability reconciliation (turns on the drain of the AVAILABILITY:* dirty-work
+            # partition). A posting the source took down is marked closed in the HR queue only for
+            # sources whose runs report FULL_INVENTORY or WINDOW coverage; today prod runs are all
+            # PARTIAL, so no closure fires yet. Owner decision 2026-11-19 (task-vacancy-8-rollout.md);
+            # env default stays false.
+            printf 'JOB_AVAILABILITY_RECONCILE_ENABLED=true\n' >> /opt/crm/.env.production
 
             # task-google-indexing-api: all three OPTIONAL — the API's env schema
             # treats them as optional and the indexing service no-ops (one boot
@@ -1187,6 +1203,8 @@ jobs:
             # is unset is skipped entirely, never written blank.
             if [ -n "$JEV_API_KEY" ]; then
               printf 'JEV_API_KEY=%s\n' "$JEV_API_KEY" >> /opt/crm/.env.production
+              # Queue relevance pass is Jev-only: on with the key, off without it.
+              printf 'JOB_RELEVANCE_AI_ENABLED=true\n' >> /opt/crm/.env.production
             fi
             if [ -n "$OPENROUTER_API_KEY" ]; then
               printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> /opt/crm/.env.production
@@ -1217,6 +1235,12 @@ jobs:
               # lives only in the worker's env file on the server; change these with it. Not secret.
               printf 'EXTRACTION_INPUT_CONTEXT_TOKENS=%s\n' '8000' >> /opt/crm/.env.production
               printf 'EXTRACTION_INPUT_MAX_ANSWER_TOKENS=%s\n' '2000' >> /opt/crm/.env.production
+              # Conditional on purpose: the role-AI pass calls the worker's /classify-roles route, so
+              # with no worker the flag stays unset and the pass stays off.
+              printf 'JOB_ROLE_AI_ENABLED=true\n' >> /opt/crm/.env.production
+              # Same reason: tailored resumes generate through the worker's /resume-tailor route
+              # (tailored-resume Task 14 go-live). Without it every tailored endpoint answers 404.
+              printf 'TAILORED_RESUME_ENABLED=true\n' >> /opt/crm/.env.production
             fi
 
             # vacancy-sourcing quota providers: same conditional-write pattern.
@@ -3020,6 +3044,22 @@ jobs:
           # apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql
 
+      # Order constraint: deploy-stack-on-vps.sh applies this file after the recheck-needed file
+      # (same table) and before the container swap: the new API selects senior_resumes.header, so
+      # traffic before it is applied answers 500 on the whole resume surface.
+      - name: Copy senior resumes header DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-24_senior_resumes_header.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-24_senior_resumes_header.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-24_senior_resumes_header.sql
+
       # Order constraint: deploy-stack-on-vps.sh applies this file BEFORE the grants file (the
       # grants name job_role_classifications and fail on a missing table) and before the container
       # swap (the new API selects users.technical_roles and the job_opportunities role columns).
@@ -3035,6 +3075,154 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-11-17_technical_roles.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-11-17_technical_roles.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file AFTER the technical roles file
+      # above, which adds the job_opportunities.role_status column this index's predicate reads;
+      # applied earlier it fails with 42703. It creates an index and no relation, so it needs no
+      # position relative to the grants file; it is applied before the container swap because the
+      # role-AI candidate scan reads it.
+      - name: Copy role PENDING index DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file AFTER the technical roles file
+      # and role PENDING index above; it widens the role_status CHECK on job_opportunities to include
+      # 'OUT_OF_SCOPE'. Applied before the container swap because the new API writes 'OUT_OF_SCOPE'.
+      - name: Copy role status OUT_OF_SCOPE DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file AFTER the role status
+      # OUT_OF_SCOPE file above (file order only) and BEFORE the container swap — the new API writes
+      # the job_opportunities salary columns on every canonical write, and against the old table
+      # each write fails with 42703. Creates no relation, so it needs no position relative to the
+      # grants file.
+      - name: Copy job opportunities salary DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-21_job_opportunities_salary.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-21_job_opportunities_salary.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-21_job_opportunities_salary.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file BEFORE the interviews
+      # job-opportunity file below and BEFORE the container swap — the new API's senior-interview-card
+      # path writes stage 'SUBMITTED' when HR submits a senior to a vacancy out of the queue
+      # (task-sources-07c), and an old enum makes every such write fail with 22P02.
+      # It must stay its OWN psql invocation: Postgres allows `ALTER TYPE … ADD VALUE` inside a
+      # transaction but forbids USING the added value until that transaction commits, so no later
+      # file may share this one's transaction. Creates no relation, so it needs no position relative
+      # to the grants file. Re-runnable (ADD VALUE IF NOT EXISTS); the apply is irreversible by
+      # design — Postgres cannot drop an enum value (see the file's ROLLBACK header).
+      - name: Copy interview stage SUBMITTED DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file AFTER the interview stage enum
+      # file above (both halves of the task-sources-07c DDL, kept in one order) and BEFORE the
+      # container swap — the new API selects interviews.job_opportunity_id and relies on the partial
+      # unique index to reject a second interview for the same opportunity and senior. It adds a
+      # column, an FK and an index to an existing table and creates no relation, so it needs no
+      # position relative to the grants file. Re-runnable (IF NOT EXISTS throughout).
+      - name: Copy interviews job-opportunity DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql
+
+      - name: Copy tailored resumes DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql
+
+      - name: Copy remove Muse API DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-23_remove_muse_api.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-23_remove_muse_api.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-23_remove_muse_api.sql
+
+      - name: Copy job opportunity relevance DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file before the container swap: the
+      # new API writes and reads job_queue_generation_entries.published_at on every queue publish
+      # and list, so traffic before it is applied answers 500 on the whole vacancy queue.
+      - name: Copy job queue entries published_at DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-25_job_queue_entries_published_at.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-25_job_queue_entries_published_at.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-25_job_queue_entries_published_at.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the

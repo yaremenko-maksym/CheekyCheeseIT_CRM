@@ -1,6 +1,7 @@
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
+import { LEDGER_CATALOG_SNAPSHOT } from '../runtime/ledger-catalog.snapshot'
 import { JobRunLedger } from './job-run-ledger'
 
 /**
@@ -80,12 +81,16 @@ describe('countDue, the sweep scope (U3)', () => {
     )
     const ledger = new JobRunLedger({ execute } as never, {} as never, catalog as never)
     expect(await ledger.countDue({ sweep: { cycleId: CYCLE, skipIds: [ID] } })).toBe(4)
-    expect(execute).toHaveBeenCalledTimes(2)
+    // the manifest ids, the cycle start (the sweep day), the count
+    expect(execute).toHaveBeenCalledTimes(3)
     const first = dialect.sqlToQuery(execute.mock.calls[0]![0])
     expect(first.sql).toBe(
       'SELECT DISTINCT manifest_id FROM job_sources WHERE manifest_id IS NOT NULL',
     )
-    const count = dialect.sqlToQuery(execute.mock.calls[1]![0])
+    const cycle = dialect.sqlToQuery(execute.mock.calls[1]![0])
+    expect(cycle.sql).toContain('FROM job_collection_cycles WHERE id = $1::uuid')
+    expect(cycle.params).toEqual([CYCLE])
+    const count = dialect.sqlToQuery(execute.mock.calls[2]![0])
     expect(count.sql).not.toContain('<= clock_timestamp() +')
     expect(count.sql).toContain('sr.cycle_id = $')
     expect(count.sql).toMatch(/job_sources\.manifest_id = ANY\(\$\d+::text\[\]\)/)
@@ -103,6 +108,65 @@ describe('countDue, the sweep scope (U3)', () => {
     // the floors, in minutes, aligned with the ids: 0 and 1.5 h
     expect(count.params).toContain('{0,90}')
     expect(count.sql).toMatch(/AS f\(id, minutes\)\s+WHERE f\.id = job_sources\.manifest_id/)
+  })
+
+  describe('the sweep day (only on a day the profile has a slot)', () => {
+    const profileOf = (id: string) =>
+      LEDGER_CATALOG_SNAPSHOT.entries.find((e) => e.id === id)!.fetchProfile
+    const IDS = [
+      'theirstack.api.senior',
+      'jooble.api.senior-developer-remote',
+      'greenhouse.board.stripe',
+      'arbeitnow.api.feed',
+    ]
+    const realCatalog = {
+      entry: (id: string) => ({ fetchProfile: profileOf(id), floorHours: 0 }),
+      hostPolicy: () => undefined,
+      onDemandTypes: () => [],
+    }
+
+    async function sweptIdsOn(cycleStartedAt: string | null): Promise<unknown[]> {
+      const execute = vi.fn(async (q: SQL) => {
+        const text = dialect.sqlToQuery(q).sql
+        if (text.includes('DISTINCT manifest_id'))
+          return { rows: IDS.map((manifest_id) => ({ manifest_id })) }
+        if (text.includes('AS started_ms'))
+          return {
+            rows: cycleStartedAt === null ? [] : [{ started_ms: Date.parse(cycleStartedAt) }],
+          }
+        return { rows: [{ n: 0 }] }
+      })
+      const ledger = new JobRunLedger({ execute } as never, {} as never, realCatalog as never)
+      await ledger.countDue({ sweep: { cycleId: CYCLE, skipIds: [] } })
+      return dialect.sqlToQuery(execute.mock.calls.at(-1)![0]).params
+    }
+
+    it('a Mondays-only entry (TheirStack, Jooble) is not swept on a Tuesday, the off-interval board still is', async () => {
+      // 2026-11-17 is a Tuesday; 06:00 UTC is the 08:00 Kyiv sweep
+      expect(await sweptIdsOn('2026-11-17T06:00:00.000Z')).toContain(
+        '{"greenhouse.board.stripe","arbeitnow.api.feed"}',
+      )
+    })
+
+    it('a Mondays-only entry is swept on a Monday', async () => {
+      expect(await sweptIdsOn('2026-11-23T06:00:00.000Z')).toContain(
+        '{"theirstack.api.senior","jooble.api.senior-developer-remote","greenhouse.board.stripe","arbeitnow.api.feed"}',
+      )
+    })
+
+    it('on a Saturday a working-hours profile with an off interval is still swept; one with a null off is not', async () => {
+      expect(await sweptIdsOn('2026-11-21T06:00:00.000Z')).toContain('{"greenhouse.board.stripe"}')
+    })
+
+    it('the day is read in the window`s own zone: 23:30 UTC Sunday is already Monday in Kyiv', async () => {
+      expect(await sweptIdsOn('2026-11-22T23:30:00.000Z')).toContain(
+        '{"theirstack.api.senior","jooble.api.senior-developer-remote","greenhouse.board.stripe","arbeitnow.api.feed"}',
+      )
+    })
+
+    it('an unreadable cycle start fails closed for the day-limited entries only', async () => {
+      expect(await sweptIdsOn(null)).toContain('{"greenhouse.board.stripe"}')
+    })
   })
 
   it('without a sweep it never reads the manifest ids', async () => {

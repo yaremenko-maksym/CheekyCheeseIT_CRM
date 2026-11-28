@@ -172,6 +172,16 @@ describe('teamMemberSchema', () => {
   it('rejects invalid role', () => {
     expect(() => teamMemberSchema.parse({ ...valid, role: 'GHOST' })).toThrow()
   })
+
+  it('a member without technicalRoles parses to no roles', () => {
+    expect(teamMemberSchema.parse(valid).technicalRoles).toEqual([])
+  })
+
+  it('keeps the technicalRoles it is given', () => {
+    expect(
+      teamMemberSchema.parse({ ...valid, technicalRoles: ['QA_ENGINEER'] }).technicalRoles,
+    ).toEqual(['QA_ENGINEER'])
+  })
 })
 
 describe('teamSchema', () => {

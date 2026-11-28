@@ -1,12 +1,12 @@
 import { useId, useRef } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /**
  * SegmentedToggle — reusable iOS-style segmented control with a sliding
- * gold pill (`motion.div layoutId`) marking the active option.
+ * gold pill (`m.div layoutId`) marking the active option.
  *
  * Used wherever a user picks one option out of a small (2-4) mutually
  * exclusive set: payment method, sort direction, partner filter, etc.
@@ -282,7 +282,7 @@ export function SegmentedToggle<V extends string>({
             )}
           >
             {active && (
-              <motion.div
+              <m.div
                 layoutId={pillLayoutId}
                 className={cn(
                   'absolute inset-0 rounded-md',

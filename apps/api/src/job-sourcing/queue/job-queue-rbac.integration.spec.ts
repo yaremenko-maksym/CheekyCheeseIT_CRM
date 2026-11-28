@@ -6,8 +6,12 @@ import { JwtModule, JwtService } from '@nestjs/jwt'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { Test } from '@nestjs/testing'
 import cookie from '@fastify/cookie'
-import { DESCRIPTION_MD_MAX, type SessionUser } from '@crm/shared'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import {
+  DESCRIPTION_MD_MAX,
+  jobQueueManualDuplicateConflictSchema,
+  type SessionUser,
+} from '@crm/shared'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { HttpException } from '@nestjs/common'
 import { JwtAuthGuard } from '../../auth/jwt.guard'
 import { RolesGuard } from '../../common/guards/roles.guard'
@@ -38,6 +42,9 @@ import {
   RECOMPUTE_TRIGGER_PREFIX,
 } from './queue-recompute.service'
 import { seniorOptionRows } from './queue-read-sql'
+import { createDrizzleModelHealthStore } from '../structuring/model-health-store'
+import { BlockPickService } from './block-pick.service'
+import { ManualParseService } from './manual-parse.service'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -60,6 +67,19 @@ const JWT_SECRET = 'job-queue-rbac-integration-secret-0000000000'
 const SECRET = 'job-queue-rbac-cursor-secret-00000000000000'
 const ROLE_REFUSAL = 'FORBIDDEN_INSUFFICIENT_ROLE'
 const NOT_FOUND = 'JOB_OPPORTUNITY_NOT_FOUND'
+const PICK_BODY = {
+  tabTitle: 'Senior Go developer',
+  blocks: [
+    { t: 'Senior Go developer wanted', k: 'h1', fs: 32, fw: 700, x: 0, y: 0, w: 800, r: 'main' },
+  ],
+}
+
+// Spy ports: Jev is down (the page counts as a vacancy) and the worker is unavailable (the 503), so
+// a test can tell a request that reached a model from one refused before it.
+const pickDecide = vi.fn(async (_input: unknown) => {
+  throw new Error('jev down')
+})
+const pickWorker = vi.fn(async (_body: unknown) => ({ ok: false as const, reason: 'TEST_DOWN' }))
 
 const ids: Record<string, string> = {}
 const id = (key: string) => ids[key] as string
@@ -116,6 +136,19 @@ class TestDatabaseModule {}
       useFactory: (db: DatabaseService) => new JobQueueRecomputeService(db),
       inject: [DatabaseService],
     },
+    {
+      // No model ports: an allowed role would get the 503, a refused one never reaches a model.
+      provide: ManualParseService,
+      useFactory: (db: DatabaseService, scopes: JobQueueScopeService) =>
+        new ManualParseService(db, scopes, { decision: undefined, structurer: undefined }),
+      inject: [DatabaseService, JobQueueScopeService],
+    },
+    {
+      provide: BlockPickService,
+      useFactory: (db: DatabaseService, scopes: JobQueueScopeService) =>
+        new BlockPickService(db, scopes, { decision: { decide: pickDecide }, picker: pickWorker }),
+      inject: [DatabaseService, JobQueueScopeService],
+    },
     // JwtAuthGuard as APP_GUARD, as AppModule does. RolesGuard is NOT global: the controller's own
     // `@UseGuards(RolesGuard)` is what is under test.
     {
@@ -158,8 +191,9 @@ async function mkOpp(key: string, o: { dup?: boolean; description?: string } = {
   }
   const { rows } = await sqlq(
     `INSERT INTO job_opportunities
-       (title, title_key, revision, availability, employer_name, employer_key, description_sha256)
-     VALUES ($1, $2, 1, 'OPEN', $3, $3, $4) RETURNING id`,
+       (title, title_key, revision, availability, employer_name, employer_key, description_sha256,
+        technical_roles, role_status)
+     VALUES ($1, $2, 1, 'OPEN', $3, $3, $4, ARRAY['BACKEND_ENGINEER'], 'RULE') RETURNING id`,
     [`${TAG} ${key}`, o.dup ? `${TAG}-dup` : `${TAG}-${key}`, o.dup ? `${TAG}-emp` : null, sha],
   )
   ids[key] = rows[0].id as string
@@ -351,6 +385,11 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     await mkUser('senLeft', 'SENIOR')
     await join('teamA', 'senLeft')
     await sqlq(`UPDATE team_members SET left_at = now() WHERE user_id = $1`, [id('senLeft')])
+    // External feed links (intake PR 4): the picker carries each senior's own technical roles
+    await sqlq(`UPDATE users SET technical_roles = $2 WHERE id = $1`, [
+      id('senA'),
+      ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'],
+    ])
     await join('teamE', 'hrE')
     await join('teamS', 'hrS')
     await join('teamS2', 'hrS2')
@@ -464,6 +503,8 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
   const everyRoute = (): Array<[Method, string, unknown]> => [
     ['GET', '', undefined],
     ['GET', '/seniors', undefined],
+    ['POST', '/manual/parse', { text: 'Senior Go developer wanted' }],
+    ['POST', '/manual/pick', PICK_BODY],
     ['GET', `/${id('oppOnlyA')}`, undefined],
     ['GET', `/${id('oppOnlyA')}/sources`, undefined],
     ['GET', `/${id('oppOnlyA')}/seniors`, undefined],
@@ -573,6 +614,62 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       }
       expect(await triageRows()).toEqual([])
       expect(await triageActions('teamA')).toEqual([])
+    })
+
+    it('manual parse passes the guard for an ADMIN and an HR: with no model, the 503', async () => {
+      for (const who of ['admin', 'hrA']) {
+        const a = await post('/manual/parse', who, { text: 'Senior Go developer wanted' })
+        expect(a.status, who).toBe(503)
+        expect(a.json['code']).toBe('JOB_QUEUE_PARSE_UNAVAILABLE')
+      }
+    })
+
+    it('manual pick passes the guard for an ADMIN and an HR: with no worker, the 503', async () => {
+      for (const who of ['admin', 'hrA']) {
+        pickWorker.mockClear()
+        const a = await post('/manual/pick', who, PICK_BODY)
+        expect(a.status, who).toBe(503)
+        expect(a.json['code']).toBe('JOB_QUEUE_PARSE_UNAVAILABLE')
+        expect(pickWorker, who).toHaveBeenCalledTimes(1)
+      }
+    })
+
+    it('manual pick: an HR with no team is the 403 before Jev or the worker is asked', async () => {
+      pickDecide.mockClear()
+      pickWorker.mockClear()
+      const a = await post('/manual/pick', 'hrNone', PICK_BODY)
+      expect(a.status).toBe(403)
+      expect(pickDecide).not.toHaveBeenCalled()
+      expect(pickWorker).not.toHaveBeenCalled()
+    })
+
+    it("manual pick: no token of the HR's display name, read from users, reaches the worker or Jev", async () => {
+      pickWorker.mockClear()
+      pickDecide.mockClear()
+      const name = `${TAG} name hrA`
+      const [first, last] = [TAG, 'hrA']
+      const header = (t: string) => ({ ...PICK_BODY.blocks[0], t, r: 'header' })
+      // Header blocks only: the Jev gate falls back to every block, the ones naming the HR included.
+      const a = await post('/manual/pick', 'hrA', {
+        tabTitle: `Go developer | ${name.toUpperCase()}`,
+        url: `https://jobs.example.com/u/${first}/go`,
+        blocks: [
+          header(`Signed in as ${name}`),
+          header(`Hi, ${first.toUpperCase()}`),
+          header(`${last} profile`),
+          header('Senior Go developer wanted'),
+        ],
+      })
+      expect(a.status).toBe(503)
+      // Jev is asked twice: the vacancy gate, then one block batch of the pick
+      expect(pickDecide).toHaveBeenCalledTimes(2)
+      expect(pickWorker).toHaveBeenCalledTimes(1)
+      const sent = JSON.stringify(pickWorker.mock.calls[0]![0]).toLowerCase()
+      const jev = pickDecide.mock.calls.map((c) => JSON.stringify(c[0]).toLowerCase())
+      for (const seen of [sent, ...jev]) {
+        for (const token of [name, first, last]) expect(seen).not.toContain(token.toLowerCase())
+        expect(seen).toContain('senior go developer wanted')
+      }
     })
 
     it('suppress is ADMIN only: an HR is the RolesGuard 403 and writes nothing', async () => {
@@ -775,13 +872,23 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(other.json['code']).toBe('JOB_QUEUE_REFRESH_REQUIRED')
     })
 
-    it('the picker gives an HR exactly the seniors of the own team, and nothing but id, name and own team', async () => {
+    it('the picker gives an HR exactly the seniors of the own team, and nothing but id, name, own team and roles', async () => {
       const own = await get('/seniors', 'hrA')
       expect(own.status).toBe(200)
       expect(own.json).toEqual({
         items: [
-          { id: id('senA'), name: name('senA'), teamName: `${TAG}-teamA` },
-          { id: id('senShared'), name: name('senShared'), teamName: `${TAG}-teamA` },
+          {
+            id: id('senA'),
+            name: name('senA'),
+            teamName: `${TAG}-teamA`,
+            technicalRoles: ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'],
+          },
+          {
+            id: id('senShared'),
+            name: name('senShared'),
+            teamName: `${TAG}-teamA`,
+            technicalRoles: [],
+          },
         ],
       })
       expect(own.raw).not.toContain('@example.test')
@@ -815,6 +922,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
             id: id(s as string),
             name: name(s as string),
             teamName: `${TAG}-${t}`,
+            technicalRoles: s === 'senA' ? ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'] : [],
           })),
         ),
       )
@@ -823,8 +931,13 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(team.status).toBe(200)
       expect(team.json).toEqual({
         items: [
-          { id: id('senB'), name: name('senB'), teamName: `${TAG}-teamB` },
-          { id: id('senShared'), name: name('senShared'), teamName: `${TAG}-teamB` },
+          { id: id('senB'), name: name('senB'), teamName: `${TAG}-teamB`, technicalRoles: [] },
+          {
+            id: id('senShared'),
+            name: name('senShared'),
+            teamName: `${TAG}-teamB`,
+            technicalRoles: [],
+          },
         ],
       })
     })
@@ -836,8 +949,13 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
         seniorOptionRows([id('senLeft'), id('senA')], null, 200),
       )
       expect(rows).toEqual([
-        { id: id('senA'), display_name: name('senA'), team_name: `${TAG}-teamA` },
-        { id: id('senLeft'), display_name: name('senLeft'), team_name: null },
+        {
+          id: id('senA'),
+          display_name: name('senA'),
+          technical_roles: ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'],
+          team_name: `${TAG}-teamA`,
+        },
+        { id: id('senLeft'), display_name: name('senLeft'), technical_roles: [], team_name: null },
       ])
       const studio = await get('/seniors', 'admin')
       expect(studio.status).toBe(200)
@@ -845,6 +963,57 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(listed).not.toContain(id('senLeft'))
       expect(listed).toContain(id('senA'))
     })
+  })
+
+  describe('H.8: the AI-limits sourcing notice, by role', () => {
+    const LIST_KEYS = ['counts', 'generation', 'items', 'nextCursor', 'sourcingNotice']
+    // Raised and cleared through the store the model stage writes with (H.2), not raw SQL.
+    const raise = () =>
+      createDrizzleModelHealthStore(dbSvcRef.db).raiseFlag('MODEL_LIMITS_EXHAUSTED')
+    const clear = () =>
+      createDrizzleModelHealthStore(dbSvcRef.db).clearFlag('MODEL_LIMITS_EXHAUSTED')
+    afterAll(async () => {
+      await sqlq(`DELETE FROM job_model_health_flags WHERE flag = 'MODEL_LIMITS_EXHAUSTED'`)
+    })
+
+    it.each(['admin', 'hrA', 'hrNone'])(
+      '%s: a raised flag is AI_LIMITS_EXHAUSTED, a cleared one is null; the list keys are exact',
+      async (who) => {
+        await raise()
+        const raised = await get(`?${search}`, who)
+        expect(raised.status).toBe(200)
+        expect(Object.keys(raised.json).sort()).toEqual(LIST_KEYS)
+        expect(raised.json['sourcingNotice']).toBe('AI_LIMITS_EXHAUSTED')
+        await clear()
+        const cleared = await get(`?${search}`, who)
+        expect(cleared.status).toBe(200)
+        expect(Object.keys(cleared.json).sort()).toEqual(LIST_KEYS)
+        expect(cleared.json['sourcingNotice']).toBeNull()
+      },
+    )
+
+    it('another flag raised is no notice: only MODEL_LIMITS_EXHAUSTED counts', async () => {
+      await clear()
+      await sqlq(
+        `INSERT INTO job_model_health_flags (flag) VALUES ('MODEL_UNREACHABLE') ON CONFLICT DO NOTHING`,
+      )
+      try {
+        expect((await get(`?${search}`, 'admin')).json['sourcingNotice']).toBeNull()
+      } finally {
+        await sqlq(`DELETE FROM job_model_health_flags WHERE flag = 'MODEL_UNREACHABLE'`)
+      }
+    })
+
+    it.each(['senA', 'jun', 'acc'])(
+      '%s: the list stays the RolesGuard 403 with the flag raised, and carries no notice',
+      async (who) => {
+        await raise()
+        const a = await get(`?${search}`, who)
+        expect(a.status).toBe(403)
+        expect(a.json['code']).toBe(ROLE_REFUSAL)
+        expect(a.json).not.toHaveProperty('sourcingNotice')
+      },
+    )
   })
 
   describe('reads, by scope', () => {
@@ -946,6 +1115,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
         nextCursor: null,
         counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
         generation: null,
+        sourcingNotice: null,
       })
       const empty = await get(`?${search}`, 'hrE')
       expect(empty.status).toBe(200)
@@ -1633,18 +1803,78 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(await blobs('srcDup')).toEqual([])
     })
 
-    it("SPEC-H-1: another team's card under a link variant is the same generic 409, naming nothing", async () => {
+    it("SPEC-H-1: the source's generic 409 names no team and no card", async () => {
+      const a = await post('/manual', 'hrM', {
+        ...body('srcDupKeys', 'teamM', 'senM', resumes['senM'] as string),
+        applicationUrl: `https://jobs.example.test/${TAG}/sourced/1`,
+      })
+      expect(a.status).toBe(409)
+      // The generic envelope only: no params, no ids.
+      expect(Object.keys(a.json).sort()).toEqual(['code', 'message', 'statusCode'])
+      expect(a.raw).not.toContain(id('teamM'))
+    })
+
+    it("another team's manual card under a link variant does not block: each team keeps its own card", async () => {
       const a = await post('/manual', 'hrM2', {
         ...body('crossTeam', 'teamM2', 'senM2', resumes['senM2'] as string),
         applicationUrl: `https://JOBS.example.test/${TAG}/manual/hr/?utm=x`,
       })
-      expect(a.status).toBe(409)
-      expect(a.json['code']).toBe('JOB_QUEUE_MANUAL_DUPLICATE')
-      // The generic envelope only: no params, no ids.
-      expect(Object.keys(a.json).sort()).toEqual(['code', 'message', 'statusCode'])
+      expect(a.status).toBe(201)
+      const [card] = await cards('crossTeam')
+      expect(card?.manual_team_id).toBe(id('teamM2'))
       expect(a.raw).not.toContain(id('cardHr'))
-      expect(a.raw).not.toContain(id('teamM'))
-      expect(await cards('crossTeam')).toEqual([])
+    })
+
+    it("the team's own card under the same link is the 409 naming that card", async () => {
+      const a = await post('/manual', 'hrM', {
+        ...body('ownDup', 'teamM', 'senM', resumes['senM'] as string),
+        applicationUrl: linkOf('hr'),
+      })
+      expect(a.status).toBe(409)
+      expect(jobQueueManualDuplicateConflictSchema.parse(a.json).opportunityId).toBe(id('cardHr'))
+      expect(await cards('ownDup')).toEqual([])
+    })
+
+    it('a collected card the team can see is named, even when an invisible one shares the link', async () => {
+      const link = `https://jobs.example.test/${TAG}/sourced/visible`
+      await mkOpp('dupHidden')
+      await mkOpp('dupSeen')
+      for (const n of ['dupHidden', 'dupSeen'])
+        await sqlq(`UPDATE job_opportunities SET application_url = $1 WHERE id = $2`, [link, id(n)])
+      const roster = await loadRoster(session.databaseService.db)
+      const v = roster.versions.get(id('senM')) as SeniorVersions
+      const rev = await sqlq(`SELECT revision FROM job_opportunities WHERE id = $1`, [
+        id('dupSeen'),
+      ])
+      await sqlq(
+        `INSERT INTO job_opportunity_matches
+           (opportunity_id, senior_id, opportunity_revision, senior_profile_version,
+            exclusion_version, rule_version, outcome, evidence)
+         VALUES ($1, $2, $3, $4, $5, $6, 'LEAD', $7::jsonb)`,
+        [
+          id('dupSeen'),
+          id('senM'),
+          rev.rows[0].revision,
+          v.profile,
+          v.exclusion,
+          MATCH_RULE_VERSION,
+          JSON.stringify({
+            score: 50,
+            reasons: [{ code: 'TECH_MATCH', evidence: ['Go:CORE'], ruleVersion: 'r' }],
+            rankWarnings: [],
+          }),
+        ],
+      )
+      expect((await get(`/${id('dupSeen')}`, 'hrM')).status).toBe(200)
+      expect((await get(`/${id('dupHidden')}`, 'hrM')).status).toBe(404)
+      const a = await post('/manual', 'hrM', {
+        ...body('seenDup', 'teamM', 'senM', resumes['senM'] as string),
+        applicationUrl: link,
+      })
+      expect(a.status).toBe(409)
+      expect(jobQueueManualDuplicateConflictSchema.parse(a.json).opportunityId).toBe(id('dupSeen'))
+      expect(a.raw).not.toContain(id('dupHidden'))
+      expect(await cards('seenDup')).toEqual([])
     })
 
     it('CR-M-1: a claimed possible duplicate is the 409 preview; a confirmed request is a 201', async () => {

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import { and, eq, sql } from 'drizzle-orm'
 import {
   normalizeResumeLayout,
+  resolveResumeHeader,
   resumeContentSchema,
   resumeFactsSchema,
   resumeStagedEditedPathsSchema,
@@ -18,7 +19,7 @@ import { seniorResumes, userEmails, users, type SeniorResume } from '../../datab
 import { S3Service } from '../../documents/s3.service'
 import { WORKER_ADAPTER_TIMEOUT_MS } from '../../job-sourcing/structuring/model-extraction-wiring'
 import { ResumeTextExtractionService } from '../resume-text-extraction.service'
-import { resolveTemplateName, ResumeTypstService } from '../resume-typst.service'
+import { headerContacts, resolveTemplateName, ResumeTypstService } from '../resume-typst.service'
 import type { ContactContext } from './contact-scan'
 import {
   cleanedNotes,
@@ -31,6 +32,7 @@ import {
   type WrittenContent,
 } from './content-gates'
 import { deriveFrozenContent } from './derive-content'
+import { writerPace } from './model-retry'
 import { ResumeEntailmentClient, ResumeWriterClient, VisualCheckClient } from './inference-clients'
 import {
   hidesRequiredSection,
@@ -62,7 +64,10 @@ export type ResumeOwnerContacts = {
   displayName: string
   email: string
   legalFullName: string | null
+  phone: string | null
   telegram: string | null
+  /** The profile values the redaction contexts are built from (the header may override them). */
+  profile: { displayName: string; email: string; telegram: string | null }
   contacts: ContactContext[]
 }
 
@@ -96,7 +101,7 @@ export function regenerateTarget(path: string | null): 'summary' | number | null
 }
 
 /**
- * The header contacts and one contact context per distinct name (display and legal), each with
+ * The header contacts (HR's per-resume overrides over the profile) and one contact context per distinct name (display and legal), each with
  * every email and the Telegram handle of the user. The one builder of contact contexts for a resume
  * owner.
  */
@@ -109,9 +114,12 @@ export async function loadOwnerContacts(
       displayName: users.displayName,
       email: users.email,
       legalFullName: users.legalFullName,
+      phone: users.phone,
       telegram: users.telegram,
+      header: seniorResumes.header,
     })
     .from(users)
+    .leftJoin(seniorResumes, eq(seniorResumes.userId, users.id))
     .where(eq(users.id, userId))
     .limit(1)
   if (!user) return null
@@ -120,17 +128,49 @@ export async function loadOwnerContacts(
     .from(userEmails)
     .where(eq(userEmails.userId, userId))
   const emails = [...new Set([user.email, ...extra.map((e) => e.email)])]
+  // The header prints HR's overrides; the redaction contexts stay on the profile values.
+  const header = resolveResumeHeader(user, user.header)
+  return {
+    displayName: header.displayName,
+    email: header.email,
+    legalFullName: user.legalFullName,
+    phone: header.phone,
+    telegram: header.telegram,
+    profile: { displayName: user.displayName, email: user.email, telegram: user.telegram },
+    contacts: ownerContactContexts(user, emails),
+  }
+}
+
+/**
+ * One contact context per distinct stored name of the owner. Pure, and exported for its own unit
+ * test: it decides which context the redaction may match both edge parts of, and the mutation gate
+ * cannot see the integration spec that reaches `loadOwnerContacts`.
+ *
+ * Only the `legalFullName` context is marked `surnameFirst` — that is the one stored in the order
+ * the contracts use (`Петренко Іван`), so only its redaction matches both edges alone and redacts
+ * the surname and not only the given name (backlog 464). The `displayName` context is written in
+ * normal order and keeps main's rule, the last part alone. Nothing narrows the marked context back
+ * to one edge: a second stored spelling cannot be told apart from a one-part or surname-first one,
+ * and reading it as normal order leaves the surname in the text (round 1, CR-H-1).
+ */
+export function ownerContactContexts(
+  user: {
+    displayName: string | null
+    legalFullName: string | null
+    telegram: string | null
+  },
+  emails: string[],
+): ContactContext[] {
   // A blank name adds no match: namePatterns drops an empty source.
   const names = [...new Set([user.displayName, user.legalFullName])].filter(
     (name): name is string => name !== null,
   )
-  return {
-    displayName: user.displayName,
-    email: user.email,
-    legalFullName: user.legalFullName,
+  return names.map((fullName) => ({
+    fullName,
+    emails,
     telegram: user.telegram,
-    contacts: names.map((fullName) => ({ fullName, emails, telegram: user.telegram })),
-  }
+    ...(fullName === user.legalFullName ? { surnameFirst: true } : {}),
+  }))
 }
 
 /**
@@ -207,6 +247,10 @@ export class VerificationRunner {
       }
       if (!(await ownsRun(this.db, resumeId, runId))) throw new RunLost()
     }
+    // A writer retry delay must end inside the budget, so the retried call starts like any other.
+    const pace = writerPace(() => VERIFICATION_RUN_BUDGET_MS - (Date.now() - startedAt))
+    // A Jev retry must end before the reaper takes the row (several requests can follow one check).
+    const deadlineLeft = () => VERIFICATION_DEADLINE_MS - (Date.now() - startedAt)
     const gates: GateResult[] = []
     let fallbacks: string[] = []
     try {
@@ -238,7 +282,12 @@ export class VerificationRunner {
             template: templateName,
             now: new Date(),
           },
-          { writer: this.writer, entailment: this.entailment, beforeModelCall },
+          {
+            writer: this.writer,
+            entailment: { score: (claims) => this.entailment.score(claims, deadlineLeft) },
+            beforeModelCall,
+            pace,
+          },
         )
         gates.push(written.gate)
         fallbacks = written.fallbacks
@@ -263,6 +312,7 @@ export class VerificationRunner {
         {
           displayName: owner.displayName,
           email: owner.email,
+          ...headerContacts(owner),
           content,
           layout,
           templateName,

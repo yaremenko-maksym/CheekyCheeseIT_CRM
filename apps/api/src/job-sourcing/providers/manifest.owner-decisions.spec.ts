@@ -21,9 +21,14 @@ import {
   isWellFormedDecision,
   JOBGETHER_OWNER_DECISION,
   ASHBY_OWNER_DECISION,
+  DICE_OWNER_DECISION,
   DJINNI_OWNER_DECISION,
+  HELLOWORLD_OWNER_DECISION,
+  liftsProhibited,
+  GERMANTECHJOBS_OWNER_DECISION,
   liftsUnclear,
-  MUSE_OWNER_DECISION,
+  NEXTLEVELJOBS_OWNER_DECISION,
+  NOFLUFF_OWNER_DECISION,
   type OwnerDecision,
   REMOTIVE_OWNER_DECISION,
   SMARTRECRUITERS_OWNER_DECISION,
@@ -207,6 +212,194 @@ describe('PROHIBITED is not overridable, with the decision still present (AC2)',
   })
 })
 
+describe('ACCEPT_PROHIBITED_RISK lifts PROHIBITED, and only PROHIBITED, only for its own variant', () => {
+  const prohibitedRisk = { ...HN_OWNER_DECISION, decision: 'ACCEPT_PROHIBITED_RISK' as const }
+  const withDecision =
+    (...decisions: OwnerDecision[]) =>
+    (d: TypeDefinition): TypeDefinition => ({ ...d, ownerDecisions: decisions })
+
+  it('PROHIBITED captures with the decision and an unblocked constant are CANDIDATE', () => {
+    const root = fixtureCopy()
+    setPermission(root, 'hn-hiring', 'PROHIBITED')
+    const m = build(
+      'HN_HIRING',
+      both(withDecision(prohibitedRisk), withStatus({ blocked: false, permission: 'PROHIBITED' })),
+      root,
+    )()
+    expect(typeOf(m, 'HN_HIRING').blockers).toEqual([])
+    expect(readinessAt(entryOf(m, 'hn-hiring.thread.latest'), NOW).status).toBe('CANDIDATE')
+  })
+
+  it('a decision about another endpoint does not lift PROHIBITED', () => {
+    const root = fixtureCopy()
+    setPermission(root, 'hn-hiring', 'PROHIBITED')
+    const other = { ...prohibitedRisk, endpointVariant: 'items-only' }
+    expect(
+      refusal(
+        build(
+          'HN_HIRING',
+          both(withDecision(other), withStatus({ blocked: false, permission: 'PROHIBITED' })),
+          root,
+        ),
+      ).code,
+    ).toBe('STATUS_CONSTANT_DISAGREES')
+    const m = build(
+      'HN_HIRING',
+      both(withDecision(other), withStatus({ blocked: true, permission: 'PROHIBITED' })),
+      root,
+    )()
+    expect(typeOf(m, 'HN_HIRING').blockers.map((b) => b.code)).toEqual([
+      'PERMISSION_PROHIBITED',
+      'STATUS_CONSTANT_BLOCKED',
+    ])
+  })
+
+  it('it does not lift UNCLEAR: the weaker permission keeps its own decision kind', () => {
+    expect(refusal(build('HN_HIRING', withDecision(prohibitedRisk))).code).toBe(
+      'STATUS_CONSTANT_DISAGREES',
+    )
+    const m = build(
+      'HN_HIRING',
+      both(withDecision(prohibitedRisk), withStatus({ blocked: true })),
+    )()
+    expect(typeOf(m, 'HN_HIRING').blockers.map((b) => b.code)).toEqual([
+      'PERMISSION_UNCLEAR',
+      'STATUS_CONSTANT_BLOCKED',
+    ])
+  })
+
+  it('a mixed capture set needs both kinds: with only ACCEPT_PROHIBITED_RISK the UNCLEAR blocker stays', () => {
+    const root = fixtureCopy()
+    const path = join(root, 'hn-hiring', 'search.provenance.json')
+    const o = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+    o['permission'] = 'PROHIBITED'
+    writeFileSync(path, `${JSON.stringify(o, null, 2)}\n`)
+    const status = withStatus({ blocked: false, permission: 'PROHIBITED' })
+    const only = build('HN_HIRING', both(withDecision(prohibitedRisk), status), root)()
+    expect(typeOf(only, 'HN_HIRING').blockers.map((b) => b.code)).toEqual(['PERMISSION_UNCLEAR'])
+    const all = build(
+      'HN_HIRING',
+      both(withDecision(prohibitedRisk, HN_OWNER_DECISION), status),
+      root,
+    )()
+    expect(typeOf(all, 'HN_HIRING').blockers).toEqual([])
+  })
+
+  it("liftsProhibited: only ACCEPT_PROHIBITED_RISK, only the decision's own endpoint variant", () => {
+    const variant = prohibitedRisk.endpointVariant
+    expect(liftsProhibited([], variant)).toBe(false)
+    expect(liftsProhibited([prohibitedRisk], variant)).toBe(true)
+    expect(liftsProhibited([prohibitedRisk], 'something-else')).toBe(false)
+    expect(liftsProhibited([HN_OWNER_DECISION], variant)).toBe(false)
+    expect(liftsProhibited([{ ...prohibitedRisk, decision: 'INFORMATIONAL' }], variant)).toBe(false)
+    expect(liftsProhibited([HN_OWNER_DECISION, prohibitedRisk], variant)).toBe(true)
+    expect(liftsUnclear([prohibitedRisk], variant)).toBe(false)
+  })
+})
+
+describe('Dice: PROHIBITED lifted only by ACCEPT_PROHIBITED_RISK for its own variant (sources-14)', () => {
+  it('with the decision the Dice type and its entry are CANDIDATE; the record rides on the entry', () => {
+    const m = buildManifest(real())
+    expect(typeOf(m, 'DICE_HTML').blockers).toEqual([])
+    const e = entryOf(m, 'dice.listing.jobs')
+    expect(readinessAt(e, NOW)).toEqual({ status: 'CANDIDATE', blockers: [] })
+    expect(e.ownerDecisions).toEqual([DICE_OWNER_DECISION])
+    expect(DICE_OWNER_DECISION).toEqual(
+      expect.objectContaining({
+        decidedAt: '2026-11-20',
+        decision: 'ACCEPT_PROHIBITED_RISK',
+        endpointVariant: 'jobs-listing',
+      }),
+    )
+  })
+
+  it('removing the decision makes an unblocked constant over PROHIBITED fail the build', () => {
+    expect(refusal(build('DICE_HTML', without))).toEqual({
+      code: 'STATUS_CONSTANT_DISAGREES',
+      message:
+        'STATUS_CONSTANT_DISAGREES: DICE_SOURCE_STATUS.blocked is false but the provenance permission PROHIBITED is not a ready one',
+    })
+  })
+
+  it('a decision for another variant, an ACCEPT_RISK or an informational record does not lift PROHIBITED', () => {
+    for (const other of [
+      { ...DICE_OWNER_DECISION, endpointVariant: 'job-search-api' },
+      { ...DICE_OWNER_DECISION, decision: 'ACCEPT_RISK' as const },
+      { ...DICE_OWNER_DECISION, decision: 'INFORMATIONAL' as const },
+    ]) {
+      expect(refusal(build('DICE_HTML', (d) => ({ ...d, ownerDecisions: [other] }))).code).toBe(
+        'STATUS_CONSTANT_DISAGREES',
+      )
+      const m = build(
+        'DICE_HTML',
+        both((d) => ({ ...d, ownerDecisions: [other] }), withStatus({ blocked: true })),
+      )()
+      expect(typeOf(m, 'DICE_HTML').blockers.map((b) => b.code)).toEqual([
+        'PERMISSION_PROHIBITED',
+        'STATUS_CONSTANT_BLOCKED',
+      ])
+    }
+  })
+
+  it('liftsProhibited reads the kind and the variant, nothing else', () => {
+    expect(liftsProhibited([DICE_OWNER_DECISION], 'jobs-listing')).toBe(true)
+    expect(liftsProhibited([DICE_OWNER_DECISION], 'category-listing')).toBe(false)
+    expect(liftsProhibited([NOFLUFF_OWNER_DECISION], 'category-listing')).toBe(false)
+    expect(liftsProhibited([], 'jobs-listing')).toBe(false)
+    expect(liftsProhibited([NOFLUFF_OWNER_DECISION, DICE_OWNER_DECISION], 'jobs-listing')).toBe(
+      true,
+    )
+  })
+
+  it('its own decision never lifts a technical block: a blocked status constant keeps Dice BLOCKED', () => {
+    const m = build('DICE_HTML', withStatus({ blocked: true, permission: 'PROHIBITED' }))()
+    expect(typeOf(m, 'DICE_HTML').ownerDecisions).toEqual([DICE_OWNER_DECISION])
+    expect(typeOf(m, 'DICE_HTML').blockers.map((b) => b.code)).toEqual(['STATUS_CONSTANT_BLOCKED'])
+    expect(readinessAt(entryOf(m, 'dice.listing.jobs'), NOW).status).toBe('BLOCKED')
+  })
+
+  it('the decision forbids evasion and quotes the owner the way the trio does', () => {
+    expect(DICE_OWNER_DECISION.scope).toContain(
+      'A 403, a 429, a Cloudflare/bot challenge or any explicit block ends the run with no further request; no user-agent change, proxy, headless browser or other evasion, ever.',
+    )
+    expect(DICE_OWNER_DECISION.reference).toContain(
+      '"I accept the risk for every site" (owner\'s words, translated)',
+    )
+  })
+})
+
+describe('No Fluff Jobs: UNCLEAR lifted by the accepted risk (sources-14)', () => {
+  it('with the decision the entry is CANDIDATE; without it the unblocked constant fails the build', () => {
+    const e = entryOf(buildManifest(real()), 'nofluff.listing.it')
+    expect(readinessAt(e, NOW)).toEqual({ status: 'CANDIDATE', blockers: [] })
+    expect(e.ownerDecisions).toEqual([NOFLUFF_OWNER_DECISION])
+    expect(NOFLUFF_OWNER_DECISION).toEqual(
+      expect.objectContaining({
+        decidedAt: '2026-11-20',
+        decision: 'ACCEPT_RISK',
+        endpointVariant: 'category-listing',
+      }),
+    )
+    expect(refusal(build('NOFLUFF_HTML', without)).code).toBe('STATUS_CONSTANT_DISAGREES')
+  })
+})
+
+describe('helloworld.rs: UNCLEAR lifted by the accepted risk (wave 3 RSS, 2026-11-24)', () => {
+  it('with the decision the entry is CANDIDATE; without it the unblocked constant fails the build', () => {
+    const e = entryOf(buildManifest(real()), 'helloworld.rss.feed')
+    expect(readinessAt(e, NOW)).toEqual({ status: 'CANDIDATE', blockers: [] })
+    expect(e.ownerDecisions).toEqual([HELLOWORLD_OWNER_DECISION])
+    expect(HELLOWORLD_OWNER_DECISION).toEqual(
+      expect.objectContaining({
+        decidedAt: '2026-11-24',
+        decision: 'ACCEPT_RISK',
+        endpointVariant: 'rss',
+      }),
+    )
+    expect(refusal(build('HELLOWORLD_RSS', without)).code).toBe('STATUS_CONSTANT_DISAGREES')
+  })
+})
+
 describe('Remotive and Jobgether, by name (AC3: the addendum gives both a decision)', () => {
   it.each([
     ['REMOTIVE_API', 'remotive.api.software-dev', REMOTIVE_OWNER_DECISION],
@@ -308,19 +501,26 @@ describe('Remotive and Jobgether, by name (AC3: the addendum gives both a decisi
 })
 
 describe('SmartRecruiters and Workable carry their decisions', () => {
-  it('SmartRecruiters: the decision lifts the PERMISSION blocker only; the evidence blocker NO_API_CAPTURE stays', () => {
+  it('SmartRecruiters: the decision lifted the PERMISSION blocker and the committed capture cleared the evidence one', () => {
     const m = buildManifest(real())
     const t = typeOf(m, 'SMARTRECRUITERS_ATS')
     expect(t.ownerDecisions).toEqual([SMARTRECRUITERS_OWNER_DECISION])
     expect(t.endpointVariant).toBe(SMARTRECRUITERS_OWNER_DECISION.endpointVariant)
-    expect(t.blockers.map((b) => b.code)).toEqual(['NO_API_CAPTURE'])
-    expect(t.payloadVerified).toBe(false)
-    expect(readinessAt(t, NOW).status).toBe('BLOCKED')
-    expect(m.entries.filter((e) => e.type === 'SMARTRECRUITERS_ATS')).toEqual([])
+    expect(t.blockers.map((b) => b.code)).toEqual([])
+    expect(t.payloadVerified).toBe(true)
+    // Nothing blocks the type, so it is a CANDIDATE an admin may enable. Task sources-04 gave it
+    // its first two boards, each a line in `boards/smartrecruiters.boards.ts` with its own capture.
+    expect(readinessAt(t, NOW).status).toBe('CANDIDATE')
+    expect(m.entries.filter((e) => e.type === 'SMARTRECRUITERS_ATS').map((e) => e.id)).toEqual([
+      'smartrecruiters.board.ubisoft2',
+      'smartrecruiters.board.smartrecruiters',
+    ])
+    // The two blockers were always INDEPENDENT, and that is still the point of this test: a capture
+    // is a fact about evidence and says nothing about permission, so stripping the decision brings
+    // PERMISSION_UNCLEAR back ALONE rather than bringing the evidence blocker with it.
     const stripped = build('SMARTRECRUITERS_ATS', without)()
     expect(typeOf(stripped, 'SMARTRECRUITERS_ATS').blockers.map((b) => b.code)).toEqual([
       'PERMISSION_UNCLEAR',
-      'NO_API_CAPTURE',
     ])
   })
 
@@ -328,9 +528,11 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
     const addPostings = (patch: Record<string, unknown>) => {
       const root = fixtureCopy()
       const body = '{"offset":0,"limit":100,"totalFound":0,"content":[]}\n'
-      writeFileSync(join(root, 'smartrecruiters', 'postings-list.json'), body)
+      // `postings-list.json` is the `smartrecruiters` board's evidence too, and that check reads
+      // the employer out of the file, so this synthetic smoke goes to a name of its own.
+      writeFileSync(join(root, 'smartrecruiters', 'smoke-postings.json'), body)
       writeFileSync(
-        join(root, 'smartrecruiters', 'postings-list.provenance.json'),
+        join(root, 'smartrecruiters', 'smoke-postings.provenance.json'),
         `${JSON.stringify(
           {
             url: 'https://api.smartrecruiters.com/v1/companies/acme/postings',
@@ -349,7 +551,14 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
           2,
         )}\n`,
       )
-      return typeOf(build('SMARTRECRUITERS_ATS', (d) => d, root)(), 'SMARTRECRUITERS_ATS')
+      return typeOf(
+        build(
+          'SMARTRECRUITERS_ATS',
+          (d) => ({ ...d, payloadFixtures: ['smoke-postings.json'] }),
+          root,
+        )(),
+        'SMARTRECRUITERS_ATS',
+      )
     }
     const captured = addPostings({})
     expect(captured.blockers).toEqual([])
@@ -359,6 +568,25 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
     expect(addPostings({ notes: 'SENTINEL: hand-written' }).blockers.map((b) => b.code)).toEqual([
       'NO_API_CAPTURE',
     ])
+  })
+
+  it('WORKINGNOMADS_API declares its one payload capture, so a sentinel in its place blocks', () => {
+    // What the declaration BUYS, measured rather than pinned: with `exposed-jobs.json` declared,
+    // turning that capture into a sentinel in a COPY raises NO_API_CAPTURE and the detail names the
+    // file; declaring nothing asks for no payload at all, and the same swap would pass unremarked.
+    // The terms capture stays real, so this is not the NO_CAPTURE path (every fixture a sentinel).
+    const root = fixtureCopy()
+    const path = join(root, 'workingnomads', 'exposed-jobs.provenance.json')
+    const o = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+    writeFileSync(path, `${JSON.stringify({ ...o, httpStatus: 0 }, null, 2)}\n`)
+    const t = typeOf(build('WORKINGNOMADS_API', (d) => d, root)(), 'WORKINGNOMADS_API')
+    expect(t.blockers).toEqual([
+      {
+        code: 'NO_API_CAPTURE',
+        detail: 'none of exposed-jobs.json is a real capture of the API payload',
+      },
+    ])
+    expect(t.payloadVerified).toBe(false)
   })
 
   it('NO_API_CAPTURE: any ONE of several declared payload files clears it, and the detail names them all', () => {
@@ -409,33 +637,23 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
     expect(stripped.blockers).toEqual(t.blockers)
     expect(t.blockers).toEqual([])
   })
-
-  it('Muse carries its decision and stays BLOCKED by its status constant: a decision lifts UNCLEAR only', () => {
-    const m = buildManifest(real())
-    expect(typeOf(m, 'MUSE_API').ownerDecisions).toEqual([MUSE_OWNER_DECISION])
-    expect(typeOf(m, 'MUSE_API').blockers.map((b) => b.code)).toEqual(['STATUS_CONSTANT_BLOCKED'])
-  })
 })
 
 describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permission', () => {
   const OWNER_QUOTE =
-    '"Мне нужно доставать вакансии со всех возможных источников и даю своё согласие на использование всех источников"'
+    '(owner\'s words, translated): "I need to pull vacancies from every possible source, and I give my consent to use all sources."'
   const NO_EVASION =
     'A 403, a 429, a Cloudflare/bot challenge or any explicit block ends the run with no further request; no user-agent change, proxy, headless browser or other evasion, ever.'
   const LIFTED: readonly (readonly [string, OwnerDecision, string, readonly string[]])[] = [
     ['ASHBY_ATS', ASHBY_OWNER_DECISION, 'api.ashbyhq.com/posting-api/job-board/', []],
     ['DJINNI_RSS', DJINNI_OWNER_DECISION, 'djinni.co/jobs/rss/?primary_keyword=', []],
+    // Task sources-04 flipped both status constants to not blocked (the decisions are what permit
+    // them), so nothing is left for the manifest to refuse on: the arrays below are empty.
     [
       'WORKINGNOMADS_API',
       WORKINGNOMADS_OWNER_DECISION,
       'www.workingnomads.com/api/exposed_jobs/',
-      ['STATUS_CONSTANT_BLOCKED'],
-    ],
-    [
-      'MUSE_API',
-      MUSE_OWNER_DECISION,
-      'www.themuse.com/api/public/jobs',
-      ['STATUS_CONSTANT_BLOCKED'],
+      [],
     ],
   ]
 
@@ -460,7 +678,31 @@ describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permis
       expect(typeOf(m, t).endpointVariant).toBe(d.endpointVariant)
       expect(typeOf(m, t).permission).toBe('UNCLEAR')
       expect(typeOf(m, t).blockers.map((b) => b.code)).toEqual(remaining)
-      // Removing the decision brings the permission blocker back: the decision is what lifted it.
+    },
+  )
+  // Removing the decision moves readiness, and HOW it moves depends on whether the type also
+  // declares a status constant saying "not blocked": such a type cannot even be BUILT without the
+  // decision, because nothing else would permit an UNCLEAR source. Two tables, so neither control
+  // is an `if` around an expectation (and the partition itself is asserted below).
+  const declaresPermitted = (t: string) =>
+    MANIFEST_DEFINITIONS.find((def) => def.type === t)?.status?.value.blocked === false
+  const LIFTED_PERMITTED = LIFTED.filter(([t]) => declaresPermitted(t))
+  const LIFTED_UNCLEAR_ONLY = LIFTED.filter(([t]) => !declaresPermitted(t))
+  it('the two removal controls below partition LIFTED, and neither table is empty', () => {
+    // An empty `it.each` table silently runs no control at all, which would read as a pass.
+    expect(LIFTED_PERMITTED.map(([t]) => t)).toEqual(['WORKINGNOMADS_API'])
+    expect(LIFTED_UNCLEAR_ONLY.map(([t]) => t)).toEqual(['ASHBY_ATS', 'DJINNI_RSS'])
+    expect(LIFTED_PERMITTED.length + LIFTED_UNCLEAR_ONLY.length).toBe(LIFTED.length)
+  })
+  it.each(LIFTED_PERMITTED)(
+    '%s: its status constant says permitted, so WITHOUT the decision the manifest refuses to build',
+    (t) => {
+      expect(build(t, without)).toThrow(/STATUS_CONSTANT_DISAGREES/)
+    },
+  )
+  it.each(LIFTED_UNCLEAR_ONLY)(
+    '%s: without the decision the permission blocker comes back',
+    (t, _d, _endpoint, remaining) => {
       expect(typeOf(build(t, without)(), t).blockers.map((b) => b.code)).toEqual([
         'PERMISSION_UNCLEAR',
         ...remaining,
@@ -649,3 +891,64 @@ const HN_PROVENANCE_PINS: Array<[string, string]> = [
     '3a3f8ee8e334fadf1cfa8e530c61344bd920406c97041b143fa37b54327b0e30',
   ],
 ]
+
+describe('owner decision 2026-11-24: GermanTechJobs (wave 3)', () => {
+  const d = GERMANTECHJOBS_OWNER_DECISION
+  it('is well-formed, dated, accepted risk on UNCLEAR, and binds the jobs-light endpoint', () => {
+    expect(isWellFormedDecision(d)).toBe(true)
+    expect(d.decision).toBe('ACCEPT_RISK')
+    expect(d.decidedAt).toBe('2026-11-24')
+    expect(d.endpointVariant).toBe('jobs-light')
+    expect(d.scope).toContain('germantechjobs.de/api/jobsLight')
+    expect(d.scope).toContain('knowingly accepted as risk, NOT resolved')
+  })
+  it('is attached to GERMANTECHJOBS_API, which stays UNCLEAR with no blocker left', () => {
+    const t = typeOf(buildManifest(real()), 'GERMANTECHJOBS_API')
+    expect(t.ownerDecisions).toEqual([d])
+    expect(t.endpointVariant).toBe(d.endpointVariant)
+    expect(t.permission).toBe('UNCLEAR')
+    expect(t.blockers).toEqual([])
+  })
+})
+
+describe('owner decision 2026-11-20: Next Level Jobs (sources-12)', () => {
+  const d = NEXTLEVELJOBS_OWNER_DECISION
+  it('is well-formed, dated, accepted risk on UNCLEAR, and binds the sitemap endpoint', () => {
+    expect(isWellFormedDecision(d)).toBe(true)
+    expect(d.decision).toBe('ACCEPT_RISK')
+    expect(d.decidedAt).toBe('2026-11-20')
+    expect(d.endpointVariant).toBe('jobs-sitemap')
+    expect(d.scope).toContain('nextleveljobs.eu/jobs/sitemap.xml')
+    expect(d.scope).toContain(
+      'the permission is UNCLEAR and knowingly accepted as risk, NOT resolved',
+    )
+    expect(d.scope).toContain(
+      'A 403, a 429, a Cloudflare/bot challenge or any explicit block ends the run with no further request',
+    )
+    expect(d.reference).toContain('Accepted risk, not a documented permission.')
+  })
+  it('is attached to NEXTLEVELJOBS_HTML, which stays UNCLEAR with no blocker left', () => {
+    const t = typeOf(buildManifest(real()), 'NEXTLEVELJOBS_HTML')
+    expect(t.ownerDecisions).toEqual([d])
+    expect(t.endpointVariant).toBe(d.endpointVariant)
+    expect(t.permission).toBe('UNCLEAR')
+    expect(t.blockers).toEqual([])
+  })
+  it('WITHOUT the decision the manifest refuses to build (the status constant says permitted)', () => {
+    expect(build('NEXTLEVELJOBS_HTML', without)).toThrow(/STATUS_CONSTANT_DISAGREES/)
+  })
+})
+
+describe('owner decision 2026-11-20: the sources-13 trio and Dice (SEC-L-1, PR #1444, sources-14)', () => {
+  it('exactly the trio and Dice carry an ACCEPT_PROHIBITED_RISK decision', () => {
+    const prohibitedRisk = MANIFEST_DEFINITIONS.filter((def) =>
+      (def.ownerDecisions ?? []).some((d) => d.decision === 'ACCEPT_PROHIBITED_RISK'),
+    ).map((def) => def.type)
+    expect([...prohibitedRisk].sort()).toEqual([
+      'DICE_HTML',
+      'JUSTJOIN_HTML',
+      'LANDINGJOBS_HTML',
+      'THEHUB_HTML',
+    ])
+  })
+})

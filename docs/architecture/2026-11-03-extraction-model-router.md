@@ -94,7 +94,8 @@ note pointing here.
    10 s limit. The owner stopped the replay. The extraction compose project, the weights volume and the images were
    removed from production.
 2. **The router uses free hosted models only: Gemini, Groq and OpenRouter.** OpenRouter returns as a route (D3 is
-   superseded, §4.3). The owner bought $10 of OpenRouter credits, which raises the `:free` limit to 1000 requests a day.
+   superseded, §4.3). No OpenRouter credits are bought (amendment 2026-11-18), so the `:free` limit is 50 requests a
+   day; a later $10 purchase raises it to 1000.
    **Only free models are ever used**, never a paid one (§3.5).
 3. **When every provider, model and limit is exhausted, the user sees a localized error** (uk and en, through Lingui),
    not a slow fallback and not an empty result (H.2, H.8).
@@ -251,7 +252,7 @@ Specified in §3.5, rewritten by this amendment from "deferred" to "built". In s
 - every catalogue price is 0;
 - the `openrouter` author and every other suffix are denied;
 - the request sends `max_price` 0 and `require_parameters`;
-- the limits are 1000 a day and about 20 a minute;
+- the limits are 50 a day without credits (1000 after a $10 purchase) and about 20 a minute;
 - `SPENT_DAY`, `CREDIT` and `FLAG_REJECTED` are classified;
 - the key's USD `limit` of $0 is the backstop.
 
@@ -262,7 +263,8 @@ A paid model is unreachable by four independent checks (§3.5).
 - **Why it existed.** A 1.5B-class local model could not answer the full schema, so §5.4 split the ask into field groups
   and merged the answers. Hosted routes always got the full shape (§5.4, "hosted: full shape").
 - **Why it does not carry over.** Each group re-sends the whole input. So a six-group dose costs up to six requests and
-  six times the input tokens of one full call, against 1000 requests a day and about 20 a minute. It does not help a
+  six times the input tokens of one full call, against 50 requests a day (1000 after a $10 purchase) and about 20 a
+  minute. It does not help a
   hosted context limit, because the input, not the schema, is what fills the window. Its only beneficiary was the
   withdrawn model.
 - **What survives.**
@@ -276,11 +278,11 @@ A paid model is unreachable by four independent checks (§3.5).
 
 #### H.7 Limits and resets per provider (MED until the 5.4c-5 smoke)
 
-| Provider   | Free limit fed to `freeLimit`                                     | Own cap (D5, 50 %) | Pacing (`minGapMs`)    | Reset assumed                    |
-| ---------- | ----------------------------------------------------------------- | ------------------ | ---------------------- | -------------------------------- |
-| Gemini     | per model, from `2026-11-04-extraction-provider-facts.md`         | half of it         | per provider-facts     | midnight Pacific (documented)    |
-| Groq       | per model, from the same file                                     | half of it         | per provider-facts     | UNVERIFIED; the smoke records it |
-| OpenRouter | 1000 requests a day for `:free` once ≥ $10 of credits were bought | 500                | 3000 ms (~20 a minute) | UNVERIFIED; the smoke records it |
+| Provider   | Free limit fed to `freeLimit`                                      | Own cap (D5, 50 %) | Pacing (`minGapMs`)    | Reset assumed                    |
+| ---------- | ------------------------------------------------------------------ | ------------------ | ---------------------- | -------------------------------- |
+| Gemini     | per model, from `2026-11-04-extraction-provider-facts.md`          | half of it         | per provider-facts     | midnight Pacific (documented)    |
+| Groq       | per model, from the same file                                      | half of it         | per provider-facts     | UNVERIFIED; the smoke records it |
+| OpenRouter | 50 requests a day for `:free` (no credits); 1000 once ≥ $10 bought | 25 (500 after)     | 3000 ms (~20 a minute) | UNVERIFIED; the smoke records it |
 
 Own caps stay per provider and per policy version (D5). A reset time is used only by the health flag's message and by
 operators. No code path waits on it, so an error here delays a retry by one cycle at most.
@@ -288,38 +290,52 @@ operators. No code path waits on it, so an error here delays a retry by one cycl
 #### H.8 How the message reaches HR and ADMIN
 
 - **The text** (Lingui; in this module the `uk` text is the source message and `en` is its catalog entry):
-  - uk: «Пошук вакансій тимчасово недоступний: ліміти AI-моделей на зараз вичерпано. Спробуйте пізніше.»
-  - en: "Vacancy sourcing is temporarily unavailable: AI model limits are exhausted for now. Try again later."
+  - uk: «Пошук вакансій тимчасово недоступний: ліміти AI-моделей вичерпано. Спробуйте пізніше.»
+  - en: "Vacancy search is temporarily unavailable: AI model limits are used up. Try again later."
 
-  The copy-reviewer reviews both. The owner's suggested wording is the starting point, not frozen text.
+  This is the wording after the copy review of PR #1399. The owner's suggested wording was the starting point, not
+  frozen text.
 
-- **One API field, derived from the flag.** The read model is "is `MODEL_LIMITS_EXHAUSTED` raised and not cleared". It is
-  exposed as `sourcingNotice: 'AI_LIMITS_EXHAUSTED' | null` in two strict response schemas in `@crm/shared`:
-  - `jobQueueListResponseSchema`, the HR, SENIOR and ADMIN queue, served by `JobQueueService.list`;
+- **One API field, derived from the flag.** The read model is "is `MODEL_LIMITS_EXHAUSTED` raised and not cleared"
+  (`readSourcingNotice`; the health store has write paths only, so this is its one read). It is exposed as
+  `sourcingNotice: 'AI_LIMITS_EXHAUSTED' | null` in two response schemas in `@crm/shared`:
+  - `jobQueueListResponseSchema`, the queue list, served by `JobQueueService.list`. Its readers are ADMIN and HR. SENIOR
+    gets 403 from the queue's role set, as before; whether SENIOR should read the queue is a separate owner decision and
+    this field does not change it.
   - `jobSourceOperationalListSchema`, ADMIN `GET /job-sourcing/admin/sources/health`, served by
     `JobSourceAdminController`.
 
-  Both schemas are strict, so the field is added to the schema, never passed through. It is a closed enum, so further
+  The queue list schema is strict. The operational list schema is not strict, as before: its server parse strips unknown
+  keys. In both the field is required and added to the schema, never passed through. It is a closed enum, so further
   notices are new values, not new fields. It carries no provider name, count or time: no RBAC-relevant data reaches the
-  HR view.
+  HR view. A failed flag read gives `null` and a log code; it never fails the request.
 
 - **Where it shows.**
   - **Queue** (`/job-queue`, the existing notice pattern with `AlertTriangle` and `<Trans>`, test id
-    `job-queue-ai-limits`). It is a separate block above the list, outside the `if / else if` chain, so it can stand beside
-    the "partial list" notice. It sits in a live region with `role="status"`.
+    `job-queue-ai-limits`). It is a separate block above the list, outside the `if / else if` chain, so it can stand
+    beside the "partial list" notice. It sits in a live region with `role="status"` that is always mounted: while
+    empty it stays in the accessibility tree and takes no layout space, so a screen reader announces the text when it
+    appears.
   - **ADMIN sources** (`/admin/sources`): the same text as a banner over the health table.
 - **The ADMIN manual run.** `POST /job-sourcing/collect` uses the same concept.
-  - `jobCollectionRunSchema` gains the same `sourcingNotice` field, set when the run's model stage stopped on limits. The
-    deterministic stages still ran.
-  - When nothing succeeded **and** the model stage stopped on limits, the existing 503 carries a new code,
+  - `jobCollectionRunSchema` gains the same `sourcingNotice` field. The deterministic stages still ran.
+  - When nothing succeeded **and** the notice is raised, the existing 503 carries a new code,
     `JOB_SOURCING_AI_LIMITS_EXHAUSTED` in `JOB_SOURCING_ERROR_CODES`. It has the same localized text in the client
     catalog and an English fallback `message`.
   - Any other "nothing succeeded" keeps today's 503 and code.
+  - **Interim rule, and what 5.5b owes.** Until 5.5b the field on the manual run is the global flag, read after the run,
+    not "this run's model stage stopped on limits". So a flag left raised by an earlier cycle, plus a run in which every
+    source failed for another reason, would answer the AI-limits 503 in place of the per-source failure text. It cannot
+    happen in production while nothing raises the flag. Task 5.5b, which wires `prepareCycle`, must make the manual
+    run's notice and its 503 run-scoped (set only when this run's model stage stopped on limits) and pin both cases with
+    tests: a raised flag with an unrelated failure keeps today's 503 and code.
 - **Where it lands now, and where later.** Nothing in production calls the model wiring until task 5.5b, the first HTML
   model provider (§7.2, delivery state). Until then the flag is never raised, the field is always `null` and both views
   show nothing. The code ships with tests that raise the flag through the store. The message goes live when 5.5b wires
   `prepareCycle`. Later, the HR queue's empty state is the natural second place, when a queue stays empty because the
   model stage was skipped; it is a follow-up, not part of H-3.
+- **Deploy note.** The queue list schema is strict and gains a required field, so a `/job-queue` tab opened before the
+  deploy fails to parse the new response until it is reloaded.
 
 #### H.9 Two OpenRouter decisions
 
@@ -1031,10 +1047,12 @@ refresh and a pattern standing in for the missing free-tier field are not in VCF
 
   4. **The key's USD `limit` is $0** (an owner setting; the key showed `limit: 0` on 2026-11-08). Even if the three checks
      above failed, a paid request has no spend to draw on. The 5.4c-5 smoke confirms that `:free` calls succeed under a $0
-     limit with a positive credit balance, because the probe's 200s on 2026-11-08 suggest it but do not prove it.
+     limit on an account without credits (amendment 2026-11-18), because the probe's 200s on 2026-11-08 suggest it
+     but do not prove it.
 - **Limits.**
-  - `freeLimit.requestsPerDay` is 1000. That is OpenRouter's `:free` limit once at least $10 of credits were bought; the
-    owner bought exactly $10. So the own cap is 500 (D5).
+  - `freeLimit.requestsPerDay` is 50, OpenRouter's `:free` limit on an account without credits; the owner has bought
+    none (amendment 2026-11-18). So the own cap is 25 (D5). After a purchase of at least $10 the limit is 1000 and the
+    own cap 500; the extraction-worker runbook says when.
   - `minGapMs` is 3000, under the ~20 requests a minute that `:free` models allow.
   - `PROBE_CAP` is unchanged: `MANAGED_LIST_TARGET` plus one, so 6. Probes count against the own cap (§3.4).
   - A negative credit balance makes OpenRouter answer 402 even on free models. That is `CREDIT` below.
@@ -1088,6 +1106,11 @@ unchanged. The router does not reuse that adapter, so the D11 `allow` does not l
 > `/resume-write` and `/visual-check` use the same worker entry and the same router, with no `ai-input` gate and no
 > `stripContacts`: the API redacts what it sends there (`redactAll`), with the limits H.9 D11 states. Wherever this
 > document names the strip without an endpoint, it means the strip on `/extract`.
+>
+> The worker serves five endpoints: `/extract`, `/classify-roles`, `/resume-write`, `/visual-check` and `/preflight`.
+> `/classify-roles` (senior roles) carries public vacancy text like `/extract` and strips it again in the worker
+> (`classifyRolesWorkerInput` runs `stripContacts` on the title, the description and every category). `/preflight`
+> sends no model request.
 
 These hold for the local route too; none of them depends on which route answers.
 
@@ -1528,8 +1551,8 @@ with vacancy text included, while the next record started. **So the 5.4b hold ch
 > - the D10 dropped-field share;
 > - the share of inputs cut by the input ceiling (H.4);
 > - per-provider `SPENT_DAY` / `BUSY` / `FLAG_REJECTED` counts;
-> - the number of free requests one collection cycle consumes. That last figure checks the 1000-a-day and own-cap
->   numbers of H.7 against real volume.
+> - the number of free requests one collection cycle consumes. That last figure checks the 50-a-day and own-cap
+>   numbers of H.7 against real volume, and is what shows when the $10 purchase is due.
 >
 > For OpenRouter, it runs with `dataCollection: allow` (D11). It may run on the OpenRouter key alone while the Gemini and
 > Groq keys do not exist; each provider's row is filled when its key arrives. MP-03 still gates hosted enablement (5.4c-5)
@@ -1568,7 +1591,7 @@ gates the install (task 5.4c-8).
 | **D2**   | May a provider whose free tier can train on or human-review prompts receive vacancy text                       | **Decided by the owner 2026-11-04**                | Yes, after stripping (§4.2)                                                                                                                                                                                                                                                                                                                                   | Same                                                                 |
 | **D3**   | OpenRouter in the router                                                                                       | **Decided by the owner 2026-11-04**                | **Superseded 2026-11-08:** OpenRouter is a route, free models only; `data_collection` is D11 (§3.5, §4.3). Original answer: not in this version; `deny` re-decided if it is added                                                                                                                                                                             | Yes — add a provider row later                                       |
 | **D4**   | Which persistent store holds route state and the managed list (memory alone is ruled out by D6)                | **Decided by the owner 2026-11-04** (ADR approval) | Worker state files (write-through, atomic replace) behind the `RouteStatePort`; Postgres adapter only when a second worker replica appears                                                                                                                                                                                                                    | Yes — swap the adapter                                               |
-| **D5**   | Own daily caps per provider                                                                                    | **Decided by the owner 2026-11-04** (ADR approval) | 50 % of each provider's published free limit (5.4c-0 supplies the numbers), frozen as limits in config under a policy version                                                                                                                                                                                                                                 | Yes — a new policy version                                           |
+| **D5**   | Own daily caps per provider                                                                                    | **Decided by the owner 2026-11-04** (ADR approval) | 50 % of each provider's published free limit (5.4c-0 supplies the numbers), frozen as limits in config under a policy version. **Amended by the owner 2026-11-20:** 100 % of the free limit for every provider except Cloudflare, which stays at 50 %                                                                                                         | Yes — a new policy version                                           |
 | **D6**   | Model list after a model dies                                                                                  | **Decided by the owner 2026-11-03**                | **Self-heal** by the VCF mechanism: request-time retirement, daily refresh with a pinned fallback, weekly stale check (§3.4) — replaces "alert only"                                                                                                                                                                                                          | Yes — delete the managed-list file / disable the job                 |
 | **D7**   | Adoption shape                                                                                                 | **Decided by the owner 2026-11-04** (ADR approval) | Option A, copy-adapt into `@crm/inference`                                                                                                                                                                                                                                                                                                                    | Yes — revert the PRs                                                 |
 | **D8**   | If no model passes MP-04 on the VPS: another host, or deterministic HTML with model extraction disabled (§8.5) | **A3, asked only if it happens**                   | Deterministic HTML first, because it spends nothing and loses only what measured coverage can then price; another host once that loss is known                                                                                                                                                                                                                | Yes                                                                  |
@@ -1596,7 +1619,8 @@ local model's branch (5.4c-7, 5.4c-8).
 > then **MP-03 (hosted-only, §6.2)** after H3, then **5.4c-5 (re-scoped)** after H1–H3 and MP-03. H4 may run in parallel
 > with H3 once H2 is merged; it touches disjoint files.
 >
-> **Status 2026-11-17:** 5.4c-H1 done in PR #1381, based on `main` after #1375 merged. 5.4c-H2 done in PR #1384. 5.4c-H3 done in PR #1396.
+> **Status 2026-11-18:** 5.4c-H1 done in PR #1381, based on `main` after #1375 merged. 5.4c-H2 done in PR #1384.
+> 5.4c-H3 done in PR #1396. 5.4c-H4 done in PR #1399.
 >
 > | Task                                                    | Agent · model                                                                                               | Depends on             | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 > | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1645,7 +1669,8 @@ MP-03 must measure what production will run.
 - **The `buildModelExtraction` call site and the use of `prepareCycle` belong to task 5.5b, the first HTML model provider.**
   `HtmlProvider` is abstract with no concrete subclass, so nothing in production calls the wiring until then. `prepareCycle`
   itself arrived with 5.4c-4, replacing `forCycle`. The 5.5b task file must cite backlog items 366 and 367, the obligations
-  that first caller inherits.
+  that first caller inherits. It must also make the manual run's
+  limits notice and its 503 run-scoped (H.8, the interim rule).
 
 MP-03 itself stays the plan's measurement. Its local phase runs with 5.4c-7 and on the same set; its hosted phase runs
 once keys exist for the measurement and before 5.4c-5 (§6.2). MP-03 still gates hosted enablement and picks hosted
@@ -1812,8 +1837,8 @@ option (§3.3), so `provider: local` stays as it is, for loopback use. **Amended
 > **Amended 2026-11-08 (hosted-only).** The bullets below are the record of the local-model plan. What changes:
 >
 > - **Positive.** No model runtime on the CRM host: no memory or CPU taken from the CRM, no install guards, no model
->   measurement before production. Three free providers instead of two widen the daily capacity; OpenRouter alone adds
->   1000 free requests per day. The small dose and its table are gone, so a call is one request per route attempt.
+>   measurement before production. Three free providers instead of two widen the daily capacity; OpenRouter adds
+>   50 free requests per day (own cap 25), 1000 after a one-off $10 purchase. The small dose and its table are gone, so a call is one request per route attempt.
 > - **Negative.** There is no floor. A day when every route is limit-blocked is a day with **no model extraction**: the
 >   records stay owed and are retried on a later cycle, and the user sees the owner's localized notice (H.8) instead of
 >   slow results. Extraction now depends entirely on three third parties' free terms, which change without notice.
@@ -1916,8 +1941,10 @@ local-model plan; its "Local model" and "Small-dose table" rows are moot, and it
   `MODEL_DOWN_FRESH_HOURS`, and the knowledge notes `llm-backends` and `model-call-doses`.
 - Provider and runtime facts: `docs/architecture/2026-11-04-extraction-provider-facts.md` (5.4c-0, read 2026-11-04); what
   it could not settle is listed in §2.3. Nothing in this ADR was fetched from the network.
-- **Amendment 2026-11-08:** the owner's hosted-only decision, the $10 OpenRouter credit purchase (which raises the `:free`
-  limit to 1000 requests per day) and the localized notice text, relayed by Master; the owner's D11 answer on
+- **Amendment 2026-11-18:** the owner states no OpenRouter credits were bought. The purchase recorded in the 2026-11-08
+  amendment below did not happen; §3.5 and decision 2 now use the 50-a-day limit and the own cap of 25.
+- **Amendment 2026-11-08:** the owner's hosted-only decision, the $10 OpenRouter credit purchase (superseded: never
+  made, see 2026-11-18 above) and the localized notice text, relayed by Master; the owner's D11 answer on
   `data_collection`, relayed by Master. The MP-04 result that preceded the decision, and the OpenRouter facts in §3.5 and
   H.9, are as relayed; OpenRouter's limits, reset time and error bodies stay **UNVERIFIED** until the 5.4c-5 smoke. The
   code symbols named in H.1–H.8 were read at origin/main `10517861`.

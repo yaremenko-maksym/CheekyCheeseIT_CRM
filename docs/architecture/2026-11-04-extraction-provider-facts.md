@@ -318,23 +318,23 @@ section adds no provider finding and every UNVERIFIED row in this document stand
 provider fields it reads: what the code does, not what a provider has been seen to do. Symbols are in
 `packages/inference/src/router/` unless named otherwise; verify by grepping the symbol.
 
-| Limit                                     | Value                                         | Symbol                                                             |
-| ----------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------ |
-| Own daily cap                             | 50 % of the configured free limit             | `OWN_CAP_SHARE`, `ownCapOf`                                        |
-| Probes per provider per refresh           | 6, one above the list target of 5             | `PROBE_CAP`, `MANAGED_LIST_TARGET`                                 |
-| Pause between probes                      | 6 s                                           | `PROBE_PAUSE_MS`                                                   |
-| Answer tokens on a probe                  | 16, one fixed prompt                          | `PROBE_MAX_TOKENS`, `MODEL_PROBE_PROMPT`                           |
-| Busy days before `dead` (Gemini)          | 3, then re-probed after 7 days                | `BUSY_DEAD_DAYS`, `BUSY_DEAD_REPROBE_DAYS`                         |
-| Alive days before promotion               | 3                                             | `PROMOTION_STREAK`                                                 |
-| Backoff on a busy model                   | 9 s, once per model per call                  | `BUSY_BACKOFF_MS`                                                  |
-| Hosted budget per call                    | at most 120 s                                 | `MAX_HOSTED_BUDGET_MS`                                             |
-| Local timeout                             | below 300 s; 300 s itself is refused          | `LOCAL_TIMEOUT_LIMIT_MS`                                           |
-| Smallest managed context                  | 16 000 tokens, fixed                          | `MIN_MANAGED_CONTEXT`                                              |
-| Fit estimate                              | 2 characters per token, 32 tokens of overhead | `CHARS_PER_TOKEN`, `MESSAGE_OVERHEAD_TOKENS`                       |
-| Listing read                              | 200 entries, 256-character ids, 512 KiB       | `LISTING_MAX_ENTRIES`, `LISTING_MAX_ID_CHARS`, `LISTING_MAX_BYTES` |
-| Error body parsed                         | 2 MiB; over the cap means no marker           | `internal/classified-chat.ts`                                      |
-| Longest provider-stated pause honoured    | 24 h                                          | `MAX_PAUSE_MS`                                                     |
-| Largest token count believed from a reply | 10 000 000                                    | `MAX_REPORTED_TOKENS`                                              |
+| Limit                                     | Value                                                            | Symbol                                                             |
+| ----------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Own daily cap                             | 100 % of the free limit, Cloudflare 50 % (D5 amended 2026-11-20) | `OWN_CAP_SHARE`, `ownCapOf`                                        |
+| Probes per provider per refresh           | 6, one above the list target of 5                                | `PROBE_CAP`, `MANAGED_LIST_TARGET`                                 |
+| Pause between probes                      | 6 s                                                              | `PROBE_PAUSE_MS`                                                   |
+| Answer tokens on a probe                  | 16, one fixed prompt                                             | `PROBE_MAX_TOKENS`, `MODEL_PROBE_PROMPT`                           |
+| Busy days before `dead` (Gemini)          | 3, then re-probed after 7 days                                   | `BUSY_DEAD_DAYS`, `BUSY_DEAD_REPROBE_DAYS`                         |
+| Alive days before promotion               | 3                                                                | `PROMOTION_STREAK`                                                 |
+| Backoff on a busy model                   | 9 s, once per model per call                                     | `BUSY_BACKOFF_MS`                                                  |
+| Hosted budget per call                    | at most 120 s                                                    | `MAX_HOSTED_BUDGET_MS`                                             |
+| Local timeout                             | below 300 s; 300 s itself is refused                             | `LOCAL_TIMEOUT_LIMIT_MS`                                           |
+| Smallest managed context                  | 16 000 tokens, fixed                                             | `MIN_MANAGED_CONTEXT`                                              |
+| Fit estimate                              | 2 characters per token, 32 tokens of overhead                    | `CHARS_PER_TOKEN`, `MESSAGE_OVERHEAD_TOKENS`                       |
+| Listing read                              | 200 entries, 256-character ids, 512 KiB                          | `LISTING_MAX_ENTRIES`, `LISTING_MAX_ID_CHARS`, `LISTING_MAX_BYTES` |
+| Error body parsed                         | 2 MiB; over the cap means no marker                              | `internal/classified-chat.ts`                                      |
+| Longest provider-stated pause honoured    | 24 h                                                             | `MAX_PAUSE_MS`                                                     |
+| Largest token count believed from a reply | 10 000 000                                                       | `MAX_REPORTED_TOKENS`                                              |
 
 **Provider day, as the code reads it** (`providerDay`): America/Los_Angeles for Gemini, UTC for Groq.
 

@@ -6,13 +6,21 @@ import { stripContacts } from '../job-sourcing/structuring/contact-strip'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
 import { classifyRolesWorkerInput, classifyVacancyRoles } from './classify-roles'
-import { classifyRolesBodySchema, EXTRACTION_TABLE_VERSION } from './link-contract'
+import {
+  classifyRolesBodySchema,
+  EXTRACTION_TABLE_VERSION,
+  pickBlocksBodySchema,
+  tailorBodySchema,
+} from './link-contract'
+import { blockPickWorkerInput, pickBlocks } from './pick-blocks'
+import { tailorResume, tailorWorkerInput } from './resume-tailor'
 import { resumeWriteInput, writeResume } from './resume-write'
 import {
   MAX_WORKER_INPUT_CHARS,
   extractBodySchema,
   healthFlags,
   preflightBodySchema,
+  refusalCategory,
   resumeWriteBodySchema,
   VISUAL_CHECK_BODY_LIMIT,
   visualCheckBodySchema,
@@ -43,11 +51,13 @@ export type ExtractionWorkerOptions = {
 const digest = (value: string) => createHash('sha256').update(value).digest()
 
 /**
- * The extraction worker (ADR §2.4): the only process that holds provider keys. It answers five
+ * The extraction worker (ADR §2.4): the only process that holds provider keys. It answers seven
  * routes and builds every request itself from checked-in prompts and schemas: `/extract` takes the
  * input text and the table version, `/preflight` takes nothing, `/resume-write` takes the task, the
  * caller-redacted facts payload and the gate feedback lines, `/visual-check` takes rendered pages,
- * `/classify-roles` takes a vacancy's public title, description and board categories.
+ * `/classify-roles` takes a vacancy's public title, description and board categories, `/resume-tailor`
+ * takes the caller-redacted facts payload, the posting and the gate feedback lines, `/pick-blocks`
+ * takes a page's visible text blocks with the table version.
  */
 export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyInstance {
   const tableVersion = opts.tableVersion ?? EXTRACTION_TABLE_VERSION
@@ -61,8 +71,17 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
   // Fastify's defaults are the policy: no logger (AC9) and a 1 MiB body limit.
   const app = Fastify()
 
-  const refuse = (reply: FastifyReply, status: number, error: string) => {
-    opts.log({ event: 'REFUSED', status })
+  /**
+   * `extra` carries closed-set categories only — never a key or a value out of the body: the
+   * `resume-write` payload is the caller-redacted facts, and the worker logs no text of it (R16).
+   */
+  const refuse = (
+    reply: FastifyReply,
+    status: number,
+    error: string,
+    extra: Record<string, string> = {},
+  ) => {
+    opts.log({ event: 'REFUSED', status, ...extra })
     return reply.code(status).send({ error })
   }
 
@@ -106,6 +125,13 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
     return callEvents.run(events, () => run(controller.signal))
   }
 
+  /** The strip count as the reply's first event and a log line, both without text; none for 0. */
+  function strippedEvents(count: number): WorkerEvent[] {
+    if (count === 0) return []
+    opts.log({ event: 'INPUT_CONTACTS_STRIPPED', count })
+    return [{ type: 'INPUT_CONTACTS_STRIPPED', count }]
+  }
+
   app.post('/extract', async (req, reply) => {
     const body = extractBodySchema.safeParse(req.body)
     if (!body.success) return refuse(reply, 400, 'BAD_REQUEST')
@@ -114,12 +140,7 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
     }
     // The second strip (§2.4): the worker does not trust the API's strip to have run.
     const stripped = stripContacts(body.data.input)
-    const count = Object.values(stripped.removed).reduce((a, b) => a + b, 0)
-    const events: WorkerEvent[] = []
-    if (count > 0) {
-      events.push({ type: 'INPUT_CONTACTS_STRIPPED', count })
-      opts.log({ event: 'INPUT_CONTACTS_STRIPPED', count })
-    }
+    const events = strippedEvents(Object.values(stripped.removed).reduce((a, b) => a + b, 0))
     const result = await call(reply, events, (signal) =>
       ports.extract.extract({
         input: stripped.text,
@@ -134,12 +155,13 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
   // The caller redacts every field before it builds `payload` (R16); the worker logs no text of it.
   app.post('/resume-write', async (req, reply) => {
     const body = resumeWriteBodySchema.safeParse(req.body)
+    // A refusal says which category of payload defect it was, and nothing more (item 460).
+    if (!body.success) {
+      return refuse(reply, 400, 'BAD_REQUEST', { reason: refusalCategory(body.error) })
+    }
     // The port cuts a longer input without a word, so an input over the cap is refused, not cut.
-    if (
-      !body.success ||
-      resumeWriteInput(body.data.payload, body.data.feedback).length > MAX_WORKER_INPUT_CHARS
-    ) {
-      return refuse(reply, 400, 'BAD_REQUEST')
+    if (resumeWriteInput(body.data.payload, body.data.feedback).length > MAX_WORKER_INPUT_CHARS) {
+      return refuse(reply, 400, 'BAD_REQUEST', { reason: 'too long' })
     }
     const { task, payload, feedback } = body.data
     // Stryker disable next-line ArrayDeclaration: equivalent — this reply carries no events, so the list is never read
@@ -148,6 +170,29 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
       event: 'RESUME_WRITE',
       task,
       payloadChars: payload.length,
+      feedbackCount: feedback.length,
+      outcome: result.kind === 'ok' ? 'OK' : result.reason,
+    })
+    return result
+  })
+
+  // Tailored resume (plan D2): the `/resume-write` shape plus the posting; no text of either is logged.
+  app.post('/resume-tailor', async (req, reply) => {
+    const body = tailorBodySchema.safeParse(req.body)
+    if (!body.success) {
+      return refuse(reply, 400, 'BAD_REQUEST', { reason: refusalCategory(body.error) })
+    }
+    // The port cuts a longer input without a word, so an input over the cap is refused, not cut.
+    if (tailorWorkerInput(body.data).length > MAX_WORKER_INPUT_CHARS) {
+      return refuse(reply, 400, 'BAD_REQUEST', { reason: 'too long' })
+    }
+    const { payload, posting, feedback } = body.data
+    // Stryker disable next-line ArrayDeclaration: equivalent — this reply carries no events, so the list is never read
+    const result = await call(reply, [], (signal) => tailorResume(ports.extract, body.data, signal))
+    opts.log({
+      event: 'RESUME_TAILOR',
+      payloadChars: payload.length,
+      postingChars: posting.text.length,
       feedbackCount: feedback.length,
       outcome: result.kind === 'ok' ? 'OK' : result.reason,
     })
@@ -172,6 +217,25 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
       outcome: result.kind === 'ok' ? 'OK' : result.reason,
     })
     return result
+  })
+
+  // Bookmarklet block map: the reply holds block ids only; no block text is logged.
+  app.post('/pick-blocks', async (req, reply) => {
+    const body = pickBlocksBodySchema.safeParse(req.body)
+    if (!body.success) return refuse(reply, 400, 'BAD_REQUEST')
+    if (body.data.tableVersion !== tableVersion) {
+      return refuse(reply, 409, 'TABLE_VERSION_MISMATCH')
+    }
+    // The second strip (§2.4), on every block, the URL and the title; the input fits the port cap.
+    const { input, contactsStripped } = blockPickWorkerInput(body.data)
+    const events = strippedEvents(contactsStripped)
+    const result = await call(reply, events, (signal) => pickBlocks(ports.extract, input, signal))
+    opts.log({
+      event: 'PICK_BLOCKS',
+      blocks: body.data.blocks.length,
+      outcome: result.ok ? 'OK' : result.code,
+    })
+    return { result, events, health: healthFlags(opts.routeState.snapshot()) }
   })
 
   // Pages arrive rendered from the placeholder copy (R18); no image byte, prompt or model text is logged.

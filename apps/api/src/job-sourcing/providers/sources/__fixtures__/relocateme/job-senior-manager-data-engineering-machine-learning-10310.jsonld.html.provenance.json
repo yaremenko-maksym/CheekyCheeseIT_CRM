@@ -1,0 +1,12 @@
+{
+  "url": "https://relocate.me/netherlands/amsterdam/catawiki/senior-manager-data-engineering-machine-learning-10310",
+  "fetchedAt": "2026-11-24T17:47:39.000Z",
+  "httpStatus": 200,
+  "rawSha256": "45269caa992589afd0a3b76b29819fad62525edbd5d084e43fa7100bc31de1c3",
+  "fileSha256": "4130ceed645f40b88f96c18951a408b70bf5eb9d788f7020c2999d100462ee46",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py jsonld (the canonical link and every application/ld+json script copied verbatim into a minimal html shell; e-mail addresses and phone numbers replaced); never a byte cut inside a kept element",
+  "termsUrl": "https://relocate.me/",
+  "termsCheckedAt": "2026-11-24T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 text/html; charset=utf-8. Canonical link and every application/ld+json script kept verbatim in a minimal shell. One plain GET with transport UA CheekyCheeseIT-CRM/1.0; no challenge, no block."
+}

@@ -1,5 +1,5 @@
 import { ForbiddenException, HttpException } from '@nestjs/common'
-import type { SessionUser } from '@crm/shared'
+import { jobQueueManualDuplicateConflictSchema, type SessionUser } from '@crm/shared'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -7,8 +7,14 @@ import { ZodError } from 'zod'
 import type { DatabaseService } from '../../database/database.service'
 import { requestFingerprint } from './queue-actions'
 import { JobQueueActionsService } from './queue-actions.service'
-import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
-import type { JobQueueScopeService } from './queue-scope.service'
+import type { JobQueueScope, LiveSeniorVersion, TeamScope } from './queue-scope'
+import { JobQueueScopeService } from './queue-scope.service'
+
+// The board lock is its own statement, pinned in `senior-interview-card.spec.ts` and
+// `interviews-board-order.unit.spec.ts`; the scripted executors below script the queue's own SQL.
+vi.mock('../../interviews/senior-board-lock', () => ({
+  lockSeniorBoard: () => Promise.resolve([]),
+}))
 
 /**
  * r5 Task 6.3 — the service's branches against a scripted transaction, so the mutation gate can see
@@ -28,6 +34,8 @@ const NEW_SUB = '60000000-0000-4000-8000-000000000002'
 const KEY = '70000000-0000-4000-8000-000000000001'
 const SOURCE = '80000000-0000-4000-8000-000000000001'
 const CARD = '10000000-0000-4000-8000-0000000000c1'
+/** task-sources-07c: the senior's interview card, created in the submit transaction. */
+const INTERVIEW_CARD = '10000000-0000-4000-8000-0000000000d1'
 const RESUME = 'a0000000-0000-4000-8000-000000000001'
 const T1 = '2026-11-04T10:00:00.000Z'
 const T2 = '2026-11-04T11:00:00.000Z'
@@ -75,7 +83,7 @@ const PATTERNS = {
   blob: /INSERT INTO job_text_blobs/,
   publishLock: /pg_advisory_xact_lock\(hashtextextended/,
   advisoryLock: /pg_advisory_xact_lock/,
-  urlTaken: /SELECT 1 FROM job_opportunities WHERE application_url_key/,
+  urlTaken: /AS visible FROM job_opportunities o WHERE \(o\.application_url_key/,
   card: /INSERT INTO job_opportunities/,
   resume: /FROM senior_resumes/,
   actor: /SELECT id FROM users/,
@@ -90,6 +98,8 @@ const PATTERNS = {
   insert: /INSERT INTO job_queue_assignments/,
   reopen: /UPDATE job_queue_assignments SET state = 'TAKEN'/,
   cancelRead: /SELECT a\.senior_id, a\.assignee_id/,
+  // task-hr-queue-all-teams: whose row a submission is, asked per team of an HR's union
+  ownSubmission: /^SELECT a\.team_id FROM job_queue_assignments a WHERE a\.id = /,
   cancelWrite: /UPDATE job_queue_assignments SET state = 'RELEASED'/,
   dismissal: /SELECT version, reason, undone_at FROM job_queue_dismissals/,
   dismissInsert: /INSERT INTO job_queue_dismissals/,
@@ -99,6 +109,11 @@ const PATTERNS = {
   opened: /INSERT INTO job_queue_actions .*'OPENED'/,
   log: /INSERT INTO job_queue_actions/,
   name: /SELECT display_name FROM users/,
+  // task-sources-07c — the senior's interview card, written in the SAME transaction as the
+  // assignment (`senior-interview-card.ts`). Both statements name `interviews`, which no other
+  // pattern here touches, so neither can be matched by an earlier key.
+  interviewCard: /INSERT INTO interviews/,
+  interviewArchive: /UPDATE interviews SET stage = 'ARCHIVED'/,
 } as const
 type Statement = keyof typeof PATTERNS
 
@@ -172,10 +187,15 @@ const DEFAULTS: Partial<Record<Statement, Rows>> = {
   invalidate: [],
   publishLock: [],
   triageLog: [],
+  interviewCard: [{ id: INTERVIEW_CARD }],
+  interviewArchive: [{ id: INTERVIEW_CARD }],
 }
 
+/** A statement's scripted answer; a function answers from the statement's bound parameters. */
+type Answer = Rows | Error | ((params: unknown[]) => Rows)
+
 function harness(
-  answers: Partial<Record<Statement, Rows | Error>> = {},
+  answers: Partial<Record<Statement, Answer>> = {},
   scope: JobQueueScope = TEAM_SCOPE,
 ) {
   const calls: Call[] = []
@@ -187,7 +207,9 @@ function harness(
     const name = (Object.keys(PATTERNS) as Statement[]).find((k) => PATTERNS[k].test(text))
     if (name === undefined) throw new Error(`unexpected query: ${text}`)
     hits.push(name)
-    const answer = answers[name] ?? DEFAULTS[name]
+    const scripted = answers[name]
+    const answer =
+      typeof scripted === 'function' ? scripted(compiled.params) : (scripted ?? DEFAULTS[name])
     if (answer === undefined) throw new Error(`no answer scripted for ${name}`)
     if (answer instanceof Error) throw answer
     return { rows: answer }
@@ -195,7 +217,12 @@ function harness(
   const tx = { execute }
   const transaction = vi.fn(async (body: (t: typeof tx) => Promise<unknown>) => body(tx))
   const scopes = {
-    resolve: vi.fn(async () => scope),
+    resolve: vi.fn(async (_u?: unknown, _t?: unknown, _d?: unknown) => scope),
+    // single-team fake: the union entry points answer exactly what `resolve` answers
+    resolveView: vi.fn((u?: unknown, t?: unknown, d?: unknown) => scopes.resolve(u, t, d)),
+    resolveWrite: vi.fn((u?: unknown, t?: unknown, d?: unknown, _pick?: unknown) =>
+      scopes.resolve(u, t, d),
+    ),
     assertVisible: vi.fn(async () => undefined),
     policy: vi.fn(<T>(fn: () => Promise<T>) => fn()),
     liveVersions: vi.fn(async (): Promise<LiveSeniorVersion[]> => []),
@@ -271,6 +298,9 @@ describe('submit — a first submission', () => {
       'ownProjects',
       'existing',
       'insert',
+      // task-sources-07c: the senior's card, in the same transaction and BEFORE the
+      // append-only log — the logged state is one that is already true.
+      'interviewCard',
       'log',
       'name',
     ])
@@ -284,6 +314,25 @@ describe('submit — a first submission', () => {
     await h.svc.submit(HR, OPP, submitBody())
     // An ordinary submit names no resume: resume_id is NULL.
     expect(h.param('insert')).toEqual([OPP, SENIOR, 'TEAM', TEAM_A, HR_ID, null])
+  })
+
+  it("writes the senior's card for this pair, carrying the acting HR as its hr_id", async () => {
+    const h = harness()
+    await h.svc.submit(HR, OPP, submitBody())
+    // [senior (the SELECT list), hr_id, senior (the max(position) subselect), opportunity]. The
+    // PAIR is what the partial unique index is keyed on, so a wrong binding either hands the card
+    // to the wrong senior or ties it to the wrong vacancy — and `hits` alone cannot see that,
+    // because the statement still runs.
+    expect(h.param('interviewCard')).toEqual([SENIOR, HR_ID, SENIOR, OPP])
+  })
+
+  it('an ADMIN submit leaves the card hr_id NULL: an ADMIN is not the senior’s HR', async () => {
+    // The CONTROL for `actorIsHr: user.role === 'HR'` (`queue-actions.service.ts`). With only the
+    // HR case above, forcing that condition either way leaves one of the two assertions passing.
+    // An ADMIN's id in a column named `hr_id` would corrupt the HR-summary reads.
+    const h = harness({}, STUDIO_SCOPE)
+    await h.svc.submit(ADMIN, OPP, submitBody())
+    expect(h.param('interviewCard')).toEqual([SENIOR, null, SENIOR, OPP])
   })
 
   it('logs TAKEN from version 0 to 1 with the replay in the reason', async () => {
@@ -339,9 +388,9 @@ describe('submit — a first submission', () => {
     await h.svc.submit(HR, OPP, submitBody())
     expect(h.param('team')).toEqual([TEAM_A])
     const text = h.calls.find((c) => PATTERNS.team.test(c.text))?.text
-    expect(text).toContain('archived_at IS NULL')
-    expect(text).toContain("type = 'SENIOR'")
-    expect(text).toContain('FOR SHARE')
+    // a live team of either type (SENIOR or DROP): archival is the only team gate
+    expect(text).toContain('archived_at IS NULL FOR SHARE')
+    expect(text).not.toContain('type')
   })
 })
 
@@ -410,11 +459,12 @@ describe('submit — refused before any write', () => {
       "u.role = 'SENIOR'",
       'u.archived_at IS NULL',
       't.archived_at IS NULL',
-      "t.type = 'SENIOR'",
       'FOR SHARE OF tm, u, t',
     ]) {
       expect(seniorCall?.text).toContain(clause)
     }
+    // a senior of a drop team is eligible like one of a SENIOR team: the team may be of either type
+    expect(seniorCall?.text).not.toContain('t.type')
   })
 
   const exclusion = (seniorId: string | null, value: string, kind = 'COMPANY') => ({
@@ -685,6 +735,10 @@ describe('submit — possible duplicates', () => {
     expect(call?.text).toContain('a.team_id = ')
     expect(call?.text).toContain('EXISTS (SELECT 1 FROM job_opportunity_matches')
     expect(call?.text).toContain('m.opportunity_id = a.opportunity_id')
+    // SR-M-2: a vacancy-retention tombstone still answers, though no match row makes it visible.
+    expect(call?.text).toContain(
+      `OR EXISTS (SELECT 1 FROM job_opportunities tomb WHERE tomb.id = a.opportunity_id AND (tomb.field_revisions @> '{"retention":"TOMBSTONE"}'::jsonb))`,
+    )
   })
 
   it('bounds the preview at five and still counts them all', async () => {
@@ -844,6 +898,8 @@ describe('cancelSubmission', () => {
       'cancelRead',
       'earlier',
       'cancelWrite',
+      // task-sources-07c: cancelling archives the card, never rejects it.
+      'interviewArchive',
       'log',
       'name',
     ])
@@ -856,6 +912,14 @@ describe('cancelSubmission', () => {
       submissionId: SUB,
       submittedAt: T1,
     })
+  })
+
+  it('archives the card of exactly this (opportunity, senior) pair', async () => {
+    // The senior id comes from the row just read, not from the request: HR names a submission, and
+    // the card that comes off the board must be the one belonging to that submission's senior.
+    const h = harness(answers)
+    await h.svc.cancelSubmission(HR, OPP, SUB, body)
+    expect(h.param('interviewArchive')).toEqual([OPP, SENIOR])
   })
 
   it('reads the row by id, opportunity and scope; a TEAM scope filters on its team', async () => {
@@ -2244,6 +2308,9 @@ describe('createManualCard (r5 Phase 6)', () => {
       'resume',
       'duplicates',
       'insert',
+      // task-sources-07c: a manual card is a submission too, so it gets the same
+      // interview card the queue path creates.
+      'interviewCard',
       'log',
       // 1340-QA-OUT-1: the card's team and the studio list it at once, not after the TTL;
       // CR-M-1: behind the studio's and the team's publish locks, in that order
@@ -2281,6 +2348,20 @@ describe('createManualCard (r5 Phase 6)', () => {
     ])
   })
 
+  it("writes the senior's card against the NEW opportunity, with the acting HR as hr_id", async () => {
+    const h = harness()
+    await h.svc.createManualCard(HR, manualBody())
+    // The last bound id is the manual card's OWN opportunity (`CARD`), the one this call just
+    // inserted — not a queue opportunity.
+    expect(h.param('interviewCard')).toEqual([SENIOR, HR_ID, SENIOR, CARD])
+  })
+
+  it('an ADMIN manual card leaves hr_id NULL, exactly as an ADMIN queue submit does', async () => {
+    const h = harness()
+    await h.svc.createManualCard(ADMIN, manualBody())
+    expect(h.param('interviewCard')).toEqual([SENIOR, null, SENIOR, CARD])
+  })
+
   it('a card without an application link stores NULL for the link and its key, and is not looked up', async () => {
     const h = harness()
     await h.svc.createManualCard(HR, manualBody({ applicationUrl: undefined }))
@@ -2295,9 +2376,10 @@ describe('createManualCard (r5 Phase 6)', () => {
     const h = harness()
     await h.svc.createManualCard(HR, manualBody({ applicationUrl: raw }))
     expect(h.param('advisoryLock')).toEqual([0x6d616e75, 'https://jobs.example.test/x'])
-    expect(h.param('urlTaken')).toEqual([
+    expect(h.param('urlTaken').slice(-3)).toEqual([
       'https://jobs.example.test/x',
       'https://jobs.example.test/x/?utm=1',
+      TEAM_A,
     ])
     expect(h.param('card')[5]).toBe('https://jobs.example.test/x')
   })
@@ -2305,11 +2387,17 @@ describe('createManualCard (r5 Phase 6)', () => {
   it('CR-M-3: the lock hashes the key; the lookup matches the key OR the exact link, one row', async () => {
     const h = harness()
     await h.svc.createManualCard(HR, manualBody())
-    const text = (s: Statement) => h.calls.find((c) => PATTERNS[s].test(c.text))?.text
+    const text = (s: Statement) => h.calls.find((c) => PATTERNS[s].test(c.text))?.text ?? ''
     expect(text('advisoryLock')).toBe('SELECT pg_advisory_xact_lock($1::int, hashtext($2))')
-    expect(text('urlTaken')).toBe(
-      'SELECT 1 FROM job_opportunities WHERE application_url_key = $1 OR application_url = $2 LIMIT 1',
+    const lookup = text('urlTaken')
+    const n = h.param('urlTaken').length
+    expect(lookup).toContain(
+      `WHERE (o.application_url_key = $${n - 2} OR o.application_url = $${n - 1}) ` +
+        `AND (o.manual_team_id IS NULL OR o.manual_team_id = $${n}::uuid) ` +
+        'ORDER BY visible DESC, (o.manual_team_id IS NOT NULL) DESC LIMIT 1',
     )
+    // visibility is the scope's own predicate, correlated on the looked-up row
+    expect(lookup).toContain('WHERE m.opportunity_id = o.id')
   })
 
   it.each([
@@ -2334,9 +2422,25 @@ describe('createManualCard (r5 Phase 6)', () => {
     expect(h.param('lockSet')).toEqual(['undefined'])
   })
 
-  it('a link any opportunity already carries is the generic 409, and nothing is written', async () => {
-    const h = harness({ urlTaken: [{ '?column?': 1 }] })
-    await expectCode(h.svc.createManualCard(HR, manualBody()), 409, 'JOB_QUEUE_MANUAL_DUPLICATE')
+  it('a link a card the actor cannot see carries is the generic 409, and nothing is written', async () => {
+    const h = harness({ urlTaken: [{ id: OPP, visible: false }] })
+    const r = await refusal(h.svc.createManualCard(HR, manualBody()))
+    expect(r.status).toBe(409)
+    expect(r.body['code']).toBe('JOB_QUEUE_MANUAL_DUPLICATE')
+    expect(r.body).not.toHaveProperty('opportunityId')
+    expect(JSON.stringify(r.body)).not.toContain(OPP)
+    expect(h.hits.filter((x) => MANUAL_WRITES.includes(x))).toEqual([])
+  })
+
+  it('a link a visible card carries is the 409 naming that card, and nothing is written', async () => {
+    const h = harness({ urlTaken: [{ id: OPP, visible: true }] })
+    const r = await refusal(h.svc.createManualCard(HR, manualBody()))
+    expect(r.status).toBe(409)
+    expect(jobQueueManualDuplicateConflictSchema.parse(r.body)).toMatchObject({
+      statusCode: 409,
+      code: 'JOB_QUEUE_MANUAL_DUPLICATE',
+      opportunityId: OPP,
+    })
     expect(h.hits.filter((x) => MANUAL_WRITES.includes(x))).toEqual([])
   })
 
@@ -2522,5 +2626,123 @@ describe('createManualCard (r5 Phase 6)', () => {
       'JOB_QUEUE_IDEMPOTENCY_CONFLICT',
     )
     expect(h.hits.filter((x) => MANUAL_WRITES.includes(x))).toEqual([])
+  })
+})
+
+describe('a write from an HR union names one team (task-hr-queue-all-teams)', () => {
+  const OTHER_SENIOR = '30000000-0000-4000-8000-000000000002'
+  const TEAM_A_SCOPE = TEAM_SCOPE as TeamScope
+  const TEAM_B_SCOPE: TeamScope = { ...TEAM_A_SCOPE, teamId: TEAM_B }
+  const unionHarness = (
+    answers: Partial<Record<Statement, Answer>> = {},
+    { visible = [TEAM_A, TEAM_B], teamA = TEAM_A_SCOPE } = {},
+  ) => {
+    const h = harness(answers)
+    const scopes = Object.assign(h.scopes, {
+      firstWhere: JobQueueScopeService.prototype.firstWhere,
+      isVisible: vi.fn(async (team: TeamScope) => visible.includes(team.teamId)),
+      // the team the card shows the dismissal of: the second here, so it is not the default
+      dismissalOwner: vi.fn(async (teams: readonly TeamScope[]) => teams[1] as TeamScope),
+    })
+    // As the real `resolveWrite` does for an HR's union: the write's own `pick` names the team.
+    scopes.resolveWrite.mockImplementation(async (_u, _t, _d, pick) =>
+      (pick as (teams: readonly TeamScope[]) => Promise<TeamScope>)([teamA, TEAM_B_SCOPE]),
+    )
+    return { ...h, scopes }
+  }
+  const onTeamB = { team: [{ id: TEAM_B }], senior: [{ team_id: TEAM_B }] }
+
+  it('submit: the first team that has the senior, before asking whether it sees the item', async () => {
+    const h = unionHarness(onTeamB, { teamA: { ...TEAM_A_SCOPE, seniorIds: [OTHER_SENIOR] } })
+    await h.svc.submit(HR, OPP, submitBody())
+    expect(h.param('insert')).toContain(TEAM_B)
+    expect(h.param('insert')).not.toContain(TEAM_A)
+    expect(h.scopes.isVisible).toHaveBeenCalledTimes(1)
+    expect(h.scopes.isVisible).toHaveBeenCalledWith(TEAM_B_SCOPE, OPP, h.tx)
+  })
+
+  it('submit: a team that has the senior but does not see the item is passed over', async () => {
+    const h = unionHarness(onTeamB, { visible: [TEAM_B] })
+    await h.svc.submit(HR, OPP, submitBody())
+    expect(h.param('insert')).toContain(TEAM_B)
+    expect(h.param('insert')).not.toContain(TEAM_A)
+  })
+
+  const cancelled = {
+    cancelRead: [
+      {
+        senior_id: SENIOR,
+        assignee_id: OTHER_HR,
+        state: 'TAKEN',
+        version: 2,
+        taken_at: new Date(T1),
+      },
+    ],
+    cancelWrite: [{ version: 3, released_at: new Date(T2) }],
+  }
+
+  it('cancel: the team whose row the submission is, asked once among the union teams', async () => {
+    const h = unionHarness({
+      ...onTeamB,
+      ...cancelled,
+      ownSubmission: [{ team_id: TEAM_B }],
+    })
+    await h.svc.cancelSubmission(HR, OPP, SUB, { idempotencyKey: KEY, expectedVersion: 2 })
+    const asked = h.calls.filter((c) => PATTERNS.ownSubmission.test(c.text))
+    expect(asked.map((c) => c.params)).toEqual([[SUB, TEAM_A, TEAM_B]])
+    expect(asked[0]?.text).toContain('AND (a.team_id = $2::uuid OR a.team_id = $3::uuid)')
+    expect(h.param('cancelRead')).toContain(TEAM_B)
+    expect(h.param('cancelRead')).not.toContain(TEAM_A)
+  })
+
+  it('cancel: a row no union team holds reads under the first team, so it is the usual 404', async () => {
+    const h = unionHarness({ ...onTeamB, ownSubmission: [], cancelRead: [] })
+    await expectNotFound(
+      h.svc.cancelSubmission(HR, OPP, SUB, { idempotencyKey: KEY, expectedVersion: 2 }),
+    )
+    expect(h.param('cancelRead')).toContain(TEAM_A)
+    expect(h.param('cancelRead')).not.toContain(TEAM_B)
+  })
+
+  it('cancel: rows answered for two teams pick the first in the union order', async () => {
+    const h = unionHarness({
+      ...onTeamB,
+      ...cancelled,
+      ownSubmission: [{ team_id: TEAM_B }, { team_id: TEAM_A }],
+    })
+    await h.svc.cancelSubmission(HR, OPP, SUB, { idempotencyKey: KEY, expectedVersion: 2 })
+    expect(h.param('cancelRead')).toContain(TEAM_A)
+    expect(h.param('cancelRead')).not.toContain(TEAM_B)
+  })
+
+  it('dismiss: the team the card shows the dismissal of', async () => {
+    const h = unionHarness(onTeamB)
+    await h.svc.dismiss(HR, OPP, { scope: 'TEAM', reason: 'SPAM', idempotencyKey: KEY })
+    expect(h.scopes.dismissalOwner).toHaveBeenCalledWith([TEAM_A_SCOPE, TEAM_B_SCOPE], OPP, h.tx)
+    expect(h.param('dismissInsert')).toEqual([OPP, 'TEAM', TEAM_B, 'SPAM', HR_ID])
+  })
+
+  it('undo: the team holding the dismissal the card showed', async () => {
+    const h = unionHarness({
+      ...onTeamB,
+      dismissal: [{ version: 2, reason: 'NOT_RELEVANT', undone_at: null }],
+    })
+    await h.svc.undo(HR, OPP, { scope: 'TEAM', idempotencyKey: KEY, expectedVersion: 2 })
+    expect(h.scopes.dismissalOwner).toHaveBeenCalledWith([TEAM_A_SCOPE, TEAM_B_SCOPE], OPP, h.tx)
+    expect(h.param('dismissal')).toEqual([OPP, 'TEAM', TEAM_B])
+  })
+
+  it('opened: the first team that sees the item', async () => {
+    const h = unionHarness(onTeamB, { visible: [TEAM_B] })
+    await h.svc.opened(HR, OPP, { sourceRecordId: SOURCE })
+    expect(h.param('opened')).toEqual([
+      OPP,
+      SOURCE,
+      HR_ID,
+      'TEAM',
+      TEAM_B,
+      `opened:${OPP}:${SOURCE}`,
+    ])
+    expect(h.scopes.isVisible).toHaveBeenCalledTimes(2)
   })
 })

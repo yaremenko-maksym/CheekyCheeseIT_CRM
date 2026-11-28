@@ -39,7 +39,21 @@ type Fixtures = {
   asAccountant: Page
 }
 
+/** The first-visit bookmarklet dialog (/job-queue, HR) would cover what a spec clicks. */
+export const BOOKMARKLET_USED = () => {
+  try {
+    localStorage.setItem('crm.bookmarkletUsed', '1')
+  } catch {
+    // an opaque-origin frame has no storage; only the CRM page needs the flag
+  }
+}
+
 export const test = base.extend<Fixtures>({
+  // a spec about the dialog itself removes the flag with a page init script of its own
+  context: async ({ context }, use) => {
+    await context.addInitScript(BOOKMARKLET_USED)
+    await use(context)
+  },
   asAdmin: async ({ page }, use) => {
     await mockAuthAs(page, USERS.admin)
     await use(page)
@@ -71,10 +85,6 @@ export { expect }
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
-
-export async function waitForPageReady(page: Page) {
-  await page.waitForLoadState('networkidle')
-}
 
 // i18n-3d-pr3 (fix-round PR #734, FIX-SPEC-M-1): both current call sites
 // (finance.spec.ts, CreateTransactionDialog + AdminEditTransactionDialog

@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto'
 import type { JobQueueListQuery } from '@crm/shared'
 import { type SQL, sql } from 'drizzle-orm'
-import { MAX_SCORE, RANK_DEFAULTS } from '../funnel/rank'
+import { MAX_SCORE } from '../funnel/rank'
 import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
+import { retentionTombstone } from '../store/opportunity-purge'
 import {
   type JobQueueScope,
+  type JobQueueViewScope,
   type LiveSeniorVersion,
   possibleDuplicateJoin,
   scopedTeamRowPredicate,
@@ -67,24 +69,32 @@ export const triageGrantableRow = (versions: readonly LiveSeniorVersion[], id: s
 
 /**
  * The scope's integer rank: `evaluate` persists a score per senior only (the TEAM and STUDIO
- * projections are dropped by `matchRows`), so it is derived here as the best senior's score plus
- * the same match term `rankScore` uses for the seniors beyond the first. No LEAD ranks 0, after
- * every LEAD of comparable age. Only the scope's own seniors can move it. Clamped to the range
- * `rankScore` documents.
+ * projections are dropped by `matchRows`), so it is derived here as the best senior's score only
+ * (`eval.3`: the senior's score already carries their Jev fit; how many seniors match is not a
+ * signal). No LEAD ranks 0, after every LEAD of comparable age. Only the scope's own seniors can
+ * move it. Clamped to the range `rankScore` documents.
  */
 export const rankSelect = (versions: readonly LiveSeniorVersion[]): SQL =>
-  sql`SELECT LEAST((COALESCE(max((m.evidence->>'score')::int), 0)
-              + ${RANK_DEFAULTS.matchWeight}::int
-                * GREATEST(LEAST(count(*), ${RANK_DEFAULTS.matchCap}::int) - 1, 0))::int,
-              ${MAX_SCORE}::int) AS score
+  sql`SELECT LEAST(COALESCE(max((m.evidence->>'score')::int), 0), ${MAX_SCORE}::int)::int AS score
        ${liveVersionRows(versions)} AND m.outcome = 'LEAD'`
 
 /** The dismissal that hides a row in THIS scope: STUDIO's own, not any team's "not for us". */
-const ownDismissal = (scope: JobQueueScope): SQL =>
+const ownDismissal = (scope: JobQueueViewScope): SQL =>
   sql`EXISTS (SELECT 1 FROM job_queue_dismissals d
                WHERE d.opportunity_id = o.id AND d.undone_at IS NULL
-                 AND d.scope_kind = ${scope.kind}::job_queue_scope_kind
+                 AND d.scope_kind = ${rowScopeKind(scope)}::job_queue_scope_kind
                  AND ${scopedTeamRowPredicate(scope, sql`d.team_id`)})`
+
+/** One scope's own dismissal row (`scope_kind` + team); no scope, no row. */
+const dismissalOf = (owner: JobQueueScope | null): SQL =>
+  owner === null || owner.kind === 'NONE'
+    ? sql`FALSE`
+    : sql`dm.scope_kind = ${owner.kind}::job_queue_scope_kind
+          AND dm.team_id IS NOT DISTINCT FROM ${owner.kind === 'TEAM' ? owner.teamId : null}::uuid`
+
+/** The `scope_kind` a scope's own rows carry: a union's rows are its member teams' TEAM rows. */
+const rowScopeKind = (scope: JobQueueViewScope): JobQueueScope['kind'] =>
+  scope.kind === 'TEAMS' ? 'TEAM' : scope.kind
 
 /**
  * The joins behind one queue row: `stats`, `sub`, `flags`, `src` and the derived `d`. `src` is a
@@ -93,7 +103,7 @@ const ownDismissal = (scope: JobQueueScope): SQL =>
  * opportunity with no active source record is still not a row: it has nothing to link to.
  */
 export const queueRowJoins = (
-  scope: JobQueueScope,
+  scope: JobQueueViewScope,
   versions: readonly LiveSeniorVersion[],
 ): SQL => sql`
   CROSS JOIN LATERAL (
@@ -128,28 +138,34 @@ export const queueRowJoins = (
     ON (src.source_record_id IS NOT NULL OR o.manual_team_id IS NOT NULL)`
 
 /**
- * Per LEAD senior, only the `TECH_MATCH` reasons `matchFacts` reads, never the whole evidence blob.
+ * Per LEAD senior, only the `TECH_MATCH` / `ROLE_MATCH` reasons and the `skillOverlap` that
+ * `matchFacts` reads, never the whole evidence blob.
  * `strict` + silent mirrors `matchFacts`: a non-array `reasons` yields no reason, not an error. A
  * select-list subquery, not a `queueRowJoins` lateral, so the tab counts never compute it and a
  * page computes it only for the rows it returns.
  */
 const matchedEvidence = (versions: readonly LiveSeniorVersion[]): SQL =>
   sql`(SELECT jsonb_agg(jsonb_build_object('reasons', jsonb_path_query_array(m.evidence,
-            'strict $.reasons[*] ? (@.code == "TECH_MATCH")', '{}', true)))
+            'strict $.reasons[*] ? (@.code == "TECH_MATCH" || @.code == "ROLE_MATCH")', '{}', true),
+            'skillOverlap', m.evidence -> 'skillOverlap'))
        ${liveVersionRows(versions)} AND m.outcome = 'LEAD') AS matched_evidence`
 
 /** The columns of one queue row, for `queueRowJoins`. No description: lists never carry one. */
 export const queueRowColumns = (versions: readonly LiveSeniorVersion[]): SQL => sql`
   o.id, o.revision, o.title, o.employer_name, o.location, o.availability, o.published_at,
   o.first_seen_at, src.source_record_id, src.source_type, src.source_url, src.total AS source_total,
-  o.application_url, o.seniority, stats.matched, stats.stop_listed, ${matchedEvidence(versions)},
-  sub.submitted, flags.opened, flags.hidden, d.eligibility`
+  o.application_url, o.field_revisions->'employerName'->>'reason' AS employer_disclosure_reason,
+  o.seniority, stats.matched, stats.stop_listed, ${matchedEvidence(versions)},
+  sub.submitted, flags.opened, flags.hidden, d.eligibility,
+  o.salary_min, o.salary_max, o.salary_currency, o.salary_period`
 
 /** One opportunity's row, with the description and "changed since this scope's list was built". */
 export const cardRow = (
-  scope: JobQueueScope,
+  scope: JobQueueViewScope,
   versions: readonly LiveSeniorVersion[],
   id: string,
+  /** Whose dismissal the card carries: the scope's own; for a union, the team `undo` would name. */
+  dismissalOwner: JobQueueScope | null = scope.kind === 'TEAMS' ? null : scope,
 ): SQL =>
   sql`SELECT ${queueRowColumns(versions)}, b.text AS description,
              (listed.opportunity_revision IS NOT NULL
@@ -166,17 +182,15 @@ export const cardRow = (
         LEFT JOIN job_text_blobs b ON b.sha256 = o.description_sha256
         LEFT JOIN LATERAL (
           SELECT dm.version FROM job_queue_dismissals dm
-           WHERE dm.opportunity_id = o.id
-             AND dm.scope_kind = ${scope.kind}::job_queue_scope_kind
-             AND dm.team_id IS NOT DISTINCT FROM ${scope.kind === 'TEAM' ? scope.teamId : null}::uuid
+           WHERE dm.opportunity_id = o.id AND ${dismissalOf(dismissalOwner)}
            LIMIT 1
         ) dis ON TRUE
         LEFT JOIN LATERAL (
-          SELECT e.opportunity_revision
+          SELECT min(e.opportunity_revision) AS opportunity_revision
             FROM job_queue_generations g
             JOIN job_queue_generation_entries e ON e.generation_id = g.id
            WHERE e.opportunity_id = o.id AND g.status = 'PUBLISHED'
-             AND g.scope_kind = ${scope.kind}::job_queue_scope_kind
+             AND g.scope_kind = ${rowScopeKind(scope)}::job_queue_scope_kind
              AND ${scopedTeamRowPredicate(scope, sql`g.team_id`)}) listed ON TRUE
        WHERE o.id = ${id}::uuid
          AND ${visibleOpportunityPredicate(scope, sql`o.id`)}`
@@ -186,7 +200,7 @@ export const cardRow = (
  * stop-listed it cannot be derived from this list. A manual card has no match row at all, so its
  * rows are the scope's own seniors with a live (TAKEN) submission to it, without evidence.
  */
-const matchedSeniors = (scope: JobQueueScope, versions: readonly LiveSeniorVersion[]): SQL =>
+const matchedSeniors = (scope: JobQueueViewScope, versions: readonly LiveSeniorVersion[]): SQL =>
   sql`FROM job_opportunities o
        CROSS JOIN LATERAL (
          SELECT m.senior_id, m.evidence ${liveVersionRows(versions)}
@@ -198,7 +212,7 @@ const matchedSeniors = (scope: JobQueueScope, versions: readonly LiveSeniorVersi
             AND ta.state = 'TAKEN' AND ${scopedTeamRowPredicate(scope, sql`ta.team_id`)}) ms`
 
 export const seniorTotal = (
-  scope: JobQueueScope,
+  scope: JobQueueViewScope,
   versions: readonly LiveSeniorVersion[],
   id: string,
 ): SQL => sql`SELECT count(*) AS total ${matchedSeniors(scope, versions)} WHERE o.id = ${id}::uuid`
@@ -206,7 +220,8 @@ export const seniorTotal = (
 /**
  * ADMIN team heading (Task 7.3b, design §5.6): the senior's first live membership, in the picker's
  * order (`seniorOptionRows`). Joined for the STUDIO scope ONLY: a TEAM scope never reads another
- * team's name for a shared senior.
+ * team's name for a shared senior. Prefer the SENIOR team's name for display when a senior belongs
+ * to both a SENIOR and a DROP team (a display preference only, not a scope gate).
  */
 const studioSeniorTeam = sql`
   LEFT JOIN LATERAL (
@@ -223,7 +238,7 @@ const studioSeniorTeam = sql`
  * own field (§5.2), read only for a senior the scope already sees, so it adds no visibility.
  */
 export const seniorRows = (
-  scope: JobQueueScope,
+  scope: JobQueueViewScope,
   versions: readonly LiveSeniorVersion[],
   id: string,
   after: string | undefined,
@@ -270,9 +285,10 @@ export const sourceRows = (id: string, after: string | undefined, limit: number)
  * The possible-duplicate set (`possibleDuplicateJoin`, the one definition Task 6.3 shares), minus the
  * opportunity itself. `total` counts visible ones only. `submitted_senior_names` (Task 7.3b, §5.8)
  * are the seniors of THIS scope's live submissions on the duplicate, each once (a STUDIO view may
- * see one senior submitted by two teams): another team's never count for a TEAM scope.
+ * see one senior submitted by two teams): another team's never count for a TEAM scope. A
+ * retention tombstone is never listed (`retentionTombstone`).
  */
-export const duplicateRows = (scope: JobQueueScope, id: string, limit: number): SQL =>
+export const duplicateRows = (scope: JobQueueViewScope, id: string, limit: number): SQL =>
   sql`SELECT dup.id, dup.title, dup.employer_name, count(*) OVER () AS total,
              (SELECT coalesce(jsonb_agg(su.display_name ORDER BY su.display_name, su.id), '[]'::jsonb)
                 FROM users su
@@ -283,6 +299,8 @@ export const duplicateRows = (scope: JobQueueScope, id: string, limit: number): 
         JOIN job_opportunities dup ON ${possibleDuplicateJoin('o', 'dup')} AND dup.id <> o.id
        WHERE o.id = ${id}::uuid
          AND ${visibleOpportunityPredicate(scope, sql`dup.id`)}
+         -- A copy vacancy retention removed is no card to open (it still guards a submission).
+         AND NOT ${retentionTombstone(sql`dup`)}
        ORDER BY dup.id
        LIMIT ${limit}`
 
@@ -298,23 +316,36 @@ const uuidIn = (column: SQL, ids: readonly string[]): SQL =>
   sql`${column} IN (SELECT x::uuid FROM jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb) x)`
 
 /**
- * The list filter's picker: id, display name and one team name, of seniors the scope already
- * resolved. A TEAM scope names its own team; STUDIO names the senior's first live membership,
- * preferring a live SENIOR team, alphabetically. The scope lists only seniors with a live
+ * `column` is one of `ids`: `=` for one id, so the single-scope SQL (pinned by MP-13's plans) keeps
+ * its text, and `uuidIn` for a union's several. `ids` is never empty: a scope reads one or more.
+ */
+export const uuidMatch = (column: SQL, ids: readonly string[]): SQL =>
+  ids.length === 1 ? sql`${column} = ${ids[0]}::uuid` : uuidIn(column, ids)
+
+/** STUDIO: no team filter; else the senior's membership in the scope's own team(s). */
+const teamFilter = (teamIds: readonly string[] | null): SQL =>
+  teamIds === null ? sql`` : sql`AND ${uuidMatch(sql`tm.team_id`, teamIds)}`
+
+/**
+ * The list filter's picker: id, display name, technical roles and one team name, of seniors the scope already
+ * resolved. A TEAM scope names its own team; a union (`TEAMS`) the senior's first membership among
+ * the union's teams, so no other team's name is read; STUDIO names the senior's first live membership,
+ * preferring a live SENIOR team for display (a display preference only, not a scope gate),
+ * alphabetically. The scope lists only seniors with a live
  * membership, so a null team appears only when a membership ends between scope resolution and this
  * query; the row is kept rather than dropped. Ordered by team, team-less last, then name.
  */
 export const seniorOptionRows = (
   seniorIds: readonly string[],
-  teamId: string | null,
+  teamIds: readonly string[] | null,
   limit: number,
 ): SQL =>
-  sql`SELECT u.id, u.display_name, t.name AS team_name
+  sql`SELECT u.id, u.display_name, u.technical_roles, t.name AS team_name
         FROM users u
         LEFT JOIN LATERAL (
           SELECT t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id
            WHERE tm.user_id = u.id AND tm.left_at IS NULL
-                 ${teamId === null ? sql`` : sql`AND tm.team_id = ${teamId}::uuid`}
+                 ${teamFilter(teamIds)}
            ORDER BY t.archived_at IS NOT NULL, t.type <> 'SENIOR', t.name, t.id
            LIMIT 1) t ON TRUE
        WHERE ${uuidIn(sql`u.id`, seniorIds)}
@@ -358,19 +389,54 @@ export function listFilters(
                                AND ${uuidIn(sql`m.senior_id`, query.seniorIds)}
                                AND m.outcome IN ('LEAD', 'TRIAGE'))`)
   }
+  // Salary (sources-17): one choice narrows, both choices are no condition. A monthly minimum always
+  // comes with its currency (the schema refuses it alone): amounts in two currencies do not compare.
+  if (query.salary?.length === 1) {
+    filters.push(
+      query.salary[0] === 'STATED'
+        ? sql`o.salary_currency IS NOT NULL`
+        : sql`o.salary_currency IS NULL`,
+    )
+  }
+  if (query.salaryCurrency !== undefined) {
+    filters.push(sql`o.salary_currency = ${query.salaryCurrency}`)
+  }
+  if (query.salaryMinMonthly !== undefined) {
+    filters.push(sql`o.salary_monthly_top >= ${query.salaryMinMonthly}`)
+  }
   return filters
 }
 
-/** The filter part of a cursor's signature: list order must not matter (the schema fixes spelling). */
-export const filterIdentity = (query: JobQueueListQuery): readonly unknown[] => [
-  query.tab,
-  query.search ?? null,
-  [...(query.source ?? [])].sort(),
-  [...(query.eligibility ?? [])].sort(),
-  [...(query.availability ?? [])].sort(),
-  [...(query.activity ?? [])].sort(),
-  [...(query.seniorIds ?? [])].sort(),
-]
+/**
+ * The filter part of a cursor's signature: list order must not matter (the schema fixes spelling).
+ * The salary part (sources-17) is appended only when a salary filter is set, so a cursor issued
+ * without one keeps the signature it had before the filter existed.
+ */
+export const filterIdentity = (query: JobQueueListQuery): readonly unknown[] => {
+  const identity: unknown[] = [
+    query.tab,
+    query.search ?? null,
+    [...(query.source ?? [])].sort(),
+    [...(query.eligibility ?? [])].sort(),
+    [...(query.availability ?? [])].sort(),
+    [...(query.activity ?? [])].sort(),
+    [...(query.seniorIds ?? [])].sort(),
+  ]
+  const salaryFiltered =
+    query.salary !== undefined ||
+    query.salaryCurrency !== undefined ||
+    query.salaryMinMonthly !== undefined
+  if (salaryFiltered) {
+    identity.push([
+      [...(query.salary ?? [])].sort(),
+      query.salaryCurrency ?? null,
+      query.salaryMinMonthly ?? null,
+    ])
+  }
+  // Only a non-default sort joins the identity, so a relevance cursor keeps its signature.
+  if (query.sort !== 'relevance') identity.push({ sort: query.sort })
+  return identity
+}
 
 /**
  * The digest of a scope's policy inputs (stored on the generation, part of every cursor signature):
@@ -378,21 +444,24 @@ export const filterIdentity = (query: JobQueueListQuery): readonly unknown[] => 
  * cursors stale. `versions` come sorted by senior id, from `loadRoster`.
  */
 export function policySignature(
-  scope: JobQueueScope,
+  scope: JobQueueViewScope,
   versions: readonly LiveSeniorVersion[],
 ): string {
-  // Stryker disable next-line ConditionalExpression: equivalent — without a teamId the value is undefined, which JSON.stringify writes as null in an array, the same text as the other branch
-  const team = scope.kind === 'TEAM' ? scope.teamId : null
+  const team = scope.kind === 'TEAM' ? scope.teamId : scopeTeamIds(scope)
   return createHash('sha256')
     .update(JSON.stringify([scope.kind, team, MATCH_RULE_VERSION, versions]))
     .digest('hex')
 }
 
+/** A union's member team ids, in its order (a cursor of one team set never pages another); else null. */
+export const scopeTeamIds = (scope: JobQueueViewScope): string[] | null =>
+  scope.kind === 'TEAMS' ? scope.teams.map((t) => t.teamId) : null
+
 /**
  * Backlog 425 — the triage policy version a team-triage grant is checked against: a positive 31-bit
  * fold (the `policy_version` int column) of the STUDIO policy signature (every roster senior's
  * profile, team ids included, and exclusion versions) and of the active membership of every live
- * SENIOR team (`membershipDigest`, HR members included). A membership, senior-profile or exclusion
+ * team, SENIOR or DROP (`membershipDigest`, HR members included). A membership, senior-profile or exclusion
  * write changes it; it is derived on read, never stored, so no write path has to bump a counter.
  * shortcut: a fold can collide (2^-31 per change), letting one stale grant through; the grant is
  * still shown only through `visibleOpportunityPredicate`'s live checks. Store a counter if that matters.

@@ -76,6 +76,7 @@ describe('JobSourcingCronService, booted', () => {
     await moduleRef.init()
 
     const cron = moduleRef.get(JobSourcingCronService)
+    cron.tuning.random = () => 0
     expect((cron as unknown as { windowMs(): number }).windowMs()).toBe(1_234)
     await cron.handleHtmlCollection()
 

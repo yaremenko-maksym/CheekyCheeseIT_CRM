@@ -9,6 +9,7 @@ import {
   type CollectionCounts,
   type CollectionOutcome,
   type DerivationFacts,
+  type ListedPresence,
   decideCheckpoint,
   deriveCoverage,
   deriveOutcome,
@@ -227,9 +228,109 @@ describe('deriveCoverage', () => {
     ).toBe('PARTIAL')
   })
 
-  it('calls a page cap on a SEARCH scope a WINDOW — a search never enumerated an inventory', () => {
+  describe('backlog 470: accounted quarantine keeps the claim', () => {
+    const oneQuarantined = { raw: 10, normalized: 9, invalid: 0, quarantined: 1, discarded: 0 }
+    const presence = (over: Partial<ListedPresence> = {}): ListedPresence => ({
+      held: [],
+      quarantined: [],
+      notOpen: 0,
+      listingComplete: false,
+      ...over,
+    })
+
+    it('keeps FULL_INVENTORY when the quarantined item still named its posting', () => {
+      const f = facts({ counts: oneQuarantined, presence: presence({ quarantined: ['k1'] }) })
+      expect(deriveCoverage(f)).toBe('FULL_INVENTORY')
+    })
+
+    it('keeps FULL_INVENTORY when the source said the posting is not open', () => {
+      const f = facts({ counts: oneQuarantined, presence: presence({ notOpen: 1 }) })
+      expect(deriveCoverage(f)).toBe('FULL_INVENTORY')
+    })
+
+    it('SR-H-1: half the items not open still claims; more than half is a drift (PARTIAL)', () => {
+      const half = { raw: 10, normalized: 5, invalid: 0, quarantined: 5, discarded: 0 }
+      expect(deriveCoverage(facts({ counts: half, presence: presence({ notOpen: 5 }) }))).toBe(
+        'FULL_INVENTORY',
+      )
+      const most = { raw: 10, normalized: 4, invalid: 0, quarantined: 6, discarded: 0 }
+      expect(deriveCoverage(facts({ counts: most, presence: presence({ notOpen: 6 }) }))).toBe(
+        'PARTIAL',
+      )
+      // The rule runs before the whole-listing shortcut.
+      const whole = presence({ notOpen: 6, listingComplete: true })
+      expect(deriveCoverage(facts({ counts: most, presence: whole }))).toBe('PARTIAL')
+    })
+
+    it('stays PARTIAL for a quarantine that named no posting, or for any invalid item', () => {
+      const twoQuarantined = { raw: 10, normalized: 8, invalid: 0, quarantined: 2, discarded: 0 }
+      expect(
+        deriveCoverage(
+          facts({ counts: twoQuarantined, presence: presence({ quarantined: ['k1'] }) }),
+        ),
+      ).toBe('PARTIAL')
+      const invalid = { raw: 10, normalized: 8, invalid: 1, quarantined: 1, discarded: 0 }
+      expect(
+        deriveCoverage(facts({ counts: invalid, presence: presence({ quarantined: ['k1'] }) })),
+      ).toBe('PARTIAL')
+    })
+
+    it('a truncated, resumed or failed run stays PARTIAL even with every item accounted', () => {
+      const accounted = { counts: oneQuarantined, presence: presence({ quarantined: ['k1'] }) }
+      expect(deriveCoverage(facts({ ...accounted, stop: 'PAGE_CAP' }))).toBe('PARTIAL')
+      expect(deriveCoverage(facts({ ...accounted, resumed: true }))).toBe('PARTIAL')
+      expect(deriveCoverage(facts({ ...accounted, stop: 'ERROR' }))).toBe('PARTIAL')
+    })
+
+    it('a listing read whole is FULL_INVENTORY on a page cap with unread or bad details', () => {
+      const bad = { raw: 3, normalized: 1, invalid: 1, quarantined: 1, discarded: 0 }
+      const listed = presence({ held: ['h1'], listingComplete: true })
+      expect(deriveCoverage(facts({ stop: 'PAGE_CAP', counts: bad, presence: listed }))).toBe(
+        'FULL_INVENTORY',
+      )
+      // ...and never on a failed run, a listing that was not whole, or a queried scope.
+      expect(deriveCoverage(facts({ stop: 'ERROR', counts: bad, presence: listed }))).toBe(
+        'PARTIAL',
+      )
+      const cut = presence({ held: ['h1'], listingComplete: false })
+      expect(deriveCoverage(facts({ stop: 'PAGE_CAP', presence: cut }))).toBe('PARTIAL')
+      const queried = scope({ query: 'golang' })
+      expect(deriveCoverage(facts({ stop: 'PAGE_CAP', scope: queried, presence: listed }))).toBe(
+        'PARTIAL',
+      )
+      // A windowed scope is never the whole inventory either, listing read whole or not.
+      const windowed = scope({ window: { from: new Date(0), to: new Date(1) } })
+      expect(deriveCoverage(facts({ stop: 'PAGE_CAP', scope: windowed, presence: listed }))).toBe(
+        'PARTIAL',
+      )
+    })
+
+    it('hands the listed keys to the ledger only when there are some', () => {
+      const none = { raw: 0, normalized: 0, invalid: 0, quarantined: 0, discarded: 0 }
+      const keyed = buildCollectionBatch({
+        observations: [],
+        facts: facts({ counts: none, presence: presence({ held: ['h1'], quarantined: ['q1'] }) }),
+        requests: [],
+        checkpoint: null,
+        invalidSamples: [],
+      })
+      expect(keyed.present).toEqual({ held: ['h1'], quarantined: ['q1'] })
+      const empty = buildCollectionBatch({
+        observations: [],
+        facts: facts({ counts: none, presence: presence() }),
+        requests: [],
+        checkpoint: null,
+        invalidSamples: [],
+      })
+      expect('present' in empty).toBe(false)
+    })
+  })
+
+  // CR-M-4 (backlog 470): it was WINDOW under AC1; a capped search left postings unread, and
+  // WINDOW feeds the expiry, so the cap claims nothing.
+  it('calls a page cap on a SEARCH scope PARTIAL — what lay past the cap was never read', () => {
     expect(deriveCoverage(facts({ stop: 'PAGE_CAP', scope: scope({ query: 'golang' }) }))).toBe(
-      'WINDOW',
+      'PARTIAL',
     )
   })
 
@@ -239,9 +340,9 @@ describe('deriveCoverage', () => {
     )
   })
 
-  it('applies the same split to a cursor cycle', () => {
+  it('applies the same rule to a cursor cycle', () => {
     expect(deriveCoverage(facts({ stop: 'CURSOR_CYCLE', scope: scope({ query: 'go' }) }))).toBe(
-      'WINDOW',
+      'PARTIAL',
     )
     expect(deriveCoverage(facts({ stop: 'CURSOR_CYCLE', scope: scope({ query: null }) }))).toBe(
       'PARTIAL',

@@ -13,7 +13,45 @@ import { JOOBLE_ADAPTER_VERSION } from '../providers/sources/jooble.provider'
 import { REED_ADAPTER_VERSION } from '../providers/sources/reed.provider'
 import { JSEARCH_ADAPTER_VERSION } from '../providers/sources/jsearch.provider'
 import { LEVER_ADAPTER_VERSION, LEVER_HOSTS } from '../providers/sources/lever.provider'
-import { MUSE_ADAPTER_VERSION } from '../providers/sources/muse.provider'
+import {
+  NEXTLEVELJOBS_ADAPTER_VERSION,
+  nextLevelJobsAllowedHosts,
+} from '../providers/sources/nextleveljobs.provider'
+import {
+  LANDINGJOBS_ADAPTER_VERSION,
+  landingJobsAllowedHosts,
+} from '../providers/sources/landingjobs.provider'
+import {
+  JUSTJOIN_ADAPTER_VERSION,
+  justJoinAllowedHosts,
+} from '../providers/sources/justjoin.provider'
+import { THEHUB_ADAPTER_VERSION, theHubAllowedHosts } from '../providers/sources/thehub.provider'
+import {
+  RELOCATEME_ADAPTER_VERSION,
+  relocateMeAllowedHosts,
+} from '../providers/sources/relocateme.provider'
+import {
+  REACTJOBS_ADAPTER_VERSION,
+  reactJobsAllowedHosts,
+} from '../providers/sources/reactjobs.provider'
+import {
+  REMOTEIO_ADAPTER_VERSION,
+  remoteIoAllowedHosts,
+} from '../providers/sources/remoteio.provider'
+import {
+  REMOTEFIRSTJOBS_ADAPTER_VERSION,
+  remoteFirstJobsAllowedHosts,
+} from '../providers/sources/remotefirstjobs.provider'
+import {
+  JOBSPRESSO_ADAPTER_VERSION,
+  jobspressoAllowedHosts,
+} from '../providers/sources/jobspresso.provider'
+import { DICE_ADAPTER_VERSION, diceAllowedHosts } from '../providers/sources/dice.provider'
+import { NOFLUFF_ADAPTER_VERSION, nofluffAllowedHosts } from '../providers/sources/nofluff.provider'
+import { WORKINGNOMADS_ADAPTER_VERSION } from '../providers/sources/workingnomads.provider'
+import { GERMANTECHJOBS_ADAPTER_VERSION } from '../providers/sources/germantechjobs.provider'
+import { FOURDAYWEEK_ADAPTER_VERSION } from '../providers/sources/fourdayweek.provider'
+import { JOBTECH_ADAPTER_VERSION } from '../providers/sources/jobtech.provider'
 import {
   PERSONIO_ADAPTER_VERSION,
   personioAllowedHosts,
@@ -34,6 +72,11 @@ import {
   workableAllowedHosts,
 } from '../providers/sources/workable.provider'
 import { wwrSpec } from '../providers/sources/wwr.provider'
+import { pythonOrgSpec } from '../providers/sources/pythonorg.provider'
+import { solidJobsSpec } from '../providers/sources/solidjobs.provider'
+import { berlinStartupJobsSpec } from '../providers/sources/berlinstartupjobs.provider'
+import { helloworldSpec } from '../providers/sources/helloworld.provider'
+import { larajobsSpec } from '../providers/sources/larajobs.provider'
 import type { ReportingWiring } from './registered-adapter'
 
 /**
@@ -50,8 +93,11 @@ import type { ReportingWiring } from './registered-adapter'
  * manifest entry. Wiring only lifts `TRANSPORT_NOT_WIRED` for a registered adapter.
  *
  * Deliberately NOT wired (no entry, so `TRANSPORT_NOT_WIRED` keeps them off):
- *  - `WORKINGNOMADS_API`: a blocked stub with no fetch path at all.
  *  - `DOU_RSS`: the legacy contract, which does not go through this transport.
+ *
+ * `WORKINGNOMADS_API` was in that list while it was a blocked stub with no fetch path; task
+ * sources-04 gave it a real adapter over `www.workingnomads.com/api/exposed_jobs/`, so it is wired
+ * here like any other reporting type.
  */
 
 /** The parsed config of a tenant or regional adapter, as its own `parseConfig` produced it. */
@@ -88,7 +134,44 @@ export const REPORTING_WIRING: Readonly<Partial<Record<JobSourceType, ReportingW
         LEVER_HOSTS[(config as unknown as { region: keyof typeof LEVER_HOSTS }).region],
       ],
     },
-    MUSE_API: { adapterVersion: MUSE_ADAPTER_VERSION, allowedHosts: ['www.themuse.com'] },
+    THEHUB_HTML: {
+      adapterVersion: THEHUB_ADAPTER_VERSION,
+      allowedHosts: theHubAllowedHosts(),
+    },
+    JUSTJOIN_HTML: {
+      adapterVersion: JUSTJOIN_ADAPTER_VERSION,
+      allowedHosts: justJoinAllowedHosts(),
+    },
+    LANDINGJOBS_HTML: {
+      adapterVersion: LANDINGJOBS_ADAPTER_VERSION,
+      allowedHosts: landingJobsAllowedHosts(),
+    },
+    NEXTLEVELJOBS_HTML: {
+      adapterVersion: NEXTLEVELJOBS_ADAPTER_VERSION,
+      allowedHosts: nextLevelJobsAllowedHosts(),
+    },
+    RELOCATEME_HTML: {
+      adapterVersion: RELOCATEME_ADAPTER_VERSION,
+      allowedHosts: relocateMeAllowedHosts(),
+    },
+    REACTJOBS_HTML: {
+      adapterVersion: REACTJOBS_ADAPTER_VERSION,
+      allowedHosts: reactJobsAllowedHosts(),
+    },
+    REMOTEIO_HTML: {
+      adapterVersion: REMOTEIO_ADAPTER_VERSION,
+      allowedHosts: remoteIoAllowedHosts(),
+    },
+    REMOTEFIRSTJOBS_HTML: {
+      adapterVersion: REMOTEFIRSTJOBS_ADAPTER_VERSION,
+      allowedHosts: remoteFirstJobsAllowedHosts(),
+    },
+    JOBSPRESSO_HTML: {
+      adapterVersion: JOBSPRESSO_ADAPTER_VERSION,
+      allowedHosts: jobspressoAllowedHosts(),
+    },
+    DICE_HTML: { adapterVersion: DICE_ADAPTER_VERSION, allowedHosts: diceAllowedHosts() },
+    NOFLUFF_HTML: { adapterVersion: NOFLUFF_ADAPTER_VERSION, allowedHosts: nofluffAllowedHosts() },
     PERSONIO_ATS: {
       adapterVersion: PERSONIO_ADAPTER_VERSION,
       allowedHosts: (config) =>
@@ -113,5 +196,35 @@ export const REPORTING_WIRING: Readonly<Partial<Record<JobSourceType, ReportingW
       adapterVersion: WORKABLE_ADAPTER_VERSION,
       allowedHosts: workableAllowedHosts(),
     },
+    FOURDAYWEEK_API: { adapterVersion: FOURDAYWEEK_ADAPTER_VERSION, allowedHosts: ['4dayweek.io'] },
+    GERMANTECHJOBS_API: {
+      adapterVersion: GERMANTECHJOBS_ADAPTER_VERSION,
+      allowedHosts: ['germantechjobs.de'],
+    },
+    JOBTECH_API: {
+      adapterVersion: JOBTECH_ADAPTER_VERSION,
+      allowedHosts: ['jobsearch.api.jobtechdev.se'],
+    },
+    WORKINGNOMADS_API: {
+      adapterVersion: WORKINGNOMADS_ADAPTER_VERSION,
+      allowedHosts: ['www.workingnomads.com'],
+    },
     WWR_RSS: { adapterVersion: wwrSpec.adapterVersion, allowedHosts: ['weworkremotely.com'] },
+    PYTHONORG_RSS: {
+      adapterVersion: pythonOrgSpec.adapterVersion,
+      allowedHosts: ['www.python.org'],
+    },
+    SOLIDJOBS_RSS: { adapterVersion: solidJobsSpec.adapterVersion, allowedHosts: ['solid.jobs'] },
+    BERLINSTARTUPJOBS_RSS: {
+      adapterVersion: berlinStartupJobsSpec.adapterVersion,
+      allowedHosts: ['berlinstartupjobs.com'],
+    },
+    HELLOWORLD_RSS: {
+      adapterVersion: helloworldSpec.adapterVersion,
+      allowedHosts: ['www.helloworld.rs'],
+    },
+    LARAJOBS_RSS: {
+      adapterVersion: larajobsSpec.adapterVersion,
+      allowedHosts: ['larajobs.com'],
+    },
   })

@@ -8,7 +8,7 @@ import { BadRequestException, HttpException } from '@nestjs/common'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
-import { RESUME_LIMITS, type ResumeContent } from '@crm/shared'
+import { EMPTY_RESUME_HEADER, RESUME_LIMITS, type ResumeContent } from '@crm/shared'
 import type { SeniorResume } from '../../database/schema'
 import { fakeRunDb } from '../../test/fake-run-db'
 import {
@@ -16,8 +16,12 @@ import {
   isRegeneratePath,
   ResumeVerificationService,
 } from './resume-verification.service'
+import { markSeniorResumeDirty } from '../../job-sourcing/dirty-producers'
 import { CLEARED_STAGED } from './verification-runner'
 import { renderOwnerKey } from './run-columns'
+
+// Senior roles PR 4: the roster dirty mark is covered by resume-dirty.integration.spec.ts.
+vi.mock('../../job-sourcing/dirty-producers')
 
 const RUN = 'a15e0000-0000-4000-8000-000000000001'
 const HR0 = 'a15e0000-0000-4000-8000-0000000000b0'
@@ -62,6 +66,7 @@ const ROW = {
       displayName: 'Jane Doe',
       email: 'jane@unit.spec',
       legalFullName: null,
+      phone: null,
       telegram: null,
     }),
   },
@@ -71,12 +76,19 @@ const OWNER_REF = {
   displayName: 'Jane Doe',
   email: 'jane@unit.spec',
   legalFullName: null,
+  phone: null,
   telegram: null,
 }
 
 const dialect = new PgDialect()
 const OWNER = [
-  { displayName: 'Jane Doe', email: 'jane@unit.spec', legalFullName: null, telegram: null },
+  {
+    displayName: 'Jane Doe',
+    email: 'jane@unit.spec',
+    legalFullName: null,
+    phone: null,
+    telegram: null,
+  },
 ]
 
 function service(results: unknown[][]) {
@@ -158,16 +170,22 @@ describe('ResumeVerificationService.confirm', () => {
 
   it('promotes in one locked transaction with a CAS on run, version, status and template', async () => {
     const won = { ...ROW, verificationStatus: 'VERIFIED' }
+    vi.mocked(markSeniorResumeDirty).mockClear()
     const { svc, s3, log } = service([OWNER, [{ key: 'resumes/r-1/live.pdf' }], [won]])
     const out = await svc.confirm(ROW, input, HR1, 'fp-1', OWNER_REF)
     expect(out).toBe(won)
+    // SR-L-1: the promoted row is the `after` side, the pre-confirm row the `before` side; the
+    // producer compares the matcher's skill read set across exactly that pair.
+    expect(vi.mocked(markSeniorResumeDirty).mock.calls).toEqual([
+      [expect.anything(), ROW.userId, { before: ROW, after: won }],
+    ])
     expect(log.map((q) => [q.op, q.lock, q.inTransaction])).toEqual([
       ['select', 'share', true],
       ['select', 'update', true],
       ['update', undefined, true],
     ])
     // Backlog 442: the owner is read again under FOR SHARE, first, inside the transaction.
-    expect(log[0]?.columns).toEqual(['displayName', 'email', 'legalFullName', 'telegram'])
+    expect(log[0]?.columns).toEqual(['displayName', 'email', 'legalFullName', 'phone', 'telegram'])
     expect(log[0]?.where?.params).toEqual([ROW.userId])
     const update = log[2]
     expect(update?.set).toMatchObject({
@@ -204,7 +222,7 @@ describe('ResumeVerificationService.confirm', () => {
   it('locks the live key only, and promotes the staged columns with version + 1', async () => {
     const { svc, log } = service([OWNER, [{ key: null }], [ROW]])
     await svc.confirm(ROW, input, HR1, 'fp', OWNER_REF)
-    expect(log[1]?.columns).toEqual(['key'])
+    expect(log[1]?.columns).toEqual(['key', 'header'])
     const set = log[2]?.set as Record<string, SQL>
     const compiled = (key: string) => dialect.sqlToQuery(set[key] as SQL).sql
     expect(compiled('content')).toBe('"senior_resumes"."staged_content"')
@@ -236,10 +254,49 @@ describe('ResumeVerificationService.confirm', () => {
     async (_l, change) => {
       const { svc, s3, log } = service([[{ ...OWNER[0], ...change }]])
       await expectCode(svc.confirm(ROW, input, HR1, 'fp', OWNER_REF), 409, 'RESUME_CONFIRM_STALE')
-      expect(log.map((q) => [q.op, q.lock])).toEqual([['select', 'share']])
+      expect(log.map((q) => [q.op, q.lock])).toEqual([
+        ['select', 'share'],
+        ['select', 'update'],
+      ])
       expect(s3.delete).not.toHaveBeenCalled()
     },
   )
+
+  it('a header override changed after the caller read the owner: 409, no UPDATE', async () => {
+    const header = { ...EMPTY_RESUME_HEADER, phone: '+380 50 000 0000' }
+    const { svc, s3, log } = service([OWNER, [{ key: 'resumes/r-1/live.pdf', header }]])
+    await expectCode(svc.confirm(ROW, input, HR1, 'fp', OWNER_REF), 409, 'RESUME_CONFIRM_STALE')
+    expect(log.map((q) => q.op)).toEqual(['select', 'select'])
+    expect(s3.delete).not.toHaveBeenCalled()
+  })
+
+  it('the caller passes the resolved header: an override printed at both reads confirms', async () => {
+    const header = { ...EMPTY_RESUME_HEADER, phone: '+380 50 000 0000' }
+    const printed = { ...OWNER_REF, phone: '+380 50 000 0000' }
+    const row = {
+      ...ROW,
+      verificationReport: { gates: [], fallbacks: [], ownerKey: renderOwnerKey(printed) },
+    } as SeniorResume
+    const { svc } = service([OWNER, [{ key: null, header }], [row]])
+    await expect(svc.confirm(row, input, HR1, 'fp', printed)).resolves.toBe(row)
+  })
+
+  it('under a name override, a profile name edit since the run is 409 (the run redacted the old name)', async () => {
+    const header = { ...EMPTY_RESUME_HEADER, displayName: 'Jane Override' }
+    const printed = { ...OWNER_REF, displayName: 'Jane Override', profile: OWNER_REF }
+    const row = {
+      ...ROW,
+      verificationReport: { gates: [], fallbacks: [], ownerKey: renderOwnerKey(printed) },
+    } as SeniorResume
+    // The caller read the same profile as the run; the locked read sees the edited one.
+    const edited = [{ ...OWNER[0], displayName: 'Jane Smith' }]
+    const { svc, s3 } = service([edited, [{ key: null, header }]])
+    await expectCode(svc.confirm(row, input, HR1, 'fp', printed), 409, 'RESUME_CONFIRM_STALE')
+    expect(s3.delete).not.toHaveBeenCalled()
+    // the same profile at the locked read confirms: the locked key covers the profile too
+    const same = service([OWNER, [{ key: null, header }], [row]])
+    await expect(same.svc.confirm(row, input, HR1, 'fp', printed)).resolves.toBe(row)
+  })
 
   it('an owner gone at the locked read: 409, no UPDATE', async () => {
     const { svc, log } = service([[]])

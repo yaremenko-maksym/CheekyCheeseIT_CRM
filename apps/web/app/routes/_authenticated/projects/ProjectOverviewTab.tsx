@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion'
 import { Trans, useLingui } from '@lingui/react/macro'
 import {
   Briefcase,
@@ -91,15 +90,7 @@ export function ProjectOverviewTab({
 
   return (
     <>
-      <motion.div
-        className="grid grid-cols-1 gap-4 lg:grid-cols-2"
-        // Stryker disable next-line ObjectLiteral: entrance-animation keyframes only, no behavior (jsdom does not run framer-motion tweens)
-        initial={{ opacity: 0, y: 12 }}
-        // Stryker disable next-line ObjectLiteral: entrance-animation keyframes only, no behavior
-        animate={{ opacity: 1, y: 0 }}
-        // Stryker disable next-line ObjectLiteral: animation timing only, no behavior
-        transition={{ duration: 0.3, delay: 0.08 }}
-      >
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 animate-in fade-in-0 slide-in-from-bottom-3 duration-300 delay-[80ms] fill-mode-backwards ease-out">
         {/* Details card */}
         <Card className="min-w-0 border-border/40">
           <CardHeader className="pb-3">
@@ -392,7 +383,7 @@ export function ProjectOverviewTab({
             )}
           </CardContent>
         </Card>
-      </motion.div>
+      </div>
       {/* Legend section — subject (seniorId/dropId) excluded per RBAC contract */}
       <ProjectLegendSection projectId={projectId} canAccess={canAccessLegend} />
 

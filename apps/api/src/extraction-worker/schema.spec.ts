@@ -5,11 +5,14 @@ import {
   MIN_WORKER_SECRET_CHARS,
   MIN_WORKER_SECRET_DISTINCT_CHARS,
   tableVersionOf,
+  writingPayloadSchema,
 } from './link-contract'
 import {
   healthFlags,
   MAX_WORKER_INPUT_CHARS,
   parseWorkerEnv,
+  PAYLOAD_REFUSALS,
+  refusalCategory,
   resumeWriteBodySchema,
 } from './schema'
 import { z } from 'zod'
@@ -26,6 +29,30 @@ const BASE = {
   EXTRACTION_ROUTER_CONFIG: '{"routes":[]}',
   EXTRACTION_ROUTER_STATE_FILE: '/state/route-state.json',
 }
+
+/**
+ * The shape `writingPayload` builds (item 460). The producer itself is the positive control of
+ * `resume-write.spec.ts`; here the literal is the hand-written expectation the schema is read
+ * against, so a change to either side shows up as a failure rather than as agreement.
+ */
+const VALID_PAYLOAD = {
+  headline: 'Backend engineer',
+  skills: ['TypeScript'],
+  yearsOfExperience: 4,
+  experience: [
+    {
+      company: 'Acme',
+      role: 'Engineer',
+      start: '2021-03',
+      end: null,
+      current: true,
+      technologies: ['Node'],
+      notes: ['Built the billing service'],
+    },
+  ],
+}
+const ITEM = VALID_PAYLOAD.experience[0]!
+const PAYLOAD = JSON.stringify(VALID_PAYLOAD)
 
 describe('parseWorkerEnv — the worker does not start without its secret', () => {
   it.each([
@@ -176,7 +203,7 @@ describe('resumeWriteBodySchema — an oversize field stops at its first violati
   const codes = (extra: Record<string, unknown>) => {
     const r = resumeWriteBodySchema.safeParse({
       task: 'summary',
-      payload: '{}',
+      payload: PAYLOAD,
       feedback: [],
       ...extra,
     })
@@ -193,5 +220,209 @@ describe('resumeWriteBodySchema — an oversize field stops at its first violati
 
   it('a non-JSON payload within the size is still refused by the JSON check', () => {
     expect(codes({ payload: 'not json' })).toEqual(['custom'])
+  })
+})
+
+describe('resumeWriteBodySchema — `payload` is a WritingPayload and nothing else (item 460)', () => {
+  const accepts = (payload: string) =>
+    resumeWriteBodySchema.safeParse({ task: 'summary', payload, feedback: [] }).success
+  const acceptsValue = (payload: unknown) => accepts(JSON.stringify(payload))
+  const without = (o: Record<string, unknown>, key: string) =>
+    Object.fromEntries(Object.entries(o).filter(([k]) => k !== key))
+  /** The refusal category the body schema reports for a payload, or null when it is accepted. */
+  const reasonOf = (payload: string) => {
+    const r = resumeWriteBodySchema.safeParse({ task: 'summary', payload, feedback: [] })
+    return r.success ? null : refusalCategory(r.error)
+  }
+  /** A duplicate key, which `JSON.stringify` of an object cannot produce. */
+  const duplicated = (key: string) =>
+    PAYLOAD.replace(`"${key}":`, `"${key}":{"email":"jane@example.com"},"${key}":`)
+
+  it('the shape the producer builds is accepted', () => {
+    expect(accepts(PAYLOAD)).toBe(true)
+  })
+
+  it('an empty experience list is accepted: a resume with no job yet still gets a summary', () => {
+    expect(acceptsValue({ ...VALID_PAYLOAD, experience: [] })).toBe(true)
+  })
+
+  it('no field length bound: a headline far over any field cap is accepted', () => {
+    expect(acceptsValue({ ...VALID_PAYLOAD, headline: 'x'.repeat(10_000) })).toBe(true)
+  })
+
+  it.each([
+    ['name', { name: 'Jane Doe' }],
+    ['email', { email: 'jane@example.com' }],
+    ['phone', { phone: '+380 50 123 4567' }],
+    ['link', { link: 'https://example.com/jane' }],
+    ['location', { location: { city: 'Lisbon' } }],
+    ['education', { education: [] }],
+  ])('an unknown top-level key (%s) is refused', (_name, extra) => {
+    expect(acceptsValue({ ...VALID_PAYLOAD, ...extra })).toBe(false)
+  })
+
+  it.each([
+    ['email', { email: 'jane@example.com' }],
+    ['link', { link: 'https://example.com/jane' }],
+    ['location', { location: 'Lisbon' }],
+    ['dates', { dates: '2021-2024' }],
+  ])('an unknown key inside an experience item (%s) is refused', (_name, extra) => {
+    expect(acceptsValue({ ...VALID_PAYLOAD, experience: [{ ...ITEM, ...extra }] })).toBe(false)
+  })
+
+  it('a `__proto__` key is refused: JSON.parse makes it an own key of the payload', () => {
+    const raw = '{"__proto__":{"email":"jane@example.com"},' + PAYLOAD.slice(1)
+    expect(accepts(raw)).toBe(false)
+  })
+
+  // Security LOW: `constructor` is the other own key `JSON.parse` will happily create.
+  it.each([
+    ['at the top level', '{"constructor":{"email":"jane@example.com"},' + PAYLOAD.slice(1)],
+    [
+      'inside an experience item',
+      PAYLOAD.replace('"company":', '"constructor":{"email":"jane@example.com"},"company":'),
+    ],
+  ])('a `constructor` key %s is refused', (_where, raw) => {
+    expect(accepts(raw)).toBe(false)
+  })
+
+  /**
+   * SR-M-1: the worker forwards the string, and `JSON.parse` keeps the LAST of two duplicate keys —
+   * so the value that passes the schema is not the one the earlier copy carries. Each case here
+   * parses into an accepted value and is still refused, which is the whole point.
+   */
+  it.each([
+    ['at the top level', `{"headline":{"email":"jane@example.com"},${PAYLOAD.slice(1)}`],
+    ['inside an experience item', duplicated('company')],
+  ])('a duplicate key %s is refused, though its parsed value is of the shape', (_where, raw) => {
+    expect(writingPayloadSchema.safeParse(JSON.parse(raw)).success).toBe(true)
+    expect(reasonOf(raw)).toBe('not canonical')
+  })
+
+  // The same check with no duplicate in sight: the producer's bytes are `JSON.stringify`'s own.
+  it.each([
+    ['a leading space', ` ${PAYLOAD}`],
+    ['indentation', JSON.stringify(VALID_PAYLOAD, null, 2)],
+  ])('a payload that is not its own re-serialisation (%s) is refused', (_name, raw) => {
+    expect(writingPayloadSchema.safeParse(JSON.parse(raw)).success).toBe(true)
+    expect(reasonOf(raw)).toBe('not canonical')
+  })
+
+  it.each([
+    ['not json', 'not json'],
+    ['bad value', '[]'],
+    ['unknown key', JSON.stringify({ ...VALID_PAYLOAD, email: 'jane@example.com' })],
+  ])('the refusal category is %s', (reason, payload) => {
+    expect(reasonOf(payload)).toBe(reason)
+  })
+
+  it('the producer shape has no refusal category', () => {
+    expect(reasonOf(PAYLOAD)).toBe(null)
+  })
+
+  // An unknown key is the category even when the payload is also wrong in a second, duller way.
+  it('an unknown key beside a bad value is reported as the unknown key', () => {
+    const payload = JSON.stringify({ ...VALID_PAYLOAD, email: 'jane@example.com', skills: 'one' })
+    expect(reasonOf(payload)).toBe('unknown key')
+  })
+
+  // Two defects in the body at once: the payload's category is what the log line needs.
+  it('a payload defect beside a bad task is reported as the payload category', () => {
+    const r = resumeWriteBodySchema.safeParse({
+      task: 'cover-letter',
+      payload: 'not json',
+      feedback: [],
+    })
+    expect(r.success).toBe(false)
+    expect(!r.success && refusalCategory(r.error)).toBe('not json')
+  })
+
+  it('a defect in another field gives the category `body`, not a payload one', () => {
+    const r = resumeWriteBodySchema.safeParse({
+      task: 'cover-letter',
+      payload: PAYLOAD,
+      feedback: [],
+    })
+    expect(r.success).toBe(false)
+    expect(!r.success && refusalCategory(r.error)).toBe('body')
+  })
+
+  // Panel LOW (round 2): `min(1)` stops an empty payload before the JSON parse.
+  it('an empty payload is the category `body`, not `not json`', () => {
+    expect(reasonOf('')).toBe('body')
+  })
+
+  it('a missing payload is the category `body`', () => {
+    const r = resumeWriteBodySchema.safeParse({ task: 'summary', feedback: [] })
+    expect(r.success).toBe(false)
+    expect(!r.success && refusalCategory(r.error)).toBe('body')
+  })
+
+  // SPEC-L-1: the closed set is every reason the refusal log line can carry, the route's own included.
+  it('the closed set is the full list of refusal reasons', () => {
+    expect([...PAYLOAD_REFUSALS].sort()).toEqual(
+      ['bad value', 'body', 'not canonical', 'not json', 'too long', 'unknown key'].sort(),
+    )
+  })
+
+  // Panel LOW: the months are `YYYY-MM`, the one form `resumeFactsSchema` lets through.
+  it.each([
+    ['a free-text month', { start: 'March 2021' }],
+    ['a full date', { start: '2021-03-01' }],
+    ['a year alone', { start: '2021' }],
+    ['month 13', { start: '2021-13' }],
+    ['month 00', { end: '2021-00' }],
+    ['a year before 1950', { start: '1949-12' }],
+    ['a year after 2100', { end: '2101-01' }],
+  ])('an experience month that is not YYYY-MM (%s) is refused', (_name, extra) => {
+    expect(acceptsValue({ ...VALID_PAYLOAD, experience: [{ ...ITEM, ...extra }] })).toBe(false)
+  })
+
+  it('the bounds of the month form are accepted', () => {
+    const experience = [{ ...ITEM, start: '1950-01', end: '2100-12' }]
+    expect(acceptsValue({ ...VALID_PAYLOAD, experience })).toBe(true)
+  })
+
+  it.each(['headline', 'skills', 'yearsOfExperience', 'experience'])(
+    'a payload missing `%s` is refused',
+    (key) => {
+      expect(acceptsValue(without(VALID_PAYLOAD, key))).toBe(false)
+    },
+  )
+
+  it.each(['company', 'role', 'start', 'end', 'current', 'technologies', 'notes'])(
+    'an experience item missing `%s` is refused',
+    (key) => {
+      expect(acceptsValue({ ...VALID_PAYLOAD, experience: [without(ITEM, key)] })).toBe(false)
+    },
+  )
+
+  it.each([
+    ['headline as a number', { headline: 1 }],
+    ['skills as a string', { skills: 'TypeScript' }],
+    ['a skill as a number', { skills: [1] }],
+    ['yearsOfExperience as a string', { yearsOfExperience: '4' }],
+    ['a fractional yearsOfExperience', { yearsOfExperience: 4.5 }],
+    ['a negative yearsOfExperience', { yearsOfExperience: -1 }],
+    ['experience as an object', { experience: {} }],
+  ])('a mistyped top-level field (%s) is refused', (_name, extra) => {
+    expect(acceptsValue({ ...VALID_PAYLOAD, ...extra })).toBe(false)
+  })
+
+  it.each([
+    ['company as a number', { company: 1 }],
+    ['role as null', { role: null }],
+    ['start as a number', { start: 2021 }],
+    ['end as a number', { end: 2024 }],
+    ['current as a string', { current: 'true' }],
+    ['technologies as a string', { technologies: 'Node' }],
+    ['notes as a string', { notes: 'Built the billing service' }],
+  ])('a mistyped experience field (%s) is refused', (_name, extra) => {
+    expect(acceptsValue({ ...VALID_PAYLOAD, experience: [{ ...ITEM, ...extra }] })).toBe(false)
+  })
+
+  it('a null start and end are accepted: a draft job may have neither', () => {
+    const experience = [{ ...ITEM, start: null, end: null }]
+    expect(acceptsValue({ ...VALID_PAYLOAD, experience })).toBe(true)
   })
 })

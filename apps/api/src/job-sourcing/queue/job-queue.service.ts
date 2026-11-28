@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common'
+import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import {
   DESCRIPTION_MD_MAX,
@@ -10,22 +10,28 @@ import {
   type JobQueueListResponseDto,
   jobQueueListResponseSchema,
   type JobQueueNoMatchReason,
+  type JobQueueSalary,
   type JobQueueScopeQuery,
   JOB_QUEUE_SENIOR_OPTIONS_MAX,
   type JobQueueSeniorOptionsResponseDto,
   jobQueueSeniorsContinuationSchema,
+  type JobQueueSkillOverlap,
+  jobQueueSkillOverlapSchema,
   jobQueueSourcesContinuationSchema,
   type JobSourceType,
   MAX_STACK_KEYWORD_CHARS,
   MAX_STACK_KEYWORDS,
   type SessionUser,
+  type SourcingNotice,
+  type TechnicalRole,
 } from '@crm/shared'
-import { sql } from 'drizzle-orm'
-import type { z } from 'zod'
+import { sql, type SQL } from 'drizzle-orm'
+import { z } from 'zod'
 import { apiError } from '../../common/api-error'
 import type { Env } from '../../config/env'
 import { DatabaseService } from '../../database/database.service'
 import { engagementFormOf } from '../funnel/layer1'
+import { readSourcingNotice } from '../sourcing-notice'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
   assertCursorCurrent,
@@ -34,7 +40,13 @@ import {
   requestSignature,
   signCursor,
 } from './queue-cursor'
-import { currentGeneration, GENERATION_POLICY, generationById } from './queue-generation'
+import {
+  currentGeneration,
+  GENERATION_POLICY,
+  type GenerationRow,
+  generationById,
+  publishedGeneration,
+} from './queue-generation'
 import {
   cardRow,
   duplicateRows,
@@ -43,17 +55,20 @@ import {
   policySignature,
   queueRowColumns,
   queueRowJoins,
+  scopeTeamIds,
   seniorOptionRows,
   seniorRows,
   seniorTotal,
   sourceRows,
   sourceTotal,
   triageGrantableRow,
+  uuidMatch,
 } from './queue-read-sql'
 import {
   canonicalUuid,
   isGenerationServable,
   type JobQueueScope,
+  type JobQueueViewScope,
   listableOpportunityPredicate,
   type LiveSeniorVersion,
   STUDIO_SCOPE,
@@ -70,17 +85,21 @@ type SeniorsPage = z.infer<typeof jobQueueSeniorsContinuationSchema>
 type SourcesPage = z.infer<typeof jobQueueSourcesContinuationSchema>
 
 /** A fresh object per call: a shared one could be mutated by one caller and leak to the next. */
-const emptyList = (): JobQueueListResponseDto => ({
+const emptyList = (sourcingNotice: SourcingNotice): JobQueueListResponseDto => ({
   items: [],
   nextCursor: null,
   counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
   generation: null,
+  sourcingNotice,
 })
 
 const iso = (v: unknown): string => (v instanceof Date ? v : new Date(String(v))).toISOString()
 const isoOrNull = (v: unknown): string | null => (v == null ? null : iso(v))
 const clipped = (v: unknown, max: number): string | null =>
   v == null ? null : String(v).slice(0, max)
+
+/** `numeric(12,2)` arrives as text from the driver. */
+const amountOrNull = (v: unknown): number | null => (v == null ? null : Number(v))
 
 /** `count(*)` arrives as text from the driver. */
 const count = (v: unknown): number => Number(v)
@@ -91,6 +110,11 @@ export function toListItem(r: Row): JobQueueListItemDto {
     revision: Number(r['revision']),
     title: String(r['title']).slice(0, 500),
     companyName: clipped(r['employer_name'], 255),
+    // Only this one reason is exposed: every other `field_revisions` reason is an internal
+    // resolution detail, and the HR UI must not read "the sources disagreed" as "undisclosed".
+    ...(r['employer_disclosure_reason'] === 'WITHHELD_AT_SOURCE'
+      ? { employerDisclosure: 'WITHHELD_AT_SOURCE' as const }
+      : {}),
     location: clipped(r['location'], 500),
     // A manual card (r5 Phase 6) is the only row without a source record.
     primarySource:
@@ -114,14 +138,40 @@ export function toListItem(r: Row): JobQueueListItemDto {
     hidden: r['hidden'] === true,
     publishedAt: isoOrNull(r['published_at']),
     firstSeenAt: iso(r['first_seen_at']),
+    // A salary without its currency is no salary (the CHECKs keep the four columns together).
+    ...(r['salary_currency'] == null
+      ? {}
+      : {
+          salary: {
+            min: amountOrNull(r['salary_min']),
+            max: amountOrNull(r['salary_max']),
+            currency: String(r['salary_currency']),
+            period: r['salary_period'] as JobQueueSalary['period'],
+          },
+        }),
   }
 }
+
+/** Malformed stored evidence is a writer/schema disagreement, not a request error: a log, not a 500. */
+const evidenceLogger = new Logger('JobQueueEvidence')
 
 /**
  * The keywords of a senior's own `TECH_MATCH` reason (`keyword:STRENGTH`). A match is approximate
  * unless it holds a CORE keyword: a TRIAGE row has none, an OPTIONAL-only one is a weak signal.
  */
 export function matchFacts(evidence: unknown): { keywords: string[]; approximate: boolean } {
+  // Senior roles PR 4: a role match is exact, and its keywords are the senior's overlapping SKILLS
+  // only — `[]` with no resume, a malformed overlap or no overlapping skill (plan 4.5 / 5.4).
+  // A matched role is NOT a keyword: `rowKeywords` feeds this into the list row's and the card's
+  // `matchedKeywords`, where a role id would render as the vacancy's stack (CR-M-1 / SPEC-M-2).
+  // The roles stay in `matchEvidence`, which is the senior evidence block CR-L-1 asked for.
+  if (hasReason(evidence, 'ROLE_MATCH')) {
+    const overlap = skillOverlapOf(evidence)
+    // No cap of its own: `skillOverlapOf` parses, and `jobQueueSkillOverlapSchema` bounds `matched`
+    // at 200 already, so an over-long overlap is malformed (`[]`) rather than quietly truncated.
+    const matched = overlap?.kind === 'OVERLAP' ? overlap.matched : []
+    return { keywords: [...matched], approximate: false }
+  }
   const items = techMatchItems(evidence)
   return {
     // No `:STRENGTH` suffix: the whole string is the keyword.
@@ -132,6 +182,51 @@ export function matchFacts(evidence: unknown): { keywords: string[]; approximate
       .slice(0, 200),
     approximate: !items.some((k) => k.endsWith(':CORE')),
   }
+}
+
+function hasReason(evidence: unknown, code: string): boolean {
+  const reasons = (evidence as { reasons?: unknown } | null)?.reasons
+  return Array.isArray(reasons) && reasons.some((r: { code?: unknown }) => r?.code === code)
+}
+
+/**
+ * The senior's own overlap from a LEAD row's evidence; anything malformed is `null`.
+ * With `opportunityId` a value that is PRESENT but does not parse is reported once (CR-L-2):
+ * nothing else would notice a writer and this schema disagreeing. Only the event, the opportunity
+ * and the failing paths are logged — never the stored evidence. A read that does not name the
+ * opportunity stays quiet, so one malformed row is one line, not one per reader of it.
+ */
+export function skillOverlapOf(
+  evidence: unknown,
+  opportunityId?: string,
+): JobQueueSkillOverlap | null {
+  const raw = (evidence as { skillOverlap?: unknown } | null)?.skillOverlap
+  if (raw === undefined || raw === null) return null
+  const parsed = jobQueueSkillOverlapSchema.safeParse(raw)
+  if (parsed.success) return parsed.data
+  if (opportunityId !== undefined)
+    evidenceLogger.warn(
+      `job-queue.skill-overlap-malformed opportunityId=${opportunityId} issues=${parsed.error.issues
+        .map((i) => (i.path.length === 0 ? '(root)' : i.path.join('.')))
+        .join(',')}`,
+    )
+  return null
+}
+
+const fitSchema = z.number().min(0).max(1)
+
+/**
+ * The senior's own Jev fit as a card percent, `round(100·fit)` (eval.3 LEAD evidence). Absent
+ * (pre-eval.3 evidence, a manual card's NULL evidence) or `null` (ungraded) is `null`, never `0`.
+ * A PRESENT value that does not parse is `null` and logged (event and opportunity only, never the value).
+ */
+export function relevancePercentOf(evidence: unknown, opportunityId: string): number | null {
+  const raw = (evidence as { fit?: unknown } | null)?.fit
+  if (raw === undefined || raw === null) return null
+  const parsed = fitSchema.safeParse(raw)
+  if (parsed.success) return Math.round(100 * parsed.data)
+  evidenceLogger.warn(`job-queue.relevance-fit-malformed opportunityId=${opportunityId}`)
+  return null
 }
 
 /** The raw `keyword:STRENGTH` items of a senior's own `TECH_MATCH` reasons. */
@@ -145,6 +240,32 @@ function techMatchItems(evidence: unknown): string[] {
     : []
 }
 
+const ROLE_ITEM = /^ROLE:(.+?)(:WIDENED)?$/
+
+/**
+ * The matched roles of a senior's own `ROLE_MATCH` reason (`ROLE:<ROLE>`, `ROLE:<ROLE>:WIDENED` —
+ * `evaluate.ts` `projectScope`). An item in any other shape names no role, so it is left out.
+ */
+function roleItems(evidence: unknown): Array<{ role: string; widened: boolean }> {
+  const reasons = (evidence as { reasons?: unknown } | null)?.reasons
+  if (!Array.isArray(reasons)) return []
+  return reasons
+    .filter((r: { code?: unknown }) => r?.code === 'ROLE_MATCH')
+    .flatMap((r: { evidence?: unknown }) => (Array.isArray(r.evidence) ? r.evidence : []))
+    .map(String)
+    .flatMap((item) => {
+      const m = ROLE_ITEM.exec(item)
+      return m === null
+        ? []
+        : [
+            {
+              role: (m[1] as string).slice(0, MAX_STACK_KEYWORD_CHARS),
+              widened: m[2] !== undefined,
+            },
+          ]
+    })
+}
+
 const EVIDENCE_ITEM = /^(.+):(CORE|OPTIONAL)$/
 
 /**
@@ -153,9 +274,19 @@ const EVIDENCE_ITEM = /^(.+):(CORE|OPTIONAL)$/
  */
 export function matchEvidence(
   evidence: unknown,
-): Array<{ keyword: string; strength: 'CORE' | 'OPTIONAL' }> {
-  return techMatchItems(evidence)
-    .flatMap((item) => {
+): Array<{ keyword: string; strength: 'CORE' | 'OPTIONAL'; kind?: 'ROLE' }> {
+  // Senior roles PR 4: a matched role is the reason the senior is here at all, so it comes first.
+  // A widened match covers the vacancy's role through its family only — a weaker signal, OPTIONAL.
+  // `kind: 'ROLE'` marks `keyword` as a `TechnicalRole` id, so the web renders it through the
+  // `technical-role.*` catalog instead of verbatim (CR-M-1 / SPEC-M-2); a skill item omits it.
+  const roles = roleItems(evidence).map((r) => ({
+    keyword: r.role,
+    strength: r.widened ? ('OPTIONAL' as const) : ('CORE' as const),
+    kind: 'ROLE' as const,
+  }))
+  return [
+    ...roles,
+    ...techMatchItems(evidence).flatMap((item) => {
       const m = EVIDENCE_ITEM.exec(item)
       return m === null
         ? []
@@ -165,8 +296,8 @@ export function matchEvidence(
               strength: m[2] as 'CORE' | 'OPTIONAL',
             },
           ]
-    })
-    .slice(0, 200)
+    }),
+  ].slice(0, 200)
 }
 
 /**
@@ -233,7 +364,7 @@ export function toAvailability(r: Row): SeniorsPage['items'][number]['availabili
 
 /** The ADMIN team heading is read for the STUDIO scope only; a TEAM scope never carries the key. */
 const toSenior =
-  (scope: JobQueueScope) =>
+  (scope: JobQueueViewScope, opportunityId: string) =>
   (r: Row): SeniorsPage['items'][number] => {
     const facts = matchFacts(r['evidence'])
     return {
@@ -244,6 +375,8 @@ const toSenior =
       matchApproximate: r['evidence'] !== null && facts.approximate,
       matchedKeywords: facts.keywords,
       matchEvidence: matchEvidence(r['evidence']),
+      skillOverlap: skillOverlapOf(r['evidence'], opportunityId),
+      relevancePercent: relevancePercentOf(r['evidence'], opportunityId),
       submission: toSubmission(r),
       ...(scope.kind === 'STUDIO'
         ? {
@@ -289,29 +422,44 @@ export class JobQueueService {
   }
 
   async list(user: SessionUser, query: JobQueueListQuery): Promise<JobQueueListResponseDto> {
-    const scope = await this.scopes.resolve(user, query.teamId, this.database.db)
+    const scope = await this.scopes.resolveView(user, query.teamId, this.database.db)
     // Checked before any data SQL, and answered the same for a NONE scope.
     const cursor = query.cursor === undefined ? null : parseCursor(query.cursor, 'L', this.secret)
-    if (scope.kind === 'NONE') return emptyList()
+    // The notice is global state with no team data in it (H.8), so a NONE scope carries it too.
+    if (scope.kind === 'NONE') return emptyList(await readSourcingNotice(this.database.db))
     const versions = await this.scopes.liveVersions(scope, this.database.db)
     const policy = policySignature(scope, versions)
-    const signature = requestSignature([user.id, policy, ...filterIdentity(query)])
     const now = new Date()
+    // A union pages its member teams' own generations: their ids are part of the signature, so a
+    // cursor dies with any one of them (a member republished, expired or purged).
+    const unionGenerations =
+      scope.kind === 'TEAMS' ? await this.memberGenerations(scope.teams, cursor === null, now) : []
+    const signature = requestSignature([
+      user.id,
+      policy,
+      ...unionGenerations,
+      ...filterIdentity(query),
+    ])
     if (cursor !== null) assertCursorCurrent(cursor, signature, now)
 
     // Publishing writes, so it stays outside the read snapshot below.
-    const generationId =
-      cursor?.g ??
-      (
-        await this.scopes.policy(() =>
-          currentGeneration(this.database, scope, versions, policy, now),
-        )
-      ).id
+    const generationIds =
+      scope.kind === 'TEAMS'
+        ? unionGenerations
+        : [
+            cursor?.g ??
+              (
+                await this.scopes.policy(() =>
+                  currentGeneration(this.database, scope, versions, policy, now),
+                )
+              ).id,
+          ]
+    const members = scope.kind === 'TEAMS' ? scope.teams : [scope]
     // One snapshot: a publish that commits between these statements purges the generation for the
     // next request, never halfway through this one (a 200 with an empty page and zero counts).
     const read = await this.scopes.policy(() =>
       this.database.db.transaction(
-        (tx) => readPage(tx, scope, versions, generationId, query, cursor?.k ?? -1, now),
+        (tx) => readPage(tx, scope, versions, members, generationIds, query, cursor?.k ?? -1, now),
         { isolationLevel: 'repeatable read', accessMode: 'read only' },
       ),
     )
@@ -320,7 +468,9 @@ export class JobQueueService {
 
     const { generation, tally, rows } = read
     const page = rows.slice(0, query.limit)
+    const sourcingNotice = await readSourcingNotice(this.database.db)
     return jobQueueListResponseSchema.parse({
+      sourcingNotice,
       items: page.map(toListItem),
       counts: {
         NEW: count(tally['new']),
@@ -349,13 +499,38 @@ export class JobQueueService {
   }
 
   /**
+   * A union's member generations, one per team in its order: published on the spot for a first
+   * page; for a cursor page only looked up, never published — a member without its servable
+   * generation is refresh-required, as a single team's cursor is.
+   */
+  private async memberGenerations(
+    teams: readonly JobQueueScope[],
+    publish: boolean,
+    now: Date,
+  ): Promise<string[]> {
+    const ids: string[] = []
+    for (const team of teams) {
+      const versions = await this.scopes.liveVersions(team, this.database.db)
+      const policy = policySignature(team, versions)
+      const generation = await this.scopes.policy(() =>
+        publish
+          ? currentGeneration(this.database, team, versions, policy, now)
+          : publishedGeneration(this.database.db, team, policy, now),
+      )
+      if (generation === null) throw refreshRequired()
+      ids.push(generation.id)
+    }
+    return ids
+  }
+
+  /**
    * ADMIN only, in any view scope (SPEC-H-1): what the «Призначити команді…» grant needs. The grant
    * always runs under STUDIO, so both are read for the STUDIO roster even when the ADMIN views one
    * team: the studio-wide policy version it must send back (backlog 425), and whether the grant
    * would accept the item, by the grant's own eligibility fragment (CR-M-1).
    */
   private async triageGrant(
-    scope: JobQueueScope,
+    scope: JobQueueViewScope,
     versions: readonly LiveSeniorVersion[],
     id: string,
     manual: boolean,
@@ -381,13 +556,18 @@ export class JobQueueService {
     opportunityId: string,
     query: Pick<JobQueueScopeQuery, 'teamId'> = {},
   ): Promise<JobQueueCardResponseDto> {
-    const scope = await this.scopes.resolve(user, query.teamId, this.database.db)
+    const scope = await this.scopes.resolveView(user, query.teamId, this.database.db)
     await this.scopes.assertVisible(scope, opportunityId, this.database.db)
     const id = canonicalUuid(opportunityId) as string
     const versions = await this.scopes.liveVersions(scope, this.database.db)
     const signature = continuationSignature(user, scope, versions, id)
+    // A union carries the dismissal of the one team `dismiss` / `undo` would name.
+    const owner =
+      scope.kind === 'TEAMS'
+        ? await this.scopes.dismissalOwner(scope.teams, id, this.database.db)
+        : scope
     const facts = await this.scopes.policy(async () => {
-      const { rows } = await this.database.db.execute(cardRow(scope, versions, id))
+      const { rows } = await this.database.db.execute(cardRow(scope, versions, id, owner))
       const row = rows[0]
       if (row === undefined) return null
       return {
@@ -424,9 +604,9 @@ export class JobQueueService {
       engagementForm: engagementFormOf(row['employment_type'] as string | null),
       dismissal:
         // A NONE scope never gets this far: `resolve` / `assertVisible` refuse it first.
-        row['dismissal_version'] == null || scope.kind === 'NONE'
+        row['dismissal_version'] == null || owner.kind === 'NONE'
           ? null
-          : { scope: scope.kind, version: Number(row['dismissal_version']) },
+          : { scope: owner.kind, version: Number(row['dismissal_version']) },
     })
   }
 
@@ -435,14 +615,14 @@ export class JobQueueService {
     user: SessionUser,
     query: Pick<JobQueueScopeQuery, 'teamId'>,
   ): Promise<JobQueueSeniorOptionsResponseDto> {
-    const scope = await this.scopes.resolve(user, query.teamId, this.database.db)
+    const scope = await this.scopes.resolveView(user, query.teamId, this.database.db)
     const versions = await this.scopes.liveVersions(scope, this.database.db)
     if (versions.length === 0) return { items: [] }
     const { rows } = await this.scopes.policy(() =>
       this.database.db.execute(
         seniorOptionRows(
           versions.map((v) => v.seniorId),
-          scope.kind === 'TEAM' ? scope.teamId : null,
+          scope.kind === 'TEAM' ? [scope.teamId] : scopeTeamIds(scope),
           JOB_QUEUE_SENIOR_OPTIONS_MAX,
         ),
       ),
@@ -452,6 +632,8 @@ export class JobQueueService {
         id: String(row['id']),
         name: String(row['display_name']).slice(0, 255),
         teamName: row['team_name'] === null ? null : String(row['team_name']).slice(0, 255),
+        // a `text[]` the `ck_users_technical_roles_known` check keeps to the closed list
+        technicalRoles: row['technical_roles'] as TechnicalRole[],
       })),
     }
   }
@@ -489,7 +671,7 @@ export class JobQueueService {
     query: JobQueueScopeQuery,
     kind: 'SRC' | 'SEN',
   ) {
-    const scope = await this.scopes.resolve(user, query.teamId, this.database.db)
+    const scope = await this.scopes.resolveView(user, query.teamId, this.database.db)
     const cursor = query.cursor === undefined ? null : parseCursor(query.cursor, kind, this.secret)
     await this.scopes.assertVisible(scope, opportunityId, this.database.db)
     const id = canonicalUuid(opportunityId) as string
@@ -505,7 +687,7 @@ export class JobQueueService {
   }
 
   private async seniorsPage(
-    scope: JobQueueScope,
+    scope: JobQueueViewScope,
     versions: readonly LiveSeniorVersion[],
     id: string,
     signature: string,
@@ -517,7 +699,7 @@ export class JobQueueService {
     const total = await this.database.db.execute(seniorTotal(scope, versions, id))
     const page = rows.slice(0, SENIOR_PREVIEW_MAX)
     return {
-      items: page.map(toSenior(scope)),
+      items: page.map(toSenior(scope, id)),
       totalCount: count((total.rows[0] as Row)['total']),
       nextCursor:
         rows.length > SENIOR_PREVIEW_MAX
@@ -555,7 +737,7 @@ export class JobQueueService {
   }
 
   /** Only duplicates THIS scope may see, in the total as well: a foreign copy is no copy. */
-  private async duplicates(scope: JobQueueScope, id: string) {
+  private async duplicates(scope: JobQueueViewScope, id: string) {
     const { rows } = await this.database.db.execute(duplicateRows(scope, id, DUPLICATE_PREVIEW_MAX))
     const first = rows[0]
     if (first === undefined) return null
@@ -576,44 +758,96 @@ export class JobQueueService {
   }
 }
 
-/** Lookup, counts and page of one list request: run in ONE snapshot. Null: not servable to this scope. */
+/**
+ * Lookup, counts and page of one list request: run in ONE snapshot. Null: a generation is not
+ * servable to its scope. `members[i]` owns `generationIds[i]`: the scope itself, or each team of a
+ * union. A union's order is `row_number()` over the RAW entries of its member generations (best
+ * member rank, then first seen, then id), computed before any predicate, tab or filter, so it is
+ * as immutable as the entries are and a dismissal between pages moves no key.
+ */
 async function readPage(
   tx: SqlExecutor,
-  scope: JobQueueScope,
+  scope: JobQueueViewScope,
   versions: readonly LiveSeniorVersion[],
-  generationId: string,
+  members: readonly JobQueueScope[],
+  generationIds: readonly string[],
   query: JobQueueListQuery,
   after: number,
   now: Date,
 ) {
-  const generation = await generationById(tx, generationId)
-  if (generation === null || !isGenerationServable(scope, generation, now)) return null
-  const frame = sql`FROM job_queue_generation_entries e
+  const generations: GenerationRow[] = []
+  for (const [i, generationId] of generationIds.entries()) {
+    const generation = await generationById(tx, generationId)
+    if (generation === null || !isGenerationServable(members[i] as JobQueueScope, generation, now))
+      return null
+    generations.push(generation)
+  }
+  const ids = generations.map((g) => g.id)
+  const single = ids.length === 1
+  const frameOf = (entries: SQL, own: boolean) => sql`FROM ${entries}
                     JOIN job_opportunities o ON o.id = e.opportunity_id
                     ${queueRowJoins(scope, versions)}
-                   WHERE e.generation_id = ${generation.id}::uuid
+                   WHERE ${own ? uuidMatch(sql`e.generation_id`, ids) : sql`TRUE`}
                      AND ${listableOpportunityPredicate(scope, sql`o.id`)}`
+  // Counts do not depend on the order, so they never number it: the raw entries, or a union's
+  // distinct opportunities. `unkeyed`: a generation published before `published_order_key` existed.
   const counts = await tx.execute(
     sql`SELECT count(*) FILTER (WHERE d.tab = 'NEW') AS new,
                count(*) FILTER (WHERE d.tab = 'SUBMITTED') AS submitted,
                count(*) FILTER (WHERE d.tab = 'HIDDEN') AS hidden,
                EXISTS (SELECT 1 FROM job_queue_generation_entries top
-                        WHERE top.generation_id = ${generation.id}::uuid
-                          AND top.order_key = ${GENERATION_POLICY.maxEntries - 1}) AS capped
-        ${frame}`,
+                        WHERE ${uuidMatch(sql`top.generation_id`, ids)}
+                          AND top.order_key = ${GENERATION_POLICY.maxEntries - 1}) AS capped,
+               EXISTS (SELECT 1 FROM job_queue_generation_entries nk
+                        WHERE ${uuidMatch(sql`nk.generation_id`, ids)}
+                          AND nk.published_order_key IS NULL) AS unkeyed
+        ${
+          single
+            ? frameOf(sql`job_queue_generation_entries e`, true)
+            : frameOf(
+                sql`(SELECT DISTINCT ue.opportunity_id
+                       FROM job_queue_generation_entries ue
+                      WHERE ${uuidMatch(sql`ue.generation_id`, ids)}) e`,
+                false,
+              )
+        }`,
   )
   const tally = counts.rows[0] as Row
+  // One generation pages a stored, indexed key: `order_key` (relevance) or `published_order_key`.
+  // A union, or a published read of an unkeyed generation, numbers its order over the snapshotted
+  // entries, so it cannot move under a cursor either.
+  const stored = single && (query.sort === 'relevance' || tally['unkeyed'] !== true)
+  const key = stored && query.sort === 'published' ? sql`e.published_order_key` : sql`e.order_key`
+  const order =
+    query.sort === 'published'
+      ? sql`max(ue.published_at) DESC NULLS LAST, max(ue.first_seen_at) DESC, ue.opportunity_id DESC`
+      : sql`max(ue.rank_score) DESC, max(ue.first_seen_at) DESC, ue.opportunity_id DESC`
+  const frame = stored
+    ? frameOf(sql`job_queue_generation_entries e`, true)
+    : frameOf(
+        sql`(SELECT ue.opportunity_id, (row_number() OVER (ORDER BY ${order}) - 1)::int AS order_key
+               FROM job_queue_generation_entries ue
+              WHERE ${uuidMatch(sql`ue.generation_id`, ids)}
+              GROUP BY ue.opportunity_id) e`,
+        false,
+      )
+  // The union answers as its earliest member: the oldest evaluation, the first expiry.
+  const generation = generations.reduce((a, b) => ({
+    ...a,
+    evaluatedAt: new Date(Math.min(a.evaluatedAt.getTime(), b.evaluatedAt.getTime())),
+    expiresAt: new Date(Math.min(a.expiresAt.getTime(), b.expiresAt.getTime())),
+  }))
   // No senior of the scope left in the filter: empty, not an error that would confirm who exists.
   const wanted = query.seniorIds
   if (wanted !== undefined && !versions.some((v) => wanted.includes(v.seniorId))) {
     return { generation, tally, rows: [] as Row[] }
   }
   const { rows } = await tx.execute(
-    sql`SELECT ${queueRowColumns(versions)}, e.order_key
+    sql`SELECT ${queueRowColumns(versions)}, ${key} AS order_key
         ${frame}
-           AND e.order_key > ${after}
+           AND ${key} > ${after}
            AND ${sql.join(listFilters(query, versions), sql` AND `)}
-         ORDER BY e.order_key
+         ORDER BY ${key}
          LIMIT ${query.limit + 1}`,
   )
   return { generation, tally, rows: rows as Row[] }
@@ -621,7 +855,7 @@ async function readPage(
 
 const continuationSignature = (
   user: SessionUser,
-  scope: JobQueueScope,
+  scope: JobQueueViewScope,
   versions: readonly LiveSeniorVersion[],
   opportunityId: string,
 ): string => requestSignature([user.id, policySignature(scope, versions), opportunityId])

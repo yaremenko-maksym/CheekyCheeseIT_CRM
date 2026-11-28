@@ -7,7 +7,7 @@ import cookie from '@fastify/cookie'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
@@ -21,6 +21,7 @@ import { JobSourcingController } from './job-sourcing.controller'
 import { JobSourcingService } from './job-sourcing.service'
 import type { NormalizedPosting } from './job-source.provider'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { createDrizzleModelHealthStore } from './structuring/model-health-store'
 
 /**
  * REAL-controller RBAC for the two source endpoints — security review MED-1.
@@ -68,8 +69,11 @@ const SOURCE_ID = 'e7f8a9b0-1c2d-4e3f-cc00-0000000000f1'
 /** Never touches the network; also proves a refused request never collects. */
 class SilentProvider extends DouRssProvider {
   collectCalls = 0
+  /** Set by a test to make every source fail without the network ("nothing succeeded"). */
+  failWith: Error | null = null
   override async collect(): Promise<NormalizedPosting[]> {
     this.collectCalls += 1
+    if (this.failWith) throw this.failWith
     return []
   }
 }
@@ -134,18 +138,22 @@ describe.skipIf(!hasDatabaseUrl())(
     // would quietly make every "→ 403" row below pass for the wrong reason.
     const signFor = (u: SessionUser) => jwt.sign({ id: u.id, email: u.email, role: u.role })
 
-    const request = async (method: 'GET' | 'POST', url: string, as: SessionUser) => {
+    type Verb = 'GET' | 'POST' | 'PATCH' | 'DELETE'
+
+    const request = async (method: Verb, url: string, as: SessionUser, body?: unknown) => {
       const res = await app.inject({
         method,
         url,
         cookies: { jwt: signFor(as) },
-        payload: method === 'POST' ? {} : undefined,
+        // A body only where the verb carries one. `undefined` on DELETE/GET, so an
+        // empty object is never mistaken for a payload the route must validate.
+        payload: method === 'GET' || method === 'DELETE' ? undefined : (body ?? {}),
       })
-      const body = res.body ? (JSON.parse(res.body) as { code?: string }) : {}
-      return { status: res.statusCode, code: body.code ?? '' }
+      const parsed = res.body ? (JSON.parse(res.body) as { code?: string }) : {}
+      return { status: res.statusCode, code: parsed.code ?? '' }
     }
 
-    const call = async (method: 'GET' | 'POST', url: string, as: SessionUser) =>
+    const call = async (method: Verb, url: string, as: SessionUser) =>
       (await request(method, url, as)).status
 
     /**
@@ -233,6 +241,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
     beforeEach(() => {
       provider.collectCalls = 0
+      provider.failWith = null
     })
 
     describe('GET /api/job-sourcing/sources — budget state is ADMIN-only', () => {
@@ -285,6 +294,66 @@ describe.skipIf(!hasDatabaseUrl())(
         })
         expect(res.statusCode).toBe(401)
       })
+
+      describe('H.8: a run where nothing succeeded, through the guard chain and HTTP', () => {
+        const store = () => createDrizzleModelHealthStore(dbSvcRef.db)
+        const clearFlagRow = () =>
+          pool.query(`DELETE FROM job_model_health_flags WHERE flag = 'MODEL_LIMITS_EXHAUSTED'`)
+
+        beforeEach(async () => {
+          // One enabled source the MANUAL trigger runs; the stub provider throws, so it fails.
+          // Every other enabled source fails too: this harness registers no provider but DOU.
+          await dbSvcRef.db
+            .insert(jobSources)
+            .values({ id: SOURCE_ID, type: 'DOU_RSS', enabled: true, triggerMode: 'BOTH' })
+            .onConflictDoUpdate({
+              target: jobSources.id,
+              set: { enabled: true, triggerMode: 'BOTH' },
+            })
+          provider.failWith = new Error('stub feed down')
+        })
+
+        afterEach(async () => {
+          await clearFlagRow()
+          await dbSvcRef.db.delete(jobSources).where(eq(jobSources.id, SOURCE_ID))
+        })
+
+        it('flag raised → 503 with exactly the static AI-limits body', async () => {
+          await store().raiseFlag('MODEL_LIMITS_EXHAUSTED')
+          const res = await app.inject({
+            method: 'POST',
+            url: '/api/job-sourcing/collect',
+            cookies: { jwt: signFor(ADMIN) },
+            payload: {},
+          })
+          expect(res.statusCode).toBe(503)
+          expect(provider.collectCalls).toBeGreaterThan(0)
+          // Exact key set: no provider name, count or time can ride along.
+          expect(JSON.parse(res.body)).toStrictEqual({
+            statusCode: 503,
+            code: 'JOB_SOURCING_AI_LIMITS_EXHAUSTED',
+            message:
+              'Vacancy search is temporarily unavailable: AI model limits are used up. Try again later.',
+          })
+        })
+
+        it('CONTROL: flag cleared → the same run answers 503 with JOB_SOURCING_COLLECTION_FAILED (no AI-limits code)', async () => {
+          await store().raiseFlag('MODEL_LIMITS_EXHAUSTED')
+          await store().clearFlag('MODEL_LIMITS_EXHAUSTED')
+          const res = await app.inject({
+            method: 'POST',
+            url: '/api/job-sourcing/collect',
+            cookies: { jwt: signFor(ADMIN) },
+            payload: {},
+          })
+          expect(res.statusCode).toBe(503)
+          expect(JSON.parse(res.body)).toStrictEqual({
+            statusCode: 503,
+            code: 'JOB_SOURCING_COLLECTION_FAILED',
+            message: 'Collection failed: no source completed. Try again later.',
+          })
+        })
+      })
     })
 
     /**
@@ -319,6 +388,194 @@ describe.skipIf(!hasDatabaseUrl())(
         // Without this, "rejects everything" would satisfy every row above.
         await expect(service.listSources(ADMIN)).resolves.toBeInstanceOf(Array)
         await expect(service.collectAllAsActor(ADMIN)).resolves.toHaveProperty('failures')
+      })
+
+      it('H.8: the ADMIN run reads the AI-limits flag: raised is the value, cleared is null', async () => {
+        // Raised and cleared through the store the model stage writes with (H.2), not raw SQL.
+        const store = createDrizzleModelHealthStore(dbSvcRef.db)
+        await store.raiseFlag('MODEL_LIMITS_EXHAUSTED')
+        try {
+          await expect(service.collectAllAsActor(ADMIN)).resolves.toMatchObject({
+            sourcingNotice: 'AI_LIMITS_EXHAUSTED',
+          })
+          await store.clearFlag('MODEL_LIMITS_EXHAUSTED')
+          await expect(service.collectAllAsActor(ADMIN)).resolves.toMatchObject({
+            sourcingNotice: null,
+          })
+        } finally {
+          await pool.query(
+            `DELETE FROM job_model_health_flags WHERE flag = 'MODEL_LIMITS_EXHAUSTED'`,
+          )
+        }
+      })
+    })
+
+    /**
+     * task-sources-07c — THE QUEUE IS CLOSED TO A SENIOR, AT BOTH LAYERS.
+     *
+     * Owner decision 2026-11-19: a SENIOR does not work the vacancy queue at all.
+     * They used to be in every `@Roles` set on these six routes, reachable through
+     * the suggestion dialog on the Interviews page; the dialog is deleted and the
+     * role is gone from the decorators. What a senior gets instead is the RESULT —
+     * an interview card in stage `SUBMITTED` — through `GET /interviews`, which is
+     * untouched.
+     *
+     * A removed role is the easiest thing in this file to put back by accident: a
+     * widened `@Roles` set in a refactor, a copied decorator, a merge that takes
+     * the wrong side. So both layers are pinned per endpoint, and the two
+     * assertions are deliberately different — the HTTP rows require the GUARD's
+     * api-error code, the service rows require the SERVICE's own sentence. Neither
+     * can cover for the other's absence, which is the MED-1 lesson above applied
+     * to a role rather than to a route.
+     */
+    describe('task-sources-07c: SENIOR is refused on all six HR/ADMIN queue endpoints', () => {
+      const SENIOR_REFUSAL = 'Vacancy sourcing is run by ADMIN and HR'
+      const SUGGESTION_ID = 'e7f8a9b0-1c2d-4e3f-cc00-0000000000a1'
+      const EXCLUSION_ID = 'e7f8a9b0-1c2d-4e3f-cc00-0000000000a2'
+      const ABSENT_ID = 'e7f8a9b0-1c2d-4e3f-cc00-0000000000ff'
+
+      /** Every route whose `@Roles` set lost SENIOR. The six of them, no more. */
+      const ROUTES: { verb: Verb; url: string }[] = [
+        { verb: 'GET', url: '/api/job-sourcing/suggestions' },
+        { verb: 'PATCH', url: '/api/job-sourcing/suggestions/' + SUGGESTION_ID + '/status' },
+        { verb: 'POST', url: '/api/job-sourcing/opportunities/' + SUGGESTION_ID + '/open' },
+        { verb: 'GET', url: '/api/job-sourcing/exclusions' },
+        { verb: 'POST', url: '/api/job-sourcing/exclusions' },
+        { verb: 'DELETE', url: '/api/job-sourcing/exclusions/' + EXCLUSION_ID },
+      ]
+
+      for (const { verb, url } of ROUTES) {
+        it(`${verb} ${url} — SENIOR → 403 from the controller guard`, async () => {
+          const { status, code } = await request(verb, url, SENIOR)
+          expect(status).toBe(403)
+          expect(code).toBe(GUARD_REFUSAL_CODE)
+        })
+
+        it(`${verb} ${url} — JUNIOR / ACCOUNTANT / DROP stay refused too`, async () => {
+          for (const p of [JUNIOR, ACCOUNTANT, DROP]) {
+            const { status, code } = await request(verb, url, p)
+            expect(status, `${p.role} on ${verb} ${url}`).toBe(403)
+            expect(code, `${p.role} on ${verb} ${url}`).toBe(GUARD_REFUSAL_CODE)
+          }
+        })
+
+        it(`${verb} ${url} — CONTROL: the guard lets HR and ADMIN through`, async () => {
+          // WHY NOT `expect(status).not.toBe(403)`: past the decorator these routes
+          // run real service logic against ids that do not exist, and one of them
+          // may legitimately answer 403 from its own SCOPE check. The code is what
+          // separates "the decorator refused the role" from "the service refused
+          // this particular row" — and only the first is what this file pins.
+          // Without this row, a decorator that refused EVERYONE would pass above.
+          for (const p of [HR, ADMIN]) {
+            const { code } = await request(verb, url, p)
+            expect(code, `${p.role} on ${verb} ${url}`).not.toBe(GUARD_REFUSAL_CODE)
+          }
+        })
+      }
+
+      it('a SENIOR asking for their OWN board is still refused — it is the role, not the scope', async () => {
+        // The tempting "but it is their own data" hole. `?seniorId=<self>` is the
+        // exact shape the deleted dialog used, so it is the shape a revert would
+        // reach for first.
+        for (const url of [
+          '/api/job-sourcing/suggestions?seniorId=' + SENIOR.id,
+          '/api/job-sourcing/exclusions?seniorId=' + SENIOR.id,
+        ]) {
+          const { status, code } = await request('GET', url, SENIOR)
+          expect(status, url).toBe(403)
+          expect(code, url).toBe(GUARD_REFUSAL_CODE)
+        }
+      })
+
+      it('DELETE of a NONEXISTENT exclusion is 403 for a SENIOR, never 404', async () => {
+        // The refusal must precede the lookup, or the status itself becomes an
+        // existence oracle: 404 for ids that are absent, 403 for ids that are not,
+        // and a senior could enumerate another senior's filters without reading one.
+        const { status, code } = await request(
+          'DELETE',
+          '/api/job-sourcing/exclusions/' + ABSENT_ID,
+          SENIOR,
+        )
+        expect(status).toBe(403)
+        expect(code).toBe(GUARD_REFUSAL_CODE)
+      })
+
+      it('no cookie → 401 on every one of the six, never an anonymous read', async () => {
+        for (const { verb, url } of ROUTES) {
+          const res = await app.inject({
+            method: verb,
+            url,
+            payload: verb === 'GET' || verb === 'DELETE' ? undefined : {},
+          })
+          expect(res.statusCode, `${verb} ${url}`).toBe(401)
+        }
+      })
+
+      describe('and the service refuses a SENIOR on its own, with no guard in front', () => {
+        let service: JobSourcingService
+
+        beforeEach(() => {
+          service = new JobSourcingService(dbSvcRef, new HrAccessService(dbSvcRef), provider)
+        })
+
+        it('listSuggestions', async () => {
+          await expect(service.listSuggestions(undefined, SENIOR)).rejects.toThrow(SENIOR_REFUSAL)
+        })
+
+        it('listSuggestions for their OWN id', async () => {
+          await expect(service.listSuggestions(SENIOR.id, SENIOR)).rejects.toThrow(SENIOR_REFUSAL)
+        })
+
+        it('updateStatus', async () => {
+          await expect(
+            service.updateStatus(SUGGESTION_ID, { status: 'REJECTED' }, SENIOR),
+          ).rejects.toThrow(SENIOR_REFUSAL)
+        })
+
+        it('openOpportunity', async () => {
+          await expect(service.openOpportunity(SUGGESTION_ID, SENIOR)).rejects.toThrow(
+            SENIOR_REFUSAL,
+          )
+        })
+
+        it('listExclusions', async () => {
+          await expect(service.listExclusions(undefined, SENIOR)).rejects.toThrow(SENIOR_REFUSAL)
+        })
+
+        it('createExclusion', async () => {
+          await expect(
+            service.createExclusion(
+              { scope: 'GLOBAL', kind: 'COMPANY', value: 'Acme Corp' },
+              SENIOR,
+            ),
+          ).rejects.toThrow(SENIOR_REFUSAL)
+        })
+
+        it('deleteExclusion', async () => {
+          await expect(service.deleteExclusion(EXCLUSION_ID, SENIOR)).rejects.toThrow(
+            SENIOR_REFUSAL,
+          )
+        })
+
+        it('CONTROL: HR is NOT refused by the SENIOR check', async () => {
+          // "rejects everything" would satisfy every row above. HR legitimately
+          // fails further in (no such suggestion, no team scope) — what must never
+          // appear for HR is THIS sentence.
+          const outcomes = await Promise.allSettled([
+            service.listSuggestions(undefined, HR),
+            service.listExclusions(undefined, HR),
+            service.updateStatus(SUGGESTION_ID, { status: 'REJECTED' }, HR),
+            service.openOpportunity(SUGGESTION_ID, HR),
+            service.deleteExclusion(EXCLUSION_ID, HR),
+          ])
+          // Collected first, asserted once: HR may legitimately fail on any of these, and the
+          // whole claim is about WHICH sentence can never appear. (A conditional `expect` would
+          // also silently assert nothing on a run where HR happened to succeed.)
+          const refusals = outcomes
+            .filter((o): o is PromiseRejectedResult => o.status === 'rejected')
+            .map((o) => String((o.reason as Error).message))
+          expect(refusals.join(' | ')).not.toContain(SENIOR_REFUSAL)
+        })
       })
     })
   },

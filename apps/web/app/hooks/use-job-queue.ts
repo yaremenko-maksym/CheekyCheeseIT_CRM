@@ -9,9 +9,11 @@ import {
   type QueryKey,
 } from '@tanstack/react-query'
 import {
+  jobQueueBlockPickResponseSchema,
   jobQueueCardResponseSchema,
   jobQueueDismissalResponseSchema,
   jobQueueListResponseSchema,
+  jobQueueManualParseResponseSchema,
   jobQueuePossibleDuplicateConflictSchema,
   jobQueueRecomputeResponseSchema,
   jobQueueSeniorOptionsResponseSchema,
@@ -20,6 +22,7 @@ import {
   jobQueueSubmissionResponseSchema,
   jobQueueTeamTriageGrantSchema,
   jobQueueTeamTriageSubscriptionSchema,
+  type JobQueueBlockPickRequest,
   type JobQueueCancelSubmissionRequestDto,
   type JobQueueDismissRequestDto,
   type JobQueueListQuery,
@@ -61,7 +64,16 @@ export interface QueueScopeSignature {
 export type QueueFilters = Partial<
   Pick<
     JobQueueListQuery,
-    'search' | 'source' | 'eligibility' | 'availability' | 'activity' | 'seniorIds'
+    | 'search'
+    | 'sort'
+    | 'source'
+    | 'eligibility'
+    | 'availability'
+    | 'activity'
+    | 'seniorIds'
+    | 'salary'
+    | 'salaryCurrency'
+    | 'salaryMinMonthly'
   >
 >
 
@@ -105,7 +117,7 @@ function teamParam(scope: QueueScopeSignature) {
 function filterParams(filters: QueueFilters) {
   const params: Record<string, string> = {}
   for (const [name, value] of Object.entries(filters)) {
-    const wire = Array.isArray(value) ? value.join(',') : value
+    const wire = Array.isArray(value) ? value.join(',') : value === undefined ? '' : String(value)
     if (wire) params[name] = wire
   }
   return params
@@ -382,7 +394,10 @@ export function useSubmitJobQueueSenior(scope: QueueScopeSignature) {
   return useQueueWrite(
     scope,
     async (
-      { opportunityId, ...body }: OnCard<Omit<JobQueueSubmitRequestDto, 'confirmPossibleDuplicate'>> & {
+      {
+        opportunityId,
+        ...body
+      }: OnCard<Omit<JobQueueSubmitRequestDto, 'confirmPossibleDuplicate'>> & {
         confirmPossibleDuplicate?: boolean
       },
       idempotencyKey,
@@ -402,7 +417,11 @@ export function useCancelJobQueueSubmission(scope: QueueScopeSignature) {
   return useQueueWrite(
     scope,
     async (
-      { opportunityId, submissionId, ...body }: OnCard<JobQueueCancelSubmissionRequestDto> & {
+      {
+        opportunityId,
+        submissionId,
+        ...body
+      }: OnCard<JobQueueCancelSubmissionRequestDto> & {
         submissionId: string
       },
       idempotencyKey,
@@ -524,6 +543,32 @@ export function useCreateManualJobQueueCard(scope: QueueScopeSignature) {
   )
 }
 
+/**
+ * External vacancy intake: the vacancy fields read from a pasted text (or the bookmarklet's page
+ * text). Nothing is stored, so nothing is invalidated; the caller fills only the fields still empty.
+ */
+export function useParseExternalVacancy() {
+  return useMutation({
+    mutationFn: async (text: string) => {
+      const res = await api.post<unknown>('/job-queue/manual/parse', { text })
+      return jobQueueManualParseResponseSchema.parse(res.data)
+    },
+  })
+}
+
+/**
+ * External vacancy intake: the vacancy fields copied from the blocks a model picked out of the
+ * bookmarklet's block map. Nothing is stored; an outage is a 503 the caller degrades on.
+ */
+export function usePickExternalBlocks() {
+  return useMutation({
+    mutationFn: async (body: JobQueueBlockPickRequest) => {
+      const res = await api.post<unknown>('/job-queue/manual/pick', body)
+      return jobQueueBlockPickResponseSchema.parse(res.data)
+    },
+  })
+}
+
 /** ADMIN: takes the opportunity down for every team scope (204). */
 export function useSuppressJobQueueItem(scope: QueueScopeSignature) {
   return useQueueWrite(
@@ -548,7 +593,10 @@ export function useGrantJobQueueTeamTriage(scope: QueueScopeSignature) {
   return useQueueWrite(
     scope,
     async (
-      { opportunityId, ...body }: Omit<JobQueueTeamTriageGrantRequest, 'idempotencyKey'> & {
+      {
+        opportunityId,
+        ...body
+      }: Omit<JobQueueTeamTriageGrantRequest, 'idempotencyKey'> & {
         opportunityId: string
       },
       idempotencyKey,
@@ -568,15 +616,22 @@ export function useRevokeJobQueueTeamTriage(scope: QueueScopeSignature) {
   return useQueueWrite(
     scope,
     async (
-      { opportunityId, teamId, ...body }: Body<JobQueueTeamTriageRevokeRequest> & {
+      {
+        opportunityId,
+        teamId,
+        ...body
+      }: Body<JobQueueTeamTriageRevokeRequest> & {
         opportunityId: string
         teamId: string
       },
       idempotencyKey,
     ) => {
-      const res = await api.delete<unknown>(`/job-queue/${seg(opportunityId)}/team-triage/${seg(teamId)}`, {
-        data: { ...body, idempotencyKey },
-      })
+      const res = await api.delete<unknown>(
+        `/job-queue/${seg(opportunityId)}/team-triage/${seg(teamId)}`,
+        {
+          data: { ...body, idempotencyKey },
+        },
+      )
       return jobQueueTeamTriageGrantSchema.parse(res.data)
     },
     card,
@@ -605,14 +660,20 @@ export function useUnsubscribeJobQueueTeamTriage(scope: QueueScopeSignature) {
   return useQueueWrite(
     scope,
     async (
-      { subscriptionId, ...body }: Omit<JobQueueTeamTriageUnsubscribeRequest, 'idempotencyKey'> & {
+      {
+        subscriptionId,
+        ...body
+      }: Omit<JobQueueTeamTriageUnsubscribeRequest, 'idempotencyKey'> & {
         subscriptionId: string
       },
       idempotencyKey,
     ) => {
-      const res = await api.delete<unknown>(`/job-queue/team-triage-subscriptions/${seg(subscriptionId)}`, {
-        data: { ...body, idempotencyKey },
-      })
+      const res = await api.delete<unknown>(
+        `/job-queue/team-triage-subscriptions/${seg(subscriptionId)}`,
+        {
+          data: { ...body, idempotencyKey },
+        },
+      )
       return jobQueueTeamTriageSubscriptionSchema.parse(res.data)
     },
   )

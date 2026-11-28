@@ -5,6 +5,7 @@ import { cloudflareEntry, cloudflarePage } from './cloudflare-listing'
 import type { ModelRefreshDeps, ModelRefreshEvent } from '../model-refresh'
 import {
   createMemoryRouteStatePort,
+  createOwnCapPort,
   EMPTY_ROUTE_STATE,
   type FreeLimit,
   type OwnCapPort,
@@ -94,7 +95,8 @@ export type WorldOptions = {
   chat?: (s: Sent) => Reply
   managed?: string
   state?: RouteState
-  cap?: OwnCapPort
+  /** `'real'` is production's `createOwnCapPort` over this world's state: every unit moves the count. */
+  cap?: OwnCapPort | 'real'
   nowMs?: number
   hadOkCall?: ModelRefreshDeps['hadOkCall']
 }
@@ -134,8 +136,11 @@ export function refreshWorld(opts: WorldOptions = {}) {
     return s.url === MODEL_LISTING_URLS.groq ? net.listing.groq : net.listing.cloudflare
   })
   const state = createMemoryRouteStatePort(opts.state ?? EMPTY_ROUTE_STATE)
-  const cap = opts.cap ?? countingCap()
   const clock = { ms: opts.nowMs ?? NOON }
+  const cap =
+    opts.cap === 'real'
+      ? createOwnCapPort({ state, now: () => clock.ms })
+      : (opts.cap ?? countingCap())
   const deps: ModelRefreshDeps = {
     config: routerConfigSchema.parse(config(opts.routes ?? [GEMINI, GROQ])) as RouterConfig,
     state,

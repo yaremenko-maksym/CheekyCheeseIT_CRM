@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { Logger } from '@nestjs/common'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as schema from '../../database/schema'
+import { VACANCY_RETENTION_FAILURE_MARKER } from '../store/opportunity-purge'
 import {
   type CrmAppSession,
   openCrmAppSession,
@@ -136,6 +138,11 @@ async function oppRow(id: string): Promise<{ availability: string; revision: num
     id,
   ])
   return { availability: String(rows[0].availability), revision: Number(rows[0].revision) }
+}
+
+async function oppExists(id: string): Promise<boolean> {
+  const { rows } = await q(`SELECT 1 FROM job_opportunities WHERE id = $1`, [id])
+  return rows.length > 0
 }
 
 async function counterRow(recordId: string): Promise<Record<string, unknown> | undefined> {
@@ -297,6 +304,9 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
     const recordId = await newRecord('UNKNOWN', sourceId)
     const oppId = await newOpportunity()
     await link(recordId, oppId)
+    // Owner 2026-11-25: an opportunity left with no open member is removed at detection; an OPEN
+    // second member keeps this one, so the close and its owner enqueue stay observable.
+    await link(await newRecord('OPEN'), oppId)
     const cycleId = await newCycle()
     await addAbsentRun(sourceId, cycleId, 0)
     await addAbsentRun(sourceId, cycleId, DAY / 2)
@@ -321,7 +331,7 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
     expect(dw.map((r) => String(r.reason))).toContain(INVENTORY_CLOSE_REASON)
   })
 
-  it('AC2: an OPPORTUNITY dirty row re-derives CLOSED, bumps revision, leaves matches alone', async () => {
+  it('AC2 (owner 2026-11-25): an OPPORTUNITY row that re-derives CLOSED removes it in the same transaction', async () => {
     const r1 = await newRecord('CLOSED')
     const r2 = await newRecord('CLOSED')
     const oppId = await newOpportunity()
@@ -333,20 +343,89 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
     const report = await runMine()
 
     expect(report).toMatchObject({ claimed: 1, done: 1, failed: 0, fenced: 0 })
-    expect(await oppRow(oppId)).toEqual({ availability: 'CLOSED', revision: 2 })
-    // The stale match row persists as history — its recorded revision is untouched (not cleared).
-    expect(await matchRevision(oppId)).toBe(1)
+    expect(await oppExists(oppId)).toBe(false)
+    // Its matches cascade with it (no action or tailored resume kept it as a tombstone).
+    expect(await matchRevision(oppId)).toBeUndefined()
+    // No action names them, so the member records go too (a re-listing is collected as new).
+    const { rows: left } = await q(`SELECT id FROM job_source_records WHERE id = ANY($1::uuid[])`, [
+      [r1, r2],
+    ])
+    expect(left).toEqual([])
+    // The handled row is DONE and no MATCH successor is left for a removed opportunity.
+    const { rows } = await q(
+      `SELECT status FROM job_dirty_work WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1`,
+      [oppId],
+    )
+    expect(rows.map((r) => String(r.status))).toEqual(['DONE'])
+    // The namespace-scoped afterEach no longer reaches a removed opportunity's rows.
+    await q(`DELETE FROM job_dirty_work WHERE entity_id = $1`, [oppId])
+  })
+
+  /** Two CLOSED members and a PENDING row at revision 1: the AC2 shape, before the worker runs. */
+  async function goneOpportunity(): Promise<{ oppId: string; records: string[] }> {
+    const records = [await newRecord('CLOSED'), await newRecord('CLOSED')]
+    const oppId = await newOpportunity()
+    for (const r of records) await link(r, oppId)
+    await enqueueOpp(oppId, 1)
+    return { oppId, records }
+  }
+  const availabilityOf = async (oppId: string) =>
+    String(
+      (await q(`SELECT availability FROM job_opportunities WHERE id = $1`, [oppId])).rows[0]
+        ?.availability,
+    )
+
+  it('CR-M-2: a removal that fails rolls back to its savepoint; the row still writes CLOSED and completes', async () => {
+    const { oppId, records } = await goneOpportunity()
+    const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    let report: Awaited<ReturnType<typeof runMine>>
+    try {
+      report = await session.withPrivilegeWithdrawn('DELETE', 'job_opportunities', () => runMine())
+      expect(
+        logged.mock.calls.some((c) =>
+          String(c[0]).startsWith(`${VACANCY_RETENTION_FAILURE_MARKER} `),
+        ),
+      ).toBe(true)
+    } finally {
+      logged.mockRestore()
+    }
+
+    expect(report).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+    expect(await availabilityOf(oppId)).toBe('CLOSED')
+    // The savepoint undid the link and record deletes that ran before the failing statement.
+    const { rows } = await q(
+      `SELECT source_record_id FROM job_opportunity_sources WHERE opportunity_id = $1`,
+      [oppId],
+    )
+    expect(rows.map((r) => String(r.source_record_id)).sort()).toEqual([...records].sort())
+  })
+
+  it('SR-M-3: VACANCY_RETENTION_ENABLED=false writes CLOSED as before and removes nothing', async () => {
+    const { oppId, records } = await goneOpportunity()
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', 'false')
+    try {
+      expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+    } finally {
+      vi.unstubAllEnvs()
+    }
+    expect(await oppExists(oppId)).toBe(true)
+    expect(await availabilityOf(oppId)).toBe('CLOSED')
+    const { rows } = await q(`SELECT id FROM job_source_records WHERE id = ANY($1::uuid[])`, [
+      records,
+    ])
+    expect(rows).toHaveLength(2)
   })
 
   it('S-P2 invariant: an availability bump leaves a PENDING MATCH row at the new revision; the handled row is DONE', async () => {
-    const r1 = await newRecord('CLOSED')
+    // A non-gone transition (UNKNOWN -> OPEN): a gone one removes the opportunity instead (AC2).
+    const r1 = await newRecord('OPEN')
     const oppId = await newOpportunity()
     await link(r1, oppId)
     await enqueueOpp(oppId, 1)
 
     await runMine()
 
-    expect(await oppRow(oppId)).toEqual({ availability: 'CLOSED', revision: 2 })
+    expect(await oppRow(oppId)).toEqual({ availability: 'OPEN', revision: 2 })
     const { rows } = await q(
       `SELECT target_version::int AS v, reason, status, last_error_code FROM job_dirty_work
         WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 ORDER BY target_version, reason`,
@@ -385,20 +464,20 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
   })
 
   it('AC6: a second sweep writes nothing new, and a duplicate enqueue is deduped', async () => {
-    const r1 = await newRecord('CLOSED')
+    const r1 = await newRecord('OPEN')
     const oppId = await newOpportunity()
     await link(r1, oppId)
     await enqueueOpp(oppId, 1)
 
     await runMine()
     const afterFirst = await oppRow(oppId)
-    expect(afterFirst).toEqual({ availability: 'CLOSED', revision: 2 })
+    expect(afterFirst).toEqual({ availability: 'OPEN', revision: 2 })
 
     // Re-enqueue at the NEW revision; the re-derivation is identical, so nothing is written.
     await enqueueOpp(oppId, 2)
     const second = await runMine()
     expect(second).toMatchObject({ failed: 0 })
-    expect(await oppRow(oppId)).toEqual({ availability: 'CLOSED', revision: 2 })
+    expect(await oppRow(oppId)).toEqual({ availability: 'OPEN', revision: 2 })
 
     // The dirty-work dedup refuses a duplicate (kind, entity, version, reason).
     const dup = await enqueueDirty(db, 'OPPORTUNITY', oppId, 2, 'AVAIL_DUP')
@@ -412,6 +491,7 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
     const recordId = await newRecord('UNKNOWN', sourceId)
     const oppId = await newOpportunity()
     await link(recordId, oppId)
+    await link(await newRecord('OPEN'), oppId)
     const cycleId = await newCycle()
     await addAbsentRun(sourceId, cycleId, 0)
     await addAbsentRun(sourceId, cycleId, DAY / 2)
@@ -438,7 +518,7 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
 
   it('AC5: a per-row failure does not abort the batch — an orphan record is skipped, a good opp proceeds', async () => {
     const orphan = await newRecord() // NULL source_id — the fail-closed case
-    const r1 = await newRecord('CLOSED')
+    const r1 = await newRecord('OPEN')
     const oppId = await newOpportunity()
     await link(r1, oppId)
     await enqueueRecord(orphan)
@@ -448,7 +528,7 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
 
     expect(report.claimed).toBe(2)
     expect(report.failed).toBe(0)
-    expect((await oppRow(oppId)).availability).toBe('CLOSED')
+    expect((await oppRow(oppId)).availability).toBe('OPEN')
   })
 
   // ── SR-H-2 (PR #1227): explicit source_id, no arbitrary pick ──────────────────────────────────

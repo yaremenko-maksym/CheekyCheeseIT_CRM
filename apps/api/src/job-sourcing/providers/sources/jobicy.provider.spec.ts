@@ -52,7 +52,7 @@ describe('mapping the authentic capture', () => {
     expect(o?.normalized.seniorityHint).toBe('Senior')
     expect(o?.normalized.tags).toEqual(['Software Engineering'])
     expect(o?.normalized.remote).toBe(true)
-    expect(o?.adapterVersion).toBe('jobicy-1')
+    expect(o?.adapterVersion).toBe('jobicy-2')
   })
 
   it('pubDate is the PUBLICATION instant', async () => {
@@ -141,6 +141,39 @@ describe('mapping the authentic capture', () => {
     const j = { ...page1().jobs[0], companyLogo: false }
     const { batch } = await run([body({ jobs: [j], nextCursor: null })])
     expect(batch.counts.normalized).toBe(1)
+  })
+})
+
+describe('salary (sources-17)', () => {
+  it('maps the structured salary fields of the captures: yearly and hourly', async () => {
+    const one = (await run([body({ ...page1(), nextCursor: null })])).batch
+    expect(byId(one, '156558')?.normalized.salary).toEqual({
+      min: 150000,
+      max: 200000,
+      currency: 'USD',
+      period: 'YEAR',
+    })
+    expect(byId(one, '156602')?.normalized.salary ?? null).toBe(null)
+    const two = (await run([body({ ...page2(), nextCursor: null })])).batch
+    expect(byId(two, '155656')?.normalized.salary).toEqual({
+      min: 8,
+      max: 8,
+      currency: 'USD',
+      period: 'HOUR',
+    })
+  })
+
+  it('an unknown period, no currency or a malformed amount is no salary, and the job stays', async () => {
+    const job = page1().jobs.find((j) => j.id === 156558)
+    const salaryWith = async (over: Record<string, unknown>) => {
+      const { batch } = await run([body({ jobs: [{ ...job, ...over }], nextCursor: null })])
+      expect(batch.counts.normalized).toBe(1)
+      return byId(batch, '156558')?.normalized.salary ?? null
+    }
+    expect(await salaryWith({ salaryPeriod: 'weekly' })).toBe(null)
+    expect(await salaryWith({ salaryCurrency: null })).toBe(null)
+    expect(await salaryWith({ salaryPeriod: 'monthly' })).toMatchObject({ period: 'MONTH' })
+    expect(await salaryWith({ salaryMin: 'lots' })).toMatchObject({ min: null, max: 200000 })
   })
 })
 

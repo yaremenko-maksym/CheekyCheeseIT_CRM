@@ -1,5 +1,5 @@
 import { ForbiddenException, HttpStatus, Injectable } from '@nestjs/common'
-import { and, asc, count, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, isNull, ne, sql, type SQL } from 'drizzle-orm'
 import type {
   BoardSeniorDto,
   CreateInterviewDto,
@@ -23,6 +23,7 @@ import {
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { InterviewAccessPolicyService } from './interview-access-policy.service'
+import { lockSeniorBoard } from './senior-board-lock'
 
 /**
  * Does this interview carry a meeting-recorder auto-match key at all?
@@ -111,10 +112,20 @@ export class InterviewsService {
     }
     // ADMIN: can query any senior — no check needed
 
+    // CR2-L-1: `position` is NOT unique. The sourcing queue assigns a new SUBMITTED card
+    // `max(position) + 1` read in the same transaction, so two concurrent submits for one senior
+    // can land on the same number; `[stage, position]` alone then leaves their order to whatever
+    // Postgres happens to return, and two reads of one board can disagree. `created_at` (then `id`,
+    // for rows created inside the same millisecond) makes the order total and stable.
     const rows = await this.db.db.query.interviews.findMany({
       where: eq(interviews.seniorId, seniorId!),
       with: { senior: true, hr: true },
-      orderBy: [asc(interviews.stage), asc(interviews.position)],
+      orderBy: [
+        asc(interviews.stage),
+        asc(interviews.position),
+        asc(interviews.createdAt),
+        asc(interviews.id),
+      ],
     })
 
     return (rows as InterviewWithRelations[]).map((i) => this.mapInterview(i))
@@ -145,16 +156,22 @@ export class InterviewsService {
     }
     // ADMIN: no check needed
 
-    // Position = count of existing cards in HR_SCREEN for this senior
-    const countResult = await this.db.db
-      .select({ value: count() })
-      .from(interviews)
-      .where(and(eq(interviews.seniorId, seniorId), eq(interviews.stage, 'HR_SCREEN')))
-    const positionCount = countResult[0]?.value ?? 0
-
     const hrId = currentUser.role === 'HR' ? currentUser.id : null
 
     const created = await this.db.db.transaction(async (tx) => {
+      // CR6-L-3: the position is computed under the same board lock `move` takes, so a create
+      // racing a move reads the move's committed renumbering instead of a stale column.
+      await lockSeniorBoard(tx, seniorId)
+      // SO6-2: Position = coalesce(max(position), -1) + 1 for HR_SCREEN cards of this senior.
+      // `count()` produces duplicate positions when cards were removed without renumbering.
+      const maxResult = await tx
+        .select({
+          value: sql<number>`coalesce(max(${interviews.position}), -1) + 1`.mapWith(Number),
+        })
+        .from(interviews)
+        .where(and(eq(interviews.seniorId, seniorId), eq(interviews.stage, 'HR_SCREEN')))
+      const position = maxResult[0]?.value ?? 0
+
       const [row] = await tx
         .insert(interviews)
         .values({
@@ -165,7 +182,7 @@ export class InterviewsService {
           callUrl: dto.callUrl ?? null,
           scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
           stage: 'HR_SCREEN',
-          position: positionCount,
+          position,
           matchKeyChangedAt: new Date(),
         })
         .returning()
@@ -291,7 +308,6 @@ export class InterviewsService {
 
     await this.accessPolicy.assertUpdateAccess(interview, currentUser)
 
-    const oldStage = interview.stage
     const newStage = dto.stage
     const newPosition = dto.position
 
@@ -301,17 +317,33 @@ export class InterviewsService {
     // orphaned the interview in HIRED with no project. Threading `tx` everywhere
     // makes the whole transition atomic — any throw rolls the stage back too.
     const { updated, createdProjectId } = await this.db.db.transaction(async (tx) => {
-      // Update this card
+      // R5-L-5 / CR6-L-1: serialise every position writer on one senior's board; why the
+      // whole board and not the target column is on `lockSeniorBoard`. The stage is re-read
+      // under the lock, the pre-transaction one may be stale.
+      const lockedCards = await lockSeniorBoard(tx, interview.seniorId)
+      // SO6-1: compare against interview.id (the row read from DB) rather than the route id as
+      // typed, because Postgres matched case-insensitively but returns canonical lowercase uuid.
+      const lockedStage = lockedCards.find((card) => card.id === interview.id)?.stage
+      // CR6-L-2: the card was deleted between the read above and the lock.
+      if (lockedStage === undefined) throw apiError('INTERVIEW_NOT_FOUND', HttpStatus.NOT_FOUND)
+      // The value is read from the `stage` enum column itself, so the narrowing is exact.
+      const oldStage = lockedStage as Interview['stage']
+
+      // Update this card; its position is written by the new-column renumbering below.
       await tx
         .update(interviews)
-        .set({ stage: newStage, position: newPosition, updatedAt: new Date() })
-        .where(eq(interviews.id, id))
+        .set({ stage: newStage, updatedAt: new Date() })
+        .where(eq(interviews.id, interview.id))
 
       // Renormalize positions in old column (if stage changed)
       if (oldStage !== newStage) {
         const cardsInOldColumn = await tx.query.interviews.findMany({
-          where: and(eq(interviews.seniorId, interview.seniorId), eq(interviews.stage, oldStage)),
-          orderBy: [asc(interviews.position)],
+          where: and(
+            eq(interviews.seniorId, interview.seniorId),
+            eq(interviews.stage, oldStage),
+            ne(interviews.id, interview.id),
+          ),
+          orderBy: [asc(interviews.position), asc(interviews.createdAt), asc(interviews.id)],
         })
         for (let i = 0; i < cardsInOldColumn.length; i++) {
           await tx
@@ -321,20 +353,27 @@ export class InterviewsService {
         }
       }
 
-      // Renormalize positions in new column
-      const cardsInNewColumn = await tx.query.interviews.findMany({
-        where: and(eq(interviews.seniorId, interview.seniorId), eq(interviews.stage, newStage)),
-        orderBy: [asc(interviews.position)],
+      // Renormalize positions in new column:
+      // CR4-M-1 / SPEC-L-1: read the target column excluding the moved card, splice the
+      // moved card in at newPosition (clamped to [0, length]), and renumber so the moved
+      // card sits at the index it was dropped on and positions are distinct 0..n-1.
+      const otherCardsInNewColumn = await tx.query.interviews.findMany({
+        where: and(
+          eq(interviews.seniorId, interview.seniorId),
+          eq(interviews.stage, newStage),
+          ne(interviews.id, interview.id),
+        ),
+        orderBy: [asc(interviews.position), asc(interviews.createdAt), asc(interviews.id)],
       })
-      for (let i = 0; i < cardsInNewColumn.length; i++) {
-        await tx
-          .update(interviews)
-          .set({ position: i })
-          .where(eq(interviews.id, cardsInNewColumn[i]!.id))
+      const targetIndex = Math.max(0, Math.min(newPosition, otherCardsInNewColumn.length))
+      const reorderedIds = otherCardsInNewColumn.map((card) => card.id)
+      reorderedIds.splice(targetIndex, 0, interview.id)
+      for (let i = 0; i < reorderedIds.length; i++) {
+        await tx.update(interviews).set({ position: i }).where(eq(interviews.id, reorderedIds[i]!))
       }
 
       const refreshed = (await tx.query.interviews.findFirst({
-        where: eq(interviews.id, id),
+        where: eq(interviews.id, interview.id),
         with: { senior: true, hr: true },
       })) as InterviewWithRelations
 
@@ -354,7 +393,7 @@ export class InterviewsService {
           await tx
             .update(interviews)
             .set({ createdProjectId: projectId })
-            .where(eq(interviews.id, id))
+            .where(eq(interviews.id, interview.id))
         }
       }
 

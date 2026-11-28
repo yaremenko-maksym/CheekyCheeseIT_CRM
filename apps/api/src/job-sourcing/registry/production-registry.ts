@@ -16,7 +16,17 @@ import { createJoobleProvider } from '../providers/sources/jooble.provider'
 import { createJSearchProvider } from '../providers/sources/jsearch.provider'
 import { createReedProvider } from '../providers/sources/reed.provider'
 import { leverProvider } from '../providers/sources/lever.provider'
-import { museProvider } from '../providers/sources/muse.provider'
+import { nextLevelJobsProvider } from '../providers/sources/nextleveljobs.provider'
+import { landingJobsProvider } from '../providers/sources/landingjobs.provider'
+import { justJoinProvider } from '../providers/sources/justjoin.provider'
+import { theHubProvider } from '../providers/sources/thehub.provider'
+import { relocateMeProvider } from '../providers/sources/relocateme.provider'
+import { reactJobsProvider } from '../providers/sources/reactjobs.provider'
+import { remoteIoProvider } from '../providers/sources/remoteio.provider'
+import { remoteFirstJobsProvider } from '../providers/sources/remotefirstjobs.provider'
+import { jobspressoProvider } from '../providers/sources/jobspresso.provider'
+import { diceProvider } from '../providers/sources/dice.provider'
+import { nofluffProvider } from '../providers/sources/nofluff.provider'
 import { personioProvider } from '../providers/sources/personio.provider'
 import { recruiteeProvider } from '../providers/sources/recruitee.provider'
 import { remoteokProvider } from '../providers/sources/remoteok.provider'
@@ -24,7 +34,16 @@ import { remotiveProvider } from '../providers/sources/remotive.provider'
 import { smartrecruitersProvider } from '../providers/sources/smartrecruiters.provider'
 import { createTheirStackProvider } from '../providers/sources/theirstack.provider'
 import { workableProvider } from '../providers/sources/workable.provider'
+import { workingNomadsProvider } from '../providers/sources/workingnomads.provider'
+import { germanTechJobsProvider } from '../providers/sources/germantechjobs.provider'
+import { fourDayWeekProvider } from '../providers/sources/fourdayweek.provider'
+import { jobTechProvider } from '../providers/sources/jobtech.provider'
 import { wwrProvider } from '../providers/sources/wwr.provider'
+import { pythonOrgProvider } from '../providers/sources/pythonorg.provider'
+import { solidJobsProvider } from '../providers/sources/solidjobs.provider'
+import { berlinStartupJobsProvider } from '../providers/sources/berlinstartupjobs.provider'
+import { helloworldProvider } from '../providers/sources/helloworld.provider'
+import { larajobsProvider } from '../providers/sources/larajobs.provider'
 import { type QuotaEnvKey, type QuotaProvider, readQuotaCredential } from '../quota-credentials'
 import { productionLedgerCatalog } from '../runtime/production-catalog'
 import { JobSourceRegistry } from './job-source-registry'
@@ -38,7 +57,7 @@ type ReadKey = (key: QuotaEnvKey) => string | undefined
  * Every REPORTING provider the application can run, one per type, built for production. Each is
  * registered with its `REPORTING_WIRING` entry (see `createProductionRegistry`); a provider here
  * without wiring would never be claimed (`TRANSPORT_NOT_WIRED`), so the spec keeps this list and
- * the wiring equal. Working Nomads is deliberately absent (see `reporting-wiring.ts`).
+ * the wiring equal. Only legacy DOU is absent, and it is not a reporting adapter at all.
  *
  * Keyed adapters get their credential from the validated env. An absent key builds an
  * UNCONFIGURED credential: the adapter refuses before any reservation or request.
@@ -69,7 +88,17 @@ function reportingProviders(
     createJSearchProvider(credential('jsearch')),
     createReedProvider(credential('reed')),
     leverProvider,
-    museProvider,
+    nextLevelJobsProvider,
+    theHubProvider,
+    relocateMeProvider,
+    reactJobsProvider,
+    remoteIoProvider,
+    remoteFirstJobsProvider,
+    jobspressoProvider,
+    justJoinProvider,
+    landingJobsProvider,
+    diceProvider,
+    nofluffProvider,
     personioProvider,
     recruiteeProvider,
     remoteokProvider,
@@ -77,7 +106,16 @@ function reportingProviders(
     smartrecruitersProvider,
     createTheirStackProvider(credential('theirstack')),
     workableProvider,
+    workingNomadsProvider,
+    germanTechJobsProvider,
+    fourDayWeekProvider,
+    jobTechProvider,
     wwrProvider,
+    pythonOrgProvider,
+    solidJobsProvider,
+    berlinStartupJobsProvider,
+    helloworldProvider,
+    larajobsProvider,
   ]
 }
 

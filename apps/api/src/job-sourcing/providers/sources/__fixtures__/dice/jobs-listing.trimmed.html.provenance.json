@@ -1,0 +1,12 @@
+{
+  "url": "https://www.dice.com/jobs",
+  "fetchedAt": "2026-11-21T01:01:32.000Z",
+  "httpStatus": 200,
+  "rawSha256": "61d33a470dd4bd1860fdf2596b365bbd7af9061cf1bf331ff2c38a9951d20d69",
+  "fileSha256": "9aee1ff0678ba3245abe7bec301aa6b0e96356485ac9dfe381f01c51356a4c60",
+  "trimmedBy": "python3 -I trim-dice-nofluff-captures.py dice-listing <raw> <out> 4 (flight rows joined; 3 leading rows kept verbatim; the search and similar-jobs jobList rows re-serialised by json.dumps with data cut to 4 and 1 items; emitted as two push scripts split inside the search row); never a byte cut",
+  "termsUrl": "https://www.dice.com/about/legal",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "PROHIBITED",
+  "notes": "200 text/html; charset=utf-8, 381242 bytes, cache-control private no-store. The page embeds the Next.js flight payload in 8 self.__next_f.push([1, \"...\"]) scripts; joined, it has 211 rows. The search result is one row whose props hold jobList {data (31 items: 1 isFeatured + 30), meta {currentPage 1, pageSize 30, pageCount 3766, totalResults 112974}, _links} beside currentPage and totalPages; a second, unrelated row holds the \"Similar Jobs\" jobList (meta.pageSize 10) with isSimilarJobsList. Row ids (3b, a9) are build-specific. Items: id, guid (UUID), detailsPageUrl https://www.dice.com/job-detail/<guid>, companyName, employmentType, jobLocation {city,state,country,region,displayName}, postedDate, modifiedDate, salary (free text, absent on some), summary (truncated), title, isRemote, workplaceTypes. jobs?page=2 (one GET, 375023 bytes) returned 30 items, 8 of them already on page 1 (relevance order shifts). robots.txt (captured beside this file) disallows /job, /jobs?q*, /feed/, /rss/ and /apply-redirect*, and allows /jobs and /job-detail; longest match lets /jobs and /job-detail/<uuid> through. Dice Terms and Conditions (LAST UPDATED 12/03/2025) section 8.2 j) and aa) ban robots and spiders that store or reproduce site content: PROHIBITED. The owner overrode it on 2026-11-20 (A3, task sources-14: \"connect, I accept the risk for every site\"); the provenance keeps saying what the terms say. One plain GET with the transport's own User-Agent, owner-approved 2026-11-20; no challenge. E-mail addresses are replaced by the trim script; personal NAMES in free text cannot be found by a parser and were not redacted."
+}

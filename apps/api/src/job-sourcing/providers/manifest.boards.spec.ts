@@ -198,7 +198,7 @@ describe('board lines through the manifest build', () => {
   })
 })
 
-describe('AC 1: the 13 migrated boards are the 13 hand-written ones', () => {
+describe('AC 1: the 15 boards are the 15 hand-written ones', () => {
   // An independent table: id, config, zone, host key. Not read from the board files.
   const GH = 'boards-api.greenhouse.io'
   const LA = 'America/Los_Angeles'
@@ -223,6 +223,18 @@ describe('AC 1: the 13 migrated boards are the 13 hand-written ones', () => {
       'apply.workable.com',
     ],
     ['workable.board.hirefellows', { board: 'hirefellows' }, 'Asia/Bahrain', 'apply.workable.com'],
+    [
+      'smartrecruiters.board.ubisoft2',
+      { board: 'ubisoft2' },
+      'Europe/Paris',
+      'api.smartrecruiters.com',
+    ],
+    [
+      'smartrecruiters.board.smartrecruiters',
+      { board: 'smartrecruiters' },
+      LA,
+      'api.smartrecruiters.com',
+    ],
     ['recruitee.board.bunq', { board: 'bunq' }, 'Europe/Amsterdam', 'recruitee.com'],
     [
       'personio.board.westwing',
@@ -262,19 +274,46 @@ describe('AC 1: the 13 migrated boards are the 13 hand-written ones', () => {
 
 describe('ADR 8a watchlist arithmetic (documentation, not a production constant)', () => {
   // Owner Q11's 2 requests a minute is a starting value that U11's request-counting host budget owns.
-  // Nothing enforces a per-host rate today (no `hostRate` on the board types); this table only pins
-  // the ADR's numbers: a sweep takes boards / perMinute minutes.
+  // Nothing enforces a per-host rate today (no `hostRate` on the board types); this block only pins
+  // the ADR's numbers. The unit of the sweep is a REQUEST, never a board: a type whose run sends
+  // more than one request costs that much of it, so the watchlist's cost is DERIVED from each type's
+  // `requestsPerRun` instead of assuming one per board (CR-L-4). SmartRecruiters is the first board
+  // type to break that assumption - it sends a list request and up to nine detail ones per run (10
+  // requests since the owner's raise of 2026-11-21, task sources-15).
+  const PER_MINUTE = 2
+  const boardSweep = () => {
+    const m = buildManifest({
+      definitions: MANIFEST_DEFINITIONS,
+      adapters: MANIFEST_VALIDATION_ADAPTERS,
+      fixtureRoot: FIXTURE_ROOT,
+    })
+    const perRun = new Map(m.types.map((t) => [t.type, t.requestsPerRun]))
+    const boards = m.entries.filter((e) => e.id.includes('.board.'))
+    return {
+      boards: boards.length,
+      requests: boards.reduce((n, e) => n + perRun.get(e.type)!, 0),
+    }
+  }
+
+  it('prices the watchlist in requests, which exceeds its board count', () => {
+    const { boards, requests } = boardSweep()
+    expect(boards).toBe(15)
+    // 13 one-request boards + 2 SmartRecruiters boards at 10.
+    expect(requests).toBe(33)
+    expect(requests).toBeGreaterThan(boards)
+    expect(requests / PER_MINUTE).toBeCloseTo(16.5, 2)
+  })
+
   it.each([
     [200, 100, 1.7],
     [1000, 500, 8.3],
-    [13, 6.5, 0.11],
-  ])('%i boards at 2 a minute: a sweep of %f minutes (%f hours)', (boards, minutes, hours) => {
-    expect(boards / 2).toBe(minutes)
+  ])('%i requests at 2 a minute: a sweep of %f minutes (%f hours)', (requests, minutes, hours) => {
+    expect(requests / PER_MINUTE).toBe(minutes)
     expect(minutes / 60).toBeCloseTo(hours, 1)
   })
 })
 
-describe('AC 1: ownership of the 13 boards (employer, domain, fixtures)', () => {
+describe('AC 1: ownership of the 15 boards (employer, domain, fixtures)', () => {
   const EXPECTED_OWNERSHIP: ReadonlyArray<readonly [string, string, string | null, string[]]> = [
     ['greenhouse.board.stripe', 'Stripe', 'stripe.com', ['stripe-board.json']],
     ['greenhouse.board.airbnb', 'Airbnb', null, ['airbnb-board.json']],
@@ -286,6 +325,8 @@ describe('AC 1: ownership of the 13 boards (employer, domain, fixtures)', () => 
     ['ashby.board.supabase', 'Supabase', null, ['supabase-board.json']],
     ['workable.board.huggingface', 'Hugging Face', null, ['huggingface-account.json']],
     ['workable.board.hirefellows', 'Hire Fellows', null, ['hirefellows-account.json']],
+    ['smartrecruiters.board.ubisoft2', 'Ubisoft', null, ['ubisoft2-postings-list.json']],
+    ['smartrecruiters.board.smartrecruiters', 'SmartRecruiters Inc', null, ['postings-list.json']],
     ['recruitee.board.bunq', 'bunq', null, ['bunq-offers.json']],
     ['personio.board.westwing', 'Westwing', null, ['westwing-en.xml']],
     ['personio.board.personio', 'Personio', null, ['personio-en.xml']],
@@ -347,7 +388,7 @@ describe('one employer, one board', () => {
     ).toBeUndefined()
   })
 
-  it('the 13 current boards trip nothing (the manifest builds)', () => {
+  it('the 15 current boards trip nothing (the manifest builds)', () => {
     expect(
       codeOf(() =>
         buildManifest({

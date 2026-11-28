@@ -126,8 +126,9 @@ describe('AC2 — malformed feed is drift; a valid empty feed is success', () =>
       quarantined: 1,
       discarded: 0,
     })
-    // A quarantined item means the inventory we report is demonstrably incomplete.
-    expect(batch.coverage).toBe('PARTIAL')
+    // Backlog 470: the linkless item still has an identity (its native id), so it is listed and accounted for
+    // (the ledger counts its record present) and the feed keeps its inventory claim.
+    expect(batch.coverage).toBe('FULL_INVENTORY')
   })
 })
 

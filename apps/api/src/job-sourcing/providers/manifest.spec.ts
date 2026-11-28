@@ -78,7 +78,7 @@ const every = (minutes: number) => ({
 })
 const type = (t: string) => manifest.types.find((x) => x.type === t)!
 
-/** Written out, not derived: the 34 stable ids, in manifest order (types by schema order). */
+/** Written out, not derived: the 37 stable ids, in manifest order (types by schema order). */
 const ENTRY_IDS = [
   'remoteok.api.latest',
   'remotive.api.software-dev',
@@ -87,6 +87,7 @@ const ENTRY_IDS = [
   'himalayas.api.browse',
   'jobicy.api.engineering-europe',
   'arbeitnow.api.feed',
+  'workingnomads.api.development',
   'jobgether.api.jobs',
   'hn-hiring.thread.latest',
   'greenhouse.board.stripe',
@@ -99,6 +100,8 @@ const ENTRY_IDS = [
   'ashby.board.supabase',
   'workable.board.huggingface',
   'workable.board.hirefellows',
+  'smartrecruiters.board.ubisoft2',
+  'smartrecruiters.board.smartrecruiters',
   'recruitee.board.bunq',
   'personio.board.westwing',
   'personio.board.personio',
@@ -107,13 +110,31 @@ const ENTRY_IDS = [
   'jsearch.rapidapi.frontend',
   'jsearch.rapidapi.ai-engineer',
   'theirstack.api.senior',
-  'muse.api.software-engineering-senior',
   'reed.api.senior-developer-remote',
   'djinni.rss.python',
   'djinni.rss.rust',
   'wwr.rss.all-jobs',
   'wwr.rss.devops',
   'euremotejobs.rss.feed',
+  'justjoin.sitemap.jobs',
+  'nofluff.listing.it',
+  'landingjobs.sitemap.jobs',
+  'nextleveljobs.sitemap.jobs',
+  'dice.listing.jobs',
+  'thehub.sitemap.jobs',
+  'pythonorg.rss.jobs',
+  'solidjobs.rss.job-offers',
+  'berlinstartupjobs.rss.engineering',
+  'helloworld.rss.feed',
+  'larajobs.rss.feed',
+  'relocateme.sitemap.jobs',
+  'reactjobs.sitemap.jobs',
+  'remoteio.sitemap.jobs',
+  'remotefirstjobs.sitemap.jobs',
+  'jobspresso.sitemap.jobs',
+  'fourdayweek.api.engineering',
+  'germantechjobs.api.jobs',
+  'jobtech.api.data-it',
 ]
 
 const trees: string[] = []
@@ -187,7 +208,7 @@ function refused(code: ManifestErrorCode, tail: string | RegExp) {
 
 // ---------------------------------------------------------------------------
 
-describe('the 31 types: one explicit disposition each', () => {
+describe('the 43 types: one explicit disposition each', () => {
   const REPORTING = [
     'REMOTEOK_API',
     'REMOTIVE_API',
@@ -207,28 +228,37 @@ describe('the 31 types: one explicit disposition each', () => {
     'JOOBLE_API',
     'JSEARCH_API',
     'THEIRSTACK_API',
-    'MUSE_API',
     'REED_API',
     'DJINNI_RSS',
     'WWR_RSS',
     'EUREMOTEJOBS_RSS',
-  ]
-  const HTML = [
     'JUSTJOIN_HTML',
     'NOFLUFF_HTML',
     'LANDINGJOBS_HTML',
     'NEXTLEVELJOBS_HTML',
     'DICE_HTML',
     'THEHUB_HTML',
-    'WTTJ_HTML',
+    'PYTHONORG_RSS',
+    'SOLIDJOBS_RSS',
+    'BERLINSTARTUPJOBS_RSS',
+    'HELLOWORLD_RSS',
+    'LARAJOBS_RSS',
+    'RELOCATEME_HTML',
+    'REACTJOBS_HTML',
+    'REMOTEIO_HTML',
+    'REMOTEFIRSTJOBS_HTML',
+    'JOBSPRESSO_HTML',
+    'FOURDAYWEEK_API',
+    'GERMANTECHJOBS_API',
+    'JOBTECH_API',
   ]
 
-  it('lists all 31 types, each exactly once, in the schema order', () => {
+  it('lists all 43 types, each exactly once, in the schema order', () => {
     expect(manifest.types.map((t) => t.type)).toEqual([...jobSourceTypeSchema.options])
-    expect(manifest.types).toHaveLength(31)
+    expect(manifest.types).toHaveLength(43)
   })
 
-  it('23 reporting adapters, DOU on the legacy path, 7 HTML blocked with their owner', () => {
+  it('41 reporting adapters, DOU on the legacy path, 1 blocked with its owner', () => {
     const byKind = (pred: (t: (typeof manifest.types)[number]) => boolean) =>
       manifest.types.filter(pred).map((t) => t.type)
     expect(
@@ -237,12 +267,13 @@ describe('the 31 types: one explicit disposition each', () => {
     expect(
       byKind((t) => t.disposition.kind === 'IMPLEMENTED' && t.disposition.contract === 'LEGACY'),
     ).toEqual(['DOU_RSS'])
-    expect(byKind((t) => t.disposition.kind === 'BLOCKED')).toEqual(HTML)
-    for (const t of HTML) {
-      const d = type(t).disposition
-      expect(d.kind === 'BLOCKED' && d.owner).toBe('plan Task 5.6')
-      expect(type(t).blockers.map((b) => b.code)).toEqual(['NO_ADAPTER'])
-    }
+    expect(byKind((t) => t.disposition.kind === 'BLOCKED')).toEqual(['WTTJ_HTML'])
+    expect(type('WTTJ_HTML').disposition).toEqual({
+      kind: 'BLOCKED',
+      reason: 'no adapter is implemented; the HTML adapters are plan Task 5.6',
+      owner: 'plan Task 5.6',
+    })
+    expect(type('WTTJ_HTML').blockers.map((b) => b.code)).toEqual(['NO_ADAPTER'])
   })
 
   it('a type with no definition is a finding, not an omission', () => {
@@ -273,14 +304,14 @@ describe('the 31 types: one explicit disposition each', () => {
         buildManifest({
           ...real(),
           definitions: MANIFEST_DEFINITIONS.map((d) =>
-            d.type === 'DICE_HTML' ? { ...d, entries: [{ id: 'dice.html.x', config: {} }] } : d,
+            d.type === 'WTTJ_HTML' ? { ...d, entries: [{ id: 'wttj.html.x', config: {} }] } : d,
           ),
         }),
       ),
     ).toEqual(
       refused(
         'NO_ADAPTER',
-        'DICE_HTML is not implemented on the reporting contract and cannot carry entries',
+        'WTTJ_HTML is not implemented on the reporting contract and cannot carry entries',
       ),
     )
   })
@@ -316,9 +347,9 @@ describe('unknown providers', () => {
 })
 
 describe('identity and config', () => {
-  it('the manifest holds these 34 entries, in this order, each id once', () => {
+  it('the manifest holds these 55 entries, in this order, each id once', () => {
     expect(manifest.entries.map((e) => e.id)).toEqual(ENTRY_IDS)
-    expect(new Set(ENTRY_IDS).size).toBe(34)
+    expect(new Set(ENTRY_IDS).size).toBe(55)
   })
 
   it('a duplicate id is refused', () => {
@@ -420,12 +451,12 @@ describe('identity and config', () => {
     }
   })
 
-  it('namespaces come from the adapter: derived for boards, constant for feeds, empty for two RSS feeds', () => {
+  it('namespaces come from the adapter: derived for boards, constant for feeds, empty for the EU Remote Jobs feed', () => {
     expect(entry('greenhouse.board.stripe').namespace).toBe('greenhouse:stripe')
     expect(entry('lever.board.eu.siteimprove').namespace).toBe('lever:eu:siteimprove')
     expect(entry('lever.board.quantco-').namespace).toBe('lever:global:quantco-')
-    expect(entry('muse.api.software-engineering-senior').namespace).toBe('themuse')
-    expect(entry('wwr.rss.all-jobs').namespace).toBe('')
+    expect(entry('wwr.rss.all-jobs').namespace).toBe('wwr')
+    expect(entry('djinni.rss.python').namespace).toBe('djinni')
     expect(entry('euremotejobs.rss.feed').namespace).toBe('')
   })
 
@@ -437,13 +468,15 @@ describe('identity and config', () => {
       'remotive.api.data',
       'jobicy.api.engineering-europe',
       'arbeitnow.api.feed',
+      // Seeded on 2026-10-05 as a blocked row and adopted, not inserted: task sources-04 connected
+      // the type, and the entry's config stays byte-equal to that row so the delta claims it.
+      'workingnomads.api.development',
       'hn-hiring.thread.latest',
       'jooble.api.senior-developer-remote',
       'jsearch.rapidapi.backend',
       'jsearch.rapidapi.frontend',
       'jsearch.rapidapi.ai-engineer',
       'theirstack.api.senior',
-      'muse.api.software-engineering-senior',
       'reed.api.senior-developer-remote',
       'euremotejobs.rss.feed',
     ])
@@ -455,7 +488,7 @@ describe('identity and config', () => {
 describe('hashes are verified against the committed bytes', () => {
   it('every fixture record carries the hash of its own bytes, computed here independently', () => {
     const records = manifest.types.flatMap((t) => t.fixtures)
-    expect(records).toHaveLength(61)
+    expect(records).toHaveLength(104)
     for (const r of records) {
       expect(r.fileSha256, r.path).toBe(sha256(readFileSync(join(FIXTURE_ROOT, r.path))))
       expect(r.provenanceSha256, r.path).toBe(
@@ -620,7 +653,7 @@ describe('readiness is derived from provenance, not retyped', () => {
   it('a constant that says "not blocked" over a provenance that is not ready fails the build', () => {
     expect(
       refusal(
-        withDefinition('MUSE_API', (d) => ({
+        withDefinition('WORKINGNOMADS_API', (d) => ({
           ...d,
           // Without the owner decision: an unlifted UNCLEAR is what makes `blocked: false` a lie.
           ownerDecisions: [],
@@ -630,7 +663,7 @@ describe('readiness is derived from provenance, not retyped', () => {
     ).toEqual(
       refused(
         'STATUS_CONSTANT_DISAGREES',
-        'MUSE_SOURCE_STATUS.blocked is false but the provenance permission UNCLEAR is not a ready one',
+        'WORKINGNOMADS_SOURCE_STATUS.blocked is false but the provenance permission UNCLEAR is not a ready one',
       ),
     )
   })
@@ -720,9 +753,9 @@ describe('readiness is derived from provenance, not retyped', () => {
   })
 
   it.each([
-    ['MUSE_API', ['STATUS_CONSTANT_BLOCKED']],
-    ['SMARTRECRUITERS_ATS', ['NO_API_CAPTURE']],
-    ['WORKINGNOMADS_API', ['STATUS_CONSTANT_BLOCKED']],
+    ['WTTJ_HTML', ['NO_ADAPTER']],
+    ['SMARTRECRUITERS_ATS', []],
+    ['WORKINGNOMADS_API', []],
     // Captured by the owner's smoke: only the key is left, and the runtime lifts that one.
     ['JOOBLE_API', ['KEY_REQUIRED']],
     ['JSEARCH_API', ['KEY_REQUIRED']],
@@ -735,16 +768,21 @@ describe('readiness is derived from provenance, not retyped', () => {
   it('a reason too long for the column is refused rather than cut', () => {
     expect(
       refusal(
-        withDefinition('MUSE_API', (d) => ({
+        withDefinition('WORKINGNOMADS_API', (d) => ({
           ...d,
           status: {
             symbol: d.status!.symbol,
-            value: { ...d.status!.value, reason: 'x'.repeat(500) },
+            // `blocked` is set here, not inherited: since task sources-04 no real type is blocked
+            // by its status constant, and the readiness text exists only for a blocker.
+            value: { ...d.status!.value, blocked: true, reason: 'x'.repeat(500) },
           },
         })),
       ),
     ).toEqual(
-      refused('REASON_TOO_LONG', /^REASON_TOO_LONG: MUSE_API: readiness reason is \d+ characters$/),
+      refused(
+        'REASON_TOO_LONG',
+        /^REASON_TOO_LONG: WORKINGNOMADS_API: readiness reason is \d+ characters$/,
+      ),
     )
   })
 })
@@ -1169,7 +1207,6 @@ describe('authentication and attribution agree with what the provenance says', (
       ['HIMALAYAS_API', 'CREDIT_REQUIRED'],
       ['JOBICY_API', 'CREDIT_REQUIRED'],
       ['ARBEITNOW_API', 'LINK_BACK_REQUIRED'],
-      ['MUSE_API', 'LINK_BACK_REQUIRED'],
       ['WWR_RSS', 'LINK_BACK_REQUIRED'],
     ])
   })
@@ -1769,14 +1806,14 @@ describe('exact behaviour: constants, markers and boundaries', () => {
         ),
       )
       const adapters = new Map(MANIFEST_VALIDATION_ADAPTERS)
-      adapters.set('DICE_HTML', MANIFEST_VALIDATION_ADAPTERS.get('JOOBLE_API')!)
+      adapters.set('WTTJ_HTML', MANIFEST_VALIDATION_ADAPTERS.get('JOOBLE_API')!)
       adapters.set('DOU_RSS', MANIFEST_VALIDATION_ADAPTERS.get('JOOBLE_API')!)
-      expect(buildManifest({ ...real(), adapters }).types).toHaveLength(31)
+      expect(buildManifest({ ...real(), adapters }).types).toHaveLength(43)
     })
 
     it('the legacy and the blocked types carry exactly their own blockers', () => {
       expect(type('DOU_RSS').blockers).toEqual([])
-      expect(type('JUSTJOIN_HTML').blockers).toEqual([
+      expect(type('WTTJ_HTML').blockers).toEqual([
         {
           code: 'NO_ADAPTER',
           detail: 'no adapter is implemented; the HTML adapters are plan Task 5.6',
@@ -1792,9 +1829,11 @@ describe('exact behaviour: constants, markers and boundaries', () => {
     it('is null for a ready entry and the joined blockers for a blocked one', () => {
       expect(readinessReason(readinessAt(entry('remoteok.api.latest'), NOW))).toBeNull()
       expect(readinessReason(readinessAt(type('ARBEITNOW_API'), NOW))).toBeNull()
+      // The blocked example is a type nothing can unblock: EU Remote Jobs is PROHIBITED by its
+      // terms and carries no owner decision.
       expect(
-        readinessReason(readinessAt(type('MUSE_API'), NOW))!.startsWith(
-          'STATUS_CONSTANT_BLOCKED: terms section 2.2',
+        readinessReason(readinessAt(type('EUREMOTEJOBS_RSS'), NOW))!.startsWith(
+          'PERMISSION_PROHIBITED:',
         ),
       ).toBe(true)
     })
@@ -1803,18 +1842,19 @@ describe('exact behaviour: constants, markers and boundaries', () => {
       const prefix = 'STATUS_CONSTANT_BLOCKED: '
       expect(READINESS_REASON_MAX_CHARS).toBe(500)
       const reasonOf = (n: number) =>
-        withDefinition('MUSE_API', (d) => ({
+        withDefinition('WORKINGNOMADS_API', (d) => ({
           ...d,
           status: {
             symbol: d.status!.symbol,
-            value: { ...d.status!.value, reason: 'x'.repeat(n) },
+            // As above: the blocker has to be constructed, no real type carries one.
+            value: { ...d.status!.value, blocked: true, reason: 'x'.repeat(n) },
           },
         }))
       const ok = reasonOf(500 - prefix.length)()
       expect(
         readinessReason(
           readinessAt(
-            ok.types.find((t) => t.type === 'MUSE_API')!,
+            ok.types.find((t) => t.type === 'WORKINGNOMADS_API')!,
             NOW,
           ),
         ),

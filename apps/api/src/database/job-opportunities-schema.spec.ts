@@ -270,16 +270,25 @@ describe('job_opportunities', () => {
       ]),
     )
   })
+  // Sources-17 appended the salary columns; the older order pins read the columns before them.
+  const SALARY_COLUMNS = [
+    'salary_min',
+    'salary_max',
+    'salary_currency',
+    'salary_period',
+    'salary_monthly_top',
+  ]
+  const beforeSalary = (): string[] => names(jobOpportunities).slice(0, -SALARY_COLUMNS.length)
   it('SR-M-1/2: the evaluated revision, verdict and inputs version are nullable, without a default, declared before role_family', () => {
     const evaluation = ['evaluated_revision', 'evaluation_verdict', 'evaluated_inputs_version']
-    expect(names(jobOpportunities).slice(-8, -5)).toEqual(evaluation)
+    expect(beforeSalary().slice(-8, -5)).toEqual(evaluation)
     for (const name of evaluation) {
       expect(col(jobOpportunities, name).notNull).toBe(false)
       expect(col(jobOpportunities, name).hasDefault).toBe(false)
     }
   })
   it('Phase 6: manual_team_id is declared just before the role columns, a nullable uuid without a default, FK to teams ON DELETE RESTRICT', () => {
-    expect(names(jobOpportunities).at(-4)).toBe('manual_team_id')
+    expect(beforeSalary().at(-4)).toBe('manual_team_id')
     expect(col(jobOpportunities, 'manual_team_id').getSQLType()).toBe('uuid')
     expect(col(jobOpportunities, 'manual_team_id').notNull).toBe(false)
     expect(col(jobOpportunities, 'manual_team_id').hasDefault).toBe(false)
@@ -290,7 +299,7 @@ describe('job_opportunities', () => {
     expect(f.reference().foreignColumns.map((c) => c.name)).toEqual(['id'])
   })
   it('Task 6.4c: role_family is declared just before manual_team_id, nullable, without a default, and bounded', () => {
-    expect(names(jobOpportunities).at(-5)).toBe('role_family')
+    expect(beforeSalary().at(-5)).toBe('role_family')
     expect(col(jobOpportunities, 'role_family').notNull).toBe(false)
     expect(col(jobOpportunities, 'role_family').hasDefault).toBe(false)
     const c = getTableConfig(jobOpportunities).checks.find(
@@ -300,8 +309,15 @@ describe('job_opportunities', () => {
       `"job_opportunities"."role_family" IS NULL OR ("job_opportunities"."role_family" ~ '[^[:space:]]' AND length("job_opportunities"."role_family") <= 100)`,
     )
   })
-  it('senior roles: technical_roles, role_status, role_classifier_version are declared last', () => {
-    expect(names(jobOpportunities).slice(-3)).toEqual([
+  it('sources-17: the five salary columns are declared last, nullable, without a default', () => {
+    expect(names(jobOpportunities).slice(-SALARY_COLUMNS.length)).toEqual(SALARY_COLUMNS)
+    for (const name of SALARY_COLUMNS) {
+      expect(col(jobOpportunities, name).notNull).toBe(false)
+      expect(col(jobOpportunities, name).hasDefault).toBe(false)
+    }
+  })
+  it('senior roles: technical_roles, role_status, role_classifier_version are declared just before the salary columns', () => {
+    expect(beforeSalary().slice(-3)).toEqual([
       'technical_roles',
       'role_status',
       'role_classifier_version',
@@ -314,7 +330,7 @@ describe('job_opportunities', () => {
     const check = (name: string) =>
       render(getTableConfig(jobOpportunities).checks.find((x) => x.name === name)?.value)
     expect(check('ck_job_opportunities_role_status')).toBe(
-      `"job_opportunities"."role_status" IS NULL OR "job_opportunities"."role_status" IN ('RULE', 'AI', 'PENDING', 'UNCLEAR', 'NON_IT')`,
+      `"job_opportunities"."role_status" IS NULL OR "job_opportunities"."role_status" IN ('RULE', 'AI', 'PENDING', 'UNCLEAR', 'NON_IT', 'OUT_OF_SCOPE')`,
     )
     expect(check('ck_job_opportunities_roles_iff_status')).toBe(
       `"job_opportunities"."role_status" IS NULL OR ((cardinality("job_opportunities"."technical_roles") > 0) = ("job_opportunities"."role_status" IN ('RULE', 'AI')))`,
@@ -487,7 +503,7 @@ describe('identifiers fit Postgres (63 chars) — longer names are truncated and
 })
 
 describe('provider enum is shared with the legacy store', () => {
-  it('records reuse job_source_type (31 members)', () => {
+  it('records reuse job_source_type (the shared member list)', () => {
     expect([...jobSourceTypeEnum.enumValues]).toEqual([...jobSourceTypeSchema.options])
     expect(col(jobSourceRecords, 'source_type').getSQLType()).toBe('job_source_type')
   })

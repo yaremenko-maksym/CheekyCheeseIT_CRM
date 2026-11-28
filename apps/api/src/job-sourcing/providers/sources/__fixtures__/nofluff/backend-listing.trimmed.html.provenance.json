@@ -1,0 +1,12 @@
+{
+  "url": "https://nofluffjobs.com/pl/backend?page=2",
+  "fetchedAt": "2026-11-21T01:03:01.000Z",
+  "httpStatus": 200,
+  "rawSha256": "24496d9bcdd9c698e449b3932e7e1721b1f773bb9617adb10d5c471fe1ebebdc",
+  "fileSha256": "7bc0c1e0c7028ebc6e96459cfa3e3758957fb7bea58a1041aee585779e790fe5",
+  "trimmedBy": "python3 -I trim-dice-nofluff-captures.py nfj-listing <raw> <out> 3 (serverApp-state parsed; USER_COUNTRY and the one postings container kept, postings cut to 3; re-serialised by json.dumps); never a byte cut",
+  "termsUrl": "https://nofluffjobs.com/pl/regulamin",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 text/html; charset=utf-8, 917503 bytes. <script id=\"serverApp-state\" type=\"application/json\"> holds a container under a per-page hash key with postings, totalCount 2899, totalPages 23, criteriaSearch {category [backend]}. ?page=N is CUMULATIVE on a category page: page 1 (736968 bytes) had 20 postings, page 2 had 40 (the 20 of page 1 first). On the bare /pl/ page ?page=2 returns the same 20. Postings: id, reference (8-char code), url (lower-case ascii slug; the detail page is /pl/job/<url>), title, name (company), location.places[], fullyRemote (false even for a posting whose JSON-LD says TELECOMMUTE), salary {from,to,type,currency,period}, posted (epoch ms), seniority[], tiles.values[] {value,type}. robots.txt (captured beside this file) allows / and disallows /api/, /posting/, /pl/posting/ and */job/job/*. The regulamin page is not readable without JavaScript, so its terms on automated access could not be read: UNCLEAR, accepted as risk by the owner on 2026-11-20 (A3, task sources-14). One plain GET with the transport's own User-Agent, owner-approved 2026-11-20; no challenge. E-mail addresses are replaced by the trim script; personal NAMES in free text cannot be found by a parser and were not redacted."
+}

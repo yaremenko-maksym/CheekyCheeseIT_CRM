@@ -21,14 +21,20 @@ function setup(enabled?: boolean | string) {
   const config = {
     get: vi.fn((key: string) => (key === 'JOB_ROLE_AI_DAILY_BUDGET' ? 23 : enabled)),
   }
-  const svc = new JobRoleAiCronService(database as never, client as never, config as never)
+  const jev = { classify: vi.fn() }
+  const svc = new JobRoleAiCronService(
+    database as never,
+    client as never,
+    config as never,
+    jev as never,
+  )
   const error = vi
     .spyOn((svc as unknown as { logger: { error: () => void } }).logger, 'error')
     .mockImplementation(() => undefined)
   const warn = vi
     .spyOn((svc as unknown as { logger: { warn: () => void } }).logger, 'warn')
     .mockImplementation(() => undefined)
-  return { svc, client, config, error, warn }
+  return { svc, client, jev, config, error, warn }
 }
 
 afterEach(() => {
@@ -54,7 +60,7 @@ describe('JobRoleAiCronService', () => {
   })
 
   it('tick() runs one pass when the flag is true; an overlapping tick is skipped', async () => {
-    const { svc, client, warn } = setup(true)
+    const { svc, client, jev, warn } = setup(true)
     let release: (v: typeof RESULT) => void = () => undefined
     pass.mockReturnValueOnce(new Promise((resolve) => (release = resolve)))
     const first = svc.tick()
@@ -63,6 +69,7 @@ describe('JobRoleAiCronService', () => {
     expect(warn).toHaveBeenCalledWith({ event: 'ROLE_AI_TICK_SKIPPED', reason: 'RUNNING' })
     const deps = pass.mock.calls[0]?.[0]
     expect(deps?.client).toBe(client)
+    expect(deps?.jev).toBe(jev)
     expect(deps?.onDemandTypes).toEqual(productionLedgerCatalog().onDemandTypes())
     expect(deps?.now()).toBeInstanceOf(Date)
     expect(deps?.dailyBudget).toBe(23)

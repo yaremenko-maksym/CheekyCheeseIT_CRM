@@ -137,11 +137,15 @@ test.describe('Interviews (Kanban) page', () => {
   // -------------------------------------------------------------------------
 
   test.describe('Board rendering', () => {
-    test('renders all active stage columns including CLIENT_INTERVIEW', async ({
+    test('renders all active stage columns including SUBMITTED and CLIENT_INTERVIEW', async ({
       asSenior: page,
     }) => {
       await page.goto('/interviews')
       for (const label of [
+        // task-sources-07c: SUBMITTED is the first active column and the one a
+        // senior does not create — an HR submission on the vacancy queue puts the
+        // card here. It must render for a SENIOR viewer like every other column.
+        assertInCatalog(uk, 'Надіслано'),
         assertInCatalog(uk, 'HR-скринінг'),
         assertInCatalog(uk, 'Англійська'),
         assertInCatalog(uk, 'Технічна'),

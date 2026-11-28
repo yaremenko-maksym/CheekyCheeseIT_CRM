@@ -121,6 +121,8 @@ const makeUser = (overrides: Record<string, unknown> = {}) => ({
   avatar: null,
   googleId: null,
   techStack: null,
+  // users.technical_roles is NOT NULL DEFAULT '{}'.
+  technicalRoles: [] as string[],
   monthlySalary: null,
   seniorSharePercent: 26,
   createdAt: new Date(),
@@ -1988,7 +1990,7 @@ describe('UsersService.createUser — SENIOR', () => {
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
-      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
+      technicalRoles: ['BACKEND_ENGINEER'],
     })
 
     expect(result.role).toBe('SENIOR')
@@ -2016,7 +2018,7 @@ describe('UsersService.createUser — SENIOR', () => {
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
-      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
+      technicalRoles: ['BACKEND_ENGINEER'],
       hrIds: ['hr-1', 'hr-2'],
       accountantId: 'acc-1',
     })
@@ -2042,7 +2044,7 @@ describe('UsersService.createUser — SENIOR', () => {
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
-      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
+      technicalRoles: ['BACKEND_ENGINEER'],
       hrIds: ['hr-1'],
       accountantId: null,
     })
@@ -2064,7 +2066,7 @@ describe('UsersService.createUser — SENIOR', () => {
       email: senior.email,
       displayName: 'Ivan Drago',
       role: 'SENIOR',
-      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
+      technicalRoles: ['BACKEND_ENGINEER'],
     })
 
     const insertMock = db.db.insert as ReturnType<typeof vi.fn>
@@ -2087,7 +2089,7 @@ describe('UsersService.createUser — SENIOR', () => {
         email: senior.email,
         displayName: 'Dup',
         role: 'SENIOR',
-        techStack: ['TypeScript', 'Go', 'PostgreSQL'],
+        technicalRoles: ['BACKEND_ENGINEER'],
         actorRole: 'ADMIN',
         actorId: 'actor-test-id',
       }),
@@ -2158,7 +2160,7 @@ describe('UsersService.createUser — profile fields', () => {
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
-      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
+      technicalRoles: ['BACKEND_ENGINEER'],
       seniorSharePercent: 60,
     })
 
@@ -2176,7 +2178,7 @@ describe('UsersService.createUser — profile fields', () => {
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
-      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
+      technicalRoles: ['BACKEND_ENGINEER'],
     })
 
     expect(result.seniorSharePercent).toBe(26)
@@ -2249,44 +2251,65 @@ describe('UsersService.createUser — profile fields', () => {
 // (which checks the OTHER direction: entitlement columns stay untouched).
 // ---------------------------------------------------------------------------
 
-describe('UsersService.updateProfile — SENIOR technology floor on a self-edit', () => {
-  const self = (role: string, techStack: string[] | null) =>
-    makeDb({ existingUser: makeUser({ id: 'user-1', role, techStack }) })
+describe('UsersService.updateProfile — SENIOR role floor on a self-edit', () => {
+  const self = (role: string, technicalRoles: string[], techStack: string[] | null = null) =>
+    makeDb({ existingUser: makeUser({ id: 'user-1', role, technicalRoles, techStack }) })
 
-  it('a SENIOR cutting their own stack below 3 is refused and nothing is written', async () => {
-    const db = self('SENIOR', ['React', 'Go', 'AWS'])
-    const service = makeUsersService(db)
+  it('a SENIOR self-edit that clears the roles -> 400 SENIOR_MIN_ROLES, nothing written', async () => {
+    const db = self('SENIOR', ['BACKEND_ENGINEER'])
     await expect(
-      service.updateProfile('user-1', { techStack: ['React', 'React', 'Go'] }),
+      makeUsersService(db).updateProfile('user-1', { technicalRoles: [] }),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'SENIOR_MIN_TECHNOLOGIES', statusCode: 400 }),
+      response: expect.objectContaining({ code: 'SENIOR_MIN_ROLES', statusCode: 400 }),
     })
     expect(db.db.update).not.toHaveBeenCalled()
   })
 
-  it('a SENIOR growing 3 -> 4 is written; a legacy SENIOR resubmitting the same 2 passes', async () => {
-    const grow = self('SENIOR', ['React', 'Go', 'AWS'])
-    await makeUsersService(grow).updateProfile('user-1', {
-      techStack: ['React', 'Go', 'AWS', 'Docker'],
+  it('an unchanged resubmit of the roles passes, in any order', async () => {
+    const db = self('SENIOR', ['BACKEND_ENGINEER', 'QA_ENGINEER'])
+    await makeUsersService(db).updateProfile('user-1', {
+      technicalRoles: ['QA_ENGINEER', 'BACKEND_ENGINEER'],
     })
+    expect(db.db.update).toHaveBeenCalledTimes(1)
+  })
+
+  it('a legacy SENIOR with no roles: a self-edit of the phone passes (Review Focus 4)', async () => {
+    const db = self('SENIOR', [])
+    await makeUsersService(db).updateProfile('user-1', { phone: '+380000000000' })
+    expect(db.db.update).toHaveBeenCalledTimes(1)
+  })
+
+  // SPEC-L-1: the floor fires on an ACTUAL roles change, as on the admin path — a legacy SENIOR
+  // whose stored list is already empty must not be refused for a change they did not make.
+  // This input is NOT reachable over HTTP: `seniorRolesSchema.min(1)` rejects `[]` with a 400 on
+  // all three DTOs that carry the field, so the case pins the guard one layer BELOW the schema.
+  // It is kept rather than retargeted because it is the only input that tells "the floor runs only
+  // when the roles changed" apart from "the floor always runs": a non-empty unchanged resubmit
+  // passes the floor anyway, and an absent field skips the block entirely (both covered above).
+  it('an empty-to-empty roles write skips the floor (service guard below the DTO)', async () => {
+    const db = self('SENIOR', [])
+    await makeUsersService(db).updateProfile('user-1', { technicalRoles: [] })
+    expect(db.db.update).toHaveBeenCalledTimes(1)
+  })
+
+  it('a SENIOR with valid roles may cut the stack to one or none (the stack floor is gone)', async () => {
+    vi.mocked(markSeniorDirty).mockClear()
+    const grow = self('SENIOR', ['BACKEND_ENGINEER'], ['React', 'Go', 'AWS'])
+    await makeUsersService(grow).updateProfile('user-1', { techStack: ['React'] })
     const growSet = (grow.db.update as ReturnType<typeof vi.fn>).mock.results[0]?.value
       ?.set as ReturnType<typeof vi.fn>
-    expect(growSet).toHaveBeenCalledWith(
-      expect.objectContaining({ techStack: ['React', 'Go', 'AWS', 'Docker'] }),
-    )
-    // r5 4.6 S5: a stack edit marks the roster dirty in the write's transaction.
-    expect(vi.mocked(markSeniorDirty)).toHaveBeenLastCalledWith(
-      expect.anything(),
-      'user-1',
-      'senior.stack',
-    )
-    const legacy = self('SENIOR', ['React', 'Go'])
-    await makeUsersService(legacy).updateProfile('user-1', { techStack: ['React', 'Go'] })
-    expect(legacy.db.update).toHaveBeenCalledTimes(1)
+    expect(growSet).toHaveBeenCalledWith(expect.objectContaining({ techStack: ['React'] }))
+    // Senior roles PR 4: the stack no longer feeds matching, so a stack-only edit is the plain
+    // UPDATE with no roster mark (it was `senior.stack` in a transaction before).
+    expect(grow.db.transaction).not.toHaveBeenCalled()
+    expect(vi.mocked(markSeniorDirty)).not.toHaveBeenCalled()
+    const none = self('SENIOR', ['BACKEND_ENGINEER'], ['React'])
+    await makeUsersService(none).updateProfile('user-1', { techStack: null })
+    expect(none.db.update).toHaveBeenCalledTimes(1)
   })
 
   it('a JUNIOR may keep a single technology', async () => {
-    const db = self('JUNIOR', null)
+    const db = self('JUNIOR', [])
     await makeUsersService(db).updateProfile('user-1', { techStack: ['React'] })
     expect(db.db.update).toHaveBeenCalledTimes(1)
   })
@@ -2328,6 +2351,20 @@ describe('UsersService.updateProfile — technical roles on a self-edit (senior 
       response: expect.objectContaining({ code: 'TECHNICAL_ROLES_SENIOR_ONLY', statusCode: 400 }),
     })
     expect(db.db.update).not.toHaveBeenCalled()
+  })
+
+  it('a plain self-edit whose UPDATE matches no row -> 404 USER_NOT_FOUND', async () => {
+    const db = self('SENIOR')
+    const returning = vi.fn().mockResolvedValue([])
+    ;(db.db.update as ReturnType<typeof vi.fn>).mockReturnValue({
+      set: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ returning }) }),
+    })
+    await expect(
+      makeUsersService(db).updateProfile('user-1', { phone: null }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
+    })
+    expect(returning).toHaveBeenCalled()
   })
 
   it('a missing caller row with roles -> 404 USER_NOT_FOUND before any write', async () => {
@@ -2383,6 +2420,88 @@ describe('UsersService.updateProfile — technical roles on a self-edit (senior 
     })
     expect(db.db.transaction).toHaveBeenCalledTimes(1)
     expect(vi.mocked(markSeniorDirty)).not.toHaveBeenCalled()
+  })
+
+  // Senior roles PR 4 Task 4.3: the plain-UPDATE branch would skip the roster mark.
+  it('a SENIOR self-edit of technicalRoles alone runs in a transaction and marks senior.roles dirty', async () => {
+    vi.mocked(markSeniorDirty).mockClear()
+    const db = self('SENIOR')
+    await makeUsersService(db).updateProfile('user-1', { technicalRoles: ['BACKEND_ENGINEER'] })
+    expect(db.db.transaction).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(markSeniorDirty)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(markSeniorDirty)).toHaveBeenCalledWith(
+      expect.anything(),
+      'user-1',
+      'senior.roles',
+    )
+  })
+
+  it('an unchanged roles resubmit (any order) writes but marks nothing', async () => {
+    vi.mocked(markSeniorDirty).mockClear()
+    const db = makeDb({
+      existingUser: makeUser({
+        id: 'user-1',
+        role: 'SENIOR',
+        technicalRoles: ['BACKEND_ENGINEER', 'DATA_ENGINEER'],
+      }),
+    })
+    await makeUsersService(db).updateProfile('user-1', {
+      technicalRoles: ['DATA_ENGINEER', 'BACKEND_ENGINEER'],
+    })
+    expect(db.db.update).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(markSeniorDirty)).not.toHaveBeenCalled()
+  })
+
+  // Senior roles PR 4 asserted this on a SENIOR; PR 5's floor now refuses that (the
+  // SENIOR_MIN_ROLES test above). A former senior whose legacy roles are cleared is the path that
+  // still empties the column, and it keeps PR 4's point: the clear is a change, so it commits with
+  // the roster dirty row and takes no `role = 'SENIOR'` guard on the UPDATE.
+  it('clearing a former senior roles to [] is a change: transaction + senior.roles, and no role guard', async () => {
+    vi.mocked(markSeniorDirty).mockClear()
+    const db = makeDb({
+      existingUser: makeUser({ id: 'user-1', role: 'JUNIOR', technicalRoles: ['QA_ENGINEER'] }),
+    })
+    await makeUsersService(db).updateProfile('user-1', { technicalRoles: [] })
+    expect(db.db.transaction).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(markSeniorDirty)).toHaveBeenCalledWith(
+      expect.anything(),
+      'user-1',
+      'senior.roles',
+    )
+  })
+
+  // Correction 3: a guarded write that updated 0 rows re-reads the row once, in the same tx.
+  it('a guarded roles write on a row deleted after the read -> 404 USER_NOT_FOUND after one re-read', async () => {
+    vi.mocked(markSeniorDirty).mockClear()
+    const db = self('SENIOR')
+    const where = (db.db as unknown as { where: ReturnType<typeof vi.fn> }).where
+    where.mockResolvedValueOnce([makeUser({ id: 'user-1', role: 'SENIOR' })])
+    where.mockResolvedValueOnce([])
+    ;(db.db.update as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      set: () => ({ where: () => ({ returning: async () => [] }) }),
+    })
+    await expect(
+      makeUsersService(db).updateProfile('user-1', { technicalRoles: ['BACKEND_ENGINEER'] }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
+    })
+    expect(where).toHaveBeenCalledTimes(2) // the findById read + exactly one re-read
+    expect(db.db.transaction).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(markSeniorDirty)).not.toHaveBeenCalled()
+  })
+
+  it('the demotion race re-reads the row and finds it: 400, not 404', async () => {
+    const db = self('SENIOR')
+    const where = (db.db as unknown as { where: ReturnType<typeof vi.fn> }).where
+    ;(db.db.update as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      set: () => ({ where: () => ({ returning: async () => [] }) }),
+    })
+    await expect(
+      makeUsersService(db).updateProfile('user-1', { technicalRoles: ['BACKEND_ENGINEER'] }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TECHNICAL_ROLES_SENIOR_ONLY', statusCode: 400 }),
+    })
+    expect(where).toHaveBeenCalledTimes(2)
   })
 
   it('roles stay optional: a write without them leaves the column out of the update', async () => {

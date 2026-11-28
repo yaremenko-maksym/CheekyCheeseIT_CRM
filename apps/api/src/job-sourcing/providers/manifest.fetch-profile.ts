@@ -10,9 +10,11 @@ import { type FetchProfile, fetchProfileSchema } from '../scheduling/next-slot'
 /**
  * The accepted-risk types the owner connects last (Q8): never scheduled, so their profile is `null`,
  * and only theirs. Connecting one (U12) removes it from this list and gives it a profile. HN and
- * Jobgether are connected (2026-11-17); SmartRecruiters has no entry and no API capture yet.
+ * Jobgether were connected on 2026-11-17, SmartRecruiters in task sources-04 (its boards carry the
+ * per-entry profile every other ATS type uses), so the list is empty — and stays a list, because
+ * the next accepted-risk type to be held back goes in it.
  */
-export const UNSCHEDULED_TYPES: readonly JobSourceType[] = ['SMARTRECRUITERS_ATS']
+export const UNSCHEDULED_TYPES: readonly JobSourceType[] = []
 
 export interface ProfileProblem {
   readonly code: 'FETCH_PROFILE_INVALID' | 'CADENCE_INVALID'
@@ -27,6 +29,13 @@ const DAY_MINUTES = 24 * 60
  * (U1a). U1a's schema requires the field, so this one value stands for "no interval".
  */
 export const FIXED_SLOTS_INTERVAL_MINUTES = DAY_MINUTES
+/**
+ * The Kyiv times of the HTML cron (`HTML_COLLECTION_CRON`), 6 h apart (owner, 2026-11-21, task
+ * sources-15). The live HTML types carry exactly these as fixed slots, so the `next_attempt_at` a run
+ * writes is the next cron slot: a working-hours grid with a stagger would fall between two firings and
+ * leave a slot claiming nothing.
+ */
+export const HTML_RUN_TIMES: readonly string[] = ['02:30', '08:30', '14:30', '20:30']
 /**
  * An IANA `Area/Location` name, as written in the tz database (capitalised, with a slash). `Intl`
  * alone also accepts `UTC`, `EST`, offsets such as `+05:00` and any letter case, none of which names

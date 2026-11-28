@@ -1,10 +1,13 @@
 import { useId, useRef, useState, type ReactNode } from 'react'
-import { Trans } from '@lingui/react/macro'
+import { Plural, Trans, useLingui } from '@lingui/react/macro'
 import { Ban, Check, ChevronDown, CircleHelp, Info, Users } from 'lucide-react'
 import {
+  TECHNICAL_ROLE_LABELS,
   formatRelativeTime,
+  technicalRoleSchema,
   type JobQueueCardResponseDto,
   type JobQueueCardSeniorDto,
+  type TailoredResumeRowDto,
 } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { useJobQueueSeniors, type QueueScopeSignature } from '@/hooks/use-job-queue'
@@ -12,6 +15,8 @@ import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { SeniorAvailabilityLabel } from '@/components/senior-availability/SeniorAvailabilityLabel'
 import { PreviewContinuation } from './PreviewContinuation'
+import { TailoredResumeControls } from './TailoredResumeControls'
+import { useOpenForDetail, useTailoredRows } from './useTailoredResumes'
 
 const SENIORS_PAGE = 200
 /** §5.1.6 hit style: matched stack tokens, amber on the card. */
@@ -51,12 +56,21 @@ export function submittedElsewhere(senior: JobQueueCardSeniorDto) {
 /** «Чому збіг» (spec §5.2): the matched keywords split by how the vacancy needs them. */
 function MatchEvidence({ senior }: { senior: JobQueueCardSeniorDto }) {
   const [open, setOpen] = useState(false)
+  const { i18n } = useLingui()
   const id = useId()
   if (senior.matchEvidence.length === 0) return null
+  // A `kind: 'ROLE'` item carries a `TechnicalRole` id, not display text (CR-M-1 / SPEC-M-2): it
+  // reads from the same `technical-role.*` catalog every other surface uses. An id the enum does
+  // not know cannot be looked up, so it is shown as it came rather than dropped.
+  const label = (e: JobQueueCardSeniorDto['matchEvidence'][number]) => {
+    if (e.kind !== 'ROLE') return e.keyword
+    const role = technicalRoleSchema.safeParse(e.keyword)
+    return role.success ? i18n._(TECHNICAL_ROLE_LABELS[role.data]) : e.keyword
+  }
   const keywords = (strength: 'CORE' | 'OPTIONAL') =>
     senior.matchEvidence
       .filter((e) => e.strength === strength)
-      .map((e) => e.keyword)
+      .map(label)
       .join(', ')
   const required = keywords('CORE')
   const nice = keywords('OPTIONAL')
@@ -101,14 +115,78 @@ function MatchEvidence({ senior }: { senior: JobQueueCardSeniorDto }) {
   )
 }
 
+/**
+ * Task 5.4 (spec §7): the senior's own skills overlap, in the slot the «Збіг за:» row had.
+ * Display only — it never sorts, filters or hides a card. No tooltip: the matched skills are
+ * plain text, so pointer, touch, keyboard and screen reader all reach them (design decision 4).
+ */
+function SkillOverlap({ senior }: { senior: JobQueueCardSeniorDto }) {
+  const overlap = senior.skillOverlap
+  if (overlap === null) return null
+  if (overlap.kind === 'NO_RESUME') {
+    return (
+      <span
+        data-testid={`job-queue-senior-no-resume-${senior.seniorId}`}
+        className="text-xs text-muted-foreground"
+      >
+        <Trans>немає резюме</Trans>
+      </span>
+    )
+  }
+  return (
+    <div
+      data-testid={`job-queue-senior-overlap-${senior.seniorId}`}
+      className="flex min-w-0 flex-wrap items-center gap-1 text-xs"
+    >
+      <span className="font-medium text-foreground tabular-nums">
+        <Trans>
+          {overlap.matched.length} з{' '}
+          <Plural
+            value={overlap.total}
+            one="# навички"
+            few="# навичок"
+            many="# навичок"
+            other="# навички"
+          />
+        </Trans>
+      </span>
+      {overlap.matched.map((skill) => (
+        <span key={skill} className={cn(HIT_CHIP, 'max-w-full [overflow-wrap:anywhere]')}>
+          {skill}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * The Jev relevance percent (PR3). Display only: it never sorts, filters or hides a card, and it
+ * has no tooltip, like SkillOverlap. A null grade renders nothing; a graded 0 is a real grade.
+ */
+function Relevance({ senior }: { senior: JobQueueCardSeniorDto }) {
+  const percent = senior.relevancePercent
+  if (percent === null) return null
+  return (
+    <span
+      data-testid={`job-queue-senior-relevance-${senior.seniorId}`}
+      className="text-xs font-medium tabular-nums"
+    >
+      <Trans>Відповідність {percent}%</Trans>
+    </span>
+  )
+}
+
 function SeniorBlock({
   senior,
   action,
   arrival,
   teamHeading,
+  tailored,
 }: {
   senior: JobQueueCardSeniorDto
   action: ReactNode
+  /** The tailored CV + cover letter controls; absent while the batch GET has no row (flag off). */
+  tailored: ReactNode
   /** The senior's place in fetch order; the keyboard hand-off finds the first new one by it. */
   arrival: number
   teamHeading: string | null
@@ -152,7 +230,9 @@ function SeniorBlock({
               <Trans>Збіг неточний</Trans>
             </span>
           )}
-          {senior.matchedKeywords.length > 0 && (
+          <SkillOverlap senior={senior} />
+          <Relevance senior={senior} />
+          {senior.skillOverlap === null && senior.matchedKeywords.length > 0 && (
             <div className="flex min-w-0 flex-wrap items-center gap-1 text-xs">
               <span className="text-muted-foreground">
                 <Trans>Збіг за:</Trans>
@@ -193,6 +273,7 @@ function SeniorBlock({
               <Trans>Подано</Trans>
             </span>
           )}
+          {tailored}
         </div>
       </div>
       {action}
@@ -287,6 +368,25 @@ export function MatchedSeniors({
   const admin = scope.role === 'ADMIN'
   const seniors = [...card.seniors.items, ...(more.data?.pages.flatMap((page) => page.items) ?? [])]
   const stopListed = card.stopListedSeniorCount
+  // D10: one batch status read per card for every listed senior; a 404 (flag off) yields no rows
+  const tailored = useTailoredRows(
+    scope,
+    card.opportunityId,
+    seniors.map((s) => s.seniorId),
+  )
+  useOpenForDetail(
+    card.opportunityId,
+    [...tailored.values()].some((r) => r.eligibility === 'POSTING_PENDING'),
+  )
+  const tailoredFor = (seniorId: string, row: TailoredResumeRowDto | undefined) =>
+    row && (
+      <TailoredResumeControls
+        scope={scope}
+        opportunityId={card.opportunityId}
+        seniorId={seniorId}
+        row={row}
+      />
+    )
 
   let body: ReactNode
   let listed = false
@@ -301,7 +401,7 @@ export function MatchedSeniors({
           admin ? (
             <Trans>Усі сеньйори зі збігом внесли компанію до стоп-листа</Trans>
           ) : (
-            <Trans>Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа</Trans>
+            <Trans>Усі сеньйори ваших команд зі збігом внесли компанію до стоп-листа</Trans>
           )
         }
         body={<Trans>Стек збігається, проте вакансію їм не пропонують.</Trans>}
@@ -352,8 +452,7 @@ export function MatchedSeniors({
             <Trans>Вакансія лишається в черзі, але жоден сеньйор не збігається за стеком.</Trans>
           ) : (
             <Trans>
-              Вакансія лишається в черзі, але жоден сеньйор із вашої команди не збігається за
-              стеком.
+              Вакансія лишається в черзі, але жоден сеньйор із ваших команд не збігається за стеком.
             </Trans>
           )
         }
@@ -379,6 +478,7 @@ export function MatchedSeniors({
               arrival={arrival}
               teamHeading={teamHeading}
               action={renderAction?.(senior)}
+              tailored={tailoredFor(senior.seniorId, tailored.get(senior.seniorId))}
             />
           ))}
         </ul>

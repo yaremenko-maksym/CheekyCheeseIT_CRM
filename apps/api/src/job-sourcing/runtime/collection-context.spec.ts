@@ -6,6 +6,8 @@ import {
 } from '../http/source-errors'
 import type { AccountMeter } from '../metering/account-meter.store'
 import type { ClaimedRun } from '../ownership/job-run-ledger'
+import { jobicyProvider } from '../providers/sources/jobicy.provider'
+import { leverProvider } from '../providers/sources/lever.provider'
 import type { HostBan } from '../scheduling/host-state'
 import {
   BAN_WRITE_ATTEMPTS,
@@ -274,6 +276,39 @@ describe('send permits (AC 6)', () => {
       },
     ])
   })
+
+  it.each([
+    [
+      'Lever',
+      'api.lever.co',
+      () => leverProvider.parseConfig({ configVersion: 1, board: 'spotify' }),
+      leverProvider,
+    ],
+    [
+      'Jobicy',
+      'jobicy.com',
+      () => jobicyProvider.parseConfig({ configVersion: 1 }),
+      jobicyProvider,
+    ],
+  ] as const)(
+    'a %s request reaches the transport with the 30 s timeout',
+    async (_n, host, config, provider) => {
+      const timeouts: unknown[] = []
+      const w = world({
+        input: { meter: null, allowedHosts: [host] },
+        transport: async (_url, opts) => {
+          timeouts.push(opts.timeoutMs)
+          return '[]'
+        },
+      })
+      await (provider.collectReport as (c: unknown, ctx: unknown) => Promise<unknown>)(
+        config(),
+        w.ctx,
+      )
+      expect(timeouts.length).toBeGreaterThan(0)
+      expect(new Set(timeouts)).toEqual(new Set([30_000]))
+    },
+  )
 })
 
 describe('run metrics (U2 AC 2)', () => {
@@ -290,8 +325,15 @@ describe('run metrics (U2 AC 2)', () => {
       lastHttpStatus: 200,
       envelopeFingerprint: null,
       validatorsSeen: false,
+      maxPageBytes: 0,
       nextValidators: null,
     })
+  })
+
+  it('sources-10: the largest page the adapter reports is kept, not the sum or the last', () => {
+    const w = world({ input: { meter: null } })
+    for (const bytes of [300, 900, 500]) w.ctx.observePageBytes?.(bytes)
+    expect(w.metrics().maxPageBytes).toBe(900)
   })
 
   it('a fresh context has counted nothing', () => {
@@ -302,6 +344,7 @@ describe('run metrics (U2 AC 2)', () => {
       lastHttpStatus: null,
       envelopeFingerprint: null,
       validatorsSeen: false,
+      maxPageBytes: 0,
       nextValidators: null,
     })
   })
@@ -675,6 +718,26 @@ describe('the other ports', () => {
       { ...baseInput(), run: { ...RUN, checkpoint: { nope: 1 } } },
     )
     expect(await bad.ctx.checkpoints.load()).toBeNull()
+  })
+
+  it('heldIdentityKeys is the dependency itself when given, and absent when not (sources-12)', async () => {
+    const asked: (readonly string[])[] = []
+    const lookup = async (keys: readonly string[]) => {
+      asked.push(keys)
+      return new Set(['["a"]'])
+    }
+    const withPort = buildCollectionContext(
+      { recordBan: async () => {}, savePage: async () => {}, heldIdentityKeys: lookup },
+      baseInput(),
+    )
+    expect(withPort.ctx.heldIdentityKeys).toBe(lookup)
+    expect(await withPort.ctx.heldIdentityKeys?.(['["a"]', '["b"]'])).toEqual(new Set(['["a"]']))
+    expect(asked).toEqual([['["a"]', '["b"]']])
+    const without = buildCollectionContext(
+      { recordBan: async () => {}, savePage: async () => {} },
+      baseInput(),
+    )
+    expect('heldIdentityKeys' in without.ctx).toBe(false)
   })
 
   it('savePage goes to the ledger with the run`s handle and the page-write budget', async () => {

@@ -8,6 +8,7 @@ import {
 } from '../../database/__test-helpers__/crm-app-session'
 import * as schema from '../../database/schema'
 import { hasDatabaseUrl } from '../../test/require-real-db'
+import { ROLE_CLASSIFIER_VERSION } from '../funnel/role-classifier'
 import type { SqlExecutor } from '../scheduling/host-state'
 import { MATCH_RULE_VERSION, loadRoster, opportunityInputsVersion } from './recompute-inputs'
 import { reconcileOnce } from './reconciliation'
@@ -26,6 +27,10 @@ let session: CrmAppSession
 let db: ReturnType<typeof drizzle<typeof schema>>
 let senior: string
 let team: string
+/** Role-AI spend: an OUT_OF_SCOPE row, kept out of `mine` so the counts above stay its own. */
+let outOfScope = ''
+/** CR-M-1: fresh on every axis but stamped under the previous rule version (`eval.2`). Kept out of `mine`. */
+let previousRuleStale = ''
 const mine: Record<'fresh' | 'stale' | 'none' | 'old', string> = {
   fresh: '',
   stale: '',
@@ -106,23 +111,45 @@ describe.skipIf(!hasDatabaseUrl())('match reconciliation against Postgres (Task 
     mine.none = await opportunity('none')
     mine.old = await opportunity('old', `now() - interval '40 days'`)
     await match(mine.fresh, live.profile, live.exclusion)
-    // Fresh also means evaluated at its current revision against the live inputs (SR-M-1/2); the
-    // others stale either way.
+    // Fresh also means evaluated at its current revision against the live inputs (SR-M-1/2), AND
+    // classified by the live role classifier (CR-H-1 / SPEC-H-1 / SR-M-2): the sweep's `role_stale`
+    // term reads the role columns too, and `opportunity()` leaves them NULL, which IS stale. The
+    // enqueue set widened on purpose — a never-classified row is restamped once — so "fresh" here
+    // is stamped on every axis the sweep reads rather than the term being narrowed. `role_status`
+    // 'RULE' with a non-empty `technical_roles` is the only pairing that is both consistent with an
+    // OPEN verdict carrying a LEAD match and allowed by `ck_job_opportunities_roles_iff_status`.
+    // The others are stale either way.
     await session.admin.query(
       `UPDATE job_opportunities
-          SET evaluated_revision = 1, evaluation_verdict = 'OPEN', evaluated_inputs_version = $2
+          SET evaluated_revision = 1, evaluation_verdict = 'OPEN', evaluated_inputs_version = $2,
+              role_classifier_version = $3, role_status = 'RULE',
+              technical_roles = ARRAY['BACKEND_ENGINEER']::text[]
         WHERE id = $1`,
-      [mine.fresh, opportunityInputsVersion(roster.exclusions)],
+      [mine.fresh, opportunityInputsVersion(roster.exclusions), ROLE_CLASSIFIER_VERSION],
     )
     await match(mine.stale, 'OLD-PROFILE', live.exclusion)
     await match(mine.old, live.profile, 'OLD-EXCLUSION')
+    previousRuleStale = await opportunity('previous-rule')
+    await match(previousRuleStale, live.profile, live.exclusion)
+    await session.admin.query(
+      `UPDATE job_opportunities
+          SET evaluated_revision = 1, evaluation_verdict = 'OPEN', evaluated_inputs_version = $2,
+              role_classifier_version = $3, role_status = 'RULE',
+              technical_roles = ARRAY['BACKEND_ENGINEER']::text[]
+        WHERE id = $1`,
+      [
+        previousRuleStale,
+        opportunityInputsVersion(roster.exclusions, 'eval.2+l1.1+rf.3'),
+        ROLE_CLASSIFIER_VERSION,
+      ],
+    )
   })
 
   afterAll(async () => {
     if (session === undefined) return
     try {
       await session.admin.query(`DELETE FROM job_opportunities WHERE id = ANY($1::uuid[])`, [
-        Object.values(mine).filter(Boolean),
+        [...Object.values(mine), outOfScope, previousRuleStale].filter(Boolean),
       ])
       await session.admin.query(`DELETE FROM team_members WHERE team_id = $1`, [team])
       await session.admin.query(`DELETE FROM teams WHERE id = $1`, [team])
@@ -176,5 +203,68 @@ describe.skipIf(!hasDatabaseUrl())('match reconciliation against Postgres (Task 
       return myDirty(tx)
     })
     expect(dirty).toHaveLength(3)
+  })
+
+  it('CR-M-1: a verdict stamped under the previous rule version is re-enqueued; the live-version twin is not', async () => {
+    const [report, dirty] = await rolledBack(async (tx) => {
+      const r = await reconcileOnce(tx, { onlyIds: [previousRuleStale, mine.fresh] })
+      const { rows } = await tx.execute(
+        sql`SELECT entity_id::text FROM job_dirty_work
+             WHERE entity_kind = 'OPPORTUNITY'
+               AND entity_id IN (${previousRuleStale}::uuid, ${mine.fresh}::uuid)`,
+      )
+      return [r, (rows as { entity_id: string }[]).map((x) => x.entity_id)] as const
+    })
+    expect(report.enqueued).toBe(1)
+    expect(dirty).toEqual([previousRuleStale])
+  })
+
+  it('role-AI spend: an OUT_OF_SCOPE row is never role-stale, whatever role evidence it still carries', async () => {
+    const roster = await loadRoster(db)
+    const live = roster.versions.get(senior)
+    if (live === undefined) throw new Error('the spec senior is not in the roster')
+    outOfScope = await opportunity('out-of-scope')
+    // fresh on every other axis: evaluated at its revision against the live inputs and classifier
+    await session.admin.query(
+      `UPDATE job_opportunities
+          SET evaluated_revision = 1, evaluation_verdict = 'EXCLUDED', evaluated_inputs_version = $2,
+              role_classifier_version = $3, role_status = 'OUT_OF_SCOPE'
+        WHERE id = $1`,
+      [outOfScope, opportunityInputsVersion(roster.exclusions), ROLE_CLASSIFIER_VERSION],
+    )
+    const evidence = (code: string) => JSON.stringify({ reasons: [{ code, values: [] }] })
+    await session.admin.query(
+      `INSERT INTO job_opportunity_matches
+         (opportunity_id, senior_id, opportunity_revision, senior_profile_version, exclusion_version,
+          rule_version, outcome, evidence)
+       VALUES ($1, $2, 1, $3, $4, $5, 'EXCLUDED', $6::jsonb)`,
+      [
+        outOfScope,
+        senior,
+        live.profile,
+        live.exclusion,
+        MATCH_RULE_VERSION,
+        evidence('ROLE_PENDING'),
+      ],
+    )
+    const sweep = () =>
+      rolledBack(async (tx) => (await reconcileOnce(tx, { onlyIds: [outOfScope] })).enqueued)
+    // the scope gate set OUT_OF_SCOPE: the stale ROLE_PENDING evidence does not re-enqueue it
+    expect(await sweep()).toBe(0)
+    // control: the same evidence under a known status is role-stale
+    await session.admin.query(`UPDATE job_opportunities SET role_status = 'NON_IT' WHERE id = $1`, [
+      outOfScope,
+    ])
+    expect(await sweep()).toBe(1)
+    await session.admin.query(
+      `UPDATE job_opportunities SET role_status = 'OUT_OF_SCOPE' WHERE id = $1`,
+      [outOfScope],
+    )
+    // what the recompute installs for it: the ROLE_OUT_OF_SCOPE reason
+    await session.admin.query(
+      `UPDATE job_opportunity_matches SET evidence = $2::jsonb WHERE opportunity_id = $1`,
+      [outOfScope, evidence('ROLE_OUT_OF_SCOPE')],
+    )
+    expect(await sweep()).toBe(0)
   })
 })

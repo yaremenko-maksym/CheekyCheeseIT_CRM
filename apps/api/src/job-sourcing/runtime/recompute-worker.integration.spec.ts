@@ -25,6 +25,7 @@ import {
 import { JobRunLedger } from '../ownership/job-run-ledger'
 import type { RunHandle } from '../ownership/run-ownership'
 import { saveObservationPage } from '../store/source-record.store'
+import { RELEVANCE_GRADER_VERSION } from '../relevance/jev-relevance-grader'
 import { MATCH_RULE_VERSION } from './recompute-inputs'
 import { type RecomputeSteps, RecomputeWorker, createRecomputeSteps } from './recompute-worker'
 
@@ -49,10 +50,10 @@ let senior: string
 let team: string
 let seq = 0
 
-async function record(nativeId: string, version = 'v1'): Promise<string> {
+async function record(nativeId: string, version = 'v1', title?: string): Promise<string> {
   seq += 1
   const [saved] = await saveObservationPage(db, run, {
-    observations: [observation({ namespace: NAMESPACE, nativeId, version, tag: TAG })],
+    observations: [observation({ namespace: NAMESPACE, nativeId, version, tag: TAG, title })],
     checkpoint: specCheckpoint(seq),
   })
   return saved?.recordId as string
@@ -178,8 +179,12 @@ describe.skipIf(!hasDatabaseUrl())('recompute worker against Postgres (Task 4.6 
     kit = new LedgerKit(ledger, fx, catalog, admins[0].id as string)
     run = handleOf(await kit.claimOne(await kit.reporting({ type: 'REMOTIVE_API' })))
     const { rows: seniors } = await session.admin.query(
-      `INSERT INTO users (email, display_name, role, tech_stack)
-       VALUES ($1, 'S4a spec senior', 'SENIOR', ARRAY['Go']) RETURNING id`,
+      // Matching is role-based (senior roles PR 4): the observation title `Senior Go Engineer` is
+      // read by the rule classifier as BACKEND_ENGINEER, so the senior carries that role. The stack
+      // stays for display only.
+      `INSERT INTO users (email, display_name, role, tech_stack, technical_roles)
+       VALUES ($1, 'S4a spec senior', 'SENIOR', ARRAY['Go'], ARRAY['BACKEND_ENGINEER'])
+       RETURNING id`,
       [`s4a-senior-${TAG}@example.test`],
     )
     senior = seniors[0].id as string
@@ -237,6 +242,57 @@ describe.skipIf(!hasDatabaseUrl())('recompute worker against Postgres (Task 4.6 
     expect(m?.senior_profile_version).toMatch(/^[0-9a-f]{32}$/)
     expect(m?.exclusion_version).toMatch(/^[0-9a-f]{32}$/)
     expect((await work()).every((w) => w.status === 'DONE')).toBe(true)
+  })
+
+  describe('queue relevance PR2: recompute reads current-key Jev fits (eval.3)', () => {
+    /** A GRADED row keyed exactly like the live opportunity, for `profileVersion`. */
+    async function grade(opportunityId: string, fit: number, profileVersion: string) {
+      await session.admin.query(
+        `INSERT INTO job_opportunity_relevance
+           (opportunity_id, senior_id, grader_version, title_key, description_sha256,
+            opportunity_roles, senior_profile_version, status, fit)
+         SELECT o.id, $2, $3, o.title_key, o.description_sha256, o.technical_roles, $4, 'GRADED', $5
+           FROM job_opportunities o WHERE o.id = $1
+         ON CONFLICT (opportunity_id, senior_id) DO UPDATE
+            SET senior_profile_version = EXCLUDED.senior_profile_version, fit = EXCLUDED.fit`,
+        [opportunityId, senior, RELEVANCE_GRADER_VERSION, profileVersion, fit],
+      )
+    }
+    /** What the relevance pass enqueues with a grade: an OPPORTUNITY row with its own reason. */
+    async function relevanceDirty(opportunityId: string, digest: string) {
+      await enqueueDirty(db, 'OPPORTUNITY', opportunityId, 1, `RELEVANCE:rel.1:${digest}`)
+    }
+
+    it('a GRADED current-key row moves the senior evidence score and fit; a stale key is ignored', async () => {
+      await settle()
+      const r = await record('relevance')
+      await runMine()
+      const o = await opportunityOf(r)
+      await runMine()
+      const ungraded = await matchOf(o)
+      expect(ungraded).toMatchObject({ outcome: 'LEAD', rule_version: MATCH_RULE_VERSION })
+      expect(ungraded?.evidence['fit']).toBeNull()
+      const neutral = Number(ungraded?.evidence['score'])
+      const profile = ungraded?.senior_profile_version as string
+
+      // A RELEVANCE dirty row triggers a recompute that installs the new score.
+      await grade(o, 0.9, profile)
+      await relevanceDirty(o, 'a1')
+      expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+      const graded = await matchOf(o)
+      expect(graded?.evidence['fit']).toBe(0.9)
+      // 300 * (0.9 - 0.5) = 120 over neutral; freshness may round one point lower in between.
+      expect(Number(graded?.evidence['score']) - neutral).toBeGreaterThanOrEqual(119)
+      expect(Number(graded?.evidence['score']) - neutral).toBeLessThanOrEqual(120)
+
+      // The senior's profile moved on (skills changed): the grade is stale, neutral and no fit.
+      await grade(o, 0.9, 'a-stale-profile-version')
+      await relevanceDirty(o, 'a2')
+      expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+      const stale = await matchOf(o)
+      expect(stale?.evidence['fit']).toBeNull()
+      expect(Math.abs(Number(stale?.evidence['score']) - neutral)).toBeLessThanOrEqual(1)
+    })
   })
 
   it('AC 2: a stale opportunity row installs nothing and is DEFERRED / VERSION_STALE', async () => {
@@ -397,5 +453,55 @@ describe.skipIf(!hasDatabaseUrl())('recompute worker against Postgres (Task 4.6 
     const report = await runMine()
     expect(report).toMatchObject({ claimed: 1, done: 1 })
     expect(await matchOf(o)).toMatchObject({ outcome: 'LEAD', opportunity_revision: 2 })
+  })
+
+  describe('role-scope gate (role-AI spend, spec 2026-11-19 §3)', () => {
+    async function rolesOf(opportunityId: string) {
+      const { rows } = await session.admin.query(
+        `SELECT role_status, technical_roles, role_classifier_version, evaluated_revision, revision
+           FROM job_opportunities WHERE id = $1`,
+        [opportunityId],
+      )
+      return rows[0] as {
+        role_status: string
+        technical_roles: string[]
+        role_classifier_version: string
+        evaluated_revision: number | null
+        revision: number
+      }
+    }
+
+    async function evaluated(nativeId: string, title: string): Promise<string> {
+      await settle()
+      const r = await record(nativeId, 'v1', title)
+      await runMine()
+      await runMine()
+      return opportunityOf(r)
+    }
+
+    // the detail-fetch side (flag on) is the unit spec's: these steps run with role-AI off
+    it('a title with no signal for the roster is OUT_OF_SCOPE and evaluated at its revision', async () => {
+      const o = await evaluated('gate-mech', 'Mechanical Design Engineer')
+      expect(await rolesOf(o)).toMatchObject({
+        role_status: 'OUT_OF_SCOPE',
+        technical_roles: [],
+        role_classifier_version: 'rc.2',
+      })
+      const row = await rolesOf(o)
+      expect(row.evaluated_revision).toBe(row.revision)
+    })
+
+    it('a generic engineering title stays PENDING for a roster reaching SOFTWARE_ENGINEER', async () => {
+      const o = await evaluated('gate-product', 'Product Engineer')
+      expect(await rolesOf(o)).toMatchObject({ role_status: 'PENDING', technical_roles: [] })
+    })
+
+    it('a rule-classified title is untouched by the gate', async () => {
+      const o = await evaluated('gate-rule', 'Senior Go Engineer')
+      expect(await rolesOf(o)).toMatchObject({
+        role_status: 'RULE',
+        technical_roles: ['BACKEND_ENGINEER'],
+      })
+    })
   })
 })

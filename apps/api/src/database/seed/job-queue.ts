@@ -45,12 +45,13 @@ export async function seedJobQueue({ db }: SeedCtx): Promise<void> {
       o.publishedDaysAgo === null
         ? sql`NULL`
         : sql`now() - make_interval(days => ${o.publishedDaysAgo}::int)`
+    // Senior roles PR 4: a STUDIO list shows only a vacancy with known IT roles (`role_status`).
     const { rows } = await db.execute(
       sql`INSERT INTO job_opportunities
             (title, title_key, revision, availability, employer_name, employer_key,
              employer_verified, stack_keywords, description_sha256, published_at,
              first_seen_at, last_observed_at, evaluated_revision, evaluation_verdict,
-             evaluated_inputs_version, role_family)
+             evaluated_inputs_version, role_family, technical_roles, role_status)
           VALUES (${o.title}, ${`seed-${o.key}`}, 1, 'OPEN', ${o.employer},
                   ${o.employer.toLowerCase()}, ${o.employerVerified},
                   ARRAY[${sql.join(
@@ -58,7 +59,8 @@ export async function seedJobQueue({ db }: SeedCtx): Promise<void> {
                     sql`, `,
                   )}]::text[], ${sha},
                   ${published}, now() - make_interval(days => ${firstSeenDays}::int), now(),
-                  1, 'OPEN', ${inputsVersion}, ${o.roleFamily})
+                  1, 'OPEN', ${inputsVersion}, ${o.roleFamily},
+                  ARRAY['BACKEND_ENGINEER']::text[], 'RULE')
           RETURNING id`,
     )
     const opportunityId = String(rows[0]!['id'])
@@ -117,7 +119,7 @@ export interface JobQueueSeedFacts {
     readonly matchRevision: number
     readonly revision: number
   }[]
-  /** Active memberships of the `SEED_QUEUE_MEMBERSHIPS` users in live SENIOR teams, by name. */
+  /** Active memberships of the `SEED_QUEUE_MEMBERSHIPS` users in live teams (SENIOR or DROP), by name. */
   readonly memberships: readonly { readonly userId: string; readonly team: string }[]
   /** The live versions the queue compares a match against (`loadRoster`). */
   readonly versions: ReadonlyMap<string, SeniorVersions>
@@ -183,11 +185,11 @@ export async function verifyJobQueueSeed({ db }: SeedCtx): Promise<void> {
           FROM job_opportunity_matches m JOIN job_opportunities o ON o.id = m.opportunity_id
          WHERE m.outcome = 'LEAD' AND o.title IN ${titles}`,
   )
-  // Live SENIOR teams only, as the queue's `liveTeam` / `liveTeamIds` count them.
+  // Live teams of either type, as the queue's `liveTeam` / `liveTeamIds` count them.
   const memberships = await db.execute(
     sql`SELECT tm.user_id::text AS "userId", t.name AS team
           FROM team_members tm JOIN teams t ON t.id = tm.team_id
-         WHERE tm.left_at IS NULL AND t.archived_at IS NULL AND t.type = 'SENIOR'
+         WHERE tm.left_at IS NULL AND t.archived_at IS NULL
            AND tm.user_id IN ${SEED_QUEUE_MEMBERSHIPS.map((m) => m.userId)}`,
   )
   const { versions } = await loadRoster(db)

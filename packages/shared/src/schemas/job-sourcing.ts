@@ -5,7 +5,9 @@ import { z } from 'zod'
 // skill while this contract allowed 100 — and the gap surfaced as a 400 on
 // GET /suggestions for the first senior with a filled-in resume.
 import { MAX_STACK_KEYWORD_CHARS, MAX_STACK_KEYWORDS } from '../utils/stack-keywords'
+import { apiErrorEnvelopeSchema } from './api-errors'
 import { seniorAvailabilitySchema } from './senior-availability'
+import { TECHNICAL_ROLES, technicalRoleSchema } from './technical-roles'
 
 /**
  * task-job-sourcing-slice1 — semi-automatic applying to external vacancies.
@@ -27,7 +29,9 @@ import { seniorAvailabilitySchema } from './senior-availability'
  *     "no raw HTML" is only half the story: a MARKDOWN-level payload (an image
  *     beacon, a phishing link) needs its own defence, which lives in the web
  *     renderer's explicit `urlTransform` / `img` / `a` props — see
- *     apps/web/app/components/job-sourcing/JobSuggestionDialog.tsx;
+ *     apps/web/app/components/job-sourcing/PostingMarkdown.tsx (it was reached
+ *     through `JobSuggestionDialog.tsx` until task-sources-07c deleted that
+ *     dialog along with the job-sourcing entry point);
  *   - lengths are capped so a hostile feed cannot blow up a payload.
  *
  * NOT exported from `packages/shared/src/public.ts` — this is CRM-internal and
@@ -63,7 +67,6 @@ export const jobSourceTypeSchema = z.enum([
   'JOOBLE_API',
   'JSEARCH_API',
   'THEIRSTACK_API',
-  'MUSE_API',
   'REED_API',
   'DJINNI_RSS',
   'WWR_RSS',
@@ -75,6 +78,19 @@ export const jobSourceTypeSchema = z.enum([
   'DICE_HTML',
   'THEHUB_HTML',
   'WTTJ_HTML',
+  'PYTHONORG_RSS',
+  'SOLIDJOBS_RSS',
+  'BERLINSTARTUPJOBS_RSS',
+  'HELLOWORLD_RSS',
+  'LARAJOBS_RSS',
+  'RELOCATEME_HTML',
+  'REACTJOBS_HTML',
+  'REMOTEIO_HTML',
+  'REMOTEFIRSTJOBS_HTML',
+  'JOBSPRESSO_HTML',
+  'FOURDAYWEEK_API',
+  'GERMANTECHJOBS_API',
+  'JOBTECH_API',
 ])
 
 /** Lifecycle of a posting offered to one senior. */
@@ -190,6 +206,12 @@ export const externalHttpsUrlSchema = z
 
 /** Upper bound for a posting description (~8000 words of markdown). */
 export const DESCRIPTION_MD_MAX = 50000
+
+/** The manual card's title and company caps; the dialog's inputs and the parse answer use them too. */
+export const MANUAL_TITLE_MAX = 500
+export const MANUAL_COMPANY_MAX = 255
+/** The paste box and parse request cap: the worker's `MAX_EXTRACTION_INPUT_CHARS`. */
+export const MANUAL_PARSE_TEXT_MAX = 50000
 
 // ---------------------------------------------------------------------------
 // Posting
@@ -505,9 +527,19 @@ export const jobSourceListSchema = z.object({
   items: z.array(jobSourceSchema),
 })
 
+/**
+ * ADR 2026-11-03 §H.8: what the sourcing views tell their reader, derived from the model health
+ * flags. A closed enum, so a further notice is a new value, never a new field. It carries no
+ * provider name, count or time, so nothing RBAC-relevant reaches the HR view through it.
+ */
+export const SOURCING_NOTICE_VALUES = ['AI_LIMITS_EXHAUSTED'] as const
+export const sourcingNoticeSchema = z.enum(SOURCING_NOTICE_VALUES).nullable()
+
 export const jobCollectionRunSchema = z.object({
   results: z.array(jobCollectionResultSchema),
   failures: z.array(jobCollectionFailureSchema),
+  /** Set when the run's model stage stopped on limits; the deterministic stages still ran (H.8). */
+  sourcingNotice: sourcingNoticeSchema,
 })
 
 // ---------------------------------------------------------------------------
@@ -1833,6 +1865,9 @@ export const jobDirtyWorkItemSchema = jobDirtyWorkItemFields
 /** The three tabs: «Нові» · «Подані» · «Приховані». Beside the legacy `jobQueueStatusSchema`. */
 export const jobQueueTabSchema = z.enum(['NEW', 'SUBMITTED', 'HIDDEN'])
 
+/** The list's order: the generation's relevance order, or newest publication first (unknown dates last). */
+export const jobQueueSortSchema = z.enum(['relevance', 'published'])
+
 /** «Тип збігу»: a stack match, or an item that needs review. EXCLUDED is never listed. */
 export const jobQueueEligibilitySchema = z.enum(['LEAD', 'TRIAGE'])
 
@@ -1866,6 +1901,36 @@ const seniorIdListSchema = z
   .transform((s) => [...new Set(s.split(',').map((v) => v.trim().toLowerCase()))])
   .pipe(z.array(z.string().uuid()).max(JOB_QUEUE_SENIOR_FILTER_MAX))
 
+/** Whether a posting states a salary (sources-17): the list's salary filter. */
+export const jobQueueSalaryStatedSchema = z.enum(['STATED', 'NOT_STATED'])
+
+/** An ISO 4217 code as the queue carries it: three upper-case letters. */
+export const jobQueueSalaryCurrencySchema = z.string().regex(/^[A-Z]{3}$/)
+
+/** The list filter's monthly minimum bound, in whole units of the chosen currency. */
+export const JOB_QUEUE_SALARY_MIN_MONTHLY_MAX = 10_000_000
+
+/**
+ * A posting's structured salary as its source states it (never parsed from free text). One bound may
+ * be absent, never both; `period` is the source's own. The canonical columns are `numeric(12,2)`.
+ */
+export const jobQueueSalarySchema = z
+  .object({
+    min: z.number().positive().max(1e9).nullable(),
+    max: z.number().positive().max(1e9).nullable(),
+    currency: jobQueueSalaryCurrencySchema,
+    period: z.enum(['HOUR', 'MONTH', 'YEAR']),
+  })
+  .strict()
+  // As strict as ck_job_opportunities_salary_shape: at least one bound, and min <= max.
+  .superRefine((s, ctx) => {
+    if (s.min === null && s.max === null) {
+      ctx.addIssue({ code: 'custom', message: 'salary needs at least one bound', path: ['min'] })
+    } else if ((s.min ?? 0) > (s.max ?? Infinity)) {
+      ctx.addIssue({ code: 'custom', message: 'salary min exceeds max', path: ['min'] })
+    }
+  })
+
 /**
  * GET `/job-queue`. `teamId` absent = the HR's first active team in stable
  * order, or the STUDIO scope for an ADMIN; when present it must be a team the
@@ -1877,16 +1942,44 @@ export const jobQueueListQuerySchema = z
   .object({
     teamId: z.string().uuid().optional(),
     tab: jobQueueTabSchema.default('NEW'),
+    sort: jobQueueSortSchema.default('relevance'),
     search: z.string().trim().min(1).max(200).optional(),
     source: csvEnumListSchema(jobSourceTypeSchema).optional(),
     eligibility: csvEnumListSchema(jobQueueEligibilitySchema).optional(),
     availability: csvEnumListSchema(jobAvailabilitySchema).optional(),
     activity: csvEnumListSchema(jobQueueActivitySchema).optional(),
     seniorIds: seniorIdListSchema.optional(),
+    salary: csvEnumListSchema(jobQueueSalaryStatedSchema).optional(),
+    salaryCurrency: jobQueueSalaryCurrencySchema.optional(),
+    salaryMinMonthly: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(JOB_QUEUE_SALARY_MIN_MONTHLY_MAX)
+      .optional(),
     cursor: z.string().min(1).max(300).optional(),
     limit: z.coerce.number().int().min(1).max(50).default(20),
   })
   .strict()
+  .superRefine((q, ctx) => {
+    if (q.salaryMinMonthly !== undefined && q.salaryCurrency === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['salaryMinMonthly'],
+        message: 'a monthly minimum compares within one currency: salaryCurrency is required',
+      })
+    }
+    if (
+      (q.salaryCurrency !== undefined || q.salaryMinMonthly !== undefined) &&
+      q.salary?.includes('NOT_STATED') === true
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['salary'],
+        message: 'a salary currency or minimum cannot select postings that state no salary',
+      })
+    }
+  })
 
 /** GET `/job-queue/:id[/sources|/seniors]`: the scope and, for a continuation, its cursor. */
 export const jobQueueScopeQuerySchema = z
@@ -1919,6 +2012,14 @@ export const jobQueueListItemSchema = z
     revision: intColumnPositiveSchema,
     title: z.string().max(500),
     companyName: z.string().max(255).nullable(),
+    /**
+     * Why `companyName` is `null`, when the answer is known: `WITHHELD_AT_SOURCE` means the source
+     * publishes no employer by design (Djinni), so the posting is complete and the employer simply
+     * is not knowable from it. Absent for every other `null`, which may be a disagreement between
+     * sources or an employer nobody claimed. Optional, not nullable: an API deployed before the web
+     * (or after it) must still parse, and the row then reads as it did before this field existed.
+     */
+    employerDisclosure: z.literal('WITHHELD_AT_SOURCE').optional(),
     location: z.string().max(500).nullable(),
     /**
      * `null` exactly for a manual card (`POST /job-queue/manual`): a vacancy an HR or ADMIN
@@ -1942,6 +2043,11 @@ export const jobQueueListItemSchema = z
     hidden: z.boolean(),
     publishedAt: z.string().datetime().nullable(),
     firstSeenAt: z.string().datetime(),
+    /**
+     * The salary the source states in structured fields (sources-17). Absent when it states none:
+     * optional rather than nullable, so a client and an API deployed a version apart still agree.
+     */
+    salary: jobQueueSalarySchema.optional(),
   })
   .strict()
 
@@ -1968,6 +2074,7 @@ export const jobQueueListResponseSchema = z
     nextCursor: z.string().max(300).nullable(),
     counts: z.object({ NEW: countSchema, SUBMITTED: countSchema, HIDDEN: countSchema }).strict(),
     generation: jobQueueGenerationFactsSchema.nullable(),
+    sourcingNotice: sourcingNoticeSchema,
   })
   .strict()
 
@@ -2020,9 +2127,10 @@ export const jobQueueForeignSubmissionSchema = z
 export const JOB_QUEUE_SENIOR_OPTIONS_MAX = 200
 
 /**
- * GET `/job-queue/seniors`: the seniors of the viewer's resolved scope, and only who they are and
+ * GET `/job-queue/seniors`: the seniors of the viewer's resolved scope, and only who they are,
  * which team the picker groups them under (`teams.name`, varchar 255; null for a senior with no live
- * membership, which only the STUDIO scope can list).
+ * membership, which only the STUDIO scope can list) and the senior's own technical roles, which
+ * preset the filters of the external feed links (external vacancy intake PR 4).
  */
 export const jobQueueSeniorOptionsResponseSchema = z
   .object({
@@ -2033,6 +2141,7 @@ export const jobQueueSeniorOptionsResponseSchema = z
             id: z.string().uuid(),
             name: z.string().max(255),
             teamName: z.string().max(255).nullable(),
+            technicalRoles: z.array(technicalRoleSchema).max(TECHNICAL_ROLES.length),
           })
           .strict(),
       )
@@ -2045,10 +2154,32 @@ export const jobQueueMatchEvidenceSchema = z
   .object({
     keyword: z.string().max(MAX_STACK_KEYWORD_CHARS),
     strength: z.enum(['CORE', 'OPTIONAL']),
+    /**
+     * Senior roles PR 4: `'ROLE'` says `keyword` is a `TechnicalRole` id, which the client renders
+     * through `TECHNICAL_ROLE_LABELS` rather than verbatim (an enum id is not display text).
+     * Absent = a technology keyword, already display text.
+     */
+    kind: z.literal('ROLE').optional(),
   })
   .strict()
 
 /** One of the viewer's own seniors on the card. */
+/**
+ * Senior roles PR 4: a role-matched senior's resume skills against the vacancy's technologies.
+ * OVERLAP: `matched` of `total` vacancy technologies; NO_RESUME: the senior has no resume skills.
+ */
+export const jobQueueSkillOverlapSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('OVERLAP'),
+      matched: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(200),
+      total: z.number().int().positive(),
+    })
+    .strict(),
+  z.object({ kind: z.literal('NO_RESUME') }).strict(),
+])
+export type JobQueueSkillOverlap = z.infer<typeof jobQueueSkillOverlapSchema>
+
 export const jobQueueCardSeniorSchema = z
   .object({
     seniorId: z.string().uuid(),
@@ -2060,6 +2191,13 @@ export const jobQueueCardSeniorSchema = z
     matchedKeywords: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(200),
     /** «Чому збіг» (§5.6): each matched keyword with its weight in the vacancy stack. */
     matchEvidence: z.array(jobQueueMatchEvidenceSchema).max(200),
+    /** The senior's own skill overlap (never another senior's); `null` = no role-match evidence. */
+    skillOverlap: jobQueueSkillOverlapSchema.nullable(),
+    /**
+     * Jev fit only, `round(100·fit)`; `null` = not graded yet (never `0` for an ungraded pair).
+     * Never includes the date. An ordering hint, never a filter.
+     */
+    relevancePercent: z.number().int().min(0).max(100).nullable(),
     /** Own scope: the full row. Another team's (shared senior only): the bare marker. */
     submission: z.union([jobQueueSubmissionSchema, jobQueueForeignSubmissionSchema]).nullable(),
     /**
@@ -2213,8 +2351,8 @@ export const jobQueueSubmissionResponseSchema = z
  */
 export const jobQueueManualCardRequestSchema = z
   .object({
-    title: z.string().trim().min(1).max(500),
-    companyName: z.string().trim().min(1).max(255),
+    title: z.string().trim().min(1).max(MANUAL_TITLE_MAX),
+    companyName: z.string().trim().min(1).max(MANUAL_COMPANY_MAX),
     applicationUrl: externalHttpsUrlSchema.optional(),
     descriptionMd: z.string().min(1).max(DESCRIPTION_MD_MAX),
     /** Client-generated; a retry with the same key returns the earlier success. */
@@ -2231,11 +2369,104 @@ export const jobQueueManualCardRequestSchema = z
   })
   .strict()
 
+/**
+ * POST `/job-queue/manual/parse` (ADMIN, HR) — the external-submission dialog's paste box and the
+ * bookmarklet's page-text fallback: plain text in, the vacancy fields a model read from it out.
+ * Nothing is stored. The text cap is the worker's `MAX_EXTRACTION_INPUT_CHARS`.
+ */
+export const jobQueueManualParseRequestSchema = z
+  .object({ text: z.string().trim().min(1).max(MANUAL_PARSE_TEXT_MAX) })
+  .strict()
+
+/**
+ * `isVacancy: false` comes alone. Every field is optional: a fact the text does not state is
+ * absent. A model outage is `JOB_QUEUE_PARSE_UNAVAILABLE` (503), never a partial answer.
+ */
+export const jobQueueManualParseResponseSchema = z
+  .object({
+    isVacancy: z.boolean(),
+    title: z.string().max(MANUAL_TITLE_MAX).optional(),
+    companyName: z.string().max(MANUAL_COMPANY_MAX).optional(),
+    descriptionMd: z.string().max(DESCRIPTION_MD_MAX).optional(),
+  })
+  .strict()
+
+/** Maximum text characters per individual PageBlock in the bookmarklet block map. */
+export const BLOCK_TEXT_MAX = 2000
+
+/** Maximum number of PageBlocks sent in a single jobQueueBlockPickRequest. */
+export const BLOCKS_MAX = 600
+
+/** Ceiling for the summed block text across all blocks in a jobQueueBlockPickRequest. */
+export const EXTERNAL_BLOCKS_MAX = 32000
+
+/** Maximum tab-title characters in a jobQueueBlockPickRequest and the worker's pick-blocks body. */
+export const TAB_TITLE_MAX = 500
+
+/**
+ * A visible text block with its layout attributes, sent by the bookmarklet
+ * so the CRM can ask the model which blocks contain the vacancy fields.
+ */
+export const pageBlockSchema = z
+  .object({
+    t: z.string().max(BLOCK_TEXT_MAX),
+    // a custom element's tag name can be long; cut it rather than refuse the whole map
+    k: z
+      .string()
+      .max(256)
+      .transform((k) => k.slice(0, 40)),
+    fs: z.number().finite(),
+    fw: z.number().finite(),
+    x: z.number().finite(),
+    y: z.number().finite(),
+    w: z.number().finite(),
+    r: z.enum(['nav', 'header', 'footer', 'aside', 'dialog', 'main', '-']),
+  })
+  .strict()
+
+/** POST `/job-queue/manual/pick` request payload. */
+export const jobQueueBlockPickRequestSchema = z
+  .object({
+    url: externalHttpsUrlSchema.optional(),
+    tabTitle: z.string().max(TAB_TITLE_MAX),
+    blocks: z.array(pageBlockSchema).min(1).max(BLOCKS_MAX),
+  })
+  .strict()
+  .refine((req) => req.blocks.reduce((sum, b) => sum + b.t.length, 0) <= EXTERNAL_BLOCKS_MAX, {
+    message: 'zod.SUMMED_BLOCK_TEXT_TOO_LONG',
+    path: ['blocks'],
+  })
+
+/** POST `/job-queue/manual/pick` response: either not a vacancy, or picked vacancy fields. */
+// Stryker disable next-line ArrayDeclaration: schema construction array evaluated at import time
+export const jobQueueBlockPickResponseSchema = z.union([
+  z.object({ isVacancy: z.literal(false) }).strict(),
+  z
+    .object({
+      isVacancy: z.literal(true),
+      title: z.string().max(MANUAL_TITLE_MAX).optional(),
+      companyName: z.string().max(MANUAL_COMPANY_MAX).optional(),
+      descriptionMd: z.string().max(DESCRIPTION_MD_MAX).optional(),
+    })
+    .strict(),
+])
+
 /** The 409 body of `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED`: the viewer-authorized duplicates only. */
 export const jobQueuePossibleDuplicateConflictSchema = z
   .object({
     code: z.literal('JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED'),
     possibleDuplicates: jobQueueDuplicatesPreviewSchema,
+  })
+  .strict()
+
+/**
+ * 409 of POST `/job-queue/manual` when the link is already in the queue: the generic error envelope,
+ * plus `opportunityId` only when the actor can open that card ("open it and submit there").
+ */
+export const jobQueueManualDuplicateConflictSchema = apiErrorEnvelopeSchema
+  .extend({
+    code: z.literal('JOB_QUEUE_MANUAL_DUPLICATE'),
+    opportunityId: z.string().uuid().optional(),
   })
   .strict()
 
@@ -2378,6 +2609,7 @@ export type CreateJobExclusionDto = z.infer<typeof createJobExclusionSchema>
 export type JobCollectionResultDto = z.infer<typeof jobCollectionResultSchema>
 export type JobCollectionFailureDto = z.infer<typeof jobCollectionFailureSchema>
 export type JobCollectionRunDto = z.infer<typeof jobCollectionRunSchema>
+export type SourcingNotice = z.infer<typeof sourcingNoticeSchema>
 export type JobSourceBudgetWindow = z.infer<typeof jobSourceBudgetWindowSchema>
 export type JobSourceBudgetState = z.infer<typeof jobSourceBudgetStateSchema>
 export type JobSourceTriggerMode = z.infer<typeof jobSourceTriggerModeSchema>
@@ -2465,12 +2697,14 @@ export type JobDirtyWorkItemDto = z.infer<typeof jobDirtyWorkItemSchema>
 export type JobSourceHealthDto = z.infer<typeof jobSourceHealthSchema>
 export type JobDirtyWorkItemWorkerDto = z.infer<typeof jobDirtyWorkItemWorkerSchema>
 export type JobQueueTab = z.infer<typeof jobQueueTabSchema>
+export type JobQueueSort = z.infer<typeof jobQueueSortSchema>
 export type JobQueueEligibility = z.infer<typeof jobQueueEligibilitySchema>
 export type JobQueueActivity = z.infer<typeof jobQueueActivitySchema>
 export type JobQueueListQuery = z.infer<typeof jobQueueListQuerySchema>
 export type JobQueueScopeQuery = z.infer<typeof jobQueueScopeQuerySchema>
 export type JobQueueSeniorOptionsResponseDto = z.infer<typeof jobQueueSeniorOptionsResponseSchema>
 export type JobQueueListItemDto = z.infer<typeof jobQueueListItemSchema>
+export type JobQueueSalary = z.infer<typeof jobQueueSalarySchema>
 export type JobQueueListResponseDto = z.infer<typeof jobQueueListResponseSchema>
 export type JobQueueSubmissionDto = z.infer<typeof jobQueueSubmissionSchema>
 export type JobQueueForeignSubmissionDto = z.infer<typeof jobQueueForeignSubmissionSchema>
@@ -2480,10 +2714,18 @@ export type JobQueueSourcesContinuationDto = z.infer<typeof jobQueueSourcesConti
 export type JobQueueCardResponseDto = z.infer<typeof jobQueueCardResponseSchema>
 export type JobQueueSubmitRequestDto = z.infer<typeof jobQueueSubmitRequestSchema>
 export type JobQueueManualCardRequestDto = z.infer<typeof jobQueueManualCardRequestSchema>
+export type JobQueueManualParseRequest = z.infer<typeof jobQueueManualParseRequestSchema>
+export type JobQueueManualParseResponse = z.infer<typeof jobQueueManualParseResponseSchema>
+export type PageBlock = z.infer<typeof pageBlockSchema>
+export type JobQueueBlockPickRequest = z.infer<typeof jobQueueBlockPickRequestSchema>
+export type JobQueueBlockPickResponse = z.infer<typeof jobQueueBlockPickResponseSchema>
 export type JobQueueCancelSubmissionRequestDto = z.infer<
   typeof jobQueueCancelSubmissionRequestSchema
 >
 export type JobQueueSubmissionResponseDto = z.infer<typeof jobQueueSubmissionResponseSchema>
+export type JobQueueManualDuplicateConflictDto = z.infer<
+  typeof jobQueueManualDuplicateConflictSchema
+>
 export type JobQueuePossibleDuplicateConflictDto = z.infer<
   typeof jobQueuePossibleDuplicateConflictSchema
 >

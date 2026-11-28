@@ -28,7 +28,7 @@ import {
 const NOON = Date.parse('2026-11-04T12:00:00Z')
 const NEXT_NOON = NOON + 86_400_000
 const at = (ms: number) => () => ms
-const [M1, M2] = OPENROUTER.models as [string, string]
+const [M1] = OPENROUTER.models as [string, string]
 const reply = (name: string): Reply => {
   const fx = OPENROUTER_FIXTURES.find((f) => f.name === name) as ProviderFixture
   return {
@@ -65,6 +65,33 @@ describe('router: the OpenRouter request (§3.5 check 3)', () => {
     await createRouter(config([OPENROUTER]), deps(f.fetchImpl)).run(REQ)
     for (const key of ['models', 'route', 'transforms'])
       expect(f.sent[0]!.body).not.toHaveProperty(key)
+  })
+
+  it('a call without effort sends no reasoning field to openrouter.ai', async () => {
+    const f = scriptedFetch(() => GOOD)
+    await createRouter(config([OPENROUTER]), deps(f.fetchImpl)).run(REQ)
+    expect(f.sent[0]!.body).not.toHaveProperty('reasoning')
+    expect(f.sent[0]!.body).not.toHaveProperty('reasoning_effort')
+  })
+
+  it('a call with effort minimal sends reasoning.effort to openrouter.ai', async () => {
+    const f = scriptedFetch(() => GOOD)
+    await createRouter(config([OPENROUTER]), deps(f.fetchImpl)).run({
+      ...REQ,
+      reasoningEffort: 'minimal',
+    })
+    expect(f.sent[0]!.body.reasoning).toEqual({ effort: 'minimal' })
+    expect(f.sent[0]!.body).not.toHaveProperty('reasoning_effort')
+  })
+
+  it('a call with effort low sends no reasoning field to openrouter.ai (resume-tailor stays compatible with free models)', async () => {
+    const f = scriptedFetch(() => GOOD)
+    await createRouter(config([OPENROUTER]), deps(f.fetchImpl)).run({
+      ...REQ,
+      reasoningEffort: 'low',
+    })
+    expect(f.sent[0]!.body).not.toHaveProperty('reasoning')
+    expect(f.sent[0]!.body).not.toHaveProperty('reasoning_effort')
   })
 
   it('carries the route’s own `data_collection` and `ignore`', async () => {
@@ -173,13 +200,14 @@ describe('router: OpenRouter classification (§5.1, H.5)', () => {
     expect(f.sent.map((s) => s.model)).toEqual([M1, M1])
   })
 
-  it('free-models-per-min is BUSY: a retry after the pause, then the next model of the same route', async () => {
+  it('free-models-per-min is BUSY: a retry after the pause, then the route cools and the next one answers', async () => {
     const f = scriptedFetch((s) =>
       s.model === M1 ? reply('429 free-models-per-min is BUSY with retry-after') : GOOD,
     )
     const d = deps(f.fetchImpl, { now: at(NOON) })
-    expect((await createRouter(config([OPENROUTER]), d).run(REQ)).ok).toBe(true)
-    expect(f.sent.map((s) => s.model)).toEqual([M1, M1, M2])
+    expect((await createRouter(config([OPENROUTER, GROQ]), d).run(REQ)).ok).toBe(true)
+    // A 429 cools every OpenRouter model, so the sibling `:free` model is not asked.
+    expect(f.sent.map((s) => s.model)).toEqual([M1, M1, 'openai/gpt-oss-120b'])
     expect(providerRecord(d.routeState.snapshot(), 'openrouter').spentDay).toBeUndefined()
   })
 

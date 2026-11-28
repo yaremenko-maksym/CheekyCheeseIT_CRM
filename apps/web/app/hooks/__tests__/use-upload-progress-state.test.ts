@@ -30,6 +30,56 @@ describe('useUploadProgressState', () => {
     expect(result.current.state).toEqual({ phase: 'preparing' })
   })
 
+  // QA-M-1: the request-start tick leaves 'preparing' in the same commit — a
+  // stalled frame (Android, QA-L-2) must not keep «Підготовка файлу» on screen
+  // while bytes are already going out.
+  it('onProgress(0) leaves preparing at once, without waiting a frame', () => {
+    const { result } = renderHook(() => useUploadProgressState())
+    act(() => result.current.prepare())
+    act(() => result.current.onProgress(0))
+    expect(result.current.state).toEqual({ phase: 'uploading', percent: 0 })
+  })
+
+  it('repeated onProgress(0) calls preserve state object identity', () => {
+    const { result } = renderHook(() => useUploadProgressState())
+    act(() => result.current.onProgress(0))
+    const firstState = result.current.state
+    expect(firstState).toEqual({ phase: 'uploading', percent: 0 })
+
+    act(() => result.current.onProgress(0))
+    expect(result.current.state).toBe(firstState)
+  })
+
+  it('onProgress(0) cancels a pending >0 frame so late frame does not overwrite 0', async () => {
+    const { result } = renderHook(() => useUploadProgressState())
+    act(() => {
+      result.current.onProgress(40) // frame pending, not flushed
+      result.current.onProgress(0)
+    })
+    expect(result.current.state).toEqual({ phase: 'uploading', percent: 0 })
+
+    // Give any (incorrectly) still-pending frame a chance to fire — state
+    // must stay uploading 0, not jump to `{ phase: 'uploading', percent: 40 }`.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    expect(result.current.state).toEqual({ phase: 'uploading', percent: 0 })
+  })
+
+  it('a new frame is scheduled after onProgress(0) once the previous frame has flushed', async () => {
+    const nextFrames = () =>
+      new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const { result } = renderHook(() => useUploadProgressState())
+    act(() => result.current.onProgress(40))
+    await act(nextFrames)
+    expect(result.current.state).toEqual({ phase: 'uploading', percent: 40 })
+
+    act(() => result.current.onProgress(0))
+    expect(result.current.state).toEqual({ phase: 'uploading', percent: 0 })
+
+    act(() => result.current.onProgress(60))
+    await act(nextFrames)
+    expect(result.current.state).toEqual({ phase: 'uploading', percent: 60 })
+  })
+
   it('coalesces bursty onProgress ticks into a single commit with the latest value', async () => {
     const { result } = renderHook(() => useUploadProgressState())
     act(() => {

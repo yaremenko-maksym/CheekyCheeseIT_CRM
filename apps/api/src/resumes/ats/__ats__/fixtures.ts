@@ -12,6 +12,9 @@ export interface AtsFixture {
   name: string
   displayName: string
   email: string
+  /** `headerContacts` form; `''` = not in the profile. */
+  phone: string
+  telegram: string
   content: ResumeContent
 }
 
@@ -84,6 +87,8 @@ export const ATS_FIXTURES: readonly AtsFixture[] = [
     name: 'junior-one-job',
     displayName: 'Mila Brandt',
     email: 'mila.brandt@example.com',
+    phone: '+380 67 000 0000',
+    telegram: '@ats_fixture_0',
     content: base({
       summary: 'Junior developer with one year of commercial experience.',
       experience: [
@@ -103,6 +108,8 @@ export const ATS_FIXTURES: readonly AtsFixture[] = [
     name: 'career-15y',
     displayName: 'Arden Kowal',
     email: 'arden.kowal@example.com',
+    phone: '',
+    telegram: '',
     content: base({
       summary: 'Engineer with fifteen years across logistics, payments and health tech.',
       experience: career(),
@@ -112,6 +119,8 @@ export const ATS_FIXTURES: readonly AtsFixture[] = [
     name: 'long-names',
     displayName: 'Theodora Vasquez-Lindqvist',
     email: 'theodora.vasquez-lindqvist@example.com',
+    phone: '+380 67 000 0002',
+    telegram: '@ats_fixture_2',
     content: base({
       experience: [
         {
@@ -134,6 +143,8 @@ export const ATS_FIXTURES: readonly AtsFixture[] = [
     name: 'long-names-wrapped',
     displayName: 'Maximilian Okonkwo-Fairweather',
     email: 'maximilian.okonkwo-fairweather@example.com',
+    phone: '+380 67 000 0003',
+    telegram: '@ats_fixture_3',
     content: base({
       experience: [
         {
@@ -157,6 +168,8 @@ export const ATS_FIXTURES: readonly AtsFixture[] = [
     name: 'diacritics',
     displayName: 'José Müller',
     email: 'jose.mueller@example.com',
+    phone: '+380 67 000 0004',
+    telegram: '@ats_fixture_4',
     content: base({
       summary: 'Software engineer who has worked with teams in Zürich, Málaga and Kraków.',
       experience: [
@@ -183,6 +196,8 @@ export const ATS_FIXTURES: readonly AtsFixture[] = [
     name: 'symbol-skills',
     displayName: 'Rowan Achebe',
     email: 'rowan.achebe@example.com',
+    phone: '+380 67 000 0005',
+    telegram: '@ats_fixture_5',
     content: base({
       skills: ['C#', 'C++', '.NET', 'Node.js', 'CI/CD', 'ASP.NET Core', 'F#', 'Vue.js'],
       experience: [
@@ -202,6 +217,8 @@ export const ATS_FIXTURES: readonly AtsFixture[] = [
     name: 'no-education',
     displayName: 'Ilse Marangoni',
     email: 'ilse.marangoni@example.com',
+    phone: '+380 67 000 0006',
+    telegram: '@ats_fixture_6',
     content: base({
       education: [],
       experience: [
@@ -218,6 +235,8 @@ export const ATS_FIXTURES: readonly AtsFixture[] = [
     name: 'current-job',
     displayName: 'Casimir Oduya',
     email: 'casimir.oduya@example.com',
+    phone: '+380 67 000 0007',
+    telegram: '@ats_fixture_7',
     content: base({
       experience: [
         {
@@ -239,6 +258,8 @@ export const ATS_FIXTURES: readonly AtsFixture[] = [
     name: 'max-bullets',
     displayName: 'Petra Lindgren',
     email: 'petra.lindgren@example.com',
+    phone: '+380 67 000 0008',
+    telegram: '@ats_fixture_8',
     content: base({
       experience: [
         {
@@ -257,6 +278,8 @@ export const ATS_FIXTURES: readonly AtsFixture[] = [
     name: 'max-skills',
     displayName: 'Oren Halvorsen',
     email: 'oren.halvorsen@example.com',
+    phone: '+380 67 000 0009',
+    telegram: '@ats_fixture_9',
     content: base({
       skills: Array.from({ length: RESUME_LIMITS.skills }, (_, s) => `Skill${s + 1}`),
       experience: [

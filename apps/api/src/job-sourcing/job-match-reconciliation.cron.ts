@@ -1,10 +1,14 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
+import { Inject, Injectable, Logger, type OnApplicationBootstrap, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Cron } from '@nestjs/schedule'
 import type { Env } from '../config/env'
 import { DatabaseService } from '../database/database.service'
 import { dbErrorLogSuffix, safeErrorStack } from '../database/pg-errors'
-import { DIRTY_BATCH_DEFAULT, recoverExpiredDirty } from './ownership/dirty-work.store'
+import {
+  DIRTY_BATCH_DEFAULT,
+  enqueueIdentityRekey,
+  recoverExpiredDirty,
+} from './ownership/dirty-work.store'
 import {
   RECONCILE_MAX_DRAIN_BATCHES,
   RECONCILE_PERIOD_HOURS,
@@ -61,7 +65,7 @@ export const MATCH_DRAIN_BUDGET_MS = 60_000
  * drain failure must never reach the run that triggered it.
  */
 @Injectable()
-export class JobMatchReconciliationCronService {
+export class JobMatchReconciliationCronService implements OnApplicationBootstrap {
   private readonly logger = new Logger(JobMatchReconciliationCronService.name)
   private running = false
   private cursor: string | null = null
@@ -78,6 +82,30 @@ export class JobMatchReconciliationCronService {
     @Inject(RecomputeWorker) private readonly worker: RecomputeWorker,
     @Optional() @Inject(ConfigService) private readonly config?: ConfigService<Env, true>,
   ) {}
+
+  /**
+   * One sweep at boot (senior roles PR 4): a deploy that moves the match versions stales every
+   * stamped row, and only a sweep enqueues them, so without it a queue stays empty until the next
+   * cron tick (up to 6 h). Not awaited, so startup is not delayed; the sweep never rejects, and its
+   * `running` flag defers a `requestDrain` and skips a cron tick during it, as for any sweep.
+   */
+  onApplicationBootstrap(): void {
+    if (this.enabled()) void this.bootSweep()
+  }
+
+  /**
+   * sources-18: the identity rekey first, so the sweep's drain consumes it. A failed rekey logs one
+   * warn line and the sweep still runs; never rejects.
+   */
+  private async bootSweep(): Promise<void> {
+    try {
+      const enqueued = await enqueueIdentityRekey(this.db.db)
+      if (enqueued > 0) this.logger.log(`Identity rekey: enqueued=${enqueued}`)
+    } catch (err) {
+      this.logger.warn(`Identity rekey failed, the sweep runs without it${dbErrorLogSuffix(err)}`)
+    }
+    await this.handleReconciliation()
+  }
 
   private enabled(): boolean {
     return this.config?.get('JOB_MATCH_RECONCILIATION_ENABLED', { infer: true }) === true

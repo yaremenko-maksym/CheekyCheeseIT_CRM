@@ -59,7 +59,7 @@ const CASES = [
   // [type, declared cap (hand-written), first-page fixture, what a later page answers]
   ['GREENHOUSE_ATS', 10 * MiB, 'greenhouse/airbnb-board.json', null],
   ['ASHBY_ATS', 10 * MiB, 'ashby/linear-board.json', null],
-  ['ARBEITNOW_API', 8 * MiB, 'arbeitnow/page-1.json', 'arbeitnow/empty-page.json'],
+  ['ARBEITNOW_API', 24 * MiB, 'arbeitnow/page-1.json', 'arbeitnow/empty-page.json'],
 ] as const
 // The all-jobs feed outgrew the 2 MiB default on prod (PAYLOAD_TOO_LARGE, 2026-11-17).
 const WWR_CASE = ['WWR_RSS', 4 * MiB, 'wwr/all-jobs.trimmed.xml', null] as const

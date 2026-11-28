@@ -202,7 +202,7 @@ export function refusalWrite(reason: ClaimRefusal, opensAt: Date | null): Refusa
  */
 export function isSweepable<E extends Pick<LedgerCatalogEntry, 'fetchProfile'>>(
   entry: E | undefined,
-): entry is E {
+): entry is E & { fetchProfile: NonNullable<E['fetchProfile']> } {
   return entry?.fetchProfile != null && entry.fetchProfile.fixedSlots === undefined
 }
 
@@ -364,4 +364,33 @@ export function manualTermRefusal(
   // The host term of the predicate: a NULL key, or a paused host.
   if (row['t_due'] !== true) return row['host_key'] === null ? 'HOST_KEY_MISSING' : 'HOST_PAUSED'
   return null
+}
+
+/**
+ * sources-09: the increments the terminal write adds to a run's counters, and whether the attempt
+ * answered with anything at all.
+ *
+ * `refused` is what the attempt read and would not keep (the schema refused it, the identity seam
+ * refused it); `lost` is what it read, accepted and failed to store. They are ADDED, never
+ * assigned: `received` is also the base the page write's `duplicates = received - unique` was
+ * computed from. The run's two CHECK constraints reduce to "every increment of `received` is
+ * matched by exactly one disposition increment" -- `refused` matches `invalid`, `lost` matches
+ * `persistence_errors` -- so an absent field (0) changes nothing.
+ *
+ * `run` is the run row read BEFORE the increment, so its `received` is only what the page writes
+ * persisted. `nonEmpty` is the value the row will carry AFTER it: a run that read items and kept
+ * none of them did answer with something, so `last_nonempty_at` must move for it too.
+ */
+export function terminalCounters(
+  ending: Readonly<{ refused?: number; lost?: number }>,
+  run: Readonly<Record<string, unknown>>,
+): { received: number; invalid: number; persistenceErrors: number; nonEmpty: boolean } {
+  const refused = ending.refused ?? 0
+  const lost = ending.lost ?? 0
+  return {
+    received: refused + lost,
+    invalid: refused,
+    persistenceErrors: lost,
+    nonEmpty: Number(run['received']) + refused + lost > 0,
+  }
 }

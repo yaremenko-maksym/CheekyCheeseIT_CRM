@@ -22,6 +22,7 @@ export function formatDay(value: string, locale: Locale): string {
 export interface SourceAlertFacts {
   sourceName: string
   state: string
+  reason?: string | null | undefined
   failures?: number | null | undefined
   since?: string | null | undefined
 }
@@ -29,13 +30,14 @@ export interface SourceAlertFacts {
 /**
  * Parameters of the alert sentence. `hasCount` selects the branch (like `hasProject` elsewhere in
  * the registry): the CAPPED sentence names the failure count and the day they began only when the
- * event carried BOTH.
+ * event carried BOTH. `reason` selects the DEGRADED sentence; `none` when the event carries none.
  */
 export function sourceAlertParams(d: SourceAlertFacts, locale: Locale) {
   const counted = d.failures != null && d.since != null
   return {
     source: d.sourceName,
     state: d.state,
+    reason: d.reason ?? 'none',
     hasCount: counted ? 'yes' : 'no',
     failures: d.failures ?? 0,
     since: d.since != null ? formatDay(d.since, locale) : '',

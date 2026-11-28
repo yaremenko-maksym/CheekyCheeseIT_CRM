@@ -231,7 +231,7 @@ describe('the bunq capture (3 offers, all kept)', () => {
     expect(o?.normalized.remote).toBe(false)
     expect(o?.normalized.employmentType).toBe('fulltime_permanent')
     expect(o?.normalized.tags).toEqual(['Support & Operations'])
-    expect(o?.adapterVersion).toBe('recruitee-1')
+    expect(o?.adapterVersion).toBe('recruitee-2')
   })
 
   it("takes the posting URL from the data (the employer's own domain), never from the tenant", async () => {
@@ -275,6 +275,43 @@ describe('the bunq capture (3 offers, all kept)', () => {
   it('the mailbox address of the offer is not in anything that was stored', async () => {
     const { batch } = await run(bunq())
     expect(JSON.stringify(batch.observations)).not.toMatch(/@bunq\.recruitee\.com/)
+  })
+})
+
+describe('salary (sources-17)', () => {
+  it('the bunq capture states no salary (all four fields null), so none is mapped', async () => {
+    const { batch } = await run(bunq())
+    expect(batch.counts.normalized).toBe(3)
+    expect(batch.observations.map((o) => o.normalized.salary ?? null)).toEqual([null, null, null])
+  })
+
+  it('maps a stated salary; an unknown period, no currency or a text amount is none', async () => {
+    const salaryWith = async (salary: unknown) => {
+      const { batch } = await run(wrap([offer(1, { salary })]))
+      expect(batch.counts.normalized).toBe(1)
+      return byId(batch, '1')?.normalized.salary ?? null
+    }
+    expect(await salaryWith({ min: 4000, max: 5500, period: 'month', currency: 'EUR' })).toEqual({
+      min: 4000,
+      max: 5500,
+      currency: 'EUR',
+      period: 'MONTH',
+    })
+    expect(await salaryWith({ min: 60000, max: null, period: 'Year', currency: 'eur' })).toEqual({
+      min: 60000,
+      max: null,
+      currency: 'EUR',
+      period: 'YEAR',
+    })
+    expect(await salaryWith({ min: 30, max: 40, period: 'hour', currency: 'PLN' })).toMatchObject({
+      period: 'HOUR',
+    })
+    expect(await salaryWith({ min: 1, max: 2, period: 'week', currency: 'EUR' })).toBe(null)
+    expect(await salaryWith({ min: 1, max: 2, period: 'year', currency: null })).toBe(null)
+    expect(await salaryWith({ min: '4000', max: '5500', period: 'month', currency: 'EUR' })).toBe(
+      null,
+    )
+    expect(await salaryWith('competitive')).toBe(null)
   })
 })
 
@@ -398,6 +435,23 @@ describe('employer and status', () => {
       discarded: 0,
     })
     expect(batch.invalidSamples.map((s) => s.reason)).toEqual(['QUARANTINED: NOT_AN_OPEN_VACANCY'])
+  })
+
+  // SR-H-1: a status drift that flags the whole board "not open" must not read as a full board
+  // with nothing present (that closes every record past both D4 guards).
+  it('a board where most offers turn not-open claims no inventory (PARTIAL)', async () => {
+    const { batch } = await run(
+      wrap([offer(1, { status: 'archived' }), offer(2, { status: 'archived' }), offer(3)]),
+    )
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.coverage).toBe('PARTIAL')
+  })
+
+  it('a few not-open offers keep the full inventory, so a dropped posting can still close', async () => {
+    const { batch } = await run(
+      wrap([offer(1, { status: 'published' }), offer(2, { status: 'archived' }), offer(3)]),
+    )
+    expect(batch.coverage).toBe('FULL_INVENTORY')
   })
 })
 

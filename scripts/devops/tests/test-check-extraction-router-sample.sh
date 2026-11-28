@@ -19,6 +19,25 @@ check() { "$TSX" --conditions=source "$GUARD" "$@"; }
 assert_green "runbook sample: accepted, every route kept" --contains "routes kept: gemini, groq, cloudflare" -- check "$RUNBOOK"
 assert_green "rehearsal config: accepted, every route kept" --contains "routes kept: gemini, groq, cloudflare" -- check "$REHEARSAL"
 
+# The off-by-default `openrouter` route object the runbook ships for 5.4c-H3. It is NOT a second
+# EXTRACTION_ROUTER_CONFIG= line (two of those are ambiguous, below), so it is checked by splicing it
+# into the sample's `routes`. `sed` uses `|` as its delimiter: the model id carries a `/`.
+or_count_is_one() {
+  local n
+  n="$(grep -c '^{"provider":"openrouter"' "$RUNBOOK")"
+  printf 'openrouter route objects: %s\n' "$n"
+  [ "$n" = 1 ]
+}
+assert_green "runbook ships exactly one openrouter route object" --contains "openrouter route objects: 1" -- or_count_is_one
+
+OR_ROUTE="$(grep '^{"provider":"openrouter"' "$RUNBOOK")"
+sed "s|^\(EXTRACTION_ROUTER_CONFIG=.*\)\]}$|\1,${OR_ROUTE}]}|" "$RUNBOOK" > "$TMP/openrouter.md"
+assert_green "the openrouter route object is kept when spliced into the sample" --contains "routes kept: gemini, groq, cloudflare, openrouter" -- check "$TMP/openrouter.md"
+
+# `dataCollection` is required on this route, with no default (ADR H.9 / D11): without it the config is refused.
+sed 's|,"dataCollection":"allow"||g' "$TMP/openrouter.md" > "$TMP/openrouter-no-dc.md"
+assert_red "the spliced openrouter route without dataCollection is refused" --contains "router refused the config" -- check "$TMP/openrouter-no-dc.md"
+
 sed 's/"hostedBudgetMs":90000,/"hostedBudgetMs":90000,"floorBudgetMs":180000,/' "$RUNBOOK" > "$TMP/floor.md"
 assert_red "a stale floorBudgetMs is refused" --contains "router refused the config" -- check "$TMP/floor.md"
 

@@ -7,8 +7,22 @@ import type { JobQueueCardResponseDto } from '@crm/shared'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { useJobQueueSeniors } from '@/hooks/use-job-queue'
 import { MatchedSeniors, ownSubmission } from '../MatchedSeniors'
-import { cardFixture, idleContinuation, OPP, senior, submission } from './card-fixtures'
+import {
+  cardFixture,
+  GRADED_SENIOR_ID,
+  gradedSenior,
+  idleContinuation,
+  OPP,
+  senior,
+  submission,
+} from './card-fixtures'
 
+// the tailored resume controls have their own spec (TailoredResumeControls.test); none here
+vi.mock('../useTailoredResumes', async (orig) => ({
+  ...(await orig<typeof import('../useTailoredResumes')>()),
+  useTailoredRows: () => new Map(),
+  useOpenForDetail: () => undefined,
+}))
 vi.mock('@/hooks/use-job-queue', async (orig) => ({
   ...(await orig<typeof import('@/hooks/use-job-queue')>()),
   useJobQueueSeniors: vi.fn(),
@@ -183,6 +197,165 @@ describe('MatchedSeniors', () => {
     expect(screen.queryByText('Збіг за:')).toBeNull()
   })
 
+  // ---------------------------------------------------------------------------
+  // Task 5.4 — skills-overlap indicator (spec §7, plan Task 5.4). Display only:
+  // it never sorts, filters or hides a card.
+  // ---------------------------------------------------------------------------
+
+  it('OVERLAP: the count label and one chip per matched skill', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [
+            senior({
+              skillOverlap: { kind: 'OVERLAP', matched: ['React', 'Node.js'], total: 7 },
+            }),
+          ],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    const row = screen.getByTestId(`job-queue-senior-overlap-${S1}`)
+    expect(row).toHaveTextContent('2 з 7 навичок')
+    expect(within(row).getByText('React')).toBeVisible()
+    expect(within(row).getByText('Node.js')).toBeVisible()
+    // A long skill must wrap inside the card instead of widening it (spec §13), so the chip
+    // keeps its own width cap and break rule on top of HIT_CHIP.
+    expect(within(row).getByText('Node.js')).toHaveClass('max-w-full', '[overflow-wrap:anywhere]')
+  })
+
+  it('OVERLAP with nothing matched: «0 з N навичок» and no chip', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [senior({ skillOverlap: { kind: 'OVERLAP', matched: [], total: 7 } })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    const row = screen.getByTestId(`job-queue-senior-overlap-${S1}`)
+    // The whole row is the label: a chip would add its own text.
+    expect(row.textContent).toBe('0 з 7 навичок')
+  })
+
+  // After «з» the count phrase is genitive: 1 takes «навички», 2-4 and 5+ both take
+  // «навичок» («з трьох навичок»), so `few` and `many` share one form.
+  it.each([
+    [1, '1 з 1 навички'],
+    [3, '1 з 3 навичок'],
+    [5, '1 з 5 навичок'],
+  ])('total %i reads «%s»', (total, label) => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [senior({ skillOverlap: { kind: 'OVERLAP', matched: ['React'], total } })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    expect(screen.getByTestId(`job-queue-senior-overlap-${S1}`)).toHaveTextContent(label)
+  })
+
+  it('NO_RESUME says «немає резюме», never «0 з N»', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [senior({ skillOverlap: { kind: 'NO_RESUME' } })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    expect(screen.getByTestId(`job-queue-senior-no-resume-${S1}`)).toHaveTextContent('немає резюме')
+    expect(screen.queryByTestId(`job-queue-senior-overlap-${S1}`)).toBeNull()
+    expect(screen.queryByText(/з 7 навичок/)).toBeNull()
+  })
+
+  it('null renders no indicator at all', () => {
+    renderBlock(
+      cardFixture({
+        seniors: { items: [senior({ skillOverlap: null })], totalCount: 1, nextCursor: null },
+      }),
+    )
+    expect(screen.queryByTestId(`job-queue-senior-overlap-${S1}`)).toBeNull()
+    expect(screen.queryByTestId(`job-queue-senior-no-resume-${S1}`)).toBeNull()
+  })
+
+  it('the matched skills are plain text, reachable without hover', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [senior({ skillOverlap: { kind: 'OVERLAP', matched: ['React'], total: 2 } })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    const row = screen.getByTestId(`job-queue-senior-overlap-${S1}`)
+    const chip = within(row).getByText('React')
+    expect(chip).toBeVisible()
+    // No tooltip or disclosure carries the list (design decision 4): no control, no `title`.
+    expect(within(row).queryByRole('button')).toBeNull()
+    expect(chip).not.toHaveAttribute('title')
+  })
+
+  it('two seniors on one card each show their own overlap', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [
+            senior({ skillOverlap: { kind: 'OVERLAP', matched: ['React'], total: 3 } }),
+            senior({
+              seniorId: S2,
+              displayName: 'Ігор Шевченко',
+              skillOverlap: { kind: 'NO_RESUME' },
+            }),
+          ],
+          totalCount: 2,
+          nextCursor: null,
+        },
+      }),
+    )
+    expect(screen.getByTestId(`job-queue-senior-overlap-${S1}`)).toHaveTextContent('1 з 3 навичок')
+    expect(screen.queryByTestId(`job-queue-senior-overlap-${S2}`)).toBeNull()
+    expect(screen.getByTestId(`job-queue-senior-no-resume-${S2}`)).toBeVisible()
+  })
+
+  it('the «Збіг за:» list is not rendered when skillOverlap is present', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [
+            senior({
+              matchedKeywords: ['React', 'Node.js'],
+              skillOverlap: { kind: 'OVERLAP', matched: ['React'], total: 4 },
+            }),
+          ],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    expect(screen.queryByText('Збіг за:')).toBeNull()
+    expect(screen.getByTestId(`job-queue-senior-overlap-${S1}`)).toHaveTextContent('1 з 4 навичок')
+  })
+
+  it('NO_RESUME also hides the «Збіг за:» list', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [senior({ matchedKeywords: ['React'], skillOverlap: { kind: 'NO_RESUME' } })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    expect(screen.queryByText('Збіг за:')).toBeNull()
+  })
+
   it('an approximate match says so in text, not colour alone', () => {
     renderBlock(
       cardFixture({
@@ -307,7 +480,7 @@ describe('MatchedSeniors', () => {
     )
     const empty = screen.getByTestId('job-queue-seniors-stop-all')
     expect(empty).toHaveTextContent(
-      'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листаСтек збігається, проте вакансію їм не пропонують.',
+      'Усі сеньйори ваших команд зі збігом внесли компанію до стоп-листаСтек збігається, проте вакансію їм не пропонують.',
     )
     expect(screen.queryByTestId('job-queue-stop-some')).toBeNull()
     expect(screen.queryByRole('list')).toBeNull()
@@ -342,7 +515,7 @@ describe('MatchedSeniors', () => {
       }),
     )
     expect(screen.getByTestId('job-queue-seniors-stop-all')).toHaveTextContent(
-      'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листаСтек збігається, проте вакансію їм не пропонують.',
+      'Усі сеньйори ваших команд зі збігом внесли компанію до стоп-листаСтек збігається, проте вакансію їм не пропонують.',
     )
     expect(screen.queryByTestId('job-queue-seniors-triage')).toBeNull()
     expect(screen.queryByText('Сеньйорів не підібрано автоматично')).toBeNull()
@@ -353,7 +526,7 @@ describe('MatchedSeniors', () => {
       cardFixture({ noMatchReason: 'NO_MATCH', matchedSeniorCount: 0, seniors: none }),
     )
     expect(screen.getByTestId('job-queue-seniors-none')).toHaveTextContent(
-      'Немає сеньйорів зі збігом стекуВакансія лишається в черзі, але жоден сеньйор із вашої команди не збігається за стеком.',
+      'Немає сеньйорів зі збігом стекуВакансія лишається в черзі, але жоден сеньйор із ваших команд не збігається за стеком.',
     )
     hr.unmount()
     renderBlock(
@@ -494,6 +667,81 @@ describe('MatchedSeniors', () => {
     await userEvent.click(toggle)
     expect(screen.getByTestId(`job-queue-senior-evidence-${S1}`)).toHaveTextContent(
       /^Required: React$/,
+    )
+  })
+
+  // CR-M-1 / SPEC-M-2: a `kind: 'ROLE'` item carries a `TechnicalRole` id, not display text, so it
+  // renders from the `technical-role.*` catalog every other surface uses; a skill item is untouched.
+  const roleEvidence = {
+    items: [
+      senior({
+        matchEvidence: [
+          { keyword: 'BACKEND_ENGINEER', strength: 'CORE' as const, kind: 'ROLE' as const },
+          { keyword: 'React', strength: 'CORE' as const },
+          {
+            keyword: 'SITE_RELIABILITY_ENGINEER',
+            strength: 'OPTIONAL' as const,
+            kind: 'ROLE' as const,
+          },
+        ],
+      }),
+    ],
+    totalCount: 1,
+    nextCursor: null,
+  }
+
+  it('renders a matched role through the technical-role catalog, not as its enum id', async () => {
+    renderBlock(cardFixture({ seniors: roleEvidence }))
+    await userEvent.click(screen.getByRole('button', { name: 'Чому збіг' }))
+    const evidence = screen.getByTestId(`job-queue-senior-evidence-${S1}`)
+    expect(evidence).toHaveTextContent(
+      /^Обов’язкові: Бекенд-розробник, ReactБажані: Інженер з надійності \(SRE\)$/,
+    )
+    expect(evidence.textContent).not.toMatch(/BACKEND_ENGINEER|SITE_RELIABILITY_ENGINEER/)
+  })
+
+  it('renders a matched role in English too (the label is read, not the descriptor default)', async () => {
+    await loadCatalog('en')
+    renderBlock(cardFixture({ seniors: roleEvidence }))
+    await userEvent.click(screen.getByRole('button', { name: 'Why it matches' }))
+    expect(screen.getByTestId(`job-queue-senior-evidence-${S1}`)).toHaveTextContent(
+      /^Required: Back-end Engineer, ReactNice to have: Site Reliability Engineer$/,
+    )
+  })
+
+  it('leaves an unmarked keyword alone even when it reads like a role id', async () => {
+    // `kind` is what decides, not the shape of the string: a technology keyword is already display
+    // text, and looking it up would rewrite a skill named like a role into a role label.
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [senior({ matchEvidence: [{ keyword: 'BACKEND_ENGINEER', strength: 'CORE' }] })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Чому збіг' }))
+    expect(screen.getByTestId(`job-queue-senior-evidence-${S1}`)).toHaveTextContent(
+      /^Обов’язкові: BACKEND_ENGINEER$/,
+    )
+  })
+
+  it('shows a role id the catalog does not know as it came, rather than nothing', async () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [
+            senior({ matchEvidence: [{ keyword: 'NOT_A_ROLE', strength: 'CORE', kind: 'ROLE' }] }),
+          ],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Чому збіг' }))
+    expect(screen.getByTestId(`job-queue-senior-evidence-${S1}`)).toHaveTextContent(
+      /^Обов’язкові: NOT_A_ROLE$/,
     )
   })
 
@@ -702,6 +950,71 @@ describe('MatchedSeniors', () => {
     seniorsHook.mockReturnValue(idleContinuation([], { isError: true, accessLost: true }) as never)
     await userEvent.click(screen.getByRole('button', { name: 'Спробувати ще раз' }))
     expect(onAccessLost).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Jev relevance percent per senior (PR3)', () => {
+  beforeEach(async () => {
+    seniorsHook.mockReset()
+    seniorsHook.mockReturnValue(idleContinuation() as never)
+    await loadCatalog('uk')
+  })
+
+  const withSeniors = (items: JobQueueCardResponseDto['seniors']['items']) =>
+    cardFixture({ seniors: { items, totalCount: items.length, nextCursor: null } })
+
+  it('shows "Відповідність 87%" for a graded senior', () => {
+    renderBlock(withSeniors([gradedSenior({ relevancePercent: 87 })]))
+    expect(screen.getByTestId(`job-queue-senior-relevance-${GRADED_SENIOR_ID}`)).toHaveTextContent(
+      /^Відповідність 87%$/,
+    )
+  })
+
+  it('shows "Відповідність 0%" for a graded zero', () => {
+    renderBlock(withSeniors([gradedSenior({ relevancePercent: 0 })]))
+    expect(screen.getByTestId(`job-queue-senior-relevance-${GRADED_SENIOR_ID}`)).toHaveTextContent(
+      /^Відповідність 0%$/,
+    )
+  })
+
+  it('renders no relevance node when relevancePercent is null', () => {
+    renderBlock(withSeniors([senior({ relevancePercent: null })]))
+    const block = screen.getByTestId(`job-queue-senior-${S1}`)
+    expect(screen.queryByTestId(`job-queue-senior-relevance-${S1}`)).toBeNull()
+    expect(block.textContent).not.toMatch(/%/)
+  })
+
+  it('each senior shows only their own percent', () => {
+    renderBlock(
+      withSeniors([senior({ relevancePercent: 87 }), gradedSenior({ relevancePercent: 0 })]),
+    )
+    expect(screen.getByTestId(`job-queue-senior-relevance-${S1}`)).toHaveTextContent(
+      /^Відповідність 87%$/,
+    )
+    expect(screen.getByTestId(`job-queue-senior-relevance-${GRADED_SENIOR_ID}`)).toHaveTextContent(
+      /^Відповідність 0%$/,
+    )
+  })
+
+  it('shows "Fit 87%" under the en catalog', async () => {
+    await loadCatalog('en')
+    renderBlock(withSeniors([gradedSenior({ relevancePercent: 87 })]))
+    expect(screen.getByTestId(`job-queue-senior-relevance-${GRADED_SENIOR_ID}`)).toHaveTextContent(
+      /^Fit 87%$/,
+    )
+  })
+
+  it('ungraded senior with skill overlap: no relevance node, overlap still renders', () => {
+    renderBlock(
+      withSeniors([
+        senior({
+          relevancePercent: null,
+          skillOverlap: { kind: 'OVERLAP', matched: ['React'], total: 2 },
+        }),
+      ]),
+    )
+    expect(screen.queryByTestId(`job-queue-senior-relevance-${S1}`)).toBeNull()
+    expect(screen.getByTestId(`job-queue-senior-overlap-${S1}`)).toHaveTextContent('React')
   })
 })
 

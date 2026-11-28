@@ -1,4 +1,5 @@
 import type { RunEnding } from '../ownership/job-run-ledger'
+import { SourceBlockedError } from '../http/source-errors'
 import {
   JobSourceBudgetContentionError,
   JobSourceBudgetExhaustedError,
@@ -29,6 +30,9 @@ export function bridgeEnding(err: unknown): RunEnding {
   }
   if (err instanceof ZeroPostingsError) {
     return { outcome: 'FAILED', errorCode: 'PARSE_DRIFT', errorMessage: message }
+  }
+  if (err instanceof SourceBlockedError) {
+    return { outcome: 'FAILED', errorCode: 'ACCESS_POLICY', errorMessage: message }
   }
   return { outcome: 'FAILED', errorCode: 'UPSTREAM', errorMessage: message }
 }

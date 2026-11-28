@@ -1,5 +1,7 @@
 import {
   createExtractionWorkerAdapter,
+  createExtractionWorkerTransport,
+  INFERENCE_ERROR_CODES,
   MAX_HOSTED_BUDGET_MS,
   routerCallCeilingMs,
   routerInputCeilingChars,
@@ -9,8 +11,11 @@ import {
 } from '@crm/inference'
 import { z } from 'zod'
 import {
+  blockPickReplySchema,
   EXTRACTION_TABLE_VERSION,
   isUsableWorkerSecret,
+  type BlockPickReply,
+  type PickBlocksBody,
 } from '../../extraction-worker/link-contract'
 import { HTML_MODEL_CALLS_PER_CYCLE, InMemoryModelBudget } from './model-budget.port'
 import { createModelHealth, type ModelHealthLog, type ModelHealthStore } from './model-health'
@@ -201,6 +206,91 @@ export function buildModelExtraction(
         return { kind: readiness, structurer, budget, finish: cycle.finish }
       },
     },
+  }
+}
+
+/**
+ * External vacancy intake (spec §D): a fresh structurer per manual parse, over the same worker
+ * adapter the collection side uses. Each one has its own one-call budget, never a cycle's, and the
+ * caller's short timeout; the transport outlives it by a margin, as above. There is no preflight
+ * and no health record: a manual parse stores nothing, so the reply's events are dropped.
+ * `undefined` when the worker env is unset or invalid (the caller answers its outage). The input
+ * window is optional here: unset, the text is cut by the caller's own cap only.
+ */
+export function buildManualStructurer(
+  rawEnv: Readonly<Record<string, string | undefined>>,
+  opts: { timeoutMs: number } & Pick<ExtractionWorkerAdapterConfig, 'fetchImpl'>,
+): (() => ModelStructurer) | undefined {
+  const worker = readExtractionWorkerEnv(rawEnv)
+  if (worker.kind !== 'ok') return undefined
+  const window = readExtractionInputWindow(rawEnv)
+  const inputCeilingChars = window && routerInputCeilingChars(window, EXTRACTION_SYSTEM_PROMPT)
+  const port = createExtractionWorkerAdapter({
+    baseUrl: worker.url,
+    secret: worker.secret,
+    tableVersion: EXTRACTION_TABLE_VERSION,
+    timeoutMs: opts.timeoutMs + MARGIN_MS,
+    // Stryker disable next-line BlockStatement: equivalent — the sink is a no-op on purpose
+    onReply: () => {},
+    ...(opts.fetchImpl && { fetchImpl: opts.fetchImpl }),
+  })
+  return () =>
+    new ModelStructurer({
+      port,
+      budget: new InMemoryModelBudget(1),
+      timeoutMs: opts.timeoutMs,
+      ...(inputCeilingChars && { inputCeilingChars }),
+    })
+}
+
+/** A pick's block ids, or a value-free reason it failed (a transport kind, a worker code, `INVALID_REPLY`). */
+export type BlockPickOutcome = { ok: true; reply: BlockPickReply } | { ok: false; reason: string }
+/** One `/pick-blocks` call; the table version is the picker's own. Never throws. */
+export type BlockPicker = (body: Omit<PickBlocksBody, 'tableVersion'>) => Promise<BlockPickOutcome>
+
+/** The worker's reply envelope; the events and health it also carries are not recorded here. */
+const pickEnvelopeSchema = z.object({
+  result: z.discriminatedUnion('ok', [
+    z.object({ ok: z.literal(true), data: blockPickReplySchema }),
+    z.object({ ok: z.literal(false), code: z.enum(INFERENCE_ERROR_CODES) }),
+  ]),
+})
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    // not JSON: it fails the envelope schema
+  }
+  return undefined
+}
+
+/**
+ * Bookmarklet block map: the worker's `/pick-blocks` over its private transport, in the caller's
+ * timeout. Like a manual parse it stores nothing, so there is no preflight and no health record.
+ * `undefined` when the worker env is unset or invalid (the caller answers its outage).
+ */
+export function buildBlockPicker(
+  rawEnv: Readonly<Record<string, string | undefined>>,
+  opts: { timeoutMs: number } & Pick<ExtractionWorkerAdapterConfig, 'fetchImpl'>,
+): BlockPicker | undefined {
+  const worker = readExtractionWorkerEnv(rawEnv)
+  if (worker.kind !== 'ok') return undefined
+  const post = createExtractionWorkerTransport({
+    baseUrl: worker.url,
+    secret: worker.secret,
+    ...(opts.fetchImpl && { fetchImpl: opts.fetchImpl }),
+  })
+  return async (body) => {
+    const res = await post('/pick-blocks', {
+      body: JSON.stringify({ ...body, tableVersion: EXTRACTION_TABLE_VERSION }),
+      timeoutMs: opts.timeoutMs,
+    })
+    if (res.kind !== 'ok') return { ok: false, reason: res.kind }
+    const parsed = pickEnvelopeSchema.safeParse(parseJson(res.text))
+    if (!parsed.success) return { ok: false, reason: 'INVALID_REPLY' }
+    const { result } = parsed.data
+    return result.ok ? { ok: true, reply: result.data } : { ok: false, reason: result.code }
   }
 }
 

@@ -14,7 +14,7 @@ describe('ROLE_VARIANT', () => {
   })
 })
 
-describe('framer-motion variants', () => {
+describe('motion variants', () => {
   it('container fades in and staggers children by 0.1s', () => {
     expect(container).toEqual({
       hidden: { opacity: 0 },

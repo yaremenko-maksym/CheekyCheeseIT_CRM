@@ -78,9 +78,9 @@ describe('classifyHealth', () => {
 
   it.each([
     'SCHEMA_DRIFT',
+    'PAYLOAD_GROWTH',
     'THROTTLED',
     'SLOW',
-    'PAYLOAD_GROWTH',
     'VOLUME_DROP',
     'DEADLINE_NEAR',
   ] as const)('%s → DEGRADED', (reason) => {
@@ -103,6 +103,15 @@ describe('classifyHealth', () => {
         facts({ reasons: ['DEADLINE_NEAR', 'PAYLOAD_GROWTH', 'SCHEMA_DRIFT', 'SLOW'] }),
       ).reasonCode,
     ).toBe('SCHEMA_DRIFT')
+  })
+
+  // Sources-10 SO-1: PAYLOAD_GROWTH alerts and SLOW / THROTTLED do not, so a run that is both
+  // slow and near the byte cap must report PAYLOAD_GROWTH, or the alert is lost.
+  it.each(['SLOW', 'THROTTLED'] as const)('PAYLOAD_GROWTH outranks %s', (other) => {
+    expect(classifyHealth(facts({ reasons: [other, 'PAYLOAD_GROWTH'] }))).toEqual({
+      state: 'DEGRADED',
+      reasonCode: 'PAYLOAD_GROWTH',
+    })
   })
 
   it('CAPPED carries ACCESS_CHANGED when present, else null', () => {

@@ -11,7 +11,12 @@ import { MAX_PDF_PAGES } from '../resume-source.util'
 import { loadCatalogTemplate, type ResumeRenderInput } from '../resume-typst.service'
 import type { ContactContext } from './contact-scan'
 import { redactAll, RunFailure, type GateResult } from './content-gates'
-import { unavailableOrigin, VISUAL_PROVIDER, type VisualReply } from './inference-clients'
+import {
+  unavailableOrigin,
+  VISUAL_PROVIDER,
+  type VisualCheckOptions,
+  type VisualReply,
+} from './inference-clients'
 
 export interface RenderDeps {
   typst: {
@@ -22,7 +27,7 @@ export interface RenderDeps {
     countRenderedPages(pdf: Buffer): Promise<number>
     extractRenderedPages(pdf: Buffer): Promise<string[]>
   }
-  vision: { check(pngPages: Buffer[]): Promise<VisualReply> }
+  vision: { check(pngPages: Buffer[], opts?: VisualCheckOptions): Promise<VisualReply> }
   /** Runs before every model call; throws `RunFailure('STALLED')` past the run budget. */
   beforeModelCall(): Promise<void>
 }
@@ -30,6 +35,9 @@ export interface RenderDeps {
 export interface RenderPlan {
   displayName: string
   email: string
+  /** `headerContacts` form. */
+  phone: string
+  telegram: string
   /** Raw content (P11): `render()` gets it as is, so fingerprints match the confirm step. */
   content: ResumeContent
   layout: ResumeLayoutOptions
@@ -40,6 +48,12 @@ export interface RenderPlan {
   fallbacks: string[]
   /** Human-edited paths: never reverted silently (`staged_edited_paths`). */
   editedPaths: string[]
+  /** A page limit below `MAX_PDF_PAGES` (the tailored variant's); absent = `MAX_PDF_PAGES`. */
+  maxPages?: number
+  /** Removes one piece of content once the layout knobs are spent; `null` when nothing can go. */
+  shrinkContent?: (content: ResumeContent) => ResumeContent | null
+  /** The content drops allowed, a budget of their own outside the layout rounds; absent = none. */
+  maxContentDrops?: number
 }
 
 export interface Accepted {
@@ -122,9 +136,11 @@ async function measure(
   pdf: Buffer,
   input: Omit<AtsCheckInput, 'pages' | 'pdfBytes'>,
   deps: RenderDeps,
+  maxPages: number,
 ): Promise<{ other: AtsFailure[]; layout: ResumeReportReason[] }> {
   try {
-    if ((await deps.extraction.countRenderedPages(pdf)) > MAX_PDF_PAGES) {
+    const count = await deps.extraction.countRenderedPages(pdf)
+    if (count > maxPages) {
       return { other: [], layout: ['TOO_MANY_PAGES'] }
     }
     const pages = await deps.extraction.extractRenderedPages(pdf)
@@ -154,8 +170,16 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
   let { content, layout } = plan
   let reverted = false
   let rounds = 0
+  /** The item index of every content drop still applied; a revert of an item gives its drops back. */
+  let dropped: number[] = []
   for (;;) {
-    const raw = { displayName: plan.displayName, email: plan.email, content }
+    const raw = {
+      displayName: plan.displayName,
+      email: plan.email,
+      phone: plan.phone,
+      telegram: plan.telegram,
+      content,
+    }
     // GLYPH_CHECK_FAILED comes from this run's own normalisation, before anything renders.
     const renderable = toRenderableDeep(raw, plan.templateName)
     if (renderable.dropped.length > 0) {
@@ -174,7 +198,12 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
     } catch {
       throw new RunFailure('RENDER_FAILED', [{ gate: 'render', ok: false, items: [] }])
     }
-    const result = await measure(pdf, { ...renderable.value, layout }, deps)
+    const result = await measure(
+      pdf,
+      { ...renderable.value, layout },
+      deps,
+      Math.min(plan.maxPages ?? MAX_PDF_PAGES, MAX_PDF_PAGES),
+    )
 
     if (result.other.length > 0) {
       const paths = result.other.map((f) => aiPath(f.path))
@@ -188,6 +217,7 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
       }
       const set = new Set(paths)
       content = revert(content, plan.notes, set)
+      dropped = dropped.filter((i) => !set.has(`experience.${i}.bullets`))
       for (const p of set) fallbacks.add(p)
       reverted = true
       continue
@@ -195,7 +225,16 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
 
     if (result.layout.length > 0) {
       const next = shrinkLayout(layout)
-      if (rounds >= MAX_REPAIR_ROUNDS || next === null) {
+      if (rounds < MAX_REPAIR_ROUNDS && next !== null) {
+        layout = next
+        rounds++
+        continue
+      }
+      const shrunk =
+        dropped.length < (plan.maxContentDrops ?? 0)
+          ? (plan.shrinkContent?.(content) ?? null)
+          : null
+      if (shrunk === null) {
         throw new RunFailure('LAYOUT_UNFIXABLE', [
           { gate: 'ats', ok: true, items: [] },
           {
@@ -205,8 +244,14 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
           },
         ])
       }
-      layout = next
-      rounds++
+      const before = content
+      dropped.push(
+        shrunk.experience.findIndex(
+          // Stryker disable next-line OptionalChaining: equivalent — a shrink only removes content, so the item before it has index i
+          (item, i) => item.bullets.length !== before.experience[i]?.bullets.length,
+        ),
+      )
+      content = shrunk
       continue
     }
 
@@ -221,19 +266,22 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
 }
 
 /**
- * The copy the vision model sees: no real name, email or link URL, and every other string redacted
+ * The copy the vision model sees: no real name, email, phone, Telegram or link URL, and every other string redacted
  * field by field (addendum A1: company, role and education are never contact-scanned at submit).
  */
 export function placeholderCopy(
   content: ResumeContent,
   contacts: readonly ContactContext[],
-): { displayName: string; email: string; content: ResumeContent } {
+): { displayName: string; email: string; phone: string; telegram: string; content: ResumeContent } {
   const redacted = JSON.parse(JSON.stringify(content), (_key, value: unknown) =>
     typeof value === 'string' ? redactAll(value, contacts) : value,
   ) as ResumeContent
   return {
     displayName: 'Firstname Lastname',
     email: 'name@example.com',
+    // Always filled, so the vision check sees the longest header a senior can have.
+    phone: '+000 00 000 0000',
+    telegram: '@telegram_handle',
     content: {
       ...redacted,
       links: content.links.map(() => ({ label: 'Link', url: 'https://example.com' })),
@@ -243,7 +291,8 @@ export function placeholderCopy(
 
 /**
  * Stage 8: the vision check of the placeholder copy. A finding counts only when a second call reports
- * the same check on the same page; when the confirming call cannot run, the first findings count.
+ * the same check on the same page; when the confirming call cannot run, the first findings count. The
+ * second call is told what it confirms, so the client can confirm a Jev finding with the worker.
  */
 export async function visualGate(
   accepted: Pick<Accepted, 'content' | 'layout'>,
@@ -263,17 +312,17 @@ export async function visualGate(
     throw new RunFailure('RENDER_FAILED', [{ gate: 'visual', ok: false, items: [] }])
   }
   await deps.beforeModelCall()
-  const first = await deps.vision.check(pngs)
+  const first = await deps.vision.check(pngs, { beforeFallback: () => deps.beforeModelCall() })
   if (first.kind === 'unavailable') {
     throw new RunFailure(
       'VISUAL_CHECK_UNAVAILABLE',
       [{ gate: 'visual', ok: false, items: [] }],
-      unavailableOrigin(VISUAL_PROVIDER, first),
+      unavailableOrigin(first.provider ?? VISUAL_PROVIDER, first),
     )
   }
   if (first.findings.length === 0) return { gate: 'visual', ok: true, items: [] }
   await deps.beforeModelCall()
-  const second = await deps.vision.check(pngs)
+  const second = await deps.vision.check(pngs, { confirming: first })
   const confirmed =
     second.kind === 'unavailable'
       ? first.findings

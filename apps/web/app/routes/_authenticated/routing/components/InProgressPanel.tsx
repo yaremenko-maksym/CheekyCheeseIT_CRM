@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { Plus, Wallet } from 'lucide-react'
 import { Trans } from '@lingui/react/macro'
 import { i18n } from '@lingui/core'
@@ -102,7 +102,7 @@ export function InProgressPanel({
 
   return (
     <>
-      <motion.div variants={card} initial="hidden" animate="show">
+      <m.div variants={card} initial="hidden" animate="show">
         <Card data-testid={`${testIdPrefix}-in-progress-panel`}>
           <CardContent className="pt-5 space-y-4">
             {/* Toolbar */}
@@ -216,7 +216,7 @@ export function InProgressPanel({
             )}
           </CardContent>
         </Card>
-      </motion.div>
+      </m.div>
 
       {/* Shared finance dialogs */}
       <CreateTransactionDialog

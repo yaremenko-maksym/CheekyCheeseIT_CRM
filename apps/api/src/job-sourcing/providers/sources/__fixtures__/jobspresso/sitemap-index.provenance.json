@@ -1,0 +1,12 @@
+{
+  "url": "https://jobspresso.co/sitemap_index.xml",
+  "fetchedAt": "2026-11-24T17:47:39.000Z",
+  "httpStatus": 200,
+  "rawSha256": "02b9bc797fcda2e7701e8f3979feec7b2569fa8fcf22691ed09962c7242ccb28",
+  "fileSha256": "02b9bc797fcda2e7701e8f3979feec7b2569fa8fcf22691ed09962c7242ccb28",
+  "trimmedBy": "none: kept whole, no byte removed (a sitemap index is small and has no url elements to select)",
+  "termsUrl": "https://jobspresso.co/",
+  "termsCheckedAt": "2026-11-24T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 text/xml; charset=UTF-8, a Yoast sitemap index of five parts, kept whole. Terms restrict commercial use and copying of the materials; no clause on automated access was found. robots.txt disallows query-string URLs and calendar or event actions; the job paths are allowed. One plain GET with transport UA CheekyCheeseIT-CRM/1.0; no challenge, no block."
+}

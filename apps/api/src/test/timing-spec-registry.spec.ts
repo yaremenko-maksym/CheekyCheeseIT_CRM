@@ -36,8 +36,12 @@ const REPO_ROOT = findRepoRoot(SRC_ROOT)
 
 /** Paths relative to `apps/api/src`, sorted. */
 const PINNED_TIMING_SPECS = [
+  // deterministic counterpart: job-sourcing/queue/job-queue.mp13.integration.spec.ts
+  'job-sourcing/queue/job-queue.mp13.timing.spec.ts',
   'job-sourcing/xml/growth.timing.spec.ts',
   'resumes/resume-render-responsiveness.timing.spec.ts',
+  // deterministic counterpart: contact-scan.name-parts.spec.ts + contact-scan.translit.spec.ts
+  'resumes/verification/contact-scan.timing.spec.ts',
 ]
 
 /**

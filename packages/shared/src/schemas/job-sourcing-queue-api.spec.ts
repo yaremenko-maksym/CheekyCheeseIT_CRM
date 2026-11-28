@@ -16,6 +16,7 @@ import {
   jobQueueListResponseSchema,
   jobQueueListSchema,
   jobQueueManualCardRequestSchema,
+  jobQueueManualDuplicateConflictSchema,
   jobQueueOpenedRequestSchema,
   jobQueuePossibleDuplicateConflictSchema,
   jobQueueQuerySchema,
@@ -23,6 +24,7 @@ import {
   jobQueueScopeQuerySchema,
   jobQueueSeniorOptionsResponseSchema,
   jobQueueSeniorsContinuationSchema,
+  jobQueueSalarySchema,
   jobQueueSourcesContinuationSchema,
   jobQueueStatusSchema,
   jobQueueSubmissionResponseSchema,
@@ -36,9 +38,11 @@ import {
   DESCRIPTION_MD_MAX,
   JOB_QUEUE_ROW_KEYWORDS_MAX,
   JOB_QUEUE_SENIOR_FILTER_MAX,
+  JOB_QUEUE_SALARY_MIN_MONTHLY_MAX,
   JOB_QUEUE_SENIOR_OPTIONS_MAX,
 } from './job-sourcing'
 import { MAX_STACK_KEYWORD_CHARS } from '../utils/stack-keywords'
+import { TECHNICAL_ROLES } from './technical-roles'
 
 /**
  * r5 Phase 6 T0 — the `/job-queue` wire contracts (per-senior submissions, no
@@ -109,6 +113,8 @@ const senior = {
   matchApproximate: false,
   matchedKeywords: ['typescript'],
   matchEvidence: [{ keyword: 'typescript', strength: 'CORE' }],
+  skillOverlap: null,
+  relevancePercent: null,
   submission: submitted,
 }
 /** The submit conflict's preview: the shared duplicate item, without the card's own-scope names. */
@@ -180,8 +186,15 @@ describe('legacy phase-1 queue shapes stay parseable (extend-in-place)', () => {
 })
 
 describe('jobQueueListQuerySchema — GET /job-queue', () => {
-  it('defaults to the NEW tab, 20 per page, no filters', () => {
-    expect(jobQueueListQuerySchema.parse({})).toEqual({ tab: 'NEW', limit: 20 })
+  it('defaults to the NEW tab, relevance order, 20 per page, no filters', () => {
+    expect(jobQueueListQuerySchema.parse({})).toEqual({ tab: 'NEW', sort: 'relevance', limit: 20 })
+  })
+
+  it('accepts the two sorts and refuses any other', () => {
+    expect(jobQueueListQuerySchema.parse({ sort: 'published' }).sort).toBe('published')
+    expect(jobQueueListQuerySchema.parse({ sort: 'relevance' }).sort).toBe('relevance')
+    for (const sort of ['', 'PUBLISHED', 'date', 'score'])
+      expect(jobQueueListQuerySchema.safeParse({ sort }).success).toBe(false)
   })
 
   it('bounds the page size to 1..50 (query strings coerce)', () => {
@@ -202,6 +215,7 @@ describe('jobQueueListQuerySchema — GET /job-queue', () => {
       }),
     ).toEqual({
       tab: 'NEW',
+      sort: 'relevance',
       limit: 20,
       source: ['DOU_RSS', 'DJINNI_RSS'],
       eligibility: ['TRIAGE'],
@@ -286,13 +300,20 @@ describe('jobQueueListQuerySchema — GET /job-queue', () => {
   it('takes the scope, tab, seniors and cursor, and refuses anything else', () => {
     expect(
       jobQueueListQuerySchema.parse({ teamId: U1, tab: 'HIDDEN', seniorIds: U2, cursor: 'c' }),
-    ).toEqual({ teamId: U1, tab: 'HIDDEN', seniorIds: [U2], cursor: 'c', limit: 20 })
+    ).toEqual({
+      teamId: U1,
+      tab: 'HIDDEN',
+      sort: 'relevance',
+      seniorIds: [U2],
+      cursor: 'c',
+      limit: 20,
+    })
     expect(jobQueueListQuerySchema.safeParse({ tab: 'IN_PROGRESS' }).success).toBe(false)
     expect(jobQueueListQuerySchema.safeParse({ teamId: 'team-a' }).success).toBe(false)
     expect(jobQueueListQuerySchema.safeParse({ cursor: '' }).success).toBe(false)
     expect(jobQueueListQuerySchema.safeParse({ cursor: 'c'.repeat(301) }).success).toBe(false)
-    // Dropped filters (owner 2026-10-18) and any stray parameter are a 400.
-    expect(jobQueueListQuerySchema.safeParse({ salary: 'unknown' }).success).toBe(false)
+    // A stray parameter is a 400. (The salary filter, dropped 2026-10-18, is back since 2026-11-21.)
+    expect(jobQueueListQuerySchema.safeParse({ stray: 'x' }).success).toBe(false)
   })
 
   it('the card / continuation query takes the scope and a cursor only', () => {
@@ -311,6 +332,7 @@ describe('response shapes round-trip', () => {
       nextCursor: null,
       counts: { NEW: 3, SUBMITTED: 1, HIDDEN: 0 },
       generation: generationFacts,
+      sourcingNotice: null,
     }
     expect(jobQueueListResponseSchema.parse(page)).toEqual(page)
     expect(jobQueueListResponseSchema.parse({ ...page, generation: null }).generation).toBeNull()
@@ -340,6 +362,7 @@ describe('response shapes round-trip', () => {
       nextCursor: null,
       counts: { NEW: n, SUBMITTED: 0, HIDDEN: 0 },
       generation: null,
+      sourcingNotice: null,
     })
     expect(jobQueueListResponseSchema.safeParse(page(50)).success).toBe(true)
     expect(jobQueueListResponseSchema.safeParse(page(51)).success).toBe(false)
@@ -569,6 +592,156 @@ describe('a manual card is a list row without a source (r5 Phase 6)', () => {
   })
 })
 
+describe('the employer-disclosure marker on a row and a card (backlog 309)', () => {
+  it('accepts the one marker value, on both the row and the card', () => {
+    const withheld = { ...listItem, companyName: null, employerDisclosure: 'WITHHELD_AT_SOURCE' }
+    expect(jobQueueListItemSchema.parse(withheld)).toEqual(withheld)
+    expect(jobQueueCardResponseSchema.parse({ ...card, ...withheld }).employerDisclosure).toBe(
+      'WITHHELD_AT_SOURCE',
+    )
+  })
+
+  it('is optional, so a row from an API deployed before the field still parses', () => {
+    expect(jobQueueListItemSchema.parse(listItem).employerDisclosure).toBeUndefined()
+  })
+
+  it('refuses any other value: the marker is one reason, not free text', () => {
+    for (const value of ['', 'NO_CLAIMS', 'withheld_at_source', 'EQUAL_AUTHORITY_CONFLICT', null]) {
+      expect(
+        jobQueueListItemSchema.safeParse({ ...listItem, employerDisclosure: value }).success,
+      ).toBe(false)
+    }
+  })
+})
+
+describe('the salary on a row and a card (sources-17)', () => {
+  const salary = { min: 4000, max: 5500, currency: 'EUR', period: 'MONTH' }
+
+  it('accepts a range or a single bound, on both the row and the card', () => {
+    expect(jobQueueListItemSchema.parse({ ...listItem, salary })).toEqual({ ...listItem, salary })
+    const from = { ...salary, max: null }
+    expect(jobQueueListItemSchema.parse({ ...listItem, salary: from }).salary).toEqual(from)
+    expect(jobQueueCardResponseSchema.parse({ ...card, salary }).salary).toEqual(salary)
+  })
+
+  it('accepts each of the three periods', () => {
+    for (const period of ['HOUR', 'MONTH', 'YEAR']) {
+      expect(
+        jobQueueListItemSchema.parse({ ...listItem, salary: { ...salary, period } }).salary,
+      ).toEqual({ ...salary, period })
+    }
+  })
+
+  it('is optional, so a row from an API deployed before the field still parses', () => {
+    expect(jobQueueListItemSchema.parse(listItem).salary).toBeUndefined()
+  })
+
+  it('refuses a malformed salary: lower-case currency, an unknown period, no amount, a stray key', () => {
+    for (const bad of [
+      { ...salary, currency: 'eur' },
+      { ...salary, period: 'DAY' },
+      { ...salary, min: 0 },
+      { ...salary, max: 1e9 + 1 },
+      { ...salary, extra: 1 },
+      null,
+    ]) {
+      expect(jobQueueListItemSchema.safeParse({ ...listItem, salary: bad }).success).toBe(false)
+    }
+  })
+  it('refuses both bounds null and min > max, as the DB CHECK does; min == max is a single amount', () => {
+    for (const bad of [
+      { ...salary, min: null, max: null },
+      { ...salary, min: 5501, max: 5500 },
+    ]) {
+      expect(jobQueueListItemSchema.safeParse({ ...listItem, salary: bad }).success).toBe(false)
+      expect(jobQueueCardResponseSchema.safeParse({ ...card, salary: bad }).success).toBe(false)
+    }
+    const issuesOf = (bad: unknown) => jobQueueSalarySchema.safeParse(bad).error?.issues
+    expect(issuesOf({ ...salary, min: null, max: null })).toEqual([
+      expect.objectContaining({
+        code: 'custom',
+        message: 'salary needs at least one bound',
+        path: ['min'],
+      }),
+    ])
+    expect(issuesOf({ ...salary, min: 5501, max: 5500 })).toEqual([
+      expect.objectContaining({ code: 'custom', message: 'salary min exceeds max', path: ['min'] }),
+    ])
+    const exact = { ...salary, min: 5500, max: 5500 }
+    expect(jobQueueListItemSchema.parse({ ...listItem, salary: exact }).salary).toEqual(exact)
+    const upTo = { ...salary, min: null }
+    expect(jobQueueListItemSchema.parse({ ...listItem, salary: upTo }).salary).toEqual(upTo)
+  })
+})
+
+describe('the salary filter (sources-17; dropped by the owner 2026-10-18, back 2026-11-21)', () => {
+  const issues = (raw: Record<string, unknown>) =>
+    jobQueueListQuerySchema.safeParse(raw).error?.issues.map((i) => i.path.join('.'))
+
+  it('takes stated / not stated, a currency, and a monthly minimum with its currency', () => {
+    expect(
+      jobQueueListQuerySchema.parse({
+        salary: 'STATED',
+        salaryCurrency: 'EUR',
+        salaryMinMonthly: '4000',
+      }),
+    ).toMatchObject({ salary: ['STATED'], salaryCurrency: 'EUR', salaryMinMonthly: 4000 })
+    expect(jobQueueListQuerySchema.parse({ salary: 'STATED,NOT_STATED' }).salary).toEqual([
+      'STATED',
+      'NOT_STATED',
+    ])
+    expect(jobQueueListQuerySchema.parse({ salaryCurrency: 'USD' }).salaryCurrency).toBe('USD')
+    expect(
+      jobQueueListQuerySchema.parse({
+        salaryCurrency: 'PLN',
+        salaryMinMonthly: String(JOB_QUEUE_SALARY_MIN_MONTHLY_MAX),
+      }).salaryMinMonthly,
+    ).toBe(10_000_000)
+  })
+
+  it('refuses an unknown value, a malformed currency and an out-of-range or fractional minimum', () => {
+    expect(issues({ salary: 'unknown' })).toEqual(['salary.0'])
+    for (const salaryCurrency of ['eur', 'EURO', 'E1R', '']) {
+      expect(issues({ salaryCurrency })).toEqual(['salaryCurrency'])
+    }
+    for (const salaryMinMonthly of ['0', '-1', '4000.5', '10000001', 'x']) {
+      expect(issues({ salaryCurrency: 'EUR', salaryMinMonthly })).toEqual(['salaryMinMonthly'])
+    }
+  })
+
+  it('a monthly minimum needs a currency: amounts in different currencies do not compare', () => {
+    expect(issues({ salaryMinMonthly: '4000' })).toEqual(['salaryMinMonthly'])
+    expect(issues({ salary: 'STATED', salaryMinMonthly: '4000' })).toEqual(['salaryMinMonthly'])
+    expect(jobQueueListQuerySchema.safeParse({ salaryMinMonthly: '4000' }).error?.issues).toEqual([
+      expect.objectContaining({
+        code: 'custom',
+        message: 'a monthly minimum compares within one currency: salaryCurrency is required',
+      }),
+    ])
+  })
+
+  it('a currency or a minimum contradicts "not stated"', () => {
+    expect(issues({ salary: 'NOT_STATED', salaryCurrency: 'EUR' })).toEqual(['salary'])
+    expect(
+      issues({ salary: 'STATED,NOT_STATED', salaryCurrency: 'EUR', salaryMinMonthly: '1' }),
+    ).toEqual(['salary'])
+    // a minimum alone contradicts it too (and also lacks its currency)
+    expect(issues({ salary: 'NOT_STATED', salaryMinMonthly: '1' })).toEqual([
+      'salaryMinMonthly',
+      'salary',
+    ])
+    expect(
+      jobQueueListQuerySchema.safeParse({ salary: 'NOT_STATED', salaryCurrency: 'EUR' }).error
+        ?.issues,
+    ).toEqual([
+      expect.objectContaining({
+        code: 'custom',
+        message: 'a salary currency or minimum cannot select postings that state no salary',
+      }),
+    ])
+  })
+})
+
 describe('requests refuse an unknown key (CR-M-1)', () => {
   it.each([
     [
@@ -594,9 +767,14 @@ describe('requests refuse an unknown key (CR-M-1)', () => {
 })
 
 describe('jobQueueSeniorOptionsResponseSchema — GET /job-queue/seniors', () => {
-  const option = { id: U1, name: 'Olena K.', teamName: 'Team Alpha' }
+  const option = {
+    id: U1,
+    name: 'Olena K.',
+    teamName: 'Team Alpha',
+    technicalRoles: ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'],
+  }
 
-  it('carries the id, the display name and the team name, and nothing else', () => {
+  it('carries the id, the display name, the team name and the technical roles, and nothing else', () => {
     expect(jobQueueSeniorOptionsResponseSchema.parse({ items: [option] })).toEqual({
       items: [option],
     })
@@ -619,7 +797,17 @@ describe('jobQueueSeniorOptionsResponseSchema — GET /job-queue/seniors', () =>
     expect(parse({ ...option, teamName: 'x'.repeat(256) }).success).toBe(false)
     // a senior with no live membership (STUDIO only) has no team, never a placeholder string
     expect(parse({ ...option, teamName: null }).success).toBe(true)
-    expect(parse({ id: U1, name: 'Olena K.' }).success).toBe(false)
+    expect(parse({ id: U1, name: 'Olena K.', technicalRoles: [] }).success).toBe(false)
+  })
+
+  it('technical roles are the closed list: none is fine, an unknown or a missing field is refused', () => {
+    const parse = (o: object) => jobQueueSeniorOptionsResponseSchema.safeParse({ items: [o] })
+    expect(parse({ ...option, technicalRoles: [] }).success).toBe(true)
+    expect(parse({ ...option, technicalRoles: ['WIZARD'] }).success).toBe(false)
+    const { technicalRoles: _, ...withoutRoles } = option
+    expect(parse(withoutRoles).success).toBe(false)
+    expect(parse({ ...option, technicalRoles: [...TECHNICAL_ROLES] }).success).toBe(true)
+    expect(parse({ ...option, technicalRoles: [...TECHNICAL_ROLES, 'CTO'] }).success).toBe(false)
   })
 
   it('bounds the list: the limit accepted, one more refused', () => {
@@ -648,7 +836,12 @@ describe('field bounds, both sides of each limit (CR-M-2)', () => {
     no(jobQueueListQuerySchema, { cursor: s(301) })
     for (const cursor of ['cc', s(300)]) ok(jobQueueScopeQuerySchema, { cursor })
     no(jobQueueScopeQuerySchema, { cursor: s(301) })
-    const page = { items: [], counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 }, generation: null }
+    const page = {
+      items: [],
+      counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
+      generation: null,
+      sourcingNotice: null,
+    }
     const facts = (over: Record<string, unknown>) => ({
       ...page,
       nextCursor: null,
@@ -740,6 +933,60 @@ describe('field bounds, both sides of each limit (CR-M-2)', () => {
       ...senior,
       matchEvidence: [{ keyword: s(MAX_STACK_KEYWORD_CHARS + 1), strength: 'CORE' }],
     })
+    // Senior roles PR 4 (CR-M-1 / SPEC-M-2): `kind` is optional and 'ROLE' is its only value —
+    // absent means a technology keyword, so an old payload stays valid.
+    ok(jobQueueCardSeniorSchema, {
+      ...senior,
+      matchEvidence: [{ keyword: 'BACKEND_ENGINEER', strength: 'CORE', kind: 'ROLE' }],
+    })
+    no(jobQueueCardSeniorSchema, {
+      ...senior,
+      matchEvidence: [{ keyword: 'go', strength: 'CORE', kind: 'SKILL' }],
+    })
+  })
+
+  it('relevancePercent accepts 0..100 int and null', () => {
+    for (const relevancePercent of [0, 1, 73, 100, null])
+      ok(jobQueueCardSeniorSchema, { ...senior, relevancePercent })
+  })
+
+  it('relevancePercent rejects 101, -1, 73.5 and a missing key', () => {
+    for (const relevancePercent of [101, -1, 73.5, '73', undefined])
+      no(jobQueueCardSeniorSchema, { ...senior, relevancePercent })
+    const { relevancePercent: _omitted, ...missing } = senior
+    no(jobQueueCardSeniorSchema, missing)
+  })
+
+  it('skillOverlap: both kinds, the array and char caps, and a positive total only', () => {
+    const over = (skillOverlap: unknown) => ({ ...senior, skillOverlap })
+    const matched = (n: number) => Array.from({ length: n }, () => 'ts')
+    const overlap = (patch: Record<string, unknown> = {}) =>
+      over({ kind: 'OVERLAP', matched: ['ts'], total: 3, ...patch })
+    // Both branches and the `null` of a senior with no role-match evidence.
+    ok(jobQueueCardSeniorSchema, overlap())
+    ok(jobQueueCardSeniorSchema, over({ kind: 'NO_RESUME' }))
+    ok(jobQueueCardSeniorSchema, over(null))
+    no(jobQueueCardSeniorSchema, over(undefined))
+    // The discriminator carries the whole shape: no other kind, and no missing one.
+    no(jobQueueCardSeniorSchema, over({ kind: 'PARTIAL', matched: ['ts'], total: 3 }))
+    no(jobQueueCardSeniorSchema, over({ matched: ['ts'], total: 3 }))
+    // `matched`: empty and the cap accepted, one over refused; a keyword at and over the char cap.
+    ok(jobQueueCardSeniorSchema, overlap({ matched: [] }))
+    ok(jobQueueCardSeniorSchema, overlap({ matched: matched(200) }))
+    no(jobQueueCardSeniorSchema, overlap({ matched: matched(201) }))
+    ok(jobQueueCardSeniorSchema, overlap({ matched: [s(MAX_STACK_KEYWORD_CHARS)] }))
+    no(jobQueueCardSeniorSchema, overlap({ matched: [s(MAX_STACK_KEYWORD_CHARS + 1)] }))
+    // `total` is the count of vacancy technologies: an integer above zero, never 0 or fractional.
+    ok(jobQueueCardSeniorSchema, overlap({ total: 1 }))
+    no(jobQueueCardSeniorSchema, overlap({ total: 0 }))
+    no(jobQueueCardSeniorSchema, overlap({ total: -1 }))
+    no(jobQueueCardSeniorSchema, overlap({ total: 1.5 }))
+    // Both branches are `.strict()`: a server that adds a field is refused at the client.
+    no(jobQueueCardSeniorSchema, overlap({ seniorId: U1 }))
+    no(jobQueueCardSeniorSchema, over({ kind: 'NO_RESUME', matched: ['ts'] }))
+    // Each OVERLAP field is required (no silent default).
+    no(jobQueueCardSeniorSchema, over({ kind: 'OVERLAP', total: 3 }))
+    no(jobQueueCardSeniorSchema, over({ kind: 'OVERLAP', matched: ['ts'] }))
   })
 
   it('a senior team is optional (absent for a TEAM scope), nullable, and capped', () => {
@@ -941,6 +1188,7 @@ describe('AC4: no response shape carries foreign identity', () => {
     nextCursor: null,
     counts: { NEW: 1, SUBMITTED: 0, HIDDEN: 0 },
     generation: generationFacts,
+    sourcingNotice: null,
   }
   const conflict = {
     code: 'JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED',
@@ -1042,5 +1290,27 @@ describe('AC4: no response shape carries foreign identity', () => {
   it('there is no "taken" tab or status: foreign activity has no representation at all', () => {
     expect(jobQueueTabSchema.safeParse('IN_PROGRESS').success).toBe(false)
     expect(jobQueueTabSchema.safeParse('TAKEN').success).toBe(false)
+  })
+})
+
+describe('jobQueueManualDuplicateConflictSchema (409 of POST /job-queue/manual)', () => {
+  const envelope = {
+    statusCode: 409,
+    code: 'JOB_QUEUE_MANUAL_DUPLICATE',
+    params: {},
+    message: 'This link is already in the queue',
+  }
+
+  it('is the generic envelope, with opportunityId only when the actor can open the card', () => {
+    expect(jobQueueManualDuplicateConflictSchema.parse(envelope)).toEqual(envelope)
+    const named = { ...envelope, opportunityId: U1 }
+    expect(jobQueueManualDuplicateConflictSchema.parse(named)).toEqual(named)
+  })
+
+  it('accepts no other code, no malformed id and no extra key', () => {
+    const parse = (v: unknown) => jobQueueManualDuplicateConflictSchema.safeParse(v).success
+    expect(parse({ ...envelope, code: 'JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED' })).toBe(false)
+    expect(parse({ ...envelope, opportunityId: 'not-a-uuid' })).toBe(false)
+    expect(parse({ ...envelope, teamId: U1 })).toBe(false)
   })
 })

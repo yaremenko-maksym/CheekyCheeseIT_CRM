@@ -67,7 +67,8 @@ export async function generationById(db: SqlExecutor, id: string): Promise<Gener
   return row === undefined ? null : toGeneration(row)
 }
 
-async function publishedGeneration(
+/** The scope's PUBLISHED generation, if it is still servable under `signature`; never publishes. */
+export async function publishedGeneration(
   db: SqlExecutor,
   scope: JobQueueScope,
   signature: string,
@@ -129,11 +130,14 @@ async function publish(
   const id = String((rows[0] as Record<string, unknown>)['id'])
   await tx.execute(
     sql`INSERT INTO job_queue_generation_entries
-          (generation_id, opportunity_id, rank_score, order_key, first_seen_at, opportunity_revision)
+          (generation_id, opportunity_id, rank_score, order_key, first_seen_at, opportunity_revision,
+           published_at, published_order_key)
         SELECT ${id}::uuid, c.id, c.score,
                (row_number() OVER (ORDER BY c.score DESC, c.first_seen_at DESC, c.id DESC) - 1)::int,
-               c.first_seen_at, c.revision
-          FROM (SELECT o.id, o.first_seen_at, o.revision, rank.score
+               c.first_seen_at, c.revision, c.published_at,
+               (row_number() OVER (ORDER BY c.published_at DESC NULLS LAST, c.first_seen_at DESC,
+                                            c.id DESC) - 1)::int
+          FROM (SELECT o.id, o.first_seen_at, o.revision, o.published_at, rank.score
                   FROM job_opportunities o
                  CROSS JOIN LATERAL (${rankSelect(versions)}) rank
                  WHERE ${listableOpportunityPredicate(scope, sql`o.id`)}

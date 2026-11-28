@@ -34,6 +34,7 @@ import {
   jobRoleFamilySchema,
   jobTriageRoleFamilySchema,
   jobSignalKindSchema,
+  jobQueueSkillOverlapSchema,
 } from './job-sourcing'
 
 /**
@@ -1345,5 +1346,22 @@ describe('triage subscription: worker vs public shape (SR-M-6)', () => {
     ])
     const { actorId: _actor, ...publicRow } = row
     expect(jobQueueTeamTriageSubscriptionSchema.parse(row)).toEqual(publicRow)
+  })
+})
+
+describe('jobQueueSkillOverlapSchema (senior roles PR 4)', () => {
+  it('accepts the two members verbatim and refuses anything else', () => {
+    const overlap = { kind: 'OVERLAP' as const, matched: ['Go'], total: 2 }
+    expect(jobQueueSkillOverlapSchema.parse(overlap)).toEqual(overlap)
+    expect(jobQueueSkillOverlapSchema.parse({ kind: 'NO_RESUME' })).toEqual({ kind: 'NO_RESUME' })
+    const refused = [
+      { kind: 'OVERLAP', matched: ['Go'] },
+      { kind: 'OVERLAP', matched: ['Go'], total: 0 },
+      { kind: 'OVERLAP', matched: 'Go', total: 1 },
+      { kind: 'NO_RESUME', matched: [] },
+      { kind: 'OTHER' },
+      {},
+    ]
+    for (const bad of refused) expect(jobQueueSkillOverlapSchema.safeParse(bad).success).toBe(false)
   })
 })

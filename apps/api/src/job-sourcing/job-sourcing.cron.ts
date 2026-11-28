@@ -9,12 +9,17 @@ import { JobSourcingService } from './job-sourcing.service'
 import { JobRunLedger } from './ownership/job-run-ledger'
 import { runCollectionWindow } from './runtime/collection-window'
 import { JobRunWorker } from './runtime/job-run-worker'
+import { startOffsetMs } from './scheduling/jitter'
 
 /** Both daily handlers run on the company's clock, not the server's (ADR T5, F7). */
 export const CRON_TIME_ZONE = 'Europe/Kyiv'
 /** 05:00: the legacy DOU collection and retention only (source fetch strategy U3). */
 export const API_COLLECTION_CRON = '0 5 * * *'
-export const HTML_COLLECTION_CRON = '30 2 * * *'
+/**
+ * The HTML types, four times a day, 6 h apart (owner, 2026-11-21, task sources-15). The same times
+ * are the live HTML types' fixed slots (`HTML_RUN_TIMES`), so every firing finds them due.
+ */
+export const HTML_COLLECTION_CRON = '30 2,8,14,20 * * *'
 /** Source fetch strategy ADR section 5: the 10-minute tick and the 08:00 sweep (owner, Q3). */
 export const TICK_CRON = '*/10 * * * *'
 export const SWEEP_CRON = '0 8 * * *'
@@ -51,7 +56,17 @@ export function tickTriggerKey(at: Date): string {
 }
 
 /**
- * The type sets: HTML types at 02:30, every other reporting type to the tick and the sweep.
+ * `daily-html:<Kyiv date>T<HH>`: one cycle per HTML slot (task sources-15). A date-only key would
+ * hand the 08:30, 14:30 and 20:30 firings the 02:30 cycle, already closed, so they would claim
+ * nothing. The hour alone tells the slots apart, and two replicas firing one slot share it.
+ */
+export function htmlTriggerKey(at: Date): string {
+  const p = Object.fromEntries(KYIV_SLOT.formatToParts(at).map((x) => [x.type, x.value]))
+  return `daily-html:${p['year']}-${p['month']}-${p['day']}T${p['hour']}`
+}
+
+/**
+ * The type sets: HTML types at the four HTML slots, every other reporting type to the tick and the sweep.
  * DOU is the legacy path (`collectAll`), never claimed through the ledger.
  */
 export const HTML_COLLECTION_TYPES: readonly JobSourceType[] = jobSourceTypeSchema.options.filter(
@@ -77,12 +92,14 @@ export const DEFAULT_WINDOW_INTERVAL_MS = 30_000
  * Four schedules, all in `Europe/Kyiv` (source fetch strategy ADR section 5, unit U3):
  *  - 05:00: the legacy DOU collection and retention ONLY. The API types left it for the tick and
  *    the sweep; it opens no cycle and claims nothing.
- *  - 02:30: the HTML types (all blocked until phase 5), unchanged since T5.
+ *  - 02:30, 08:30, 14:30, 20:30: the HTML types, in a cycle keyed by the Kyiv date and slot hour
+ *    (`htmlTriggerKey`), so each slot opens its own cycle (task sources-15).
  *  - every 10 minutes, the tick: the API types whose slot has come, in a cycle keyed by the
  *    10-minute Kyiv slot, for at most `TICK_WINDOW_MS` (9 minutes).
  *  - 08:00, the sweep: every enabled scheduled API-type source once in a cycle keyed by the Kyiv
  *    date, whatever its slot (the sweep predicate), within `JOB_COLLECTION_WINDOW_MS`. A source with
- *    a null profile or with fixed slots is not swept (`isSweepable`); the tick runs fixed slots.
+ *    a null profile or with fixed slots is not swept (`isSweepable`); the tick runs fixed slots. A
+ *    windowed profile with no off interval is swept only on its window days (Mondays-only sources).
  *  - each ledger handler: `openCycle` -> `recoverExpired` -> `sweepOrphanReservations` -> the
  *    bounded collection window (`runCollectionWindow`), which closes the cycle.
  *  !! The retention crons are UTC; collection now runs every 10 minutes, so the overlap with them
@@ -100,9 +117,14 @@ export class JobSourcingCronService {
     intervalMs: number
     onlyIds?: readonly string[]
     tickWindowMs: number
+    random: () => number
+    sleep: (ms: number) => Promise<void>
   } = {
     intervalMs: DEFAULT_WINDOW_INTERVAL_MS,
     tickWindowMs: TICK_WINDOW_MS,
+    random: Math.random,
+    // unref: a pending start offset never keeps the process alive past `app.close()` (CR-M-2).
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms).unref()),
   }
 
   constructor(
@@ -120,14 +142,23 @@ export class JobSourcingCronService {
   /** U3: the legacy DOU collection and retention only; the API types moved to the tick and the sweep. */
   @Cron(API_COLLECTION_CRON, { timeZone: CRON_TIME_ZONE })
   async handleDailyCollection(): Promise<void> {
+    // The DOU run has no window deadline: the offset only moves its start (and the retention purge)
+    // up to 10 min later, it shortens nothing (CR-M-1).
+    await this.step('daily-collection: wait start offset', async () => {
+      const offset = startOffsetMs(this.windowMs(), this.tuning.random)
+      if (offset > 0) {
+        await this.tuning.sleep(offset)
+      }
+    })
     await this.collectLegacyDou()
   }
 
   @Cron(HTML_COLLECTION_CRON, { timeZone: CRON_TIME_ZONE })
   async handleHtmlCollection(): Promise<void> {
     await this.runHandler('daily-html', HTML_COLLECTION_TYPES, {
-      triggerKey: () => this.triggerKey('daily-html'),
+      triggerKey: () => htmlTriggerKey(new Date()),
       windowMs: () => this.windowMs(),
+      withJitter: true,
     })
   }
 
@@ -158,6 +189,7 @@ export class JobSourcingCronService {
       triggerKey: () => this.triggerKey('sweep'),
       windowMs: () => this.windowMs(),
       sweep: true,
+      withJitter: true,
     })
   }
 
@@ -174,6 +206,7 @@ export class JobSourcingCronService {
       triggerKey: () => this.triggerKey('detail'),
       windowMs: () => this.windowMs(),
       detailPass: true,
+      withJitter: true,
     })
   }
 
@@ -194,8 +227,16 @@ export class JobSourcingCronService {
     name: string,
     types: readonly JobSourceType[],
     // Thunks: computed inside the steps, so a throw is logged, never a rejected @Cron handler.
-    run: { triggerKey: () => string; windowMs: () => number; sweep?: true; detailPass?: true },
+    run: {
+      triggerKey: () => string
+      windowMs: () => number
+      sweep?: true
+      detailPass?: true
+      withJitter?: true
+    },
   ): Promise<void> {
+    // Taken first, as before jitter: the ledger steps and the start offset both spend the window
+    // budget, so the deadline stays entry + windowMs (CR-H-1).
     const startedAt = performance.now()
     const ledger = this.ledger
     const worker = this.worker
@@ -206,6 +247,13 @@ export class JobSourcingCronService {
     await this.step(`${name}: recoverExpired`, () => ledger.recoverExpired())
     await this.step(`${name}: sweepOrphanReservations`, () => ledger.sweepOrphanReservations())
     if (opened === undefined || worker === undefined) return
+
+    if (run.withJitter === true) {
+      await this.step(`${name}: wait start offset`, async () => {
+        const offset = startOffsetMs(run.windowMs(), this.tuning.random)
+        if (offset > 0) await this.tuning.sleep(offset)
+      })
+    }
     await this.step(`${name}: collection window`, () =>
       runCollectionWindow(
         { ledger, worker, logger: this.logger },

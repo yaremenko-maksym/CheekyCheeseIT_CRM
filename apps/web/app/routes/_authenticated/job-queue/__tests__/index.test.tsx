@@ -5,14 +5,18 @@
  * The router stub follows interviews/__tests__/index.test.tsx: `Route.useSearch()` answers
  * the test's own search state, `useNavigate()` records the target.
  */
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach, onTestFinished } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { JobQueueListResponseDto } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+import { BOOKMARKLET_USED_KEY } from '@/lib/external-prefill'
 
 const mockNavigate = vi.fn()
+const mockBuildLocation = vi.fn((loc: { search: Record<string, unknown> }) => ({
+  href: `/job-queue?card=${String(loc.search.card)}`,
+}))
 let currentSearch: Record<string, unknown> = { tab: 'NEW' }
 
 vi.mock('@tanstack/react-router', async (orig) => {
@@ -20,6 +24,7 @@ vi.mock('@tanstack/react-router', async (orig) => {
   return {
     ...real,
     useNavigate: () => mockNavigate,
+    useRouter: () => ({ buildLocation: mockBuildLocation }),
     createFileRoute: (path: string) => (options: Record<string, unknown>) => ({
       options,
       path,
@@ -65,8 +70,8 @@ const TEAM_A = 'aaaaaaaa-0000-4000-8000-000000000001'
 const TEAM_B = 'bbbbbbbb-0000-4000-8000-000000000002'
 const ITEM_ID = '11111111-1111-4111-8111-111111111111'
 
-function team(id: string, name: string) {
-  return { id, name, archivedAt: null, members: [{ userId: HR_ID, leftAt: null }] }
+function team(id: string, name: string, type: 'SENIOR' | 'DROP' = 'SENIOR') {
+  return { id, name, type, archivedAt: null, members: [{ userId: HR_ID, leftAt: null }] }
 }
 
 function page(over: Partial<JobQueueListResponseDto> = {}): JobQueueListResponseDto {
@@ -97,6 +102,7 @@ function page(over: Partial<JobQueueListResponseDto> = {}): JobQueueListResponse
     nextCursor: null,
     counts: { NEW: 7, SUBMITTED: 2, HIDDEN: 1 },
     generation: { ruleVersion: 'v1', evaluatedAt: '2026-11-01T00:00:00.000Z', capped: false },
+    sourcingNotice: null,
     ...over,
   }
 }
@@ -104,8 +110,13 @@ function page(over: Partial<JobQueueListResponseDto> = {}): JobQueueListResponse
 const SENIOR_A = '55555555-5555-4555-8555-555555555555'
 const SENIOR_B = '66666666-6666-4666-8666-666666666666'
 const SENIOR_OPTIONS = [
-  { id: SENIOR_A, name: 'Анна Коваль', teamName: 'Команда А' },
-  { id: SENIOR_B, name: 'Богдан Шевченко', teamName: 'Команда А' },
+  {
+    id: SENIOR_A,
+    name: 'Анна Коваль',
+    teamName: 'Команда А',
+    technicalRoles: ['BACKEND_ENGINEER'],
+  },
+  { id: SENIOR_B, name: 'Богдан Шевченко', teamName: 'Команда А', technicalRoles: [] },
 ]
 
 type Call = { url: string; params?: Record<string, unknown> | undefined }
@@ -230,10 +241,12 @@ describe('/job-queue page', () => {
     mockNavigate.mockReset()
     currentSearch = { tab: 'NEW' }
     vi.mocked(api.get).mockReset()
+    // the first-visit install dialog has its own tests (index.external.test.tsx)
+    localStorage.setItem(BOOKMARKLET_USED_KEY, '1')
     await loadCatalog('uk')
   })
 
-  it('renders the queue for an HR with one team, scoped to that team', async () => {
+  it('renders the queue for an HR with one team; the server scopes it, no team param', async () => {
     serve()
     renderPage()
     expect(screen.getByTestId('job-queue-page')).toBeInTheDocument()
@@ -244,7 +257,7 @@ describe('/job-queue page', () => {
     expect(screen.getByTestId('job-queue-row-triage')).toHaveTextContent('Потребує розгляду')
     expect(screen.getByTestId('job-queue-tab-NEW')).toHaveTextContent('Нові7')
     expect(screen.getByTestId('job-queue-tab-SUBMITTED')).toHaveTextContent('Подані2')
-    expect(queueCalls()[0]?.params).toEqual({ teamId: TEAM_A, tab: 'NEW', limit: 20 })
+    expect(queueCalls()[0]?.params).toEqual({ tab: 'NEW', limit: 20 })
     expect(screen.queryByTestId('job-queue-team-switcher')).toBeNull()
   })
 
@@ -267,6 +280,52 @@ describe('/job-queue page', () => {
     expect(calls.filter((c) => c.url === '/job-sourcing/sources')).toHaveLength(0)
   })
 
+  it("PR 4: the external-source links follow the first selected senior's role", async () => {
+    currentSearch = { tab: 'NEW', seniorIds: [SENIOR_A, SENIOR_B] }
+    serve()
+    renderPage()
+    const block = await screen.findByTestId('external-sources')
+    await waitFor(() =>
+      expect(within(block).getByTestId('external-sources-filters')).toHaveTextContent(
+        'Анна Коваль',
+      ),
+    )
+    expect(within(block).getByRole('link', { name: 'DOU' })).toHaveAttribute(
+      'href',
+      'https://jobs.dou.ua/vacancies/?search=backend%20engineer&exp=5plus&remote',
+    )
+  })
+
+  it('PR 4: a selected senior without roles gets the general links, not the first listed senior', async () => {
+    currentSearch = { tab: 'NEW', seniorIds: [SENIOR_B] }
+    serve()
+    renderPage()
+    const block = await screen.findByTestId('external-sources')
+    await waitFor(() =>
+      expect(within(block).getByTestId('external-sources-filters')).toHaveTextContent(
+        'Богдан Шевченко',
+      ),
+    )
+    expect(within(block).getByRole('link', { name: 'DOU' })).toHaveAttribute(
+      'href',
+      'https://jobs.dou.ua/vacancies/?exp=5plus&remote',
+    )
+  })
+
+  it('PR 4: no senior selected gives the general links; the block opens the submission dialog', async () => {
+    serve({ role: 'ADMIN' })
+    renderPage()
+    const block = await screen.findByTestId('external-sources')
+    expect(screen.queryByTestId('external-submission-dialog')).not.toBeInTheDocument()
+    expect(within(block).getByRole('link', { name: 'DOU' })).toHaveAttribute(
+      'href',
+      'https://jobs.dou.ua/vacancies/?exp=5plus&remote',
+    )
+    await userEvent.click(within(block).getByTestId('external-sources-title'))
+    await userEvent.click(within(block).getByTestId('external-sources-register'))
+    expect(await screen.findByTestId('external-submission-dialog')).toBeInTheDocument()
+  })
+
   it('asks the server for the tab in the URL', async () => {
     currentSearch = { tab: 'HIDDEN' }
     serve()
@@ -283,6 +342,67 @@ describe('/job-queue page', () => {
     expect(mockNavigate).toHaveBeenCalledWith({ to: '/job-queue', search: { tab: 'SUBMITTED' } })
   })
 
+  it('sorts by relevance by default and sends no sort param', async () => {
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(screen.getByRole('combobox', { name: 'Сортування' })).toHaveTextContent(
+      'За релевантністю',
+    )
+    expect(queueCalls()[0]?.params).not.toHaveProperty('sort')
+  })
+
+  it('choosing the publication date writes it into the URL, keeping the rest', async () => {
+    currentSearch = { tab: 'HIDDEN', search: 'go' }
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    await userEvent.click(screen.getByRole('combobox', { name: 'Сортування' }))
+    await userEvent.click(
+      within(await screen.findByRole('listbox')).getByRole('option', {
+        name: 'Спочатку нові',
+      }),
+    )
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      to: '/job-queue',
+      search: { tab: 'HIDDEN', search: 'go', sort: 'published' },
+    })
+  })
+
+  it('a published sort in the URL asks the server for page 1 of that order', async () => {
+    currentSearch = { tab: 'NEW', sort: 'published' }
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(queueCalls()[0]?.params).toMatchObject({ tab: 'NEW', sort: 'published' })
+    expect(queueCalls()[0]?.params).not.toHaveProperty('cursor')
+    expect(screen.getByRole('combobox', { name: 'Сортування' })).toHaveTextContent('Спочатку нові')
+  })
+
+  it('resetting the filters keeps the sort: it is an order, not a filter', async () => {
+    currentSearch = { tab: 'NEW', sort: 'published', eligibility: ['TRIAGE'] }
+    serve({ queue: () => Promise.resolve({ data: page({ items: [] }) }) })
+    renderPage()
+    const empty = within(await screen.findByTestId('job-queue-filtered-empty'))
+    await userEvent.click(empty.getByRole('button', { name: 'Скинути фільтри' }))
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      to: '/job-queue',
+      search: { tab: 'NEW', sort: 'published' },
+    })
+  })
+
+  it('back to relevance drops the sort from the URL', async () => {
+    currentSearch = { tab: 'NEW', sort: 'published' }
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    await userEvent.click(screen.getByRole('combobox', { name: 'Сортування' }))
+    await userEvent.click(
+      within(await screen.findByRole('listbox')).getByRole('option', { name: 'За релевантністю' }),
+    )
+    expect(mockNavigate).toHaveBeenLastCalledWith({ to: '/job-queue', search: { tab: 'NEW' } })
+  })
+
   it('a row click opens the card through the URL', async () => {
     serve()
     renderPage()
@@ -293,8 +413,24 @@ describe('/job-queue page', () => {
     })
   })
 
+  it('a Ctrl/Cmd-click opens the card in a new tab and leaves this page as it is', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    onTestFinished(() => open.mockRestore())
+    serve()
+    renderPage()
+    const row = await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    mockNavigate.mockClear()
+    fireEvent.click(row, { metaKey: true })
+    expect(mockBuildLocation).toHaveBeenCalledWith({
+      to: '/job-queue',
+      search: { tab: 'NEW', card: ITEM_ID },
+    })
+    expect(open).toHaveBeenCalledExactlyOnceWith(`/job-queue?card=${ITEM_ID}`, '_blank', 'noopener')
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
   it('`?card=` opens the card for that id; closing it clears only `card`', async () => {
-    currentSearch = { tab: 'SUBMITTED', teamId: TEAM_B, search: 'go', card: ITEM_ID }
+    currentSearch = { tab: 'SUBMITTED', search: 'go', card: ITEM_ID }
     serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
     renderPage()
     const card = await screen.findByTestId('job-queue-card-stub')
@@ -302,7 +438,7 @@ describe('/job-queue page', () => {
     await userEvent.click(card)
     expect(mockNavigate).toHaveBeenLastCalledWith({
       to: '/job-queue',
-      search: { tab: 'SUBMITTED', teamId: TEAM_B, search: 'go' },
+      search: { tab: 'SUBMITTED', search: 'go' },
     })
   })
 
@@ -371,6 +507,13 @@ describe('/job-queue page', () => {
     expect(queueCalls()).toHaveLength(0)
   })
 
+  it('an HR in DROP teams only reads the queue, not the no-team state', async () => {
+    serve({ teams: [team(TEAM_A, 'Команда Дроп', 'DROP')] })
+    renderPage()
+    await waitFor(() => expect(queueCalls().length).toBeGreaterThan(0))
+    expect(screen.queryByTestId('job-queue-no-team')).toBeNull()
+  })
+
   it('an HR whose teams request fails gets an error with a retry, not an endless skeleton (QA-M-2)', async () => {
     let fail = true
     serve({
@@ -425,17 +568,14 @@ describe('/job-queue page', () => {
     expect(screen.queryByTestId('job-queue-error')).toBeNull()
   })
 
-  it('keeps search and the icon-only filter button on one row; only the team switcher stacks (UX-L-5)', async () => {
+  it('keeps search and the icon-only filter button on one row (UX-L-5)', async () => {
     serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
     renderPage()
-    const switcher = await screen.findByTestId('job-queue-team-switcher')
-    const row = screen.getByTestId('job-queue-search-row')
+    const row = await screen.findByTestId('job-queue-search-row')
     expect(row).toContainElement(screen.getByRole('search'))
     expect(row).toContainElement(screen.getByTestId('job-queue-filters-button'))
     expect(row).toHaveClass('flex', 'items-center', 'gap-2')
     expect(row).not.toHaveClass('flex-col')
-    // the switcher is outside that row: it is the only toolbar part that stacks
-    expect(row).not.toContainElement(switcher)
   })
 
   it('hides the native search cancel so only the custom clear button shows (UX-M-2)', async () => {
@@ -446,21 +586,20 @@ describe('/job-queue page', () => {
     )
   })
 
-  it('an HR with several teams gets a switcher and the URL team is used', async () => {
+  it('an HR with several teams reads all of them at once: no team param, no switcher', async () => {
+    serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(queueCalls()[0]?.params).toEqual({ tab: 'NEW', limit: 20 })
+    expect(screen.queryByTestId('job-queue-team-switcher')).toBeNull()
+  })
+
+  it('a team id left in an old URL never narrows the HR queue', async () => {
     currentSearch = { tab: 'NEW', teamId: TEAM_B }
     serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
     renderPage()
-    expect(await screen.findByTestId('job-queue-team-switcher')).toHaveTextContent('Beta')
     await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
-    expect(queueCalls()[0]?.params).toMatchObject({ teamId: TEAM_B })
-  })
-
-  it('an unknown URL team falls back to the first team', async () => {
-    currentSearch = { tab: 'NEW', teamId: '00000000-0000-4000-8000-000000000000' }
-    serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
-    renderPage()
-    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
-    expect(queueCalls()[0]?.params).toMatchObject({ teamId: TEAM_A })
+    expect(queueCalls()[0]?.params).toEqual({ tab: 'NEW', limit: 20 })
   })
 
   it('ADMIN reads the default (studio) scope without a team param and no switcher', async () => {
@@ -498,6 +637,35 @@ describe('/job-queue page', () => {
     renderPage()
     await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
     expect(screen.queryByTestId('job-queue-partial')).toBeNull()
+  })
+
+  it('shows the AI-limits notice beside the partial notice, with the list still rendered', async () => {
+    serve({
+      queue: () =>
+        Promise.resolve({
+          data: page({
+            sourcingNotice: 'AI_LIMITS_EXHAUSTED',
+            generation: {
+              ruleVersion: 'v1',
+              evaluatedAt: '2026-11-01T00:00:00.000Z',
+              capped: true,
+            },
+          }),
+        }),
+    })
+    renderPage()
+    expect(await screen.findByTestId('job-queue-ai-limits')).toHaveTextContent(
+      'ліміти AI-моделей вичерпано',
+    )
+    expect(screen.getByTestId('job-queue-partial')).toBeInTheDocument()
+    expect(screen.getByTestId(`job-queue-row-${ITEM_ID}`)).toBeInTheDocument()
+  })
+
+  it('has no AI-limits notice when the field is null', async () => {
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(screen.queryByTestId('job-queue-ai-limits')).toBeNull()
   })
 
   it('offers a refresh when the server says the list changed, and restarts on click', async () => {
@@ -573,7 +741,7 @@ describe('/job-queue page', () => {
     expect(queueCalls()).toHaveLength(1)
     await userEvent.click(within(error).getByRole('button', { name: 'Спробувати ще раз' }))
     await waitFor(() => expect(queueCalls()).toHaveLength(2))
-    expect(queueCalls()[1]?.params).toEqual({ teamId: TEAM_A, tab: 'NEW', limit: 20 })
+    expect(queueCalls()[1]?.params).toEqual({ tab: 'NEW', limit: 20 })
   })
 
   it.each([
@@ -604,12 +772,12 @@ describe('/job-queue page', () => {
     expect(calls).toHaveLength(0)
   })
 
-  it('scopes the HR queue query to the HR role and the team', async () => {
+  it('scopes the HR queue query to the HR role and all of their teams', async () => {
     serve()
     const { qc } = renderPage()
     await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
     expect(
-      qc.getQueryCache().findAll({ queryKey: ['job-queue', HR_ID, 'HR', TEAM_A] }),
+      qc.getQueryCache().findAll({ queryKey: ['job-queue', HR_ID, 'HR', 'default'] }),
     ).not.toEqual([])
   })
 
@@ -802,19 +970,19 @@ describe('/job-queue page', () => {
     // a scroll append never steals focus
     expect(await screen.findByTestId(`job-queue-row-${ITEM_2}`)).not.toHaveFocus()
     expect(screen.getByTestId('job-queue-live')).toHaveTextContent('Завантажено ще 1')
-    expect(queueCalls()[1]?.params).toEqual({ teamId: TEAM_A, tab: 'NEW', limit: 20, cursor: 'c1' })
+    expect(queueCalls()[1]?.params).toEqual({ tab: 'NEW', limit: 20, cursor: 'c1' })
   })
 
   // CR-M-2: every URL write, with the exact target.
   it('a search submit trims the text and keeps tab, team and card', async () => {
-    currentSearch = { tab: 'SUBMITTED', teamId: TEAM_B, card: ITEM_ID }
+    currentSearch = { tab: 'SUBMITTED', card: ITEM_ID }
     serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
     renderPage()
     await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
     await userEvent.type(searchInput(), '  rust  {Enter}')
     expect(mockNavigate).toHaveBeenLastCalledWith({
       to: '/job-queue',
-      search: { tab: 'SUBMITTED', teamId: TEAM_B, card: ITEM_ID, search: 'rust' },
+      search: { tab: 'SUBMITTED', card: ITEM_ID, search: 'rust' },
     })
   })
 
@@ -841,7 +1009,7 @@ describe('/job-queue page', () => {
   })
 
   it('applying filters keeps tab, team and search and drops the open card', async () => {
-    currentSearch = { tab: 'HIDDEN', teamId: TEAM_B, search: 'go', card: ITEM_ID }
+    currentSearch = { tab: 'HIDDEN', search: 'go', card: ITEM_ID }
     serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
     renderPage()
     await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
@@ -850,29 +1018,50 @@ describe('/job-queue page', () => {
     await userEvent.click(screen.getByTestId('job-queue-filters-apply'))
     expect(mockNavigate).toHaveBeenLastCalledWith({
       to: '/job-queue',
-      search: { tab: 'HIDDEN', teamId: TEAM_B, search: 'go', availability: ['OPEN'] },
+      search: { tab: 'HIDDEN', search: 'go', availability: ['OPEN'] },
     })
   })
 
-  it('switching team keeps the tab and drops search and filters', async () => {
+  it('salary filter round-trip: the URL reaches the server, and applying writes it back (sources-17)', async () => {
     currentSearch = {
-      tab: 'SUBMITTED',
-      teamId: TEAM_A,
-      search: 'go',
-      source: ['DOU_RSS'],
-      seniorIds: [SENIOR_A],
+      tab: 'NEW',
+      salary: ['STATED'],
+      salaryCurrency: 'EUR',
+      salaryMinMonthly: 4000,
     }
-    serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
+    serve({})
     renderPage()
     await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
-    await userEvent.click(screen.getByTestId('job-queue-team-switcher'))
-    await userEvent.click(
-      within(await screen.findByRole('listbox')).getByRole('option', { name: 'Beta' }),
-    )
+    expect(queueCalls()[0]?.params).toMatchObject({
+      salary: 'STATED',
+      salaryCurrency: 'EUR',
+      salaryMinMonthly: '4000',
+    })
+    await userEvent.click(screen.getByTestId('job-queue-filters-button'))
+    const min = await screen.findByLabelText('Мінімум на місяць')
+    await userEvent.clear(min)
+    await userEvent.type(min, '5000')
+    await userEvent.click(screen.getByTestId('job-queue-filters-apply'))
     expect(mockNavigate).toHaveBeenLastCalledWith({
       to: '/job-queue',
-      search: { tab: 'SUBMITTED', teamId: TEAM_B },
+      search: { tab: 'NEW', salary: ['STATED'], salaryCurrency: 'EUR', salaryMinMonthly: 5000 },
     })
+  })
+
+  it('a hand-edited URL with salary bounds the API refuses is sent without them (sources-17)', async () => {
+    currentSearch = {
+      tab: 'NEW',
+      salary: ['NOT_STATED'],
+      salaryCurrency: 'EUR',
+      salaryMinMonthly: 1,
+    }
+    serve({})
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    const params = queueCalls()[0]?.params as Record<string, unknown>
+    expect(params).toMatchObject({ salary: 'NOT_STATED' })
+    expect(params).not.toHaveProperty('salaryCurrency')
+    expect(params).not.toHaveProperty('salaryMinMonthly')
   })
 
   it('shows the applied filters and resets them, keeping the search', async () => {
@@ -895,19 +1084,20 @@ describe('/job-queue page', () => {
     })
   })
 
-  it('picks seniors into the URL, keeping tab, team and search', async () => {
-    currentSearch = { tab: 'HIDDEN', teamId: TEAM_B, search: 'go', card: ITEM_ID }
+  it('picks seniors into the URL, keeping tab and search', async () => {
+    currentSearch = { tab: 'HIDDEN', search: 'go', card: ITEM_ID }
     serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
     renderPage()
     await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
-    expect(calls).toContainEqual({ url: '/job-queue/seniors', params: { teamId: TEAM_B } })
+    // the HR picker spans every own team: no team param
+    expect(calls).toContainEqual({ url: '/job-queue/seniors', params: {} })
     await userEvent.click(screen.getByTestId('job-queue-filters-button'))
     await userEvent.click(await screen.findByRole('checkbox', { name: 'Анна Коваль' }))
     await userEvent.click(screen.getByRole('checkbox', { name: 'Богдан Шевченко' }))
     await userEvent.click(screen.getByTestId('job-queue-filters-apply'))
     expect(mockNavigate).toHaveBeenLastCalledWith({
       to: '/job-queue',
-      search: { tab: 'HIDDEN', teamId: TEAM_B, search: 'go', seniorIds: [SENIOR_A, SENIOR_B] },
+      search: { tab: 'HIDDEN', search: 'go', seniorIds: [SENIOR_A, SENIOR_B] },
     })
   })
 
@@ -917,7 +1107,6 @@ describe('/job-queue page', () => {
     renderPage()
     await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
     expect(queueCalls().at(-1)?.params).toEqual({
-      teamId: TEAM_A,
       tab: 'NEW',
       limit: 20,
       seniorIds: '66666666-6666-4666-8666-666666666666,55555555-5555-4555-8555-555555555555',
@@ -1003,7 +1192,6 @@ describe('/job-queue search params', () => {
         source: ['DOU_RSS', 'LEVER_ATS'],
         availability: ['OPEN', 'CLOSED'],
         seniorIds: [SENIOR_A, SENIOR_B],
-        teamId: TEAM_A,
         card: ITEM_ID,
       }),
     ).toEqual({
@@ -1012,9 +1200,12 @@ describe('/job-queue search params', () => {
       source: ['DOU_RSS', 'LEVER_ATS'],
       availability: ['OPEN', 'CLOSED'],
       seniorIds: [SENIOR_A, SENIOR_B],
-      teamId: TEAM_A,
       card: ITEM_ID,
     })
+  })
+
+  it('drops the team id an old URL still carries (the queue has no team switch)', () => {
+    expect(parse({ tab: 'NEW', teamId: TEAM_A })).toEqual({ tab: 'NEW' })
   })
 
   it('is the /_authenticated/job-queue/ file route', () => {
@@ -1061,5 +1252,31 @@ describe('/job-queue search params', () => {
   it('drops a search longer than 200 characters and defaults a missing tab', () => {
     expect(parse({ search: 'a'.repeat(201) })).toEqual({ tab: 'NEW' })
     expect(parse({ search: 'a'.repeat(200) })).toEqual({ tab: 'NEW', search: 'a'.repeat(200) })
+  })
+})
+
+describe('/job-queue search params: salary (sources-17)', () => {
+  const parse = (raw: Record<string, unknown>) =>
+    (Route.options.validateSearch as { parse: (v: unknown) => Record<string, unknown> }).parse(raw)
+
+  it('keeps valid salary params', () => {
+    expect(
+      parse({ salary: ['STATED'], salaryCurrency: 'PLN', salaryMinMonthly: 4000 }),
+    ).toMatchObject({ salary: ['STATED'], salaryCurrency: 'PLN', salaryMinMonthly: 4000 })
+  })
+
+  it('a bad value degrades to absent, never an error', () => {
+    const out = parse({
+      salary: ['MAYBE'],
+      salaryCurrency: 'eur',
+      salaryMinMonthly: 0,
+    })
+    expect(out.salary).toBeUndefined()
+    expect(out.salaryCurrency).toBeUndefined()
+    expect(out.salaryMinMonthly).toBeUndefined()
+    expect(parse({ salaryMinMonthly: 1.5 }).salaryMinMonthly).toBeUndefined()
+    expect(parse({ salaryMinMonthly: 10_000_001 }).salaryMinMonthly).toBeUndefined()
+    expect(parse({ salaryMinMonthly: 10_000_000 }).salaryMinMonthly).toBe(10_000_000)
+    expect(parse({ salary: [] }).salary).toBeUndefined()
   })
 })

@@ -33,9 +33,26 @@ const ROW = {
   state: 'HEALTHY',
   reasonCode: null,
   lastCollectedAt: '2026-10-30T10:00:00.000Z',
+  lastAttemptAt: '2026-10-30T10:00:00.000Z',
+  lastSuccessAt: '2026-10-30T10:00:00.000Z',
+  readiness: 'VERIFIED',
+  readinessReason: null,
+  consecutiveFailures: 0,
+  cooldownUntil: null,
   newestItemPublishedAt: '2026-10-30T08:00:00.000Z',
   profileSummary: PROFILE,
 }
+
+describe('jobSourceOperationalRowSchema — the runtime fields', () => {
+  it('accepts a readiness reason of exactly 500 characters and refuses 501', () => {
+    expect(
+      jobSourceOperationalRowSchema.safeParse({ ...ROW, readinessReason: 'x'.repeat(500) }).success,
+    ).toBe(true)
+    expect(
+      jobSourceOperationalRowSchema.safeParse({ ...ROW, readinessReason: 'x'.repeat(501) }).success,
+    ).toBe(false)
+  })
+})
 
 describe('createJobSourceNoteSchema', () => {
   it('accepts a bounded note and trims it', () => {
@@ -75,6 +92,7 @@ describe('jobSourceOperationalListSchema', () => {
   it('parses a row with no health event and no schedule (null state / null profile)', () => {
     const parsed = jobSourceOperationalListSchema.parse({
       items: [{ ...ROW, state: null, reasonCode: null, profileSummary: null }],
+      sourcingNotice: null,
     })
     expect(parsed.items[0]?.state).toBeNull()
     expect(parsed.items[0]?.profileSummary).toBeNull()

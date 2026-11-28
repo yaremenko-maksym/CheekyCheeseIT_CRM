@@ -4,6 +4,7 @@ import type {
   CreateUserDto,
   Locale,
   PaymentMethod,
+  SeniorSelectableRole,
   TeamMode,
   UserProfileDto,
 } from '@crm/shared'
@@ -19,6 +20,20 @@ import { defaultPaymentMethod, toUsd, type ExchangeRates } from './validation'
  * Gating, `safeParse` and `mutate` stay in `onSubmit`.
  */
 
+/**
+ * A SENIOR carries its technical roles and never the stack; every other role carries the stack.
+ * `[]` is never sent: `seniorRolesSchema` refuses it, so a SENIOR with no roles sends neither key.
+ */
+function professionFields<Empty extends null | undefined>(
+  value: { role: Role; techStack: string[]; technicalRoles: SeniorSelectableRole[] },
+  emptyStack: Empty,
+): { technicalRoles?: SeniorSelectableRole[]; techStack?: string[] | Empty } {
+  if (value.role === 'SENIOR') {
+    return value.technicalRoles.length > 0 ? { technicalRoles: value.technicalRoles } : {}
+  }
+  return { techStack: value.techStack.length > 0 ? value.techStack : emptyStack }
+}
+
 /** The slice of the form's values the normal-CREATE payload reads. */
 export type CreateUserFormValue = {
   email: string
@@ -29,6 +44,7 @@ export type CreateUserFormValue = {
   telegram: string
   phone: string
   techStack: string[]
+  technicalRoles: SeniorSelectableRole[]
   seniorSharePercent: number
   monthlySalary: unknown
   salaryCurrency: Currency
@@ -105,7 +121,7 @@ export function buildCreateUserPayload(
     role: value.role,
     telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
     phone: value.phone || undefined,
-    techStack: value.techStack.length > 0 ? value.techStack : undefined,
+    ...professionFields(value, undefined),
     // task-i18n-stage2 (Task 3, Step 6) — interface language picked in
     // the "Данные" step below.
     locale: value.locale,
@@ -238,6 +254,7 @@ export type WizardUpdateFormValue = {
   telegram: string
   phone: string
   techStack: string[]
+  technicalRoles: SeniorSelectableRole[]
   seniorSharePercent: number
   monthlySalary: unknown
   salaryCurrency: Currency
@@ -268,7 +285,7 @@ export function buildWizardUpdatePayload(
     displayName: value.displayName.trim(),
     telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : null,
     phone: value.phone || null,
-    techStack: value.techStack.length > 0 ? value.techStack : null,
+    ...professionFields(value, null),
     paymentMethod: paymentMethodUpdate,
     ...(paymentMethodUpdate === 'USDT_ERC20' && {
       walletUsdtErc20: value.walletUsdtErc20.trim() || null,
@@ -313,6 +330,7 @@ export type EditUserFormValue = {
   telegram: string
   phone: string
   techStack: string[]
+  technicalRoles: SeniorSelectableRole[]
   seniorSharePercent: number
   dropSharePercent: number
   teamTelegramChannel: string
@@ -386,7 +404,7 @@ export function buildEditUpdatePayload(
     displayName: value.displayName.trim(),
     telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : null,
     phone: value.phone || null,
-    techStack: value.techStack.length > 0 ? value.techStack : null,
+    ...professionFields(value, null),
     // task-648-fix-round-2 (SR-M-5 / QA-HIGH-3): the share % goes on
     // the wire ONLY when the operator actually moved it. It used to be
     // included on every save of a SENIOR — so an admin editing a phone

@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
-import { techStackChanged } from '../users/role-guards.util'
+import { rolesChanged } from '../users/role-guards.util'
 import { enqueueDerivedDirty } from './ownership/dirty-work.store'
+import { resumeSkills } from './runtime/recompute-inputs'
 import type { SqlExecutor } from './scheduling/host-state'
 
 /**
@@ -16,12 +17,17 @@ import type { SqlExecutor } from './scheduling/host-state'
 
 /** Reasons, bounded by `ck_job_dirty_work_reason_bounded`; they name the write, for the log. */
 export type SeniorDirtyReason =
-  'senior.stack' | 'senior.role' | 'senior.archive' | 'senior.unarchive' | 'senior.team'
+  | 'senior.roles'
+  | 'senior.resume'
+  | 'senior.role'
+  | 'senior.archive'
+  | 'senior.unarchive'
+  | 'senior.team'
 export type ExclusionDirtyReason = 'exclusion.create' | 'exclusion.delete'
 export type ProjectClientDirtyReason = 'project.create' | 'project.client'
 
 /**
- * SENIORs' stack, archive state or team membership changed. A user who is not a SENIOR after
+ * SENIORs' technical roles, resume, archive state or team membership changed. A user who is not a SENIOR after
  * the write is on nobody's roster, so nothing is enqueued for them (`markRoleDirty` covers
  * leaving it). Roles are read in the caller's transaction, so they see the caller's own write.
  * Several users are locked in sorted id order (SR-L-2), so two concurrent multi-user writes
@@ -63,27 +69,54 @@ export async function markRoleDirty(
   return true
 }
 
-const stackOf = (v: unknown): readonly string[] | null => (Array.isArray(v) ? v.map(String) : null)
+const rolesOf = (v: unknown): readonly string[] => (Array.isArray(v) ? v.map(String) : [])
 
 /**
  * A user row edit (`set` is what the UPDATE wrote, `existing` the row before it). A role change
- * into or out of SENIOR, else a REAL stack change of a SENIOR, is one dirty row; an unchanged
- * resubmit (CR-M-1) or any other edit is none.
+ * into or out of SENIOR, else a REAL technical-roles change of a SENIOR, is one dirty row; an
+ * unchanged resubmit (CR-M-1) or any other edit (the tech stack included: matching reads roles
+ * and resume skills since senior roles PR 4) is none.
  */
 export async function markUserEditDirty(
   tx: SqlExecutor,
   userId: string,
-  existing: { readonly role: string; readonly techStack?: unknown },
+  existing: { readonly role: string; readonly technicalRoles?: unknown },
   set: Readonly<Record<string, unknown>>,
 ): Promise<boolean> {
   if ('role' in set && (await markRoleDirty(tx, userId, existing.role, String(set['role']))))
     return true
   if (
-    'techStack' in set &&
-    techStackChanged(stackOf(set['techStack']), stackOf(existing.techStack))
+    'technicalRoles' in set &&
+    rolesChanged(rolesOf(set['technicalRoles']), rolesOf(existing.technicalRoles))
   )
-    return markSeniorDirty(tx, userId, 'senior.stack')
+    return markSeniorDirty(tx, userId, 'senior.roles')
   return false
+}
+
+/** The resume shape the matcher reads: `content -> 'skills'` and `facts -> 'experience'`. */
+export type ResumeSkillSource = { readonly content?: unknown; readonly facts?: unknown }
+
+const field = (o: unknown, key: string): unknown =>
+  typeof o === 'object' && o !== null ? (o as Record<string, unknown>)[key] : undefined
+
+/** The matcher-read skill set of one resume side, canonicalised exactly as `loadRoster` reads it. */
+const skillsOf = (r: ResumeSkillSource): string =>
+  JSON.stringify(resumeSkills(field(r.content, 'skills'), field(r.facts, 'experience')))
+
+/**
+ * A SENIOR's resume was written (`change.before` is the row before it, `change.after` the row
+ * after; a deleted resume is `{}`). Dirty only when the skill set the matcher actually reads
+ * changed (SR-L-1): a summary, a position title or a reordered duplicate of the same skill moves
+ * no match, and an unconditional row would fan out over every opportunity for nothing. Call it
+ * inside the resume write's own transaction; a non-SENIOR owner marks nothing.
+ */
+export async function markSeniorResumeDirty(
+  tx: SqlExecutor,
+  userId: string,
+  change: { readonly before: ResumeSkillSource; readonly after: ResumeSkillSource },
+): Promise<boolean> {
+  if (skillsOf(change.before) === skillsOf(change.after)) return false
+  return markSeniorDirty(tx, userId, 'senior.resume')
 }
 
 /** A job exclusion was created or deleted (the row may be gone: the version does not need it). */

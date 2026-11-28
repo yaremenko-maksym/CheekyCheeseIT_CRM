@@ -31,6 +31,12 @@ const post = vi.fn()
 vi.mock('@/lib/axios', () => ({
   api: { post: (...args: unknown[]) => post(...args), delete: vi.fn(), get: vi.fn() },
 }))
+// the tailored resume controls have their own spec (TailoredResumeControls.test); none here
+vi.mock('../useTailoredResumes', async (orig) => ({
+  ...(await orig<typeof import('../useTailoredResumes')>()),
+  useTailoredRows: () => new Map(),
+  useOpenForDetail: () => undefined,
+}))
 vi.mock('@/hooks/use-job-queue', async (orig) => ({
   ...(await orig<typeof import('@/hooks/use-job-queue')>()),
   useJobQueueCard: vi.fn(),
@@ -1650,10 +1656,36 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
   const ALPHA = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
   const BETA = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
   const TEAMS = [
-    { id: ALPHA, name: 'Альфа', type: 'SENIOR' },
-    { id: BETA, name: 'Бета', type: 'SENIOR' },
+    {
+      id: ALPHA,
+      name: 'Альфа',
+      type: 'SENIOR',
+      members: [{ userId: '11111111-1111-4111-8111-111111111111', role: 'SENIOR', leftAt: null }],
+    },
+    {
+      id: BETA,
+      name: 'Бета',
+      type: 'SENIOR',
+      members: [{ userId: '22222222-2222-4222-8222-222222222222', role: 'SENIOR', leftAt: null }],
+    },
   ]
-  const DROP = { id: '99999999-9999-4999-8999-999999999999', name: 'Дроп', type: 'DROP' }
+  const DROP = {
+    id: '99999999-9999-4999-8999-999999999999',
+    name: 'Дроп',
+    type: 'DROP',
+    members: [{ userId: '33333333-3333-4333-8333-333333333333', role: 'DROP', leftAt: null }],
+  }
+  const DROP_WITH_SENIOR = {
+    id: '88888888-8888-4888-8888-888888888888',
+    name: 'Дроп плюс сеньйор',
+    type: 'DROP',
+    // the owner and the HR sit beside the senior: one active senior qualifies the team
+    members: [
+      { userId: '33333333-3333-4333-8333-333333333333', role: 'DROP', leftAt: null },
+      { userId: '55555555-5555-4555-8555-555555555555', role: 'HR', leftAt: null },
+      { userId: '44444444-4444-4444-8444-444444444444', role: 'SENIOR', leftAt: null },
+    ],
+  }
   const GRANT = `/job-queue/${OPP}/team-triage`
   /** The uk refusal of an item that left triage (a live LEAD, or EXCLUDED), as a pattern body. */
   const NOT_ELIGIBLE =
@@ -2131,18 +2163,22 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     expect(client.getQueryData(['teams', { archived: 'active' }])).toEqual(TEAMS)
   })
 
-  it('the picker offers only SENIOR teams: a DROP team from /teams is not offered (the server refuses it)', async () => {
+  it('the picker offers only teams with an active senior: a DROP team without a senior is not offered, one with a senior is', async () => {
     const user = userEvent.setup()
-    get.mockResolvedValue({ data: [TEAMS[0], DROP, TEAMS[1]] })
+    get.mockResolvedValue({ data: [TEAMS[0], DROP, DROP_WITH_SENIOR, TEAMS[1]] })
     renderCard(ADMIN)
     const dialog = await openAssign(user)
     await user.click(within(dialog).getByRole('combobox', { name: 'Команда' }))
     const options = within(await screen.findByRole('listbox')).getAllByRole('option')
-    expect(options.map((option) => option.textContent)).toEqual(['Альфа', 'Бета'])
+    expect(options.map((option) => option.textContent)).toEqual([
+      'Альфа',
+      'Дроп плюс сеньйор',
+      'Бета',
+    ])
     expect(screen.queryByText('Немає команд, яким можна призначити вакансію.')).toBeNull()
   })
 
-  it('COPY C2: no SENIOR team at all says so under the picker once loaded, not while loading; «Призначити» stays off', async () => {
+  it('COPY C2: no live team at all says so under the picker once loaded, not while loading; «Призначити» stays off', async () => {
     const user = userEvent.setup()
     let load: (value: unknown) => void = () => {}
     get.mockReturnValueOnce(new Promise((resolve) => (load = resolve)))
@@ -2150,7 +2186,7 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     const dialog = await openAssign(user)
     const team = within(dialog).getByRole('combobox', { name: 'Команда' })
     expect(within(dialog).queryByText('Немає команд, яким можна призначити вакансію.')).toBeNull()
-    load({ data: [DROP] })
+    load({ data: [] })
     const empty = await within(dialog).findByText('Немає команд, яким можна призначити вакансію.')
     expect(team).toHaveAttribute('aria-describedby', empty.id)
     // the empty list explains the disabled button alone: no second hint beside it
@@ -2227,7 +2263,16 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     const user = userEvent.setup()
     client.setQueryData(
       ['teams', { archived: 'active' }],
-      [{ id: ALPHA, name: 'Кешована', type: 'SENIOR' }],
+      [
+        {
+          id: ALPHA,
+          name: 'Кешована',
+          type: 'SENIOR',
+          members: [
+            { userId: '11111111-1111-4111-8111-111111111111', role: 'SENIOR', leftAt: null },
+          ],
+        },
+      ],
     )
     renderCard(ADMIN)
     const dialog = await openAssign(user)
@@ -2376,7 +2421,7 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
   it('COPY C1–C3: English names the team failure, the empty list and the grant failure in its own words', async () => {
     await loadCatalog('en')
     const user = userEvent.setup()
-    get.mockRejectedValueOnce(httpError(500, {})).mockResolvedValueOnce({ data: [DROP] })
+    get.mockRejectedValueOnce(httpError(500, {})).mockResolvedValueOnce({ data: [] })
     post.mockRejectedValueOnce(httpError(500, {}))
     renderCard(ADMIN)
     await user.click(screen.getByRole('button', { name: 'Administrator actions' }))

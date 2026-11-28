@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { m, AnimatePresence } from 'motion/react'
 import { z } from 'zod'
 import { CheckCircle2, FileText, ScrollText } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
@@ -154,7 +154,7 @@ function OnboardingPage() {
       {/* Step content with fade animation */}
       <AnimatePresence mode="wait">
         {step === 'contract' && (
-          <motion.div
+          <m.div
             key="contract"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -171,11 +171,11 @@ function OnboardingPage() {
             ) : (
               <ContractWaitScreen />
             )}
-          </motion.div>
+          </m.div>
         )}
 
         {step === 'tos' && (
-          <motion.div
+          <m.div
             key="tos"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -187,11 +187,11 @@ function OnboardingPage() {
               <Trans>Умови використання</Trans>
             </h2>
             <AcceptTosStep onSuccess={handleTosSuccess} />
-          </motion.div>
+          </m.div>
         )}
 
         {step === 'done' && (
-          <motion.div
+          <m.div
             key="done"
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -206,7 +206,7 @@ function OnboardingPage() {
             <p className="text-center text-sm text-muted-foreground">
               <Trans>Перенаправляємо на дашборд…</Trans>
             </p>
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>

@@ -89,6 +89,7 @@ const METRICS = {
   lastHttpStatus: 200,
   envelopeFingerprint: null,
   validatorsSeen: false,
+  maxPageBytes: 0,
   nextValidators: null,
 } as const
 

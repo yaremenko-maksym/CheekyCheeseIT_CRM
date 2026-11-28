@@ -184,7 +184,11 @@ describe('INVALID_RECORD quarantine', () => {
     // is measured on the stored `href`, not the raw text) instead of the normalizer rejecting the
     // record further down. The property this test exists for — never stored cut — is unchanged.
     const url = `https://www.reed.co.uk/jobs/${'é'.repeat(700)}`
-    expect(build({ url })).toEqual({ ok: false, reason: 'UNSAFE_URL' })
+    expect(build({ url })).toEqual({
+      ok: false,
+      reason: 'UNSAFE_URL',
+      identityKey: expect.any(String),
+    })
   })
 })
 

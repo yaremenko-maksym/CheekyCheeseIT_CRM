@@ -6,7 +6,7 @@
   muted: rgb("#5b616b"),
   name-size: 1.5em,
   name-align: left,
-  heading-size: 1em,
+  heading-size: 1.1em,
   heading-weight: "bold",
   heading-rule: 0.5pt + rgb("#c9ccd1"),
   margin-scale: 0.8,

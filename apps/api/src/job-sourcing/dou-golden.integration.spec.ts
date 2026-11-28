@@ -79,6 +79,23 @@ const S_LEFT = seniorUser(6, 'left')
 const ALL_SENIORS = [S_CLIENT, S_FREE, S_KEYWORD, S_ARCHIVED, S_NO_TEAM, S_LEFT]
 const SENIOR_IDS = ALL_SENIORS.map((s) => s.id)
 
+/**
+ * task-sources-07c closed the queue to seniors (`JobSourcingService.assertNotSenior`), so the
+ * KEYWORD exclusion this suite's golden state needs is created by an ADMIN on S_KEYWORD's behalf.
+ * A real `users` row is required: `job_exclusion_filters.created_by` references `users.id`.
+ */
+const ADMIN: SessionUser = {
+  id: id('aa00', 9),
+  email: 'dou-golden-admin@test.spec',
+  displayName: 'DOU Golden Admin',
+  avatarUrl: null,
+  role: 'ADMIN',
+  seniorSharePercent: 50,
+  legalFullName: null,
+}
+const SEEDED_USERS = [...ALL_SENIORS, ADMIN]
+const SEEDED_USER_IDS = SEEDED_USERS.map((u) => u.id)
+
 const TEAM_ID = id('bb00', 1)
 const PROJECT_ID = id('cc00', 1)
 const SOURCE_ID = id('dd00', 1)
@@ -183,7 +200,7 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       await db
         .insert(users)
         .values(
-          ALL_SENIORS.map((u) => ({
+          SEEDED_USERS.map((u) => ({
             id: u.id,
             email: u.email,
             displayName: u.displayName,
@@ -224,7 +241,7 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       await cleanPostings()
       await service.createExclusion(
         { scope: 'SENIOR', seniorId: S_KEYWORD.id, kind: 'KEYWORD', value: 'java' },
-        S_KEYWORD,
+        ADMIN,
       )
     }, 30_000)
 
@@ -245,7 +262,7 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       await db.delete(projects).where(eq(projects.id, PROJECT_ID))
       await db.delete(teamMembers).where(inArray(teamMembers.userId, SENIOR_IDS))
       await db.delete(teams).where(eq(teams.id, TEAM_ID))
-      await db.delete(users).where(inArray(users.id, SENIOR_IDS))
+      await db.delete(users).where(inArray(users.id, SEEDED_USER_IDS))
       await pool.end()
     }, 30_000)
 

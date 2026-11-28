@@ -59,6 +59,12 @@ export const RESUME_ERROR_CODES = [
   'RESUME_PDF_TOO_BUSY',
   'RESUME_AI_VALUES_OUT_OF_RANGE',
   'RESUME_ERROR_DETAILS_UNAVAILABLE',
+  // Tailored resume (spec §9): a run or an edit render is in flight, or a published variant exists
+  // and the POST did not confirm the overwrite (409); the team's daily generation cap is used up
+  // (429); the senior's row is not eligible (422). Out of scope stays JOB_OPPORTUNITY_NOT_FOUND.
+  'TAILORED_RESUME_CONFLICT',
+  'TAILORED_RESUME_DAILY_CAP',
+  'TAILORED_RESUME_NOT_ELIGIBLE',
 ] as const
 export type ResumeErrorCode = (typeof RESUME_ERROR_CODES)[number]
 
@@ -116,6 +122,10 @@ export const RESUME_ERROR_PARAMS = {
   RESUME_AI_VALUES_OUT_OF_RANGE: [],
   // The generic fallback line for a stored message this build cannot render (unknown code, missing param).
   RESUME_ERROR_DETAILS_UNAVAILABLE: [],
+  TAILORED_RESUME_CONFLICT: [],
+  TAILORED_RESUME_DAILY_CAP: [],
+  // `eligibility` is a `tailoredEligibilitySchema` value; the envelope carries it as a param.
+  TAILORED_RESUME_NOT_ELIGIBLE: ['eligibility'],
 } as const satisfies Record<ResumeErrorCode, readonly string[]>
 
 export const RESUME_ERROR_MESSAGES: Record<ResumeErrorCode, MessageDescriptor> = {
@@ -333,6 +343,20 @@ export const RESUME_ERROR_MESSAGES: Record<ResumeErrorCode, MessageDescriptor> =
     id: 'api-error.RESUME_ERROR_DETAILS_UNAVAILABLE',
     message: 'Подробиці цієї помилки недоступні.',
   },
+  TAILORED_RESUME_CONFLICT: /* i18n */ {
+    id: 'api-error.TAILORED_RESUME_CONFLICT',
+    message:
+      'Резюме під цю вакансію вже готується або змінюється. Оновіть сторінку й спробуйте ще раз.',
+  },
+  TAILORED_RESUME_DAILY_CAP: /* i18n */ {
+    id: 'api-error.TAILORED_RESUME_DAILY_CAP',
+    message: 'Команда вичерпала денний ліміт генерацій резюме. Спробуйте завтра.',
+  },
+  TAILORED_RESUME_NOT_ELIGIBLE: /* i18n */ {
+    id: 'api-error.TAILORED_RESUME_NOT_ELIGIBLE',
+    message:
+      'Резюме під вакансію не можна згенерувати: {eligibility, select, NO_VERIFIED_RESUME {у сеньйора немає підтвердженого резюме} NON_ENGLISH {резюме має бути англійською} NON_LATIN_NAME {імʼя сеньйора має бути латиницею} POSTING_PENDING {текст вакансії ще завантажується} other {умови не виконано}}.',
+  },
 }
 
 export const RESUME_ERROR_FALLBACK_EN: Record<ResumeErrorCode, string> = {
@@ -415,4 +439,10 @@ export const RESUME_ERROR_FALLBACK_EN: Record<ResumeErrorCode, string> = {
   RESUME_AI_VALUES_OUT_OF_RANGE:
     'Some resume data was recognized incorrectly. Check the fields and fill them in by hand.',
   RESUME_ERROR_DETAILS_UNAVAILABLE: 'No details are available for this error.',
+  TAILORED_RESUME_CONFLICT:
+    'A resume for this job is already being prepared or changed. Refresh the page and try again.',
+  TAILORED_RESUME_DAILY_CAP:
+    'The team has used up its daily limit of resume generations. Try again tomorrow.',
+  TAILORED_RESUME_NOT_ELIGIBLE:
+    "A resume for this job cannot be generated: {eligibility, select, NO_VERIFIED_RESUME {the senior has no verified resume} NON_ENGLISH {the resume must be in English} NON_LATIN_NAME {the senior's name must be in Latin letters} POSTING_PENDING {the job text is still loading} other {the conditions are not met}}.",
 }

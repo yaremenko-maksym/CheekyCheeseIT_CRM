@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 
-import { DatabaseService } from '../database.service'
+import { APP_PG_OPTIONS, DatabaseService } from '../database.service'
 import { GRANTS_FILE, ROLES_FILE } from '../privileges/generate-privilege-sql'
 import {
   cleanupThenRestore,
@@ -368,6 +368,7 @@ export async function openCrmAppSession({ appPoolMax = 2 } = {}): Promise<CrmApp
     appPool = new Pool({
       connectionString: urlFor(ownerUrl, ROLES.app, appPassword),
       max: appPoolMax,
+      options: APP_PG_OPTIONS,
     })
     const pool = appPool
     assertIsCrmApp(await readIdentity(pool))

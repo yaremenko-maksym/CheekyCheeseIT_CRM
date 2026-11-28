@@ -169,3 +169,35 @@ describe('validateObservation (SR-M-4: the store re-parses what it is handed)', 
     )
   })
 })
+
+describe('a withheld employer in the stored revision payload', () => {
+  it('carries the marker so the canonical layer can tell it from an undeclared blank', () => {
+    const payload = revisionPayload(
+      observation({
+        companyName: '',
+        companyNameNormalized: '',
+        employerDisclosure: 'WITHHELD_AT_SOURCE',
+      }),
+    )
+    expect(payload.normalized['employerDisclosure']).toBe('WITHHELD_AT_SOURCE')
+    expect(payload.normalized['companyName']).toBe('')
+  })
+
+  it('omits the key entirely when the employer is disclosed, leaving the payload byte-identical', () => {
+    const payload = revisionPayload(observation())
+    expect('employerDisclosure' in payload.normalized).toBe(false)
+  })
+})
+
+describe('a stated salary in the stored revision payload (sources-17)', () => {
+  const salary = { min: 4000, max: 5500, currency: 'EUR', period: 'MONTH' } as const
+
+  it('carries the normalized salary when one is stated', () => {
+    expect(revisionPayload(observation({ salary })).normalized['salary']).toEqual(salary)
+  })
+
+  it('omits the key without a salary (null or absent), so old payload bytes stay identical', () => {
+    expect('salary' in revisionPayload(observation()).normalized).toBe(false)
+    expect('salary' in revisionPayload(observation({ salary: null })).normalized).toBe(false)
+  })
+})

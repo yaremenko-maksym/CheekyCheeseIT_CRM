@@ -230,7 +230,7 @@ describe('mapping the unit example', () => {
     expect(o?.normalized.location).toBe('Berlin, Germany')
     expect(o?.normalized.remote).toBe(true)
     expect(o?.normalized.seniorityHint).toBe('senior')
-    expect(o?.adapterVersion).toBe('theirstack-2')
+    expect(o?.adapterVersion).toBe('theirstack-3')
   })
 
   it('the native id and the application URL are different facts', async () => {
@@ -448,6 +448,44 @@ describe('config is refused before any network call', () => {
     expect(provider().parseConfig({ configVersion: 1, limit: 50 }).limit).toBe(50)
     expect(provider().parseConfig({ configVersion: 1 }).limit).toBe(25)
     expect(provider().parseConfig({ configVersion: 1, maxAgeDays: 30 }).maxAgeDays).toBe(30)
+  })
+})
+
+describe('salary (sources-17)', () => {
+  it('maps the stated salary of the capture; a record without one has none', async () => {
+    const { batch } = await run([capture()])
+    expect(byId(batch, '949735761')?.normalized.salary).toEqual({
+      min: 100000,
+      max: 125000,
+      currency: 'USD',
+      period: 'YEAR',
+    })
+    expect(byId(batch, '948074030')?.normalized.salary ?? null).toBe(null)
+  })
+
+  it('an unknown period or a malformed amount is no salary, and the job stays', async () => {
+    const salaryOfJob = async (over: Record<string, unknown>) => {
+      const { batch } = await run([body([job(1, over)])])
+      expect(batch.counts.normalized).toBe(1)
+      return byId(batch, '1')?.normalized.salary ?? null
+    }
+    const stated = { min_salary: 10, max_salary: 20, salary_currency: 'EUR' }
+    expect(await salaryOfJob({ ...stated, salary_period: 'month' })).toEqual({
+      min: 10,
+      max: 20,
+      currency: 'EUR',
+      period: 'MONTH',
+    })
+    expect(await salaryOfJob({ ...stated, salary_period: 'hour' })).toMatchObject({
+      period: 'HOUR',
+    })
+    expect(await salaryOfJob({ ...stated, salary_period: 'week' })).toBe(null)
+    expect(await salaryOfJob({ ...stated, salary_period: 'year', min_salary: 'x' })).toEqual({
+      min: null,
+      max: 20,
+      currency: 'EUR',
+      period: 'YEAR',
+    })
   })
 })
 

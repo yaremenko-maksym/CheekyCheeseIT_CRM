@@ -26,6 +26,12 @@ vi.mock('../ownership/dirty-work.store', async (orig) => ({
   completeDirty: (...a: unknown[]) => complete(...a),
   failDirty: (...a: unknown[]) => fail(...a),
 }))
+const purge = vi.fn()
+vi.mock('../store/opportunity-purge', async (orig) => ({
+  ...(await orig<typeof import('../store/opportunity-purge')>()),
+  // The savepoint wrapper itself is pinned in opportunity-purge.spec; here only its outcome matters.
+  purgeOpportunityInline: (...a: unknown[]) => purge(...a),
+}))
 
 import {
   AVAILABILITY_CLAIM_KINDS,
@@ -76,6 +82,13 @@ beforeEach(() => {
   claim.mockReset().mockResolvedValue([])
   complete.mockReset().mockResolvedValue('DONE')
   fail.mockReset().mockResolvedValue('RETRY')
+  // As the real purge: the caller's hook runs once the re-checks pass, before the first write.
+  purge
+    .mockReset()
+    .mockImplementation(async (_tx: unknown, _id: unknown, before?: () => Promise<void>) => {
+      await before?.()
+      return 'DELETED'
+    })
 })
 
 describe('resolveInventoryInput', () => {
@@ -125,7 +138,12 @@ describe('reconcileSourceRecordAvailability', () => {
     const { db } = dbOf([
       { source_id: 'src-1', source_type: 'REMOTIVE_API', namespace: 'x', config_version: 2 },
     ])
-    const run = { runId: 'run-1', cycleId: null, observedAt: '2026-11-01T00:00:00.000Z' }
+    const run = {
+      runId: 'run-1',
+      cycleId: null,
+      observedAt: '2026-11-01T00:00:00.000Z',
+      baselineReceived: 7,
+    }
     readWindowRun.mockResolvedValue(run)
     const w = work('SOURCE_RECORD', REC)
     expect(await reconcileSourceRecordAvailability(db as never, w)).toBe('DONE')
@@ -157,7 +175,12 @@ describe('reconcileSourceRecordAvailability', () => {
       namespace: 'x',
       config_version: 2,
     }
-    const run = { runId: 'run-1', cycleId: null, observedAt: '2026-11-01T00:00:00.000Z' }
+    const run = {
+      runId: 'run-1',
+      cycleId: null,
+      observedAt: '2026-11-01T00:00:00.000Z',
+      baselineReceived: 7,
+    }
     // Latest valid run is WINDOW -> expiry path only.
     readWindowRun.mockResolvedValueOnce(run)
     await reconcileSourceRecordAvailability(dbOf([row]).db as never, work('SOURCE_RECORD', REC))
@@ -196,7 +219,12 @@ describe('reconcileSourceRecordAvailability', () => {
 
     order.length = 0
     expireWindow.mockImplementation(async () => order.push('window'))
-    readWindowRun.mockResolvedValueOnce({ runId: 'r', cycleId: null, observedAt: 'x' })
+    readWindowRun.mockResolvedValueOnce({
+      runId: 'r',
+      cycleId: null,
+      observedAt: 'x',
+      baselineReceived: 0,
+    })
     await reconcileSourceRecordAvailability(dbOf([row]).db as never, work('SOURCE_RECORD', REC))
     expect(order).toEqual(['reopen', 'window'])
   })
@@ -218,10 +246,11 @@ describe('reconcileOpportunityAvailability', () => {
   it('writes the new availability and bumps revision when the derived state changed', async () => {
     const { db, sqls } = dbOf(
       [{ revision: 3, availability: 'OPEN' }],
-      [{ availability: 'CLOSED' }, { availability: 'CLOSED' }],
+      [{ availability: 'UNKNOWN' }, { availability: 'CLOSED' }],
     )
     const outcome = await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
     expect(outcome).toBe('DONE')
+    expect(purge).not.toHaveBeenCalled()
     // The active-record states are read from the link table joined to the records.
     expect(sqls.some((s) => s.includes('FROM job_opportunity_sources'))).toBe(true)
     expect(sqls.some((s) => s.includes('JOIN job_source_records'))).toBe(true)
@@ -234,7 +263,7 @@ describe('reconcileOpportunityAvailability', () => {
   it('S-P2: a bump enqueues a MATCH successor row at the new revision, before the handled row completes', async () => {
     const { db, execute } = dbOf(
       [{ revision: 3, availability: 'OPEN' }],
-      [{ availability: 'CLOSED' }],
+      [{ availability: 'UNKNOWN' }],
       [{ id: 'dddddddd-0000-4000-8000-000000000000' }],
     )
     await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
@@ -254,6 +283,82 @@ describe('reconcileOpportunityAvailability', () => {
     const enqueueCall = execute.mock.invocationCallOrder[enqueueAt] as number
     expect(enqueueCall).toBeLessThan(complete.mock.invocationCallOrder[0] as number)
     expect(enqueueAt).toBeLessThan(at(/UPDATE job_opportunities/))
+  })
+
+  it.each(['CLOSED', 'EXPIRED'])(
+    'a derived %s purges the opportunity in the same transaction instead of writing it',
+    async (gone) => {
+      const { db, sqls } = dbOf([{ revision: 3, availability: 'OPEN' }], [{ availability: gone }])
+      const outcome = await reconcileOpportunityAvailability(
+        db as never,
+        work('OPPORTUNITY', OPP, 3),
+      )
+      expect(outcome).toBe('DONE')
+      expect(purge).toHaveBeenCalledTimes(1)
+      expect(purge.mock.calls[0]?.[1]).toBe(OPP)
+      // Completed inside the purge, once it is certain; no successor row and no availability write.
+      expect(complete).toHaveBeenCalledTimes(1)
+      expect(complete.mock.invocationCallOrder[0]).toBeGreaterThan(
+        purge.mock.invocationCallOrder[0] as number,
+      )
+      expect(sqls.some((s) => s.includes('INSERT INTO job_dirty_work'))).toBe(false)
+      expect(sqls.some((s) => s.includes('UPDATE job_opportunities'))).toBe(false)
+    },
+  )
+
+  it('a SKIPPED purge (busy or changed under the lock) writes the re-derived availability as before', async () => {
+    purge.mockResolvedValue('SKIPPED')
+    const { db, sqls } = dbOf([{ revision: 3, availability: 'OPEN' }], [{ availability: 'CLOSED' }])
+    const outcome = await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
+    expect(outcome).toBe('DONE')
+    expect(complete).toHaveBeenCalledTimes(1)
+    expect(sqls.some((q) => q.includes('INSERT INTO job_dirty_work'))).toBe(true)
+    expect(sqls.some((q) => q.includes('UPDATE job_opportunities'))).toBe(true)
+  })
+
+  it('an already-CLOSED opportunity still left as CLOSED is purged too (no write needed)', async () => {
+    const { db } = dbOf([{ revision: 3, availability: 'CLOSED' }], [{ availability: 'CLOSED' }])
+    await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
+    expect(purge).toHaveBeenCalledTimes(1)
+  })
+
+  it('CR-M-2: a FAILED purge (rolled back to its savepoint, completion included) writes the availability', async () => {
+    purge.mockImplementation(async (_tx: unknown, _id: unknown, before?: () => Promise<void>) => {
+      await before?.()
+      return 'FAILED'
+    })
+    const { db, sqls } = dbOf([{ revision: 3, availability: 'OPEN' }], [{ availability: 'CLOSED' }])
+    const outcome = await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
+    expect(outcome).toBe('DONE')
+    // The in-savepoint completion was rolled back, so the row is completed again after the write.
+    expect(complete).toHaveBeenCalledTimes(2)
+    expect(sqls.some((q) => q.includes('UPDATE job_opportunities'))).toBe(true)
+  })
+
+  it('a removal reported without the completion having run writes and completes, never returns nothing', async () => {
+    purge.mockResolvedValue('DELETED')
+    const { db, sqls } = dbOf([{ revision: 3, availability: 'OPEN' }], [{ availability: 'CLOSED' }])
+    const outcome = await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
+    expect(outcome).toBe('DONE')
+    expect(complete).toHaveBeenCalledTimes(1)
+    expect(sqls.some((q) => q.includes('UPDATE job_opportunities'))).toBe(true)
+  })
+
+  it('SR-M-3: VACANCY_RETENTION_ENABLED=false writes CLOSED as before and never purges', async () => {
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', 'false')
+    try {
+      const { db, sqls } = dbOf(
+        [{ revision: 3, availability: 'OPEN' }],
+        [{ availability: 'CLOSED' }],
+      )
+      await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
+      expect(purge).not.toHaveBeenCalled()
+      const update = sqls.find((q) => q.includes('UPDATE job_opportunities'))
+      expect(update).toBeDefined()
+      expect(complete).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('S-P2: no bump, no successor row', async () => {

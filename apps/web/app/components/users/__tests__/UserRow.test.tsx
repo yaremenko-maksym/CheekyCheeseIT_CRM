@@ -173,3 +173,46 @@ describe('UserRow — aria-labels, titles, role badge variant (task-i18n-stage3b
     expect(badge.className).not.toContain('border-border')
   })
 })
+
+describe('UserRow — technical roles instead of the stack (senior roles PR 5)', () => {
+  beforeEach(async () => {
+    await loadCatalog('uk')
+  })
+
+  it('a SENIOR shows up to 3 role chips and "+N", never the stack', () => {
+    renderRow(
+      makeUser({
+        techStack: ['Zzstale'],
+        technicalRoles: [
+          'BACKEND_ENGINEER',
+          'FRONTEND_ENGINEER',
+          'FULLSTACK_ENGINEER',
+          'QA_ENGINEER',
+        ],
+      }),
+    )
+    expect(screen.getAllByTestId(/^role-chip-/)).toHaveLength(3)
+    expect(screen.getByTestId('role-chips-more')).toHaveTextContent('+1')
+    expect(screen.queryByText('Zzstale')).toBeNull()
+  })
+
+  it('a legacy SENIOR with no roles shows nothing, not the stale stack', () => {
+    renderRow(makeUser({ techStack: ['Zzstale'], technicalRoles: [] }))
+    expect(screen.queryByTestId('role-chips')).toBeNull()
+    expect(screen.queryByText('Zzstale')).toBeNull()
+  })
+
+  it('a JUNIOR keeps the stack (up to 5 and "+N") and shows no role chips', () => {
+    renderRow(makeUser({ role: 'JUNIOR', techStack: ['Zz1', 'Zz2', 'Zz3', 'Zz4', 'Zz5', 'Zz6'] }))
+    expect(screen.getByText('Zz5')).toBeInTheDocument()
+    expect(screen.queryByText('Zz6')).toBeNull()
+    expect(screen.getByText('+1')).toBeInTheDocument()
+    expect(screen.queryByTestId('role-chips')).toBeNull()
+  })
+
+  it('a JUNIOR with exactly 5 technologies shows all of them and no "+N"', () => {
+    renderRow(makeUser({ role: 'JUNIOR', techStack: ['Zz1', 'Zz2', 'Zz3', 'Zz4', 'Zz5'] }))
+    expect(screen.getByText('Zz5')).toBeInTheDocument()
+    expect(screen.queryByText(/^\+\d+$/)).toBeNull()
+  })
+})

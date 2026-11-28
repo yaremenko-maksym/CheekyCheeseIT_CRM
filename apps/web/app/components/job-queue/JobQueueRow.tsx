@@ -10,6 +10,7 @@ import {
   type JobSourceType,
 } from '@crm/shared'
 import { useLocale } from '@/lib/i18n'
+import { formatSalary } from './salary-format'
 
 /* Product names, deliberately not translated. */
 const SOURCE_NAME: Record<JobSourceType, string> = {
@@ -32,7 +33,6 @@ const SOURCE_NAME: Record<JobSourceType, string> = {
   JOOBLE_API: 'Jooble',
   JSEARCH_API: 'JSearch',
   THEIRSTACK_API: 'TheirStack',
-  MUSE_API: 'The Muse',
   REED_API: 'Reed',
   DJINNI_RSS: 'Djinni',
   WWR_RSS: 'We Work Remotely',
@@ -44,6 +44,19 @@ const SOURCE_NAME: Record<JobSourceType, string> = {
   DICE_HTML: 'Dice',
   THEHUB_HTML: 'The Hub',
   WTTJ_HTML: 'Welcome to the Jungle',
+  PYTHONORG_RSS: 'Python.org Jobs',
+  SOLIDJOBS_RSS: 'solid.jobs',
+  BERLINSTARTUPJOBS_RSS: 'Berlin Startup Jobs',
+  HELLOWORLD_RSS: 'HelloWorld.rs',
+  LARAJOBS_RSS: 'LaraJobs',
+  RELOCATEME_HTML: 'Relocate.me',
+  REACTJOBS_HTML: 'ReactJobs',
+  REMOTEIO_HTML: 'Remote.io',
+  REMOTEFIRSTJOBS_HTML: 'Remote First Jobs',
+  JOBSPRESSO_HTML: 'Jobspresso',
+  FOURDAYWEEK_API: '4 Day Week',
+  GERMANTECHJOBS_API: 'GermanTechJobs',
+  JOBTECH_API: 'Arbetsförmedlingen',
 }
 
 /** Product name of a source type; an unknown code falls back to the raw value. */
@@ -54,7 +67,7 @@ export function sourceLabel(sourceType: string): string {
 }
 
 // Module-level `msg` plurals, not the `plural()` macro (breaks under Stryker, see TxDateField).
-const MATCHED_HR = msg`{n, plural, one {# сеньйор вашої команди має збіг стеку} few {# сеньйори вашої команди мають збіг стеку} many {# сеньйорів вашої команди мають збіг стеку} other {# сеньйора вашої команди мають збіг стеку}}`
+const MATCHED_HR = msg`{n, plural, one {# сеньйор ваших команд збігається за стеком} few {# сеньйори ваших команд збігаються за стеком} many {# сеньйорів ваших команд збігаються за стеком} other {# сеньйора ваших команд збігаються за стеком}}`
 const MATCHED_ADMIN = msg`{n, plural, one {# сеньйор має збіг стеку} few {# сеньйори мають збіг стеку} many {# сеньйорів мають збіг стеку} other {# сеньйора мають збіг стеку}}`
 const MORE_KEYWORDS = msg`{n, plural, one {ще # ключове слово} few {ще # ключові слова} many {ще # ключових слів} other {ще # ключового слова}}`
 
@@ -79,14 +92,22 @@ export function JobQueueRow({
   tab: JobQueueTab
   /** ADMIN sees studio-wide counts, HR sees its team's (spec §4.3). */
   role: 'ADMIN' | 'HR'
-  onOpen: (opportunityId: string) => void
+  /** `newTab`: Ctrl/Cmd-, Shift- or middle-click — HR opens several cards side by side. */
+  onOpen: (opportunityId: string, newTab?: true) => void
 }) {
   const { t, i18n } = useLingui()
   const locale = useLocale()
   const source = item.primarySource
   const sourceName = source ? sourceLabel(source.sourceType) : t`Додано вручну`
   const SourceIcon = source ? Rss : PenLine
-  const company = item.companyName ?? t`Компанію не вказано`
+  // A withheld employer is a FACT about the source, not a gap in our data: the senior is told
+  // the employer is undisclosed (Djinni reveals it only after an application), so they do not
+  // read the row as broken. Any other missing employer keeps the older, vaguer line.
+  const company =
+    item.companyName ??
+    (item.employerDisclosure === 'WITHHELD_AT_SOURCE'
+      ? t`Роботодавця не розкрито джерелом`
+      : t`Компанію не вказано`)
   const matched = item.matchedSeniorCount
   // id + values, not `{ ...MSG, values }`: the spread form crashes `lingui extract`.
   const matchedMsg = role === 'ADMIN' ? MATCHED_ADMIN : MATCHED_HR
@@ -107,7 +128,12 @@ export function JobQueueRow({
     <button
       type="button"
       data-testid={`job-queue-row-${item.opportunityId}`}
-      onClick={() => onOpen(item.opportunityId)}
+      onClick={(e) =>
+        e.metaKey || e.ctrlKey || e.shiftKey
+          ? onOpen(item.opportunityId, true)
+          : onOpen(item.opportunityId)
+      }
+      onAuxClick={(e) => e.button === 1 && onOpen(item.opportunityId, true)}
       className="relative flex min-h-11 w-full min-w-0 items-start gap-3 rounded-lg border bg-card p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring @min-[560px]:rounded-none @min-[560px]:border-0 @min-[560px]:bg-transparent"
     >
       <span className="flex min-w-0 flex-1 flex-col gap-1 @min-[720px]:contents">
@@ -200,6 +226,11 @@ export function JobQueueRow({
           data-testid="job-queue-row-meta"
           className="flex min-w-0 flex-col gap-1 @min-[720px]:w-[14.375rem] @min-[720px]:shrink-0"
         >
+          {item.salary && (
+            <span data-testid="job-queue-row-salary" className="text-sm font-medium tabular-nums">
+              {formatSalary(item.salary, locale, i18n)}
+            </span>
+          )}
           {(matched > 0 || showSubmitted) && (
             <span
               data-testid="job-queue-row-counts"
@@ -234,7 +265,7 @@ export function JobQueueRow({
               {role === 'ADMIN' ? (
                 <Trans>Усі сеньйори зі збігом внесли компанію до стоп-листа</Trans>
               ) : (
-                <Trans>Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа</Trans>
+                <Trans>Усі сеньйори ваших команд зі збігом внесли компанію до стоп-листа</Trans>
               )}
             </span>
           )}

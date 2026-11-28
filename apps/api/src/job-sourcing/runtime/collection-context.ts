@@ -122,6 +122,9 @@ export interface ContextDeps {
   readonly now?: (() => Date) | undefined
   /** Where an unrecorded ban is said. Only our own sentences reach it, never exception text. */
   readonly logger?: { error(message: string): void } | undefined
+  /** Sources-12: the read-only held-records lookup `ctx.heldIdentityKeys` answers from. */
+  readonly heldIdentityKeys?:
+    ((keys: readonly string[]) => Promise<ReadonlySet<string>>) | undefined
 }
 
 export interface ContextInput {
@@ -227,6 +230,8 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
   let nextValidators: StoredValidators | null = storedValidators
   let answeredFirst: { shown: StoredValidators | null } | null = null
   let envelopeFingerprint: string | null = null
+  // sources-10: the largest decoded page body of the run, for a per-page (not per-run) near-cap read.
+  let maxPageBytes = 0
   const logger = deps.logger
   /** Ban writes in progress, and whether the worker has drained them (CR-M-6 / SR-L-3). */
   const pending = new Set<Promise<void>>()
@@ -276,7 +281,9 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
   }
 
   async function onRefusal(error: Refusal): Promise<void> {
-    const status = error instanceof SourceBlockedError ? error.status : 429
+    const challenge = error instanceof SourceBlockedError && error.refusal === 'CHALLENGE'
+    // A challenge may arrive as a 200 or a 503 (`refusalKind`): it bans as the 403 it means.
+    const status = challenge ? 403 : error instanceof SourceBlockedError ? error.status : 429
     banCode = status === 429 ? 'RATE_LIMIT' : 'ACCESS_POLICY'
     // LATCH FIRST (SR-M-21): every further reserve / markSent / fetchText is refused from here.
     // The signal is aborted by `fetchText` once this refusal has reached the adapter; aborting
@@ -285,7 +292,7 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
     if (banTargetOf(input.banScope, status) !== 'HOST') return
     const ban: HostBan = {
       hostKey: input.hostKey,
-      reason: `HTTP_${status}`,
+      reason: challenge ? 'ANTI_BOT_CHALLENGE' : `HTTP_${status}`,
       sourceId: run.sourceId,
       retryAfter: error.retryAfter,
       floorHours: input.floorHours,
@@ -337,8 +344,12 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
     deadline: input.deadline,
     now,
     secrets: input.secrets,
+    ...(deps.heldIdentityKeys === undefined ? {} : { heldIdentityKeys: deps.heldIdentityKeys }),
     observeEnvelope(fingerprint) {
       envelopeFingerprint ??= fingerprint
+    },
+    observePageBytes(bytes) {
+      maxPageBytes = Math.max(maxPageBytes, bytes)
     },
     observeSinglePage() {
       if (answeredFirst !== null) nextValidators = answeredFirst.shown
@@ -496,6 +507,7 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
       lastHttpStatus,
       envelopeFingerprint,
       validatorsSeen,
+      maxPageBytes,
       nextValidators,
     }),
     drain: async (timeoutMs) => {

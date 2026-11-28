@@ -86,6 +86,12 @@ export const HN_PAGES_PER_RUN = 2
 /** The largest thread captured held 816 top-level comments; this leaves room and still bounds a page. */
 export const HN_MAX_COMMENTS = 1500
 export const HN_MAX_THREAD_AGE_DAYS = 90
+/**
+ * Per-request timeout: the search step aborted at the 15 s transport default on prod (2026-11-24,
+ * 2 of 15 runs that week) while every other source ran clean. Twice that, as for Lever and Jobicy;
+ * 2 requests x 30 s stays inside the run deadline.
+ */
+export const HN_TIMEOUT_MS = 30_000
 const DAY_MS = 86_400_000
 const WHOISHIRING = 'whoishiring'
 const HIRING_TITLE = /^Ask HN: Who is hiring\?/i
@@ -265,14 +271,22 @@ export function hnSpec(now: Date, ageDays: number): ApiJsonSourceSpec<Config, En
         url.searchParams.set('tags', 'story,author_whoishiring')
         url.searchParams.set('hitsPerPage', String(SEARCH_HITS_PER_PAGE))
         return {
-          request: { url: url.href, headers: { accept: 'application/json' } },
+          request: {
+            url: url.href,
+            headers: { accept: 'application/json' },
+            timeoutMs: HN_TIMEOUT_MS,
+          },
           cacheKey: 'search',
         }
       }
       const id = CURSOR.exec(at.cursor)?.[1]
       if (id === undefined) throw new Error('the thread cursor is not a story id')
       return {
-        request: { url: `${ITEMS_URL}/${id}`, headers: { accept: 'application/json' } },
+        request: {
+          url: `${ITEMS_URL}/${id}`,
+          headers: { accept: 'application/json' },
+          timeoutMs: HN_TIMEOUT_MS,
+        },
         cacheKey: 'thread',
       }
     },

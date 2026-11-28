@@ -18,7 +18,7 @@ import sys
 import tempfile
 import time as time_module
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from signal_plus import alert, senderkey, signal as signal_cli, slot, state, updater
@@ -39,6 +39,7 @@ DEFAULT_SLEEP_CHUNK_SECONDS = 300.0  # requirement 6: ~5 minutes
 DEFAULT_RETRY_ATTEMPTS = 5
 DEFAULT_RETRY_BASE_DELAY_SECONDS = 10.0
 DAEMON_RECHECK_INTERVAL_SECONDS = 3600.0
+RETRY_LATER = "retry-later"  # run_cycle(single_round=True): failed round, re-attempt later
 
 
 def configure_logging() -> None:
@@ -301,6 +302,7 @@ def run_cycle(
     wait_for_slot: bool = True,
     slot_override: datetime | None = None,
     alert_script_path: Path = alert.DEFAULT_POST_MERGE_ALERT_SCRIPT,
+    single_round: bool = False,
 ) -> CycleOutcome:
     """Requirement 7's ``--once``/daemon-cycle behaviour: wait for the slot
     (unless ``wait_for_slot=False``, requirement 7's ``--now``), send with
@@ -314,6 +316,12 @@ def run_cycle(
     drive them in slot order on a single thread; each account still gets its
     OWN independent random slot. Single-account callers leave it ``None`` and
     the pick happens here exactly as before.
+
+    ``single_round`` (2026-11-23 starvation fix): instead of sleeping
+    ``DEFAULT_SLEEP_CHUNK_SECONDS`` and retrying in place after a failed send
+    round, return ``CycleOutcome(sent=False, reason=RETRY_LATER)`` so
+    :func:`run_accounts_once` can drive the other accounts and re-call this
+    one later. Single-account callers leave it ``False``.
     """
     tmp_dir = Path(tmp_dir) if tmp_dir else _default_tmp_dir(config)
     http_post = http_post or alert._default_http_post
@@ -387,6 +395,11 @@ def run_cycle(
             script_path=alert_script_path,
             run=run,
         )
+        if single_round:
+            # The re-call reloads state from disk: persist last_error so a
+            # later cutoff alert still names the real cause.
+            state.save(config.state_file, st)
+            return CycleOutcome(sent=False, reason=RETRY_LATER)
         sleep_fn(DEFAULT_SLEEP_CHUNK_SECONDS)
 
 
@@ -426,22 +439,49 @@ def run_accounts_once(
     Accounts that are already resolved for today (sent or given-up) or on a
     skipped weekday no-op immediately when reached — :func:`run_cycle` checks
     those before the slot wait — so a fresh slot picked for them is harmless.
+
+    Starvation fix (2026-11-23): each account gets ONE send round per turn
+    (``run_cycle(single_round=True)``). A failed round re-queues that account
+    ``DEFAULT_SLEEP_CHUNK_SECONDS`` later instead of sleeping in place, so one
+    always-failing account can no longer hold the thread until the handover
+    cutoff while later-slot accounts never get an attempt. Outcomes are
+    returned in resolution order (equal to slot order when nothing fails).
     """
     rng = rng or random.Random()
     today = now_fn().astimezone(slot.TIMEZONE).date()
 
-    scheduled: list[tuple[datetime, Config]] = [
+    pending: list[tuple[datetime, Config]] = [
         (slot.pick_slot(today, rng=rng), config) for config in configs
     ]
-    # Stable sort by slot time; ties keep the configured (list) order so logs
-    # stay readable and the run is deterministic for a fixed rng.
-    scheduled.sort(key=lambda item: item[0])
 
     outcomes: list[CycleOutcome] = []
-    for slot_time, config in scheduled:
-        outcomes.append(
-            run_cycle(config, now_fn=now_fn, slot_override=slot_time, wait_for_slot=True, **cycle_kwargs)
-        )
+    while pending:
+        # Stable sort by due time; ties keep queue order (configured order for
+        # first slots, re-queued accounts after them), deterministic for a fixed rng.
+        pending.sort(key=lambda item: item[0])
+        due, config = pending.pop(0)
+        try:
+            outcome = run_cycle(
+                config, now_fn=now_fn, slot_override=due, wait_for_slot=True, single_round=True, **cycle_kwargs
+            )
+        except Exception as exc:
+            # SR-L-1: one account's crash (e.g. a corrupt state file -> StateError)
+            # must not end the pass for everyone and crash-loop the daemon. Alert
+            # with the exception TYPE only (its text can echo state/signal-cli
+            # content) and do not re-queue: the cause will not fix itself today.
+            alert.raise_alert(
+                config,
+                f"ERROR: [{config.masked_account()}] roll-call cycle crashed: {type(exc).__name__}",
+                issue_extra_env=_issue_alert_env("cycle-crashed"),
+                script_path=cycle_kwargs.get("alert_script_path", alert.DEFAULT_POST_MERGE_ALERT_SCRIPT),
+                run=cycle_kwargs.get("run", subprocess.run),
+            )
+            outcomes.append(CycleOutcome(sent=False, reason="crashed"))
+            continue
+        if outcome.reason == RETRY_LATER:
+            pending.append((now_fn() + timedelta(seconds=DEFAULT_SLEEP_CHUNK_SECONDS), config))
+        else:
+            outcomes.append(outcome)
     return outcomes
 
 

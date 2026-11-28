@@ -30,7 +30,12 @@ import { MAX_CONSECUTIVE_FAILURES } from '../scheduling/due-policy'
 import { classifyHealth } from './classify-health'
 import { runDetectors } from './detectors'
 import { SourceHealthAlertService } from './source-health-alert.service'
-import { freshnessMaxAgeMsFor, isEmployerBoard, policyDeadlineFor } from './provider-facts'
+import {
+  declaredCapBytesFor,
+  freshnessMaxAgeMsFor,
+  isEmployerBoard,
+  policyDeadlineFor,
+} from './provider-facts'
 import { REPORTING_TYPES } from './reporting-types'
 import { buildEvidence, firstBadRunId, lastGoodRunId, type PassRun } from './run-provenance'
 import type { HealthSnapshot, HealthStateFacts } from './types'
@@ -90,6 +95,7 @@ export class JobSourceHealthService {
         created: jobCollectionRuns.created,
         invalid: jobCollectionRuns.invalid,
         bytesRead: jobCollectionRuns.bytesRead,
+        requestCount: jobCollectionRuns.requestCount,
         lastHttpStatus: jobCollectionRuns.lastHttpStatus,
         newestItemPublishedAt: jobCollectionRuns.newestItemPublishedAt,
         envelopeFingerprint: jobCollectionRuns.envelopeFingerprint,
@@ -119,6 +125,7 @@ export class JobSourceHealthService {
         created: r.created,
         invalid: r.invalid,
         bytesRead: r.bytesRead,
+        requestCount: r.requestCount,
         lastHttpStatus: r.lastHttpStatus,
         newestItemPublishedAt: r.newestItemPublishedAt,
         envelopeFingerprint: r.envelopeFingerprint,
@@ -157,12 +164,14 @@ export class JobSourceHealthService {
     let eventsWritten = 0
     for (const source of sources) {
       const runs = runsBySource.get(source.id) ?? []
+      const declaredCapBytes = declaredCapBytesFor(source.type)
       const snapshot: HealthSnapshot = {
         now,
         runs,
         isEmployerBoard: isEmployerBoard(source.type),
         freshnessMaxAgeMs: freshnessMaxAgeMsFor(source.type),
         policyDeadline: policyDeadlineFor(source.type),
+        declaredCapBytes,
       }
       const facts: HealthStateFacts = {
         adminState: source.adminState,
@@ -194,7 +203,13 @@ export class JobSourceHealthService {
             // The metric values against the baseline, plus the reasons and run ids (ADR section
             // 10). Small by construction (a handful of short codes + a few scalars), so always
             // within the 8192-char evidence CHECK; no truncation branch to leave untested.
-            evidence: buildEvidence(runs, facts.reasons, source.consecutiveFailures, now),
+            evidence: buildEvidence(
+              runs,
+              facts.reasons,
+              source.consecutiveFailures,
+              now,
+              declaredCapBytes,
+            ),
             firstBadRunId: firstBad,
             lastGoodRunId: lastGoodRunId(runs),
             adapterVersion: latestRun?.adapterVersion ?? null,

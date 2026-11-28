@@ -143,6 +143,15 @@ export function deriveProjectExclusions(
  * NOT the description: a stop-word like `PHP` appears in passing in half the
  * descriptions on the market, and an over-eager filter that empties the feed is
  * just as broken as one that leaks.
+ *
+ * A POSTING WHOSE EMPLOYER IS WITHHELD AT THE SOURCE IS NOT EXCLUDED BY A `COMPANY` ENTRY, and that
+ * is a decision, not an oversight (owner, 2026-11-19, backlog 309; see
+ * `normalize/employer-disclosure.ts`). Its company is the empty string, which `companyNamesMatch`
+ * never matches, so a senior's client could in principle appear in their queue under a withheld
+ * employer. The alternative - hiding every posting with no employer - hides the whole of such a
+ * source, which is the outcome the owner rejected. `KEYWORD` entries still apply, and the UI tells
+ * the senior the employer is undisclosed so they can judge before applying. Changing this back is a
+ * product decision for the owner, not a bug fix.
  */
 export function findMatchingExclusion(
   posting: FilterablePosting,

@@ -20,13 +20,13 @@ Examples:
 
 ## File structure
 
-Created by PM in Mode D — `## Question` + `## Context`. The Legal agent adds `## Lawyer answer` (structure from `docs/agents/legal.md`).
+Created by PM in Mode D — `## Question` + `## Context`. The Legal agent adds `## Lawyer answer` (structure from `.claude/agents/legal.md`).
 
 After a consultation is closed the file stays as a permanent reference. Do not delete / do not edit retrospectively — for the consistency of the audit trail.
 
 ## How it differs from task-legal-\*.md
 
-|           | `docs/specs/tasks/task-legal-*.md`         | `docs/specs/legal-consultations/*.md`                            |
+|           | `.claude/tasks/task-legal-*.md`            | `.claude/knowledge/legal-consultations/*.md`                     |
 | --------- | ------------------------------------------ | ---------------------------------------------------------------- |
 | Mode      | A (consult) — task-related                 | D (strategic) — outside the task flow                            |
 | Lifecycle | After closing → archive (like other tasks) | Permanent log                                                    |

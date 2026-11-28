@@ -26,8 +26,8 @@
   the screen, whatever the total. **The < 5 floor holds at both gates** (spec §5, amended by Master in
   PR #1315); at the mockup gate it is scored from the stated behaviour in §4: a spec that auto-retries a money create is < 5 on criterion 2
   regardless of the total. The measured thresholds of §2 apply only at the implementation gate.
-- **Gates:** mockup gate ≥ 9.0 from every member; implementation gate ≥ 9.5 from every member on every
-  device class, max 10 rounds. Quorum 3.
+- **Gates:** mockup gate ≥ 9.5 from every member on every device class (owner decision 2026-11-17; 9.0
+  before it); implementation gate ≥ 9.5 from every member on every device class, max 10 rounds. Quorum 3.
 - The fixed anchors from the benchmarks file still hold: **0** = the benchmark pattern is absent or broken;
   **5** = it works, but has friction a reviewer can name; **10** = it matches or beats the benchmark.
 

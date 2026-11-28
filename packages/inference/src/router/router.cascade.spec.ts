@@ -14,7 +14,7 @@ import {
   scriptedFetch,
   type Reply,
 } from './__test-helpers__/router-harness'
-import { BUSY_BACKOFF_MS, createRouter, type RouterEvent } from './router'
+import { BUSY_BACKOFF_MS, createRouter, MIN_BUSY_BACKOFF_MS, type RouterEvent } from './router'
 import {
   createFileRouteStatePort,
   createMemoryRouteStatePort,
@@ -334,7 +334,8 @@ describe('router cascade: BUSY (§5.1)', () => {
     )
     const d = deps(f.fetchImpl)
     await createRouter(config([GROQ]), d).run(REQ)
-    expect(d.sleeps).toEqual([2000])
+    // A 2 s retry-after is raised to the floor.
+    expect(d.sleeps).toEqual([MIN_BUSY_BACKOFF_MS])
     expect(f.sent.map((s) => s.model)).toEqual([
       'openai/gpt-oss-120b',
       'openai/gpt-oss-120b',
@@ -517,12 +518,12 @@ describe('router cascade: own-cap units (§5.1 unit table)', () => {
     expect(cap.limits).toEqual([tokens.freeLimit, tokens.freeLimit])
   })
 
-  it('the cap is 50 % of the config free limit, the only limit source (CR-M-2)', async () => {
+  it('the cap is the config free limit (groq 100 %, D5 amended 2026-11-20), the only limit source (CR-M-2)', async () => {
     const routeState = createMemoryRouteStatePort()
     const ownCap = createOwnCapPort({ state: routeState, now: at(NOON) })
     const f = scriptedFetch(() => GOOD)
     const router = createRouter(
-      config([{ ...GROQ, freeLimit: { requestsPerDay: 4 } }]),
+      config([{ ...GROQ, freeLimit: { requestsPerDay: 2 } }]),
       deps(f.fetchImpl, { routeState, ownCap, now: at(NOON) }),
     )
     const results = []

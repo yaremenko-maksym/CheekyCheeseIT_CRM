@@ -1,0 +1,340 @@
+/**
+ * Backlog 464 and 466: the surname of a surname-first legal name, and the cap on name sources.
+ *
+ * 464 — the joined reading of a stored name matched the full name and its LAST part alone. A legal
+ * name stored surname first (`Петренко Іван`, the order contracts use) therefore redacted the given
+ * name alone and left the real surname, written alone, in the text. The redaction now ALWAYS also
+ * matches the FIRST part of a multi-part name alone. Round 1 deleted the narrowing that read a
+ * second stored spelling (`displayName`) as normal order: a one-part or surname-first spelling made
+ * it name the wrong edge and the real surname stayed in the text (CR-H-1, SPEC-H-1, SR-M-1).
+ * Redacting the owner's own given name in their own resume is the accepted cost.
+ *
+ * 466 — a stored name split by zero-width spaces into many parts built one source per part and per
+ * order. Past `MAX_NAME_SOURCES` the redaction stops building them and redacts the field whole,
+ * which removes the name and costs nothing.
+ *
+ * The gate scan (`scanContacts`) is NOT widened by either (owner rule): it refuses a submission, so
+ * a new hit there would refuse honest text. Every name here is invented.
+ */
+import { describe, expect, it } from 'vitest'
+import {
+  MAX_NAME_SOURCES,
+  nameSources,
+  redactContacts,
+  redactedSpans,
+  scanContacts,
+  type ContactContext,
+} from './contact-scan'
+
+/** A `legalFullName` context: stored surname first, as the runner marks it. */
+const ctx = (fullName: string): ContactContext => ({ fullName, emails: [], surnameFirst: true })
+
+/** A `displayName` context: normal order, unmarked, so main's last-part rule stands. */
+const displayCtx = (fullName: string): ContactContext => ({ fullName, emails: [] })
+
+const ZWSP = '​'
+
+/** The legal order contracts use: surname first. Invented. */
+const LEGAL = 'Петренко Іван'
+/** The same invented person, normal order, as a `displayName` is written. */
+const DISPLAY_LATIN = 'Ivan Petrenko'
+
+describe('464: the surname of a surname-first legal name is redacted alone', () => {
+  it('redacts the surname alone in the stored script', () => {
+    expect(redactContacts('Reviewed by Петренко last week', [ctx(LEGAL)])).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+  })
+
+  it('redacts the surname alone in its Latin reading (4 letters or more)', () => {
+    expect(redactContacts('Reviewed by Petrenko last week', [ctx(LEGAL)])).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+  })
+
+  it('still redacts the given name alone, as before (the last part is kept)', () => {
+    expect(redactContacts('Reviewed by Іван last week', [ctx(LEGAL)])).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+  })
+
+  it('still redacts the full name in the stored order', () => {
+    expect(redactContacts('Петренко Іван signed', [ctx(LEGAL)])).toBe('[REDACTED] signed')
+  })
+
+  it('keeps a part under four letters out of the Latin pass (latinLone still applies)', () => {
+    // `Ян` alone reads as the English `an`: matched in the stored script only, both edges
+    expect(redactContacts('an hour of work', [ctx('Ян Коваленко')])).toBe('an hour of work')
+    expect(redactContacts('Ян again', [ctx('Ян Коваленко')])).toBe('[REDACTED] again')
+  })
+
+  it('redacts the surname alone of a surname-first name with a patronymic', () => {
+    const name = 'Коваленко Андрій Юрійович'
+    expect(redactContacts('by Коваленко', [ctx(name)])).toBe('by [REDACTED]')
+    expect(redactContacts('by Kovalenko', [ctx(name)])).toBe('by [REDACTED]')
+  })
+
+  it('leaves a one-part name with one lone source', () => {
+    expect(redactContacts('Петренко alone', [ctx('Петренко')])).toBe('[REDACTED] alone')
+  })
+})
+
+describe('464: no second spelling narrows the surname-first rule', () => {
+  it.each([['Petrenko Ivan'], ['Іван Петренко'], ['Ivan'], ['Іван'], [DISPLAY_LATIN]])(
+    'redacts both edges of the legal name beside a displayName context %j',
+    (display) => {
+      // every one of these was a spelling the deleted narrowing read as normal order: a surname-first
+      // one (`Petrenko Ivan`) and a one-part one (`Ivan`) named the given name as the surname, so the
+      // real surname was left standing. Nothing reads the second spelling now
+      const contacts = [displayCtx(display), ctx(LEGAL)]
+      expect(redactContacts('by Петренко', contacts)).toBe('by [REDACTED]')
+      expect(redactContacts('by Іван', contacts)).toBe('by [REDACTED]')
+    },
+  )
+
+  it('redacts the given name of a normal-order name marked surnameFirst too (accepted cost)', () => {
+    // a marked context always takes both edges: over-redacting the owner's own given name in their
+    // own resume is the accepted cost of never leaving the surname (round 1 ruling)
+    const marked = ctx('Іван Петренко')
+    expect(redactContacts('Петренко signed', [marked])).toBe('[REDACTED] signed')
+    expect(redactContacts('Іван signed', [marked])).toBe('[REDACTED] signed')
+  })
+
+  it('keeps the apostrophe and accent spellings of both edges redacted', () => {
+    const apostrophe = ctx("О'Коннор Іван")
+    expect(redactContacts('by О’Коннор', [apostrophe])).toBe('by [REDACTED]')
+    expect(redactContacts('by Іван', [apostrophe])).toBe('by [REDACTED]')
+    const accent = ctx('Shévchuk Olena')
+    expect(redactContacts('by Shevchuk', [accent])).toBe('by [REDACTED]')
+    expect(redactContacts('by Olena', [accent])).toBe('by [REDACTED]')
+  })
+})
+
+describe('464: an unmarked context keeps main the last-part rule', () => {
+  it('leaves the first part of a displayName context alone, as before', () => {
+    expect(redactContacts('Reviewed by Іван', [displayCtx('Іван Петренко')])).toBe(
+      'Reviewed by Іван',
+    )
+    expect(redactContacts('Reviewed by Петренко', [displayCtx('Іван Петренко')])).toBe(
+      'Reviewed by [REDACTED]',
+    )
+  })
+
+  it('leaves the surname of a surname-first name unmarked, which is the backlog 464 symptom', () => {
+    // the whole point of the marker: without it the behaviour is main's, unchanged
+    expect(redactContacts('Reviewed by Петренко', [displayCtx(LEGAL)])).toBe('Reviewed by Петренко')
+  })
+
+  it('redacts both names when the display and legal contexts are scanned together', () => {
+    const contacts = [displayCtx(DISPLAY_LATIN), ctx(LEGAL)]
+    expect(redactContacts('by Петренко and Petrenko', contacts)).toBe(
+      'by [REDACTED] and [REDACTED]',
+    )
+    // the given name alone was already redacted before this change: it is the LAST part of the
+    // surname-first legal name, which both passes have always matched alone (the backlog 464 symptom)
+    expect(redactContacts('by Іван and Ivan', contacts)).toBe('by [REDACTED] and [REDACTED]')
+  })
+})
+
+describe('464: the gate scan is not widened', () => {
+  it.each([
+    ['Петренко', LEGAL],
+    ['Petrenko', LEGAL],
+    ['Kovalenko', 'Коваленко Андрій Юрійович'],
+  ])('scanContacts reports no name hit on %j alone', (text, fullName) => {
+    expect(scanContacts(`Reviewed by ${text} last week`, ctx(fullName))).toEqual([])
+  })
+
+  it('scanContacts still reports the last part alone, as before', () => {
+    expect(scanContacts('Reviewed by Іван', ctx(LEGAL)).map((h) => h.kind)).toEqual(['name'])
+  })
+})
+
+describe('466: the name sources of one pass are capped', () => {
+  /** The worst ZWSP-split name the field length limits admit: `displayName` is capped at 255. */
+  const worstSplit = (chars: number): string =>
+    Array.from({ length: Math.floor(chars / 3) }, (_, i) => `Б${'аеиоу'[i % 5] as string}`).join(
+      ZWSP,
+    )
+
+  it('caps a name at the field length limit and redacts its field whole', () => {
+    const name = worstSplit(255)
+    expect(name.length).toBeLessThanOrEqual(255)
+    const { sources, capped } = nameSources(ctx(name), true, name)
+    expect(capped).toBe(true)
+    // no source is run over the text past the cap; the field answers `[REDACTED]` instead
+    expect(sources).toEqual([])
+    const part = name.split(ZWSP)[3] as string
+    expect(redactContacts(`Worked with ${part} today`, [ctx(name)])).toBe('[REDACTED]')
+  })
+
+  it('leaves a field of no non-whitespace character unchanged past the cap', () => {
+    // a blank field holds no contact to remove, and `[REDACTED]` there reads as one that was never
+    // there (round 1, CR-M-1)
+    const name = worstSplit(255)
+    for (const text of ['', '   ', ' \n\t ']) {
+      expect(nameSources(ctx(name), true, text).capped).toBe(true)
+      expect(redactedSpans(text, [ctx(name)])).toEqual([])
+      expect(redactContacts(text, [ctx(name)])).toBe(text)
+    }
+  })
+
+  it('redacts the field whole when the name is past the cap, so the name is still removed', () => {
+    const name = worstSplit(255)
+    const part = name.split(ZWSP)[3] as string
+    const redacted = redactContacts(`Worked with ${part} on the platform`, [ctx(name)])
+    expect(redacted).toBe('[REDACTED]')
+    expect(redacted).not.toContain(part)
+  })
+
+  it('leaves an ordinary name, and an adversarial one just under the cap, uncapped', () => {
+    for (const name of ['Іван Петренко', 'Коваленко Андрій Юрійович', worstSplit(60)]) {
+      const { sources, capped } = nameSources(ctx(name), true, name)
+      expect(capped).toBe(false)
+      expect(sources.length).toBeLessThanOrEqual(MAX_NAME_SOURCES)
+      expect(redactContacts(`by ${name} today`, [ctx(name)])).not.toBe('[REDACTED]')
+    }
+  })
+
+  /** A ZWSP-split name of `two` two-letter parts and `one` one-letter parts: the count steps by 2. */
+  const sized = (two: number, one: number): string =>
+    [
+      ...Array.from({ length: two }, (_, i) => `Б${'аеиоу'[i % 5] as string}`),
+      ...Array.from({ length: one }, (_, i) => 'бвгдж'[i % 5] as string),
+    ].join(ZWSP)
+
+  it('admits a name of exactly MAX_NAME_SOURCES sources and caps the next one up', () => {
+    const atCap = nameSources(ctx(sized(17, 6)), true, '')
+    expect(atCap.sources.length).toBe(MAX_NAME_SOURCES)
+    expect(atCap.capped).toBe(false)
+    const overCap = nameSources(ctx(sized(17, 7)), true, '')
+    expect(overCap.capped).toBe(true)
+    expect(overCap.sources).toEqual([])
+  })
+
+  it('builds one lone source per reading for a one-part surname-first name', () => {
+    // the joined source and the lone source are the same part: 2 per reading, stored and Latin
+    expect(nameSources(ctx('Петренко'), true, '').sources.length).toBe(4)
+    // two parts add the first part as the second possible surname: 3 per reading
+    expect(nameSources(ctx(LEGAL), true, '').sources.length).toBe(6)
+  })
+
+  it('spans the whole field, from the first character, when the name is past the cap', () => {
+    const name = worstSplit(255)
+    const text = `Worked with ${name.split(ZWSP)[3] as string} on the platform`
+    expect(redactedSpans(text, [ctx(name)])).toEqual([{ start: 0, end: text.length }])
+  })
+
+  it('builds no source at all for a blank stored name', () => {
+    // an empty source would match everywhere: the blank name is dropped, never widened
+    expect(nameSources(ctx(''), true, 'any text')).toEqual({ sources: [], capped: false })
+  })
+
+  it('does not cap the gate scan: its source count is unchanged past the cap', () => {
+    const name = worstSplit(255)
+    const { sources, capped } = nameSources(ctx(name), false, name)
+    expect(capped).toBe(false)
+    expect(sources.length).toBeGreaterThan(MAX_NAME_SOURCES)
+  })
+
+  it('still reports the gate hit on a name past the redaction cap (the gate is not narrowed)', () => {
+    const name = worstSplit(255)
+    const part = name.split(ZWSP)[3] as string
+    expect(scanContacts(`Worked with ${part} today`, ctx(name)).map((h) => h.kind)).toEqual([
+      'name',
+    ])
+  })
+})
+
+describe('464 round 2: an invisible separator inside a surname-first legal name', () => {
+  /** The same invented legal name, stored with U+200B where the space belongs. */
+  const ZWSP_LEGAL = `Петренко${ZWSP}Іван`
+
+  it('redacts the surname alone across an invisible separator', () => {
+    // the per-part reading of such a name offered only its parts AFTER the first alone, so the
+    // surname — its FIRST part — was left standing wherever the text wrote it by itself (backlog 464)
+    expect(redactContacts('Reviewed by Петренко last week', [ctx(ZWSP_LEGAL)])).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+  })
+
+  it('redacts the surname alone in its Latin reading across an invisible separator', () => {
+    expect(redactContacts('Reviewed by Petrenko last week', [ctx(ZWSP_LEGAL)])).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+  })
+
+  it('still redacts the given name and the full name of such a stored name', () => {
+    expect(redactContacts('Reviewed by Іван last week', [ctx(ZWSP_LEGAL)])).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+    expect(redactContacts(`${ZWSP_LEGAL} signed`, [ctx(ZWSP_LEGAL)])).toBe('[REDACTED] signed')
+  })
+
+  it('leaves the first part of an unmarked context alone across an invisible separator', () => {
+    expect(redactContacts('Reviewed by Петренко', [displayCtx(ZWSP_LEGAL)])).toBe(
+      'Reviewed by Петренко',
+    )
+  })
+
+  it('does not widen the gate scan across an invisible separator', () => {
+    expect(scanContacts('Reviewed by Петренко last week', ctx(ZWSP_LEGAL))).toEqual([])
+    expect(scanContacts('Reviewed by Іван last week', ctx(ZWSP_LEGAL)).map((h) => h.kind)).toEqual([
+      'name',
+    ])
+  })
+
+  /** The sources of one call, counted: the marked context adds exactly the lone first part. */
+  const count = (name: string, failClosed: boolean, marked: boolean): number =>
+    nameSources(marked ? ctx(name) : displayCtx(name), failClosed, '').sources.length
+
+  it('adds exactly one lone source per reading, and only on a marked context', () => {
+    // the stored and the Latin reading of the name each gain the first part alone, and nothing else
+    expect(count(ZWSP_LEGAL, true, true)).toBe(count(ZWSP_LEGAL, true, false) + 2)
+  })
+
+  it('leaves the gate pass with the same sources on a marked and an unmarked context', () => {
+    expect(count(ZWSP_LEGAL, false, true)).toBe(count(ZWSP_LEGAL, false, false))
+  })
+
+  it.each([
+    ['one letter', `Б${ZWSP}Петренко`, 'Б'],
+    // an apostrophe and a digit are the non-letters that survive into a part: the rule counts
+    // LETTERS, so neither makes a one-letter part long enough to match alone
+    ['one letter and an apostrophe', `Б'${ZWSP}Петренко`, "Б'"],
+    ['one letter and a digit', `Б1${ZWSP}Петренко`, 'Б1'],
+  ])('adds no lone source for a first part of %s', (_what, name, written) => {
+    // the same predicate as the other lone parts of the reading: a part of fewer than two letters
+    // matches ordinary words. Neither an apostrophe nor a digit is a letter, and neither spelling
+    // gains one by folding
+    expect(count(name, true, true)).toBe(count(name, true, false))
+    expect(redactContacts(`${written} alone`, [ctx(name)])).toBe(`${written} alone`)
+    // the last part is still redacted alone, as in every reading
+    expect(redactContacts('by Петренко', [ctx(name)])).toBe('by [REDACTED]')
+  })
+
+  /** An invented Korean name: a one-syllable surname, a two-syllable given name, stored legal order. */
+  const HANGUL_SURNAME = '박'
+  const HANGUL_LEGAL = `${HANGUL_SURNAME}${ZWSP}지후`
+
+  it('redacts a one-syllable Hangul surname alone across an invisible separator', () => {
+    // one syllable is ONE raw letter and THREE jamo once folded, and the space-separated path has
+    // always decided with the folded part (`isSurnameSource(storedSource(part))`). The first part of
+    // a per-part reading counted RAW letters, so this surname was left standing while the very same
+    // name written with a plain space was redacted (round 3)
+    expect(redactContacts(`Reviewed by ${HANGUL_SURNAME} last week`, [ctx(HANGUL_LEGAL)])).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+    expect(
+      redactContacts(`Reviewed by ${HANGUL_SURNAME} last week`, [ctx(`${HANGUL_SURNAME} 지후`)]),
+    ).toBe('Reviewed by [REDACTED] last week')
+  })
+
+  it('leaves that Hangul surname alone on an unmarked context, in both spellings', () => {
+    for (const stored of [HANGUL_LEGAL, `${HANGUL_SURNAME} 지후`]) {
+      expect(redactContacts(`Reviewed by ${HANGUL_SURNAME} last week`, [displayCtx(stored)])).toBe(
+        `Reviewed by ${HANGUL_SURNAME} last week`,
+      )
+    }
+  })
+})

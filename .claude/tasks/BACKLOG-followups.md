@@ -4955,6 +4955,9 @@ report rather than on the reader's return value.
 
 ## 309. A posting whose employer is withheld at the source has nowhere to live (2026-10-24)
 
+**Closed 2026-11-19 by PR #1433** (a Djinni posting whose employer the feed withholds is stored; prod
+Djinni runs create postings since the deploy). Original text below.
+
 **Open.** Found while reviewing the RSS adapters of r5 Task 3.6; it is the reason two of the three
 sources yield nothing.
 
@@ -5462,6 +5465,11 @@ declare 11 MiB and see the declaration refused. Today the first is refused.
 **Open** — a consequence of quarantining Ashby `isListed: false` postings, which is the right
 treatment and the plan's; it currently belongs to nobody. Owner to be named by whoever owns the
 disappeared-postings sweep (the consumer of the coverage claim).
+
+**Fix in review (branch `feature/vacancy-closure-coverage`, backlog 470).** The first option was taken:
+an unlisted posting is quarantined as `NOT_AN_OPEN_VACANCY`, which is now accounted for and does not
+weaken the claim. The Ashby spec pins it: a board plus one unlisted posting is `SUCCEEDED` with coverage
+`FULL_INVENTORY`, and the unlisted posting is not marked present, so a record of it closes by absence.
 
 The base derives a batch's coverage from its counts, and any quarantined item makes the coverage
 `PARTIAL` instead of `FULL_INVENTORY`. In the code comments of the lifecycle work `FULL_INVENTORY` is
@@ -6915,6 +6923,12 @@ Sources: PR #1273 notes; confirmed by reading the guard.
 
 ## 361. Extraction worker env: stale key name, and two refusals the runbook does not state (2026-11-06)
 
+**Closed (2026-11-18).** PR #1410 (the stale `ROUTER_API_KEY` name was already gone from both
+files; the runbook now states the empty-key `ROUTER_ENV` refusal and the `validateEnv` refusal of a
+shared env file, and documents `OPENROUTER_API_KEY` — the same empty-key refusal in the worker, but
+no member of `WORKER_ONLY_ENV_KEYS`, so the separation check must not count it as a leak). Reopen if
+the Verify check below fails.
+
 - `.env.example` still carries `ROUTER_API_KEY=`, and the `docs/runbooks/extraction-worker.md` separation check greps for that
   name, while the code reads `GEMINI_API_KEY` and `GROQ_API_KEY`. So the check cannot see the real keys in the API's env.
 - An empty `GEMINI_API_KEY=` or `GROQ_API_KEY=` fails `extractionWorkerEnvSchema` (`z.string().min(1).optional()`), so the whole
@@ -7898,7 +7912,7 @@ Sources: PR #1313 spec review (SPEC-M-2), Task 7.4b brief (Master).
   (`grantTeamTriage`, the "current grant is live" branch). That is the same code as a stale card revision, so the
   «Призначити команді…» dialog shows «Дані змінилися. Оновіть картку й повторіть.»; the refresh changes nothing and
   every retry fails the same way. The card exposes no grants, so the client cannot pre-empt it.
-- `grantTeamTriage` checks ADMIN, the revision, a manual card and a live SENIOR team, but not that the opportunity is
+- `grantTeamTriage` checks ADMIN, the revision, a manual card and a live team (SENIOR or DROP), but not that the opportunity is
   in triage (`eligibility`). The triage-only rule lives only in the web menu; an ADMIN's crafted request can grant a
   LEAD or EXCLUDED opportunity.
 - No expiry ceiling on either side: a multi-year grant is accepted.
@@ -8427,6 +8441,10 @@ in the worker. The worker and the API then change together, so the worker is re-
 Sources: PR #1396 fix round (AC 15, probe of the worker), security finding SR-M-1. Owner question: do this before the
 OpenRouter route is enabled, or keep the caller's redaction as the only boundary.
 
+**Status 2026-11-18: RESOLVED** by PR #1414. Owner decision: build it before the OpenRouter route. The worker parses
+`payload` with a strict schema from the link contract, so an unknown key at the top level or in an experience item
+gives 400 and nothing is sent. The worker was re-pinned with that deploy.
+
 ## 461. The mutation gate builds no mutants for `@crm/inference` (2026-11-18)
 
 **Symptoms.** `packages/inference` has no Stryker config, and `scripts/devops/mutation-gate.mjs --changed` reports mutants
@@ -8439,6 +8457,21 @@ instead.
 **Verify.** A changed line under `packages/inference/src/router` appears as mutants in the gate's JSON report.
 
 Sources: PR #1396 fix round report.
+
+**RESOLVED** by PR #1424 (2026-11-19).
+
+- `@crm/inference` is a `PACKAGES` entry in the gate, so both `--changed` and `--full` derive it, and
+  it is a leg of the CI matrix and the nightly sweep with the same budget pair as `@crm/shared`. The
+  nightly tally (`check-mutation-tally.mjs`) requires its report, so a missing leg is red rather than
+  silent.
+- No per-package Stryker config: the package's vitest config is the same node-environment shape
+  `@crm/shared` runs under, so the gate's generated config covers it.
+- Verified on the OpenRouter-router commit's own diff: 623 mutants, 463 of them under `src/router`,
+  0 tool failures. Measurement and the budget rationale are in the runbook's "Measured cost".
+- Residual, not a regression: that historical diff has 32 surviving mutants and 2 no-coverage
+  mutants. The gate is diff-scoped, so they are only red again for a PR that changes those lines.
+  Test-only helpers under `src/**/__fixtures__/**` are excluded; `__test-helpers__` is mutated, as in
+  `apps/api`.
 
 ## 462. CI: the WebKit E2E shard fails when the apt lock stays held (2026-11-18)
 
@@ -8455,6 +8488,8 @@ reason.
 **Verify.** A WebKit run whose apt lock is held ends red at the install step, not in the test step.
 
 Sources: CI runs of PR #1396 and PR #1399.
+
+**Status 2026-11-18: RESOLVED** by PR #1403, merged before this item was filed. The WebKit shard sets `DEPS_VERIFY_BROWSER=webkit`; when the install is skipped for the apt lock, a launch probe runs, and a missing shared library (`libwoff2dec`) ends the step red with `::error::` naming it. Chromium shards stay warning-only. The failing runs of #1396 and #1399 predate #1403. Reopen if a WebKit run with a held apt lock fails in the test step, not the install step.
 
 ## 463. Resume redaction matches the owner's name only in the script it is stored in (2026-11-18)
 
@@ -8477,3 +8512,488 @@ amend §11 Q1 of `docs/superpowers/specs/2026-11-10-tailored-resume-design.md`: 
 leaves. ADR 2026-11-03 H.9 D11 records the same open question.
 
 Sources: PR #1396 security re-review (note to Master, not a finding of that PR).
+
+**Status 2026-11-18: RESOLVED** by PR #1416. `redactContacts` now reads each stored Cyrillic name part through
+`transliteratedNameSource` as well as its stored spelling, so a Cyrillic `displayName` or `legalFullName` is replaced
+inside Latin free text before `writingPayload` sends it. The submission gate `scanContacts` keeps the stored script
+only, on purpose. Limits are stated in §11 Q1 of `docs/superpowers/specs/2026-11-10-tailored-resume-design.md`: a
+spelling outside the reading table is not matched, and a Cyrillic letter the table does not read leaves its part
+untransliterated. ADR 2026-11-03 H.9 D11 still carries the old open question.
+
+## 464. The surname of a surname-first legal name is not redacted alone (2026-11-18)
+
+**Symptoms.** In the joined reading of a stored name, `readingSources` (`contact-scan.ts`) builds the full name and the
+LAST part alone, as the surname; lone parts other than the last come only from a split reading (a name split by an
+invisible character). A legal name stored surname first (`Петренко Іван`, invented, the order contracts use) therefore
+redacts the given name alone, while the real surname written alone in resume text stays, in the stored script and in
+Latin, at any length.
+
+**Candidate fix.** Take the surname from the `displayName` part that the legal name also holds, or read both edge parts
+of a multi-part legal name as a possible surname (the Latin 4-letter rule for a part alone still applies).
+
+**Verify.** With an invented legal name stored surname first, that surname written alone in the stored script and in
+its Latin reading (4 or more letters) is redacted by `redactAll`.
+
+**Status 2026-11-19: RESOLVED** by PR #1422. `ContactContext` gained `surnameFirst`; on a context marked
+`surnameFirst` the redaction ALWAYS matches BOTH edge parts of a multi-part name alone, in the stored script and in
+the Latin reading. `ownerContactContexts` marks only the `legalFullName` context, so the `displayName` context and
+the submission gate `scanContacts` keep the last-part rule unchanged. A narrowing that read a second stored spelling
+(`displayName`) as normal order was built and then deleted in review round 1: a one-part or itself-surname-first
+spelling made it name the wrong edge, and the real surname stayed in the text. Redacting the owner's own given name
+in their own resume is the accepted cost of never leaving the surname. Round 2 extended the same rule to the per-part
+reading of a name stored with an invisible separator (ZWSP, a soft hyphen) between surname and given name: that
+reading offered only its parts after the first alone, so the surname of such a name was still left standing. The
+first part of that reading is now a lone source too on a `surnameFirst` context in the redaction pass, weighed by
+`isSurnameSource(storedSource(part))` — the predicate the joined reading uses, which counts letters AFTER folding, so
+a one-syllable Hangul surname (one letter raw, three jamo folded) is redacted alone as it already was when the same
+name was stored with a plain space (round 3); the gate pass is unchanged. Verification condition unchanged, plus: with a
+`displayName` of `Petrenko Ivan` or of one part only, both edges of the legal name are still redacted, and a legal
+name stored with U+200B between its two parts redacts its surname alone.
+
+Sources: PR #1416 review rounds (backlog 463).
+
+## 465. Mutation gate: a mutant runs zero tests on some runs of the same code (2026-11-18)
+
+**Symptoms.** On PR #1416 the diff mutation gate left one ArrowFunction mutant unverified (the runner executed zero
+tests for it), and an earlier run of the same code left a different one. Both were killed when applied by hand
+(emptying `inText` fails 31 specs, emptying the second reading's `toSource` fails 98). A mutant that runs no test reads
+like coverage the gate never measured.
+
+**Candidate fix.** Find why per-test coverage misses those mutants, and make the gate fail, not pass, on a mutant that
+ran zero tests.
+
+**Verify.** Two gate runs on the same head report the same mutant set, and a mutant with zero tests run is a failure.
+
+Sources: PR #1416 verification notes.
+
+**RESOLVED** by PR #1424 (2026-11-19), with one residual named below. The first-pass mutant and the
+re-run's are matched by full mutant identity — file, the whole span, mutator, replacement
+(`mutantKey`) — because a line commonly carries several mutants of one mutator, and a killed sibling
+under a looser key marked its unkilled neighbour verified.
+
+- **Same mutant set on one head: confirmed.** Two `@crm/api` diff runs on the same tree produced the same 230 mutants,
+  identical per-mutant `coveredBy` and `static` flags, and differed only in which mutants timed out versus were killed
+  (three each way). Nothing about the mutant SET is run-dependent.
+- **Root cause (not this repo's code).** `@stryker-mutator/vitest-runner` asks Vitest which specs are "related" to the
+  sandboxed copy of the mutated file; Vitest's `getTestDependencies` walks each spec's import graph through the module
+  graph's cached transform result and returns early when a module has none, truncating the walk. With no spec left,
+  `ctx.start()` throws `FILES_NOT_FOUND`, which the runner catches as "no tests found" and reports as a completed run
+  with an empty test list — which Stryker records as `Survived`, `testsCompleted: 0`. The module graph is per-process
+  mutable state, so the trigger is run order and concurrency, never the changed code.
+- **Reproduced, with the decisive field.** On a large single-file diff (the whole of `content-gates.ts` treated as new,
+  317 mutants) each of two runs produced exactly one zero-test mutant, at a different location each time. One of them
+  carried Stryker's own perTest `coveredBy: 69` beside `testsCompleted: 0` — a coverage gap cannot look like that. Its
+  isolated re-run killed it.
+- **Shipped behaviour.** `mutation-gate.mjs` re-mutates every zero-test mutant alone (`retryToolFailures`, narrowed to
+  the mutant's own line span) and fails the build only for the ones no test is recorded against the second time; a retry
+  that writes no report is a could-not-run. The partition requires positive evidence of a test having run
+  (`partitionRetriedToolFailures`), so a mutant missing from the retry report stays red.
+- **Residual, deliberately not fixed:** the runner defect itself. The deterministic workaround (`vitest.related: false`)
+  was measured and rejected — it also un-narrows Stryker's initial dry run, which then fails on specs that need a
+  database. So the retry is a strong discriminator, not a proof. Full derivation and both measurements:
+  `scripts/devops/mutation-gate-runbook.md`, "Tool failure vs a surviving mutant".
+
+## 466. Contact scan cost is linear but unbounded on ZWSP-split names (2026-11-18)
+
+**Symptoms.** A stored name split by zero-width spaces into many short parts gives many sources. On a 40 000-char text
+dense with near-hits, `scanContacts` (the submission gate) takes about 2.3 s and the redaction about 1.0 s, doubling
+with the text. It is linear (no backtracking) and was on main before PR #1416, but a synchronous 2 s in the API is a
+cheap slowdown for a user who can set their own `displayName`.
+
+**Candidate fix.** Cap the number of sources (or of hits) per scan call, fail-closed: past the cap, redact or flag
+rather than skip.
+
+**Verify.** The worst ZWSP-split name at the field length limits, on a 40 000-char near-hit text, scans and redacts
+under a fixed bound in `contact-scan.timing.spec.ts`.
+
+**Status 2026-11-19: PARTIAL** by PR #1422 — the redaction half is capped, the gate half stays OPEN. `nameSources`
+now returns `{ sources, capped }` and caps at the exported `MAX_NAME_SOURCES`; past the cap `findSpans` returns one
+span over the whole field, so the field redacts whole and no source is run over the text — the fail-closed exit the
+pass limit already took. A field holding no non-whitespace character is left as it is instead: `[REDACTED]` there
+would read as a contact that was never present. The cap is asserted BY COUNT and by the redacted output in
+`contact-scan.surname-first.spec.ts`, not by a timing bound.
+**Still open:** `scanContacts` (the submission gate) is deliberately not capped — a hit past a cap would refuse
+honest text, a dropped source would fail the gate open, and both are owner decisions on gate width. Its worst case
+stays linear in the field length, bounded only by the existing run-part limit.
+
+Sources: PR #1416 security review round 4, SR-M-1.
+
+## 467. Arbeitnow page 1 sits within ~8.7% of the shared 10 MiB response ceiling (2026-11-19)
+
+**Status: CLOSED 2026-11-21 by PR #1438.** The Arbeitnow per-source cap is now 24 MiB, and a run whose
+average page size passes 80% of its cap raises a near-cap health warning. The first prod run after the
+deploy read page 1 at 18.7 MB (78% of the cap). The warning reads the average page, not the largest
+one; the per-page column is item 473. Original text below.
+
+**Status: OPEN (historical).** The Arbeitnow per-source cap now equals `MAX_RESPONSE_BYTES_CEILING` (10 485 760 bytes):
+live page 1 measured 9 569 670 bytes decoded on 2026-11-19, up from 4 209 793 on 2026-10-24, and the page
+size cannot be chosen. A page past the ceiling fails the whole run as `PAYLOAD_TOO_LARGE` (no partial
+collection) and no per-source lever is left. Options, each an owner decision: raise the shared ceiling;
+a streaming or degrade-not-fail parse of an oversize page; or accept the failed run as the declared bound.
+A parse at this size costs hundreds of ms and ~300 MB RSS (see 318); it was not measured on prod.
+**Verify:** the decoded size of Arbeitnow page 1 on the latest prod run, and whether any run failed with
+`PAYLOAD_TOO_LARGE`.
+
+Sources: PR #1425 code review, spec review and second-opinion.
+
+## 468. An HR re-submit restores a card the senior archived themselves (2026-11-19)
+
+**Open.** `ARCHIVED` does not record who archived a senior's interview card, so an HR re-submit of the
+same opportunity restores a card the senior put away on purpose. Telling the two apart needs a marker
+the schema does not have (an `archived_by` / `archive_reason` column, its DDL) plus an owner decision on
+what a re-submit does with a self-archived card. Today's behaviour is the one the owner asked for (an HR
+cancel archives the card only while it is in `SUBMITTED`).
+**Verify:** the senior archives a card, HR re-submits the same opportunity; the card should stay archived
+(or the senior should see it flagged as re-submitted). Today it comes back.
+
+Sources: PR #1431, security review round 1 SR-L-4 (deferred, agreed in round 2).
+
+## 469. Six ATS board files may hide the same zero-test mutant as SmartRecruiters (2026-11-19)
+
+**Open (hypothesis).** The board tables for `ashby`, `greenhouse`, `lever`, `personio`, `recruitee` and
+`workable` are built at module scope like the SmartRecruiters one, with no pins of their own. A mutant
+there breaks the module import, every spec importing it fails at collection, and the mutation gate
+records a survivor that "0 tests cover" (same class as 465). Only SmartRecruiters was measured and fixed
+(an `await import(...)` load spec plus a board-table pin that imports nothing from the manifest).
+**Verify:** one mutation-gate run scoped to each board file; a survivor with zero covering tests confirms it.
+
+Sources: PR #1429 body ("Follow-up, not fixed here").
+
+## 470. Availability closures never fire on prod (2026-11-19)
+
+**Open.** Availability reconciliation is switched on (`JOB_AVAILABILITY_RECONCILE_ENABLED`, hourly), but
+both closure paths need run coverage `FULL_INVENTORY` or `WINDOW`. `deriveCoverage` forces `PARTIAL` on
+any quarantined or invalid item, and `FRESHNESS_MAX_AGE_MS` covers only `REMOTIVE_API` and `JOBICY_API`,
+so every SUCCEEDED prod run is `PARTIAL` (all 882 at the time of the review) and nothing closes. The
+owner's purpose, "a taken-down posting leaves the HR queue", is not delivered yet. The HTML sources are
+`PARTIAL` by construction (detail budget), so a posting that leaves their sitemap is never closed either.
+Related: 320 (Ashby unlisted postings), 472 (the coverage column is never written).
+**Verify:** `SELECT coverage, count(*) FROM job_collection_runs WHERE outcome = 'SUCCEEDED' GROUP BY 1`
+on prod, and the count of opportunities closed by availability reconciliation.
+
+**Fix in review (branch `feature/vacancy-closure-coverage`, task `task-vacancy-closure-coverage`).**
+A quarantined item that still names its posting is accounted for and no longer drops the inventory
+claim; `NOT_AN_OPEN_VACANCY` is accounted for too; an item that names no posting, an invalid item, a
+resumed, truncated, failed or `NOT_MODIFIED` run stays `PARTIAL`. Quarantined and held postings are
+marked present in the run, so they are never read as absent. A sitemap read whole is the source's
+inventory (`FULL_INVENTORY`). Every source has an expiry window (`expiryWindowMsFor`, 3 days by default,
+longer for slow feeds), and a WINDOW record expires only after three successful WINDOW runs started
+since it was last seen. At the end of a SUCCEEDED run the ledger enqueues absence work for the
+reconciler. Not covered: listing-plus-detail HTML collectors stay `PARTIAL`.
+
+**Accepted residuals after the security and code review rounds (PR #1509).** Each one fails safe, but
+each one leaves something open:
+
+- A WINDOW miss counts only for postings the feed can still reach (`FEED_DEPTH_MS`). TheirStack's depth
+  is 7 days and its expiry window is 21, so its records in effect never window-expire. Only the 60-day
+  retention sweep removes them. A TheirStack source configured below 7 days is not read.
+- A capped run (`PAGE_CAP`, `CURSOR_CYCLE`) claims no coverage, and JSearch reads one page per run. So
+  capped Arbeitnow, Himalayas, 4dayweek and JSearch runs expire less.
+- A run whose not-open share is at most half still closes the postings it did not list.
+- A finished run-absent row is re-armed in place. `FAILED` and `DEFERRED` rows are not, so they stay.
+  Their number is bounded by failures and head moves.
+- The absence enqueue still runs while a source is in drop-guard review. No review flag is stored,
+  only a log line, so the enqueue cannot test for it.
+
+**Verify:** no record of a `THEIRSTACK_API` source reaches `EXPIRED`. Each record has at most one `DONE`
+`job_dirty_work` row with a run-absent reason.
+
+Sources: PR #1426 review, SPEC-M-1; PR #1443 body (closed jobs).
+
+## 471. `job_collection_runs` has no `quarantined` counter (2026-11-20)
+
+**Open.** A run's quarantined items are not counted anywhere persistent, so a source whose every item is
+quarantined (for example a board that is 100% `MISSING_COMPANY`) reports `received = 0` and cannot be
+told from an empty feed, and the health detectors cannot tell quarantine from schema drift. Proposal: a
+`quarantined integer NOT NULL DEFAULT 0` column, both `ck_job_collection_runs_*` CHECKs extended
+(`created + revised + unchanged + duplicates + invalid + quarantined = received` on SUCCEEDED;
+`invalid + quarantined + persistence_errors <= received` for every outcome), threaded through
+`terminalCounters`, `endRun`, `refusalOf` and the detectors. Needs staged DDL, deploy-workflow wiring and a
+security review of the new CHECK; inert until the wiring lands.
+**Verify:** a run of a source whose items are all quarantined stores a non-zero `received` and the same
+number as `quarantined`.
+
+Sources: PR #1434 body (Follow-ups).
+
+## 472. `job_collection_runs.coverage` is never written (2026-11-20)
+
+**Open (pre-existing).** The column defaults to `'PARTIAL'` and no writer sets it, so the
+`coverage = 'FULL_INVENTORY'` filter in the inventory counter updater can never match. Related: 470.
+**Verify:** `SELECT DISTINCT coverage FROM job_collection_runs` returns only `PARTIAL`, and no code path
+writes the column (grep its writers).
+
+**Fix in review (branch `feature/vacancy-closure-coverage`).** `JobRunLedger.endRun` now writes the
+column from the run's ending: the batch's coverage on SUCCEEDED, `PARTIAL` for every other outcome and
+for a SUCCEEDED ending that makes no claim (`coverageOf`). No DDL: the column and enum already exist.
+
+Sources: PR #1434 round 1, CR-L-4.
+
+## 473. The near-cap payload warning reads the average page, not the largest (2026-11-21)
+
+**Open (owner decision: DDL).** `RunMetrics.maxPageBytes` is tracked in memory but not stored; the
+near-cap detector reads the run's average page size, so one oversize page among small ones can pass
+unwarned. Proposal: a `job_collection_runs.max_page_bytes` column written by `endRun`, read by the
+detector.
+**Verify:** a run with one page near the cap and several small pages raises the near-cap warning.
+
+Sources: PR #1438 body (Follow-ups).
+
+## 474. The in-memory run report folds quarantined items into `invalid` (2026-11-20)
+
+**Open (pre-existing, low).** `toStoredReportCounts` adds quarantined items to the in-memory `RunReport`
+`invalid` count, while the stored run row leaves them uncounted (see 471). The two reports of one run
+disagree.
+**Verify:** a run with quarantined items and no invalid ones; compare the in-memory report's `invalid` with
+the stored row's `invalid`.
+
+Sources: PR #1434 second-opinion round 2 (deepseek, L).
+
+## 475. An HR enrolled in more than one team got an empty vacancy queue (2026-11-20)
+
+**Open (observed, mechanism unproven).** In a local E2E database an HR enrolled in three teams received
+`[]` from the vacancy queue instead of the union of its teams' opportunities, although one of its teams
+had a `LEAD` match on the expected opportunity. Seen once, through cross-spec pollution of a shared
+scratch database; PR #1431 touched no queue read path, so it was reported, not changed. If real, a
+multi-team HR sees nothing (RBAC visibility).
+**Verify:** seed an HR into two teams, each with a matched opportunity; the HR's queue read returns both.
+
+Sources: PR #1431 body ("Observation for a follow-up").
+
+## 476. Interviews board lock: no index on the senior, no lock on an empty board (2026-11-20)
+
+**Open (low).** The board lock (`lockSeniorBoard`, row locks on the senior's interview rows) filters
+interviews by senior with no index on that column (perf only; 8 prod rows at the time), and an empty board
+has no rows to lock, so two concurrent first inserts on an empty board are not serialised.
+**Verify:** `SELECT indexname FROM pg_indexes WHERE tablename = 'interviews'` lists no senior index; two
+concurrent creates on an empty board can land the same position.
+
+Sources: PR #1431 second-opinion round 6 (dropped as backlog items).
+
+## 477. The admin sources page shows an `ACCESS_POLICY`-paused source as running (2026-11-19)
+
+**Open.** `deriveSourceState` in `apps/web` reads a card as `paused` only for a host pause, a future
+`cooldownUntil` or `adminState = 'PAUSED'`, and surfaces `lastErrorCode` only on a paused card. An
+`ACCESS_POLICY` pause (DOU, The Muse) sets no cooldown, so such a source reads `running` although every
+run reports it as paused. UI change, behind the design gate.
+**Verify:** with `DOU_RSS` paused `ACCESS_POLICY` on prod, the admin sources page shows it as paused with
+its error code.
+
+Sources: PR #1427 body.
+
+## 478. Russian strings remain in job-sourcing errors (2026-11-19)
+
+**Open.** `SourceRateLimitedError` and the source-budget error still carry Russian text; the job-sourcing
+module is not migrated to the language policy yet, which leaves existing strings until it is.
+**Verify:** grep the job-sourcing module for Cyrillic letters in error messages.
+
+Sources: PR #1427 body.
+
+## 479. A Next Level Jobs page that fails to parse is never retried by id (2026-11-21)
+
+**Open.** An unparseable job page is re-fetched only while it is still unseen; there is no per-id retry
+budget, so a transient bad page can be lost for good.
+**Verify:** a fixture page that fails once and parses on the second fetch ends up stored.
+
+Sources: PR #1443 body (Follow-ups).
+
+## 480. A persistent 5xx on the newest Next Level Jobs id pins the collection loop (2026-11-21)
+
+**Open.** The newest-id loop goes through the shared metered fetch; a 410 is handled by task sources-16,
+but a persistent 5xx on the newest id still stops progress past it on every run.
+**Verify:** a fixture where the newest id answers 500 on every request; the run should still reach older ids.
+
+Sources: PR #1443 delta review round 1, D-2.
+
+## 481. Collector `invalidSamples` have no reader (2026-11-21)
+
+**Open.** The Next Level Jobs collector records invalid samples (including "JSON-LD ok but no apply
+button", which catches a renamed apply-button class), but nothing persists, logs or reads them, and they
+share a cap of `MAX_SAMPLES = 5`. A silent dedup loss after a site redesign is invisible. Proposal: persist
+or log the samples, or a button-miss counter read by source health.
+**Verify:** a run with apply-button misses leaves a trace an ADMIN or the health check can read.
+
+Sources: PR #1443 fix round 2 (D-3) and delta review round 2, L-1.
+
+## 482. JustJoin.it detail budget never drains its inventory (2026-11-21)
+
+**Open (owner decision).** JustJoin.it lists about 11 000 active jobs against 20 details a run, so coverage
+never drains even at 4 runs a day (task sources-15 keeps the per-run bounds). Raising the budget is the
+owner's call (request volume against a site whose terms prohibit automated extraction; risk accepted
+2026-11-20).
+**Verify:** stored JustJoin.it postings per day against the sitemap's job count.
+
+Sources: PR #1444 body (Follow-ups).
+
+## 483. The JustJoin.it sitemap parse is bounded by caps, not streamed (2026-11-21)
+
+**Open.** The sitemap caps (including `MAX_XML_ELEMENTS`) sit about 1.8x above the measured size; past
+about 20 000 active jobs every run fails loud as `PARSE_DRIFT`. Upgrade to a streaming parse (or parse in
+the extraction worker) before raising the caps.
+**Verify:** the JustJoin.it sitemap job count on prod against the cap; any `PARSE_DRIFT` run.
+
+Sources: PR #1444 body (Follow-ups).
+
+## 484. JSON-LD observation dates are mapped twice (2026-11-21)
+
+**Open (cleanup).** `jsonLdDates` in the listing-detail collector and the inline mapping in
+`mapSitePosting` do the same job; one exported helper would serve both.
+**Verify:** grep both mappings; after the change one helper has both callers.
+
+Sources: PR #1445 body (Follow-ups).
+
+## 485. No Fluff Jobs JSON-LD `skills` objects raise harmless `FIELD_INVALID` issues (2026-11-21)
+
+**Open (low).** No Fluff Jobs publishes `skills` as objects; the shared JSON-LD parser expects strings and
+reports each as a `FIELD_INVALID` issue, which is noise in the run's issues.
+**Verify:** a No Fluff Jobs run reports no `FIELD_INVALID` for `skills`.
+
+Sources: PR #1445 body (Follow-ups).
+
+## 486. The mutation gate fails confusingly when it runs during a `git push` (2026-11-21)
+
+**Open (tooling).** The mutation gate and the pre-push hook use the same build-cache lock; a gate run
+during a push fails with a misleading error. Run alone, it works.
+**Verify:** start a gate run, push from the same checkout; the gate should wait or say the lock is held.
+
+Sources: PR #1445 body (Follow-ups).
+
+## 487. The reset-failures dialog has a 24x24 close button and no Cancel at 375 px (2026-11-21)
+
+**Open (low, shared dialog primitive).** On the admin sources page at 375 px the reset-failures dialog's
+close "×" is 24x24 (below the touch target size) and there is no Cancel button; Escape and an overlay
+click both work.
+**Verify:** open the dialog at 375 px; the close target is at least 44x44 or a Cancel button exists.
+
+Sources: PR #1442 manual QA, QA-LOW-5.
+
+## 488. SmartRecruiters reads one real hiring board (2026-11-21)
+
+**Open (low).** `SMARTRECRUITERS_ATS` has one real hiring board; the `smartrecruiters` board is a CONTROL board.
+A second real board needs its own capture and evidence file before it is added.
+**Verify:** the `SMARTRECRUITERS_ATS` rows on prod list the boards; a second real board has an evidence file.
+
+Sources: PR #1429 body.
+
+## 489. Tailored batch read loads every base resume's full content for eligibility (2026-11-22)
+
+**Open (low, perf).** The tailored batch GET, the PDF read and POST read each senior's whole base resume,
+because the non-English eligibility check scans nearly the whole document. Store an eligibility flag per
+verified base version, written at verification, and read only that.
+**Verify:** the people read in the tailored service selects no `senior_resumes.content`; the eligibility
+answer is unchanged for a non-English base.
+
+Sources: PR #1462 fix round 1, item G (second-opinion finding).
+
+## 490. A storage failure during a base-resume delete answers a generic 500 (2026-11-23)
+
+**Open (low, UX).** Deleting a senior's base resume erases its stored files inside the delete transaction. When
+storage fails or times out, the transaction rolls back and the row is kept (correct), but the client gets a
+generic 500 with no error code, so the UI cannot say "storage is unavailable, try again". Answer a 503 with a coded
+error and add its `uk` and `en` message to the catalog.
+**Verify:** a delete whose storage erase fails answers 503 with the new code, the row is still there, and a retry
+after storage recovers deletes it.
+
+Sources: PR #1462 review round 3, CR-L-4 (code-reviewer).
+
+## 491. The bookmarklet has no site profiles for Lever, Workable, Ashby, Djinni or signed-in LinkedIn (2026-11-24)
+
+**Open (medium, coverage).** The external vacancy intake spec lists seven site profiles for the bookmarklet:
+DOU, LinkedIn job view, Greenhouse, Lever, Workable, Ashby and Djinni. PR #1484 ships DOU, Greenhouse and the
+public (signed-out) LinkedIn job page, each built from a saved copy of a real page. The signed-in LinkedIn job
+view uses other markup and goes the generic way, as do Lever, Workable, Ashby and Djinni (through JSON-LD
+`JobPosting`, the generic reader, or the page text the CRM parses). Djinni and signed-in LinkedIn come first,
+because the spec's goal names them. Each profile needs a saved real page as its fixture; selectors guessed
+without one are not added.
+**Verify:** for each new site, a saved real page in `apps/web/app/bookmarklet/__fixtures__/` gives
+`recognition: 'recognized'` with the title, company and description read by its profile.
+
+Sources: PR #1484 spec review, SPR-M-1 (spec-reviewer); PR #1484 manual QA, QA-MED-2.
+
+## 492. The bookmarklet install steps on a phone describe a desktop browser (2026-11-24)
+
+**Open (low, UX).** The "To CRM" install dialog picks its steps from the browser family only (Chromium, Firefox,
+Safari), so a phone gets desktop steps: a keyboard shortcut for the bookmark manager and dragging to a bookmarks
+bar, neither of which exists on Android Chrome or iOS Safari. Mobile browsers can still run a bookmarklet that
+was saved by editing a bookmark's address. Either show mobile steps (save any page, edit the bookmark, paste the
+script as its address; run it from the address bar by its name) or say that installing works on a computer.
+**Verify:** open the install dialog with an Android Chrome or iOS Safari user agent; the steps shown can be
+followed on that device.
+
+Sources: PR #1484 manual QA, QA-LOW-1.
+
+## 493. The mutation gate turns a budget timeout into a BLOCK on Windows (2026-11-25)
+
+**Open (medium, DevOps).** When `scripts/devops/mutation-gate.mjs` runs out of its time budget, it kills Stryker
+and then removes the package's `.stryker-tmp` sandbox with an unguarded `rmSync` in the child `close` handler.
+On Windows the killed workers still hold files in the sandbox, so `rmSync` throws `EBUSY`. The uncaught throw
+ends the process with exit 1, which `pre:bash:mutation-gate` reads as a real finding (BLOCK) instead of the
+timeout's exit 2 (SKIP). A push from Windows is then refused with no survivor behind it. Guard that cleanup
+(catch, log, continue) so a timeout always ends as exit 2; a leftover sandbox is removed by the next run.
+**Verify:** on Windows, a `--changed` run that exceeds its budget exits 2 and prints the timeout note, and the
+pre-push gate reports SKIP, not BLOCK.
+
+Sources: PR #1508 review, CR-M-2 (code-reviewer); the coder's push attempts on `feature/vacancy-queue-sort`.
+
+## 494. The shared Select trigger shows its focus ring on mouse focus too (2026-11-25)
+
+**Open (low, UI).** The trigger of the shared `Select` (`apps/web/app/components/ui/select.tsx`) draws a 1 px
+focus ring on `:focus`, so it also appears after a mouse click. Other toolbar controls draw a 2 px ring on
+`:focus-visible` only, so a Select next to them looks different and flashes a ring on click. Change the shared
+component to the 2 px `focus-visible` ring; every Select in the app picks it up.
+**Verify:** clicking a Select trigger shows no ring; tabbing to it shows the same 2 px ring as the neighbouring
+toolbar controls, on light and dark themes.
+
+Sources: PR #1508 design review, UX-L-1 (ui-ux-designer).
+
+## 495. Integration specs wait on real clocks for 10–24 s per test (2026-11-28)
+
+**Human-planned (medium, Coder + AutoTest; touches service timeouts).** Several Postgres integration
+specs spend most of their time waiting out a real timeout instead of a configured short one. Measured on
+PR run 45849497324 (`--reporter=verbose`): `verification-runner.integration.spec.ts` "writer unavailable"
+and "a run that fails at the writer uploads nothing" take exactly 20.0 s each, "re-submit from
+AWAITING_CONFIRM" 24.1 s; the forward-DDL partial-index specs for `job_dirty_work` take 12.0 s each; the
+`transactions.tx_date NOT NULL` "fails fast (lock_timeout …)" case 10.0 s; the recompute-worker
+"infrastructure failure is RETRY" case 15.1 s; `createDrizzleModelHealthStore` "a write blocked by a lock"
+3.0 s ×4. Together about 130 s of integration time. Shortening them means injecting a smaller writer /
+lock timeout into the service under test (or fake timers where no real DB wait is involved), which can
+change product defaults — not a gardener auto-fix.
+**Verify:** the verbose integration log lists none of these cases at ≥ 10 s, and each still asserts the
+same outcome (FAILED WRITER_UNAVAILABLE, the `lock_timeout` refusal, RETRY).
+
+Sources: Codebase Gardener run 2026-11-28 (CI timing audit).
+
+## 496. The apps/api unit suite spends twice as long importing as testing (2026-11-28)
+
+**Human-planned (medium, Coder).** The apps/api vitest run (job `quality_core`, before PR #1516) reports
+`Duration 497.56s (transform 39.72s, import 900.20s, tests 430.59s)` over 782 files: module loading costs
+more than the tests themselves (wide barrel imports pulling the Nest module graph into unit specs is the
+likely cause, unproven). Slowest files: `contact-scan.round4.spec.ts` 50.4 s (a 20 000-generated-texts
+property loop), `resume-text-extraction.service.spec.ts` 35.9 s, `app.module.container.spec.ts` 34.1 s,
+`next-slot.spec.ts` 18.7 s plus two more tz projects (12.9 s / 14.8 s). Lowering a property-test iteration
+count weakens the test and is the owner's call; trimming import graphs is a refactor.
+**Verify:** the same Duration line shows `import` below `tests`, with the same file and test counts.
+
+Sources: Codebase Gardener run 2026-11-28 (CI timing audit).
+
+## 497. The ledger concurrency spec runs 1000 iterations (124 s) on every PR (2026-11-28)
+
+**Human-planned (low, owner decision).** `job-run-ledger.concurrency.integration.spec.ts` "1000 iterations,
+no deadlock" takes 124.4 s per PR run; the count comes from `T3_CONCURRENCY_ITERATIONS` (default 1000).
+PR #1516 gives it its own integration leg so it no longer lengthens a hash shard. Whether every PR needs
+1000 iterations (versus a lower PR count and the full count nightly) is a coverage trade-off for the owner.
+**Verify:** the owner's choice is recorded on this entry; if the PR count is lowered, the ledger leg's
+log shows the lower iteration count and a nightly run still sets `T3_CONCURRENCY_ITERATIONS=1000`.
+
+Sources: Codebase Gardener run 2026-11-28 (CI timing audit).
+
+## 498. The legal knowledge files are still in Russian (2026-11-28)
+
+**Open (low, owner; Legal reviews the translation).** `.claude/knowledge/legal/domain-lessons.md` and both `cross-cutting/` files
+(`citation-rules.md`, `escalation-zones.md`) are Russian prose the Legal agent reads as rules. The gardener
+translated only the README: these carry legal conclusions and citation rules where a translation slip
+changes meaning. The knowledge-base README makes the owner its maintainer (the Legal agent does not edit
+it), so the translation goes through an owner PR that the Legal agent reviews; keep Ukrainian statute names and quotes in
+the original.
+**Verify:** the Cyrillic left in those files is Ukrainian legal terms or quotations only.
+
+Sources: Codebase Gardener run 2026-11-28 (meta audit).

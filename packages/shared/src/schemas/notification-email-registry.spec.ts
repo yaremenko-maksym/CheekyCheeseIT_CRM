@@ -192,7 +192,7 @@ const SOURCE_ROWS: ReadonlyArray<readonly [keyof typeof M, string, string]> = [
   [
     'sourceAlertLine',
     'email.notification.SOURCE_HEALTH_ALERT.line',
-    'Джерело «{source}»: {state, select, FAILING {запити завершуються помилкою.} CAPPED {{hasCount, select, yes {{failures, plural, one {# збій} few {# збої} many {# збоїв} other {# збою}} поспіль з {since}, потрібне скидання.} other {забагато збоїв поспіль, потрібне скидання.}}} BLOCKED {джерело заблоковане.} EMPTY {порожня відповідь.} PAUSED {хост на паузі через обмеження.} other {змінився формат відповіді.}}',
+    'Джерело «{source}»: {state, select, FAILING {запити завершуються помилкою.} CAPPED {{hasCount, select, yes {{failures, plural, one {# збій} few {# збої} many {# збоїв} other {# збою}} поспіль з {since}, потрібне скидання.} other {забагато збоїв поспіль, потрібне скидання.}}} BLOCKED {джерело заблоковане.} EMPTY {порожня відповідь.} PAUSED {хост на паузі через обмеження.} other {{reason, select, PAYLOAD_GROWTH {розмір відповідей різко зріс або наближається до ліміту.} other {змінився формат відповіді.}}}}',
   ],
   [
     'sourceWeeklySubject',

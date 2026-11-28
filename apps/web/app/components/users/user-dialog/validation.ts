@@ -1,28 +1,26 @@
 import { z } from 'zod'
 import type { PaymentMethod, UserProfileDto } from '@crm/shared'
-import { seniorTechStackSchema, updateProfileSchema } from '@crm/shared'
+import { seniorRolesSchema, updateProfileSchema } from '@crm/shared'
 import { translateZodMessage } from '@/lib/axios-utils'
 import type { Currency } from '@/components/ui/amount-currency-input'
 import { api } from '@/lib/axios'
 import type { Role } from '../constants'
 
 /**
- * Inline SENIOR technology floor — the shared `seniorTechStackSchema`, so the
- * form and the API count technologies the same way. `undefined` = valid.
- * `original` is the stored user on edit: like the API (A1), a SENIOR whose stack
- * and role are unchanged is not checked, so a legacy SENIOR below the floor can
- * still save unrelated edits.
+ * Inline SENIOR role floor — the shared `seniorRolesSchema`, so the form and the API refuse the same
+ * thing (`SENIOR_MIN_ROLES`). `undefined` = valid. `original` is the stored user on edit: like the
+ * API, a SENIOR whose roles are unchanged is not checked, so a legacy SENIOR with no roles can still
+ * save unrelated edits (plan Review Focus 4).
  */
-export function seniorTechStackError(
+export function seniorRolesError(
   role: string,
-  stack: readonly string[],
-  original?: { role: string; techStack: readonly string[] | null | undefined },
+  roles: readonly string[],
+  original?: { role: string; technicalRoles: readonly string[] },
 ): string | undefined {
   if (role !== 'SENIOR') return undefined
-  const before = original?.techStack ?? []
-  const unchanged = stack.length === before.length && stack.every((tech, i) => tech === before[i])
-  if (original?.role === 'SENIOR' && unchanged) return undefined
-  const r = seniorTechStackSchema.safeParse([...stack])
+  // A legacy SENIOR saved with no roles passes: any roles it now has are valid, and none is no change.
+  if (original?.role === 'SENIOR' && original.technicalRoles.length === 0) return undefined
+  const r = seniorRolesSchema.safeParse([...roles])
   return r.success
     ? undefined
     : r.error.issues.map((issue) => translateZodMessage(issue.message))[0]

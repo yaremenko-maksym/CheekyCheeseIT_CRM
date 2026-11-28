@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { AlertCircle, CheckCircle2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { z } from 'zod'
@@ -60,7 +60,7 @@ export const ERROR_MESSAGES = {
   // the link stays valid, `acceptPersonalEmailInvite` does not consume the
   // token on a mismatch) instead of only naming the diagnosis; the account
   // chooser this relies on is forced open by `prompt=select_account`
-  // (`AuthService.buildGoogleAuthUrl`, invite round only).
+  // (`AuthService.buildGoogleAuthUrl`, on every Google round).
   // copy round 1 (COPY-H-1): the uk original had a gender-agreement error
   // ("по ньому" — masculine/neuter — referring back to "адресі", feminine)
   // inherited from an earlier Russian draft; also shortened by ~25 chars,
@@ -293,12 +293,8 @@ function LoginPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
-      <motion.div
-        className="w-full max-w-sm"
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] as const }}
-      >
+      {/* cubic-bezier(0.25, 0.1, 0.25, 1) is CSS `ease`, tw-animate's default easing. */}
+      <div className="w-full max-w-sm animate-in fade-in-0 slide-in-from-bottom-6 duration-500">
         {/* Logo */}
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
           <BrandMark className="h-14 w-14 text-primary drop-shadow-lg" />
@@ -322,7 +318,7 @@ function LoginPage() {
 
         {/* Error */}
         {error && (
-          <motion.div
+          <m.div
             className="mb-4 flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
             initial={{ opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -331,14 +327,14 @@ function LoginPage() {
           >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{i18n._(ERROR_MESSAGES[error])}</span>
-          </motion.div>
+          </m.div>
         )}
 
         {/* task-user-emails-invite (spec §2): invite accepted, but "Токен НЕ
             выдаёт сессию" — this confirms the accept step worked, the person
             still clicks the Google button below to actually sign in. */}
         {invited && !error && (
-          <motion.div
+          <m.div
             className="mb-4 flex items-start gap-2.5 rounded-lg border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary"
             initial={{ opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -352,7 +348,7 @@ function LoginPage() {
                 Особисту адресу підтверджено. Увійдіть через Google — виберіть цю адресу.
               </Trans>
             </span>
-          </motion.div>
+          </m.div>
         )}
 
         {/* Fallback OAuth button */}
@@ -386,7 +382,7 @@ function LoginPage() {
         <p className="mt-6 text-center text-xs text-muted-foreground">
           <Trans>Немає доступу? Зверніться до адміністратора.</Trans>
         </p>
-      </motion.div>
+      </div>
     </div>
   )
 }

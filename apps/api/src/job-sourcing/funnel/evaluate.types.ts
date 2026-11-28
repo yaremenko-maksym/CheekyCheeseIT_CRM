@@ -1,4 +1,5 @@
 import type { JobExclusionDto } from '@crm/shared'
+import type { OpportunityRoles } from '../store/opportunity-roles'
 import type { Layer1Input, Layer1Result, RoleFamily } from './layer1'
 import type { FirstSeenKind, RankWarning } from './rank'
 import type { SeniorTechProfile, TechMatchView, TechMatchReadinessIssue } from './tech-match'
@@ -9,7 +10,11 @@ import type { SeniorTechProfile, TechMatchView, TechMatchReadinessIssue } from '
  */
 
 /** Stamped on every reason and trace entry that evaluate itself produces (layer 1 stamps its own). */
-export const EVALUATE_RULE_VERSION = 'eval.1' as const
+/**
+ * `eval.2`: roles replace the stack keyword match (senior roles PR 4).
+ * `eval.3`: a scope ranks by the Jev fit of its best senior; the match-count term is gone.
+ */
+export const EVALUATE_RULE_VERSION = 'eval.3' as const
 
 export type Availability = 'OPEN' | 'CLOSED' | 'EXPIRED' | 'UNKNOWN'
 
@@ -58,18 +63,18 @@ export interface EvaluateInput {
   rosterSeniorIds: readonly string[]
   profiles: readonly SeniorTechProfile[]
   exclusions: readonly JobExclusionDto[]
-  /** Teams explicitly granted unknown-stack triage items. There is no global pool. */
-  teamTriageGrants: readonly string[]
+  /**
+   * The opportunity's stored technical roles (senior roles PR 4). REQUIRED: the caller classifies
+   * first. Anything but `RULE` / `AI` is an opportunity-level EXCLUDED in CLASSIFICATION.
+   */
+  roles: OpportunityRoles
   /** REQUIRED: an omitted flag must not read as "everything loaded". Pass `[]` when it all was. */
   unavailable: readonly UnavailableInput[]
   /**
-   * SFS U10 (ADR 6a): the revision is list-only because its detail is pending for an ON_DEMAND
-   * source (`description_sha256` NULL, the detail not yet fetched). Its stack can only be in the
-   * unfetched description, so it is never excluded on stack grounds — at worst TRIAGE with the
-   * stack unknown, so it is enriched and re-evaluated. Title-level exclusions still apply. Default
-   * false: an IN_LIST source, or a record whose detail is present, evaluates unchanged.
+   * REQUIRED (like `unavailable`): seniorId -> current-key Jev fit in [0,1]. Pass `{}` when none is
+   * graded. An ordering signal only: it never filters or hides a projection.
    */
-  detailPending?: boolean
+  relevance: Readonly<Record<string, number>>
 }
 
 /** `SENIOR:<id>`, `TEAM:<id>` or `STUDIO`. */
@@ -80,10 +85,12 @@ export type ProjectionStatus = 'LEAD' | 'TRIAGE'
 export interface ScopeProjection {
   scope: ScopeKey
   status: ProjectionStatus
-  /** Seniors of the scope with a CORE/OPTIONAL match. */
+  /** Seniors of the scope whose roles match the vacancy. */
   matchCount: number
   /** Present only for a LEAD. */
   score: number | null
+  /** The graded fit of the best-scoring matched senior (a senior scope: that senior's own); null = ungraded. */
+  fit: number | null
   rankWarnings: RankWarning[]
   reasons: Reason[]
   /** What the viewer may be shown: built from the scope's own seniors only. */

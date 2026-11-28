@@ -45,12 +45,31 @@ const MiB = 1024 * 1024
  * declared, so the transport's 2 MiB default applies.
  */
 const EXPECTED_MAX_BYTES: Readonly<Record<string, number | undefined>> = {
-  ARBEITNOW_API: 8 * MiB,
+  ARBEITNOW_API: 24 * MiB,
   ASHBY_ATS: 10 * MiB,
   GREENHOUSE_ATS: 10 * MiB,
   HN_HIRING: 4 * MiB,
+  // The first request is robots.txt (task sources-16, H-1), capped at the RFC 9309 500 KiB, for
+  // all four sitemap sites; their sitemaps declare 8 MiB (JustJoin.it), 2 MiB (Landing.jobs, The
+  // Hub) and 4 MiB (Next Level Jobs), pinned in their own specs.
+  JUSTJOIN_HTML: 500 * 1024,
+  LANDINGJOBS_HTML: 500 * 1024,
   LEVER_ATS: 10 * MiB,
+  NEXTLEVELJOBS_HTML: 500 * 1024,
+  // The first request is robots.txt, capped at the RFC 9309 500 KiB; listings declare 4 MiB.
+  DICE_HTML: 500 * 1024,
+  NOFLUFF_HTML: 500 * 1024,
+  // Wave 3, sitemap family: the same robots.txt first request (their sitemaps declare 2 to 4 MiB).
+  RELOCATEME_HTML: 500 * 1024,
+  REACTJOBS_HTML: 500 * 1024,
+  REMOTEIO_HTML: 500 * 1024,
+  REMOTEFIRSTJOBS_HTML: 500 * 1024,
+  JOBSPRESSO_HTML: 500 * 1024,
+  // 1.8 MB light listing; 4 MiB for this host only (owner decision 2026-11-24).
+  GERMANTECHJOBS_API: 4 * MiB,
   RECRUITEE_ATS: 10 * MiB,
+  SOLIDJOBS_RSS: 4 * MiB,
+  THEHUB_HTML: 500 * 1024,
   WORKABLE_ATS: 10 * MiB,
   WWR_RSS: 4 * MiB,
 }
@@ -111,12 +130,15 @@ async function firstRequestOf(entry: (typeof manifest.entries)[number]) {
 const wiredEntries = manifest.entries.filter((e) => REPORTING_WIRING[e.type] !== undefined)
 
 describe('T6 AC 1: declared hosts and byte caps reach the transport, for every entry', () => {
-  it('every reporting type is wired except Working Nomads (and legacy DOU)', () => {
+  it('every reporting type is wired (legacy DOU is not a reporting type)', () => {
+    // Task sources-04 wired the last one, Working Nomads: it had been a blocked stub with no fetch
+    // path, and now has a real adapter. An unwired reporting type is refused TRANSPORT_NOT_WIRED at
+    // claim, so this equality is what makes every type reachable at all.
     const reporting = [...MANIFEST_VALIDATION_ADAPTERS.keys()].sort()
     const wired = Object.keys(REPORTING_WIRING).sort()
-    expect(reporting.filter((t) => !wired.includes(t))).toEqual(['WORKINGNOMADS_API'])
+    expect(reporting.filter((t) => !wired.includes(t))).toEqual([])
     expect(wired.filter((t) => !reporting.includes(t as never))).toEqual([])
-    expect(wired).toHaveLength(22)
+    expect(wired).toHaveLength(41)
   })
 
   it('Arbeitnow is pinned to exactly www.arbeitnow.com', () => {
@@ -136,11 +158,15 @@ describe('T6 AC 1: declared hosts and byte caps reach the transport, for every e
       JOBICY_API: 'jobicy.com',
       JOOBLE_API: 'jooble.org',
       JSEARCH_API: 'jsearch.p.rapidapi.com',
-      MUSE_API: 'www.themuse.com',
+      LANDINGJOBS_HTML: 'landing.jobs',
+      NEXTLEVELJOBS_HTML: 'nextleveljobs.eu',
+      DICE_HTML: 'www.dice.com',
+      NOFLUFF_HTML: 'nofluffjobs.com',
       REED_API: 'www.reed.co.uk',
       REMOTEOK_API: 'remoteok.com',
       REMOTIVE_API: 'remotive.com',
       SMARTRECRUITERS_ATS: 'api.smartrecruiters.com',
+      THEHUB_HTML: 'thehub.io',
       THEIRSTACK_API: 'api.theirstack.com',
       WORKABLE_ATS: 'apply.workable.com',
       WWR_RSS: 'weworkremotely.com',
@@ -150,6 +176,11 @@ describe('T6 AC 1: declared hosts and byte caps reach the transport, for every e
       expect(wiring?.allowedHosts, type).toEqual([host])
       expect(wiring?.adapterVersion, type).toMatch(/^[a-z-]+-\d+$/)
     }
+    // JustJoin.it: the site and the CDN its sitemaps are read from.
+    expect(REPORTING_WIRING.JUSTJOIN_HTML?.allowedHosts).toEqual([
+      'justjoin.it',
+      'public.justjoin.com',
+    ])
     // the three config-dependent ones are functions (covered per entry below)
     for (const type of ['LEVER_ATS', 'PERSONIO_ATS', 'RECRUITEE_ATS'] as const) {
       expect(typeof REPORTING_WIRING[type]?.allowedHosts, type).toBe('function')

@@ -1,5 +1,6 @@
 import { parseBoundedJson } from '../providers/bounded-json'
 import { parseSourceDate, type ObservedDate } from '../normalize/date-policy'
+import { periodIn, salaryOf, type SalaryObservation } from '../normalize/salary'
 
 /**
  * Pure extractor of schema.org `JobPosting` objects from a detail page's JSON-LD (Task 5.7a).
@@ -75,6 +76,7 @@ const RAW_FIELDS = [
   'skills',
   'datePosted',
   'validThrough',
+  'baseSalary',
 ] as const
 
 export interface JsonLdJobPosting {
@@ -95,6 +97,8 @@ export interface JsonLdJobPosting {
   validThrough: ObservedDate | null
   /** `validThrough` parsed AND before `now`; null when there is no usable `validThrough`. */
   expired: boolean | null
+  /** `baseSalary` as a MonetaryAmount (sources-17); null for any other shape, never an issue. */
+  baseSalary: SalaryObservation | null
   /** The source JSON value of every field read above, untouched (undefined when absent). */
   raw: Record<(typeof RAW_FIELDS)[number], unknown>
   /** Fields present in the source that normalised to nothing. Absent fields are not listed. */
@@ -338,13 +342,44 @@ function toPosting(
     datePosted: date('datePosted', node.datePosted, 'PUBLISHED'),
     validThrough,
     expired: validThrough?.status === 'OK' ? validThrough.value.getTime() < now.getTime() : null,
+    baseSalary: baseSalaryOf(node.baseSalary),
     raw: Object.fromEntries(RAW_FIELDS.map((f) => [f, node[f]])) as JsonLdJobPosting['raw'],
     issues,
   }
 }
 
-/** Two postings are "the same" iff this key is equal; shared by conflict detection and selection. */
-const sameness = (p: JsonLdJobPosting): string => JSON.stringify(p)
+const jsonLdPeriod = periodIn({ hour: 'HOUR', month: 'MONTH', year: 'YEAR' })
+// Parsed JSON holds no NaN or Infinity, and normalizeSalary refuses both anyway: the type is enough.
+const amountOf = (v: unknown): number | null => (typeof v === 'number' ? v : null)
+
+/**
+ * `baseSalary: { currency, value: { unitText, minValue, maxValue | value } }`. A single `value` is
+ * both bounds. `unitText` is read case-insensitively and only HOUR, MONTH or YEAR is a period:
+ * DAY, WEEK or anything else is no salary. Lenient by design: a salary is an optional fact, so a
+ * malformed one is dropped without an issue and never fails the posting.
+ */
+function baseSalaryOf(v: unknown): SalaryObservation | null {
+  if (!isRecord(v) || !isRecord(v.value)) return null
+  const q = v.value
+  const single = amountOf(q.value)
+  return salaryOf(
+    amountOf(q.minValue) ?? single,
+    amountOf(q.maxValue) ?? single,
+    typeof v.currency === 'string' ? v.currency : null,
+    jsonLdPeriod(q.unitText),
+  )
+}
+
+/**
+ * Two postings are "the same" iff this key is equal; shared by conflict detection and selection.
+ * `baseSalary` (sources-17) is left out: variants that differ only in salary are one posting, and
+ * selection keeps it with salary `null` because the salary is ambiguous.
+ */
+const sameness = (p: JsonLdJobPosting): string => {
+  const { baseSalary: _salary, raw, ...rest } = p
+  const { baseSalary: _rawSalary, ...rawRest } = raw
+  return JSON.stringify({ ...rest, raw: rawRest })
+}
 
 function findConflicts(postings: JsonLdJobPosting[]): string[] {
   const seen = new Map<string, Set<string>>()
@@ -375,11 +410,16 @@ export function selectByIdentity(
 ): IdentitySelection {
   const { identifier, url } = query
   if (!identifier && !url) return { kind: 'none' }
-  // Byte-identical duplicates are one posting (no conflict); only DIFFERENT matches are ambiguous.
+  // Identical duplicates are one posting (no conflict); only DIFFERENT matches are ambiguous.
   const distinct = new Map<string, JsonLdJobPosting>()
   for (const p of postings) {
     if ((!identifier || p.identifier === identifier) && (!url || p.url === url)) {
-      distinct.set(sameness(p), p)
+      const key = sameness(p)
+      const seen = distinct.get(key)
+      if (seen === undefined) distinct.set(key, p)
+      else if (JSON.stringify(seen.baseSalary) !== JSON.stringify(p.baseSalary)) {
+        distinct.set(key, { ...seen, baseSalary: null })
+      }
     }
   }
   const matches = [...distinct.values()]

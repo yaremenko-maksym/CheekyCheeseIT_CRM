@@ -29,7 +29,7 @@ export interface JobQueueListProps {
   onLoadMore: () => void
   onRetry: () => void
   onRestart: () => void
-  onOpen: (opportunityId: string) => void
+  onOpen: (opportunityId: string, newTab?: true) => void
   onResetFilters: () => void
   onClearSearch: () => void
 }

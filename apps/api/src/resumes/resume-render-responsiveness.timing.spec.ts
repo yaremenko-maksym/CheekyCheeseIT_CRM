@@ -159,6 +159,8 @@ function renderInput(templateSource: string): ResumeRenderInput {
   return {
     displayName: 'Іван Петренко',
     email: 'ivan.petrenko@example.com',
+    phone: '',
+    telegram: '',
     content: EMPTY_RESUME_CONTENT,
     layout: DEFAULT_RESUME_LAYOUT,
     templateName: 'classic',

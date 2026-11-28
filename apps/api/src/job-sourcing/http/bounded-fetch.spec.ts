@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   __resetThrottleForTests,
+  ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,
+  ALLOWLISTED_RESPONSE_BYTES_HOSTS,
   boundedFetchText,
   DEFAULT_MAX_BYTES,
   MAX_RESPONSE_BYTES_CEILING,
+  throttle,
   transportOptionsFor,
 } from './bounded-fetch'
 import {
@@ -166,12 +169,14 @@ describe('boundedFetchText', () => {
       const p1 = boundedFetchText('https://api.example.test/x', {
         allowedHosts: hosts,
         minGapMs: 1000,
+        random: () => 0,
       })
       await vi.advanceTimersByTimeAsync(0)
       await p1
       const p2 = boundedFetchText('https://api.example.test/x', {
         allowedHosts: hosts,
         minGapMs: 1000,
+        random: () => 0,
       })
       await vi.advanceTimersByTimeAsync(0)
       expect(f).toHaveBeenCalledTimes(1)
@@ -191,7 +196,7 @@ describe('boundedFetchText', () => {
           resp('ok', { status: 200, url: 'https://api.example.test/x' }),
         )
       vi.stubGlobal('fetch', f)
-      const opts = { allowedHosts: hosts, minGapMs: 1000 }
+      const opts = { allowedHosts: hosts, minGapMs: 1000, random: () => 0 }
       const all = Promise.all([
         boundedFetchText('https://api.example.test/x', opts),
         boundedFetchText('https://api.example.test/x', opts),
@@ -462,11 +467,13 @@ describe('boundedFetchText — allowedHosts validation (SR-M-1)', () => {
       'fetch',
       vi
         .fn()
-        .mockResolvedValueOnce(resp('ok', { status: 200, url: 'https://muse-api.example.com/x' })),
+        .mockResolvedValueOnce(
+          resp('ok', { status: 200, url: 'https://vendor-api.example.com/x' }),
+        ),
     )
     await expect(
-      boundedFetchText('https://muse-api.example.com/x', {
-        allowedHosts: ['muse-api.example.com', 'jooble.org'],
+      boundedFetchText('https://vendor-api.example.com/x', {
+        allowedHosts: ['vendor-api.example.com', 'jooble.org'],
         minGapMs: 0,
       }),
     ).resolves.toBe('ok')
@@ -595,9 +602,13 @@ describe('boundedFetchText — limits, timeout, defaults (SR-M-3 / CR-M-2)', () 
   it('uses a 1 s default throttle gap', async () => {
     vi.useFakeTimers()
     try {
-      const f = vi.fn().mockImplementation(async () => ok())
+      const f = vi
+        .fn()
+        .mockImplementation(async () =>
+          resp('ok', { status: 200, url: 'https://api.example.test/x' }),
+        )
       vi.stubGlobal('fetch', f)
-      const o = { allowedHosts: hosts }
+      const o = { allowedHosts: hosts, random: () => 0 }
       await boundedFetchText('https://api.example.test/x', o)
       const p2 = boundedFetchText('https://api.example.test/x', o)
       await vi.advanceTimersByTimeAsync(999)
@@ -634,7 +645,7 @@ describe('boundedFetchText — mutation-gate hardening', () => {
     try {
       const f = vi.fn().mockImplementation(async () => resp('ok', { status: 200, url: U }))
       vi.stubGlobal('fetch', f)
-      const opts = { allowedHosts: hosts, minGapMs: 1000 }
+      const opts = { allowedHosts: hosts, minGapMs: 1000, random: () => 0 }
       const p1 = boundedFetchText(U, opts)
       await vi.advanceTimersByTimeAsync(0)
       await p1
@@ -843,9 +854,11 @@ describe('a request-declared byte cap', () => {
   const via = (request: Parameters<typeof transportOptionsFor>[0]) =>
     boundedFetchText(U, { ...o, ...transportOptionsFor(request) })
 
-  it('the transport default is 2 MiB and the ceiling 10 MiB', () => {
+  it('the transport default is 2 MiB, standard ceiling 10 MiB, and allowlisted ceiling 24 MiB', () => {
     expect(DEFAULT_MAX_BYTES).toBe(2_097_152)
     expect(MAX_RESPONSE_BYTES_CEILING).toBe(10_485_760)
+    expect(ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING).toBe(25_165_824)
+    expect(ALLOWLISTED_RESPONSE_BYTES_HOSTS).toEqual(['www.arbeitnow.com'])
   })
 
   it('a body AT the declared cap (3000 of 3000) is accepted whole', async () => {
@@ -904,6 +917,81 @@ describe('a request-declared byte cap', () => {
   it('a body larger than the default but within a declared 8 MB cap is accepted (the Greenhouse case)', async () => {
     stub('x'.repeat(8_000_000))
     expect((await via({ url: U, maxBytes: 8_000_000 })).length).toBe(8_000_000)
+  })
+
+  it('allowlisted host accepts declared cap up to 24 MiB; non-allowlisted host is refused above 10 MiB', async () => {
+    const arbeitnowUrl = 'https://www.arbeitnow.com/api/job-board-api'
+    const arbeitnowOpts = { allowedHosts: ['www.arbeitnow.com'], minGapMs: 0 }
+    const f = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(resp('x', { status: 200, url: arbeitnowUrl })))
+    vi.stubGlobal('fetch', f)
+
+    // Non-allowlisted host at 24 MiB is refused before any network call
+    await expect(via({ url: U, maxBytes: ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING })).rejects.toThrow(
+      'invalid maxBytes: 25165824 (must be 1..10485760)',
+    )
+    expect(f).not.toHaveBeenCalled()
+
+    // Allowlisted host at 24 MiB is accepted
+    await expect(
+      boundedFetchText(arbeitnowUrl, {
+        ...arbeitnowOpts,
+        maxBytes: ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,
+      }),
+    ).resolves.toBe('x')
+    expect(f).toHaveBeenCalledTimes(1)
+
+    // L1: the ceiling follows the host FETCHED, not what the pin list contains. A mixed list lets the
+    // allowlisted host read 24 MiB, and refuses 24 MiB for the other host before any network call.
+    const mixed = {
+      allowedHosts: ['api.example.test', 'www.arbeitnow.com'],
+      minGapMs: 0,
+      maxBytes: ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,
+    }
+    f.mockClear()
+    await expect(boundedFetchText(arbeitnowUrl, mixed)).resolves.toBe('x')
+    expect(f).toHaveBeenCalledTimes(1)
+    f.mockClear()
+    await expect(boundedFetchText('https://api.example.test/jobs', mixed)).rejects.toThrow(
+      'invalid maxBytes: 25165824 (must be 1..10485760)',
+    )
+    // An unparsable URL is not allowlisted: the 10 MiB ceiling refuses it first
+    await expect(boundedFetchText('not a url', mixed)).rejects.toThrow(
+      'invalid maxBytes: 25165824 (must be 1..10485760)',
+    )
+    expect(f).not.toHaveBeenCalled()
+
+    // Allowlisted host above 24 MiB is refused before any network call
+    f.mockClear()
+    await expect(
+      boundedFetchText(arbeitnowUrl, {
+        ...arbeitnowOpts,
+        maxBytes: ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING + 1,
+      }),
+    ).rejects.toThrow('invalid maxBytes: 25165825 (must be 1..25165824)')
+    expect(f).not.toHaveBeenCalled()
+  })
+
+  it('allowlisted host refuses body over 24 MiB as PAYLOAD_TOO_LARGE', async () => {
+    const arbeitnowUrl = 'https://www.arbeitnow.com/api/job-board-api'
+    const arbeitnowOpts = { allowedHosts: ['www.arbeitnow.com'], minGapMs: 0 }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        resp('x', {
+          status: 200,
+          url: arbeitnowUrl,
+          headers: { 'content-length': String(ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING + 1) },
+        }),
+      ),
+    )
+    await expect(
+      boundedFetchText(arbeitnowUrl, {
+        ...arbeitnowOpts,
+        maxBytes: ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,
+      }),
+    ).rejects.toBeInstanceOf(SourcePayloadTooLargeError)
   })
 })
 
@@ -1018,5 +1106,130 @@ describe('boundedFetchText onValidators (U2)', () => {
       onValidators: (_seen, validators) => shown.push(validators),
     })
     expect(shown).toEqual([{ etag: 'W/"v1"', lastModified: null }])
+  })
+})
+
+describe('throttle — jitter and abort handling', () => {
+  beforeEach(() => {
+    __resetThrottleForTests()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('never waits less than the minimum gap at random = 0', async () => {
+    vi.useFakeTimers()
+    await throttle('a.test', 2000, () => 0)
+    let released = false
+    const second = throttle('a.test', 2000, () => 0).then(() => {
+      released = true
+    })
+    await vi.advanceTimersByTimeAsync(1999)
+    expect(released).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await second
+    expect(released).toBe(true)
+  })
+
+  it('waits at most 1.5x the minimum gap at random = 1', async () => {
+    vi.useFakeTimers()
+    await throttle('b.test', 2000, () => 1)
+    let released = false
+    const second = throttle('b.test', 2000, () => 1).then(() => {
+      released = true
+    })
+    await vi.advanceTimersByTimeAsync(2999)
+    expect(released).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await second
+    expect(released).toBe(true)
+  })
+
+  it('waits 1.25x the minimum gap at random = 0.5', async () => {
+    vi.useFakeTimers()
+    await throttle('c.test', 2000, () => 0.5)
+    let released = false
+    const second = throttle('c.test', 2000, () => 0.5).then(() => {
+      released = true
+    })
+    await vi.advanceTimersByTimeAsync(2499)
+    expect(released).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await second
+    expect(released).toBe(true)
+  })
+
+  it('bounds at random = 0.999999', async () => {
+    vi.useFakeTimers()
+    await throttle('d.test', 1000, () => 0.999999)
+    let released = false
+    const second = throttle('d.test', 1000, () => 0.999999).then(() => {
+      released = true
+    })
+    // 1000 * (1 + 0.4999995) = 1499.9995 -> ceil 1500
+    await vi.advanceTimersByTimeAsync(1499)
+    expect(released).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await second
+    expect(released).toBe(true)
+  })
+
+  it('aborts during a jittered wait when signal aborts', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    await throttle('e.test', 10_000, () => 0.5)
+    const waiting = throttle('e.test', 10_000, () => 0.5, controller.signal)
+    controller.abort(new Error('aborted during throttle'))
+    await expect(waiting).rejects.toThrow('aborted during throttle')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('rejects at once when the signal is already aborted', async () => {
+    const controller = new AbortController()
+    controller.abort(new Error('pre-aborted'))
+    await expect(throttle('f.test', 10_000, () => 0.5, controller.signal)).rejects.toThrow(
+      'pre-aborted',
+    )
+  })
+
+  it('does not wait when minGapMs <= 0', async () => {
+    await expect(throttle('g.test', 0)).resolves.toBeUndefined()
+    await expect(throttle('g.test', -10)).resolves.toBeUndefined()
+  })
+
+  it('boundedFetchText aborts throttle when timeoutMs expires', async () => {
+    vi.useFakeTimers()
+    const f = vi
+      .fn()
+      .mockImplementation(async () =>
+        resp('ok', { status: 200, url: 'https://api.example.test/x' }),
+      )
+    vi.stubGlobal('fetch', f)
+    const opts = {
+      allowedHosts: hosts,
+      minGapMs: 5000,
+      timeoutMs: 1000,
+      random: () => 0.5,
+    }
+    await boundedFetchText('https://api.example.test/x', opts)
+    expect(f).toHaveBeenCalledTimes(1)
+    const secondPromise = boundedFetchText('https://api.example.test/x', opts)
+    // Catch rejection early so Node does not report an unhandled rejection
+    secondPromise.catch(() => {})
+    // Advance past timeoutMs (1000 ms) while throttle needs 6250 ms
+    await vi.advanceTimersByTimeAsync(1000)
+    await expect(secondPromise).rejects.toThrow(/abort/i)
+  })
+
+  it('removes abort listener once timer fires and throttle settles', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    const removeSpy = vi.spyOn(controller.signal, 'removeEventListener')
+    await throttle('h.test', 1000, () => 0)
+    const second = throttle('h.test', 1000, () => 0, controller.signal)
+    await vi.advanceTimersByTimeAsync(1000)
+    await second
+    expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function))
   })
 })

@@ -146,9 +146,17 @@ describe('fixture provenance', () => {
     },
   )
 
-  it('keeps no Working Nomads job data: its only artifact is the terms page, committed byte for byte', () => {
+  it('keeps the terms page byte for byte beside the one committed Working Nomads capture', () => {
+    // Until task sources-04 the terms page was the ONLY artifact here, because no capture was
+    // permitted. The owner's 2026-11-16 ACCEPT_RISK decision permitted one plain GET, so the
+    // exposed-jobs payload now sits beside it; the terms page is still committed unmodified.
     const dir = join(ROOT, 'workingnomads')
-    expect(readdirSync(dir).sort()).toEqual(['terms.html.provenance.json', 'terms.html.txt'])
+    expect(readdirSync(dir).sort()).toEqual([
+      'exposed-jobs.json',
+      'exposed-jobs.provenance.json',
+      'terms.html.provenance.json',
+      'terms.html.txt',
+    ])
     const p = provenanceSchema.parse(
       JSON.parse(readFileSync(join(dir, 'terms.html.provenance.json'), 'utf8')),
     )
@@ -236,6 +244,82 @@ const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
     reason: 'a CSS @media rule in the committed page',
     hits: ['@media'],
   },
+  ...['job-engineering-manager.html.txt', 'job-security-engineer.html.txt'].flatMap((page) => [
+    {
+      file: `nextleveljobs/${page}`,
+      reason: 'the JSON-LD keywords of the JobPosting the adapter reads',
+      hits: ['@context', '@type'],
+    },
+    {
+      file: `nextleveljobs/${page}`,
+      reason:
+        "a third-party employer's anti-phishing notice naming its two mail DOMAINS, no mailbox",
+      hits: ['@cohere.com', '@cw.cohere'],
+    },
+    {
+      file: `nextleveljobs/${page}`,
+      reason:
+        'the redaction placeholder behind a double-escaped `\\u003e` in the page payload: the scan decodes one escape level, so the token keeps `u003e`',
+      hits: ['u003eredacted@example.invalid'],
+    },
+  ]),
+  {
+    file: 'relocateme/job-senior-manager-data-engineering-machine-learning-10310.jsonld.html.txt',
+    reason: 'the JSON-LD keywords of the JobPosting the adapter reads',
+    hits: ['@context', '@id', '@type'],
+  },
+  ...[
+    'jobspresso/job-jr-ui-developer.jsonld.html.txt',
+    'reactjobs/job-frontend-developer-typescript-react.jsonld.html.txt',
+    'remotefirstjobs/job-director-performance-acceleration-emea-888098.jsonld.html.txt',
+    'remoteio/job-senior-software-engineer-partner-integrations-at-airbnb.jsonld.html.txt',
+  ].map((file) => ({
+    file,
+    reason: 'the JSON-LD keywords of the JobPosting the adapter reads',
+    hits: ['@context', '@type'],
+  })),
+  ...[
+    'thehub/job-people-operations-specialist.jsonld.html.txt',
+    'thehub/job-sar-annotation-consultant.jsonld.html.txt',
+    'justjoin/job-fullstack-developer-java-angular.jsonld.html.txt',
+    'landingjobs/job-application-integration-consultant.jsonld.html.txt',
+    'landingjobs/job-aws-cloud-solutions-architect.jsonld.html.txt',
+  ].map((file) => ({
+    file,
+    reason: 'the JSON-LD keywords of the JobPosting the adapter reads',
+    hits: ['@context', '@type'],
+  })),
+  {
+    file: 'nextleveljobs/job-security-engineer.html.txt',
+    reason: 'an opaque `data-p` attribute value of an embedded widget, no address',
+    hits: ['%.@'],
+  },
+  {
+    file: 'trim-nextleveljobs-captures.py',
+    reason: 'the e-mail regular expression of the redaction script itself',
+    hits: ['+@'],
+  },
+  {
+    file: 'dice/job-detail.trimmed.html.txt',
+    reason: 'the JSON-LD keywords of the JobPosting the adapter reads',
+    hits: ['@context', '@type'],
+  },
+  {
+    file: 'dice/jobs-listing.trimmed.html.txt',
+    reason:
+      'Tailwind container-query variants (`@xl/...`) in class names, and a React flight reference (`$@8e`), no address',
+    hits: ['@3xl', '@5xl', '@8e', '@xl'],
+  },
+  {
+    file: 'nofluff/job-detail.trimmed.html.txt',
+    reason: 'the JSON-LD keywords of the JobPosting the adapter reads',
+    hits: ['@context', '@graph', '@type'],
+  },
+  {
+    file: 'trim-dice-nofluff-captures.py',
+    reason: 'the e-mail regular expression of the redaction script itself',
+    hits: ['+@'],
+  },
   {
     file: 'wwr/unknown-category.challenge-403.html.txt',
     reason: 'a CSS @media rule in a committed challenge page',
@@ -261,6 +345,12 @@ const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
     file: 'greenhouse/airbnb-board.json',
     reason: 'a bare @ in job-board text: no local part, not an address',
     hits: ['@'],
+  },
+  {
+    file: 'helloworld/rss.trimmed.xml',
+    reason:
+      "the publisher's own <webMaster> element in the channel header: a placeholder value the site left in its feed, not a person's address",
+    hits: ['todo@todo.com'],
   },
   {
     file: '__raw-captures__/3.2/README.md',
@@ -323,17 +413,17 @@ const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
     hits: ['+@', '@rgrove'],
   },
   {
-    file: 'trim-muse-captures.mjs',
-    reason: 'the regex source of the redaction',
-    hits: ['+@'],
-  },
-  {
     file: 'trim-ats-a-captures.mjs',
     reason: 'the regex source of the redaction',
     hits: ['+@'],
   },
   {
     file: 'trim-keyed-captures.mjs',
+    reason: 'the regex source of the redaction',
+    hits: ['+@'],
+  },
+  {
+    file: 'trim-sources-04-captures.mjs',
     reason: 'the regex source of the redaction',
     hits: ['+@'],
   },
@@ -628,14 +718,16 @@ const STATUSES: Array<[provider: string, name: string, blocked: boolean]> = [
 ]
 
 describe('readiness is not derivable from permission alone', () => {
-  it('every Task 3.2 source and Remotive is blocked, except Arbeitnow (permitted) and the three the owner decided on 2026-10-24', () => {
-    // HN, Remotive and Jobgether are NOT permitted: their provenance still says UNCLEAR. They are
-    // unblocked by an owner decision (ACCEPT_RISK), which the manifest requires for exactly that.
+  it('every Task 3.2 source and Remotive is blocked, except Arbeitnow (permitted) and the four the owner decided on', () => {
+    // HN, Remotive, Jobgether and Working Nomads are NOT permitted: their provenance still says
+    // UNCLEAR. They are unblocked by an owner decision (ACCEPT_RISK) - 2026-10-24 for the first
+    // three, 2026-11-16 for Working Nomads - which the manifest requires for exactly that.
     expect(STATUSES.filter(([, , blocked]) => !blocked).map(([provider]) => provider)).toEqual([
       'arbeitnow',
       'jobgether',
       'hn-hiring',
       'remotive',
+      'workingnomads',
     ])
   })
 

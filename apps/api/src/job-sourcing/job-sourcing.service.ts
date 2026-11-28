@@ -56,12 +56,14 @@ import {
 } from '../database/schema'
 import type { DouRssProvider } from './dou.provider'
 import { deriveProjectExclusions, findMatchingExclusion, manualExclusionDto } from './filtering'
+import { SourceBlockedError } from './http/source-errors'
 import {
   JobSourceBudgetContentionError,
   JobSourceBudgetExhaustedError,
   JobSourceDeliberateStopError,
 } from './source-budget.error'
 import { toSafeFailureMessage } from './safe-failure-message'
+import { readSourcingNotice } from './sourcing-notice'
 import type { NormalizedPosting } from './job-source.provider'
 import { apiError } from '../common/api-error'
 import { markExclusionDirty } from './dirty-producers'
@@ -72,6 +74,7 @@ import { JobSourceRegistry } from './registry/job-source-registry'
 import { type TypeFilter, sourceAcceptsTrigger, typePassesFilter } from './scheduling/due-policy'
 import { resolveRegistry } from './registry/production-registry'
 import { JobRunLedger, type RunEnding, inheritedCheckpoint } from './ownership/job-run-ledger'
+import { AUTH_PAUSE_CODE } from './ownership/ledger-policy'
 import { latestHealthTransitions } from './health/latest-transitions'
 import {
   type BridgeRun,
@@ -84,6 +87,7 @@ import {
 } from './bridge/bridge-delivery'
 import { ZeroPostingsError, bridgeEnding } from './bridge/bridge-ending'
 import { storeObservations } from './bridge/dou-store'
+import { VACANCY_RETENTION_DAYS, vacancyRetentionEnabled } from './retention'
 
 /**
  * Job sourcing — task-job-sourcing-slice1.
@@ -101,8 +105,10 @@ import { storeObservations } from './bridge/dou-store'
  * decided here, in one place (`assertCanAccessSenior`).
  */
 
-/** How long a posting nobody applied to is kept. */
-export const POSTING_RETENTION_DAYS = 90
+/** How long a posting nobody applied to is kept: the owner's 60-day vacancy limit (2026-11-25). */
+export const POSTING_RETENTION_DAYS = VACANCY_RETENTION_DAYS
+/** The legacy purge's limit before the 60-day decision; kept while `VACANCY_RETENTION_ENABLED` is off. */
+export const LEGACY_POSTING_RETENTION_DAYS = 90
 /** Page size for a senior's queue — the modal shows one at a time. */
 export const SUGGESTIONS_PAGE_SIZE = 20
 
@@ -256,15 +262,46 @@ export class JobSourcingService {
   // -------------------------------------------------------------------------
 
   /**
-   * Resolve + authorize the senior whose queue is being touched. Returns the
-   * effective senior id (a SENIOR always gets their own, whatever they asked
-   * for — the same "ignore the parameter" shape InterviewsService uses).
+   * task-sources-07c (owner decision 2026-11-19): the vacancy-sourcing queue is CLOSED to a
+   * SENIOR — the suggestions, the opportunity-open action and the exclusion filters alike. A
+   * senior does not triage vacancies; they see the RESULT of HR's work as interview cards on
+   * their own Interviews page (`interviews.stage = 'SUBMITTED'`), written by
+   * `JobQueueActionsService`.
+   *
+   * Called FIRST in every one of the six public methods the controller exposes, because
+   * `@Roles(...)` on the controller is only the role-SET gate: it is one line away from being
+   * widened again in a refactor, and `job-sourcing-rbac.integration.spec.ts` must be able to
+   * prove the refusal with the guard chain out of the picture (the MED-1 defence-in-depth shape
+   * already used for `assertCanManageSources`).
+   *
+   * Refused BEFORE any row is read, so a SENIOR cannot use the 403-vs-404 difference as an
+   * existence oracle over somebody else's exclusion ids.
+   */
+  private assertNotSenior(user: SessionUser): void {
+    if (user.role === 'SENIOR') {
+      throw new ForbiddenException(
+        'Vacancy sourcing is run by ADMIN and HR; a senior sees the result as interview cards',
+      )
+    }
+  }
+
+  /**
+   * Authorize the senior whose queue is being touched, and echo the id back.
+   *
+   * It used to RESOLVE as well as authorize: a SENIOR got `user.id` whatever they asked for (the
+   * "ignore the parameter" shape `InterviewsService` uses). task-sources-07c closed the queue to
+   * that role, so there is nothing left to resolve — ADMIN and HR are the only callers that
+   * return, and both return `requestedSeniorId` unchanged. Treat this as an assertion whose
+   * return value is a convenience, never as a source of a trustworthy id (CR-L-3).
    */
   private async assertCanAccessSenior(
     user: SessionUser,
     requestedSeniorId: string | undefined,
   ): Promise<string> {
-    if (user.role === 'SENIOR') return user.id
+    // task-sources-07c: this used to return `user.id` — a SENIOR reading their own queue. The
+    // queue is now closed to them (`assertNotSenior`, called first by every public method), so
+    // reaching here as a SENIOR means a caller skipped that guard. Refuse rather than serve.
+    this.assertNotSenior(user)
 
     if (!requestedSeniorId) {
       // Code review round 3: this used to read "seniorId обязателен", which is
@@ -345,11 +382,13 @@ export class JobSourcingService {
     requestedSeniorId: string | undefined,
     user: SessionUser,
   ): Promise<{ items: JobExclusionDto[] }> {
+    this.assertNotSenior(user)
     const seniorId = await this.assertCanAccessSenior(user, requestedSeniorId)
     return { items: await this.buildExclusionSet(seniorId) }
   }
 
   async createExclusion(dto: CreateJobExclusionDto, user: SessionUser): Promise<JobExclusionDto> {
+    this.assertNotSenior(user)
     const normalizedValue = normalizeCompanyName(dto.value)
     if (normalizedValue.length === 0) {
       throw new BadRequestException('Значение исключения не содержит букв или цифр')
@@ -425,6 +464,7 @@ export class JobSourcingService {
   }
 
   async deleteExclusion(id: string, user: SessionUser): Promise<void> {
+    this.assertNotSenior(user)
     const row = await this.db.db
       .select()
       .from(jobExclusionFilters)
@@ -436,19 +476,24 @@ export class JobSourcingService {
     if (row.seniorId === null) {
       this.assertCanManageGlobal(user)
     } else {
-      // IDOR guard — security-review round 2, HIGH-2.
+      // IDOR guard — security-review round 2, HIGH-2; rewritten in code review round 1 (CR-L-3).
       //
-      // `assertCanAccessSenior` RESOLVES the effective senior; for a SENIOR it
-      // unconditionally returns `user.id` without looking at the argument at
-      // all. Calling it and DISCARDING the result therefore checked nothing for
-      // that role: any senior could delete any other senior's exclusion by id,
-      // silently re-opening a company their colleague had deliberately shut
-      // out. The returned value MUST be compared with the row's owner — the
-      // same shape `updateStatus` already uses below.
-      const effectiveSeniorId = await this.assertCanAccessSenior(user, row.seniorId)
-      if (effectiveSeniorId !== row.seniorId) {
-        throw new ForbiddenException('Нет доступа к этому исключению')
-      }
+      // WHAT THIS CALL IS FOR NOW. Only ADMIN and HR reach here (`assertNotSenior` is the first
+      // statement of this method), and the guard that matters is the HR one inside
+      // `assertCanAccessSenior`: `hrSharesActiveTeamWith(user.id, row.seniorId)`. Without it an HR
+      // could delete the exclusion of a senior in somebody else's team by id, silently re-opening a
+      // company that team had deliberately shut out. ADMIN is allowed any senior's row.
+      //
+      // The call is made FOR ITS REFUSAL, not for its return value, so the value is dropped. The
+      // original shape compared the resolved id with `row.seniorId` because the method then served
+      // a SENIOR, for whom `assertCanAccessSenior` returned `user.id` while IGNORING the argument —
+      // a resolve, not a check, so discarding it checked nothing. That role is now refused outright
+      // (task-sources-07c), and for the two that remain the method is called WITH `row.seniorId`
+      // and returns exactly it on every non-throwing path (`:306` ADMIN, `:311` HR), so the
+      // comparison could never be true. It is dropped rather than kept as a backstop, for the same
+      // reason this PR dropped the SENIOR branch of `assertOpportunityVisible`: a line no input can
+      // reach is an unkillable mutant and a reader's false reassurance, not a second gate.
+      await this.assertCanAccessSenior(user, row.seniorId)
     }
 
     await this.db.db.transaction(async (tx) => {
@@ -551,6 +596,7 @@ export class JobSourcingService {
     requestedSeniorId: string | undefined,
     user: SessionUser,
   ): Promise<JobSuggestionListDto> {
+    this.assertNotSenior(user)
     const seniorId = await this.assertCanAccessSenior(user, requestedSeniorId)
     const [exclusions, stackKeywords] = await Promise.all([
       this.buildExclusionSet(seniorId),
@@ -664,6 +710,7 @@ export class JobSourcingService {
     dto: UpdateJobSuggestionStatusDto,
     user: SessionUser,
   ): Promise<JobSuggestionDto> {
+    this.assertNotSenior(user)
     const existing = await this.db.db
       .select({ id: jobSuggestions.id, seniorId: jobSuggestions.seniorId })
       .from(jobSuggestions)
@@ -672,8 +719,9 @@ export class JobSourcingService {
       .then((r) => r[0])
     if (!existing) throw new NotFoundException('Предложение не найдено')
 
-    // IDOR guard: a SENIOR may only touch rows on their OWN queue, an HR only
-    // rows of seniors in their teams.
+    // IDOR guard: `assertCanAccessSenior` refuses an HR outside the senior's teams; a SENIOR
+    // never gets here (`assertNotSenior` above). It returns the requested senior on every
+    // allowed path, so the mismatch below is unreachable today; kept as defence in depth.
     const seniorId = await this.assertCanAccessSenior(user, existing.seniorId)
     if (seniorId !== existing.seniorId) {
       throw new ForbiddenException('Нет доступа к этому предложению')
@@ -706,19 +754,21 @@ export class JobSourcingService {
   }
 
   /**
-   * SFS U10 (ADR 6a, step 2 "Want"): HR / SENIOR / ADMIN opens an opportunity. If its backing
+   * SFS U10 (ADR 6a, step 2 "Want"): HR / ADMIN opens an opportunity. If its backing
    * ON_DEMAND records have no description yet, this enqueues one `DETAIL_FETCH` per record — a
    * database write only, NEVER an external call; the dirty-work unique key makes a second open a
    * no-op (fetch once). RBAC lives HERE, not only on the controller decorator (the #157/#158
-   * lesson): the viewer must be allowed to see the opportunity — a SENIOR only when it is a LEAD or
-   * TRIAGE for them, an HR only when it is for a senior in one of their active teams, an ADMIN
-   * always. The 403 is pinned by job-sourcing-rbac.integration.spec against a real database, because
-   * a mocked E2E cannot prove a backend guard.
+   * lesson): open is restricted to ADMIN and HR only, and a SENIOR is refused (403) before any
+   * read (`assertNotSenior`). The viewer must be allowed to see the opportunity — an HR only when
+   * it is for a senior in one of their active teams, an ADMIN always. The 403 is pinned by
+   * job-sourcing-rbac.integration.spec against a real database, because a mocked E2E cannot prove
+   * a backend guard.
    */
   async openOpportunity(
     opportunityId: string,
     user: SessionUser,
   ): Promise<OpenJobOpportunityResult> {
+    this.assertNotSenior(user)
     // SR-M-1 (open-scope): authorize against the LIVE roster, never a historical match. A
     // `job_opportunity_matches` row persists past the evaluation that wrote it, so a senior who has
     // since been archived or left every team, or a match left at a now-superseded opportunity
@@ -786,10 +836,6 @@ export class JobSourcingService {
   ): Promise<void> {
     const notFound = () => apiError('JOB_OPPORTUNITY_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (user.role === 'ADMIN') return
-    if (user.role === 'SENIOR') {
-      if (!seniorIds.includes(user.id)) throw notFound()
-      return
-    }
     if (user.role === 'HR') {
       // CR-M-10: one bounded query for the HR's whole active-team roster, then an in-memory
       // intersection — not `hrSharesActiveTeamWith` once per matched senior. `getActiveTeamPeers`
@@ -801,6 +847,8 @@ export class JobSourcingService {
       if (seniorIds.some((id) => peerIds.has(id))) return
       throw notFound()
     }
+    // Everyone else, SENIOR included (task-sources-07c removed the role from this surface
+    // entirely; `assertNotSenior` refuses it with a 403 before execution ever arrives here).
     throw notFound()
   }
 
@@ -1309,6 +1357,22 @@ export class JobSourcingService {
     const failures: JobCollectionFailureDto[] = []
 
     for (const source of sources) {
+      // A1k: the host refused us, which no retry fixes. The pause is the ledger's own
+      // `ACCESS_POLICY` cell — the one `enableRefusal` reads as `AUTH_PAUSED` and an ADMIN
+      // `resetFailures` is the single audited action that clears. Reported, never silently
+      // dropped: a skipped source that produces no row in the report is the "breakage disguised as
+      // silence" defect the catch below exists to prevent. The stored `job_sources.readiness`
+      // column is deliberately NOT read here (ADR 2026-10-24: readiness is computed, and the seed
+      // delta rewrites that column on every deploy).
+      if (source.lastErrorCode === AUTH_PAUSE_CODE) {
+        failures.push({
+          sourceType: source.type,
+          message: `Source ${source.type} is paused after an access refusal (${AUTH_PAUSE_CODE}); an ADMIN failure reset re-arms it`,
+          budgetExhausted: false,
+        })
+        this.logger.warn(`Job collection skipped for paused source ${source.type}`)
+        continue
+      }
       try {
         results.push(await this.collectSource(source, actor))
       } catch (err: unknown) {
@@ -1338,6 +1402,7 @@ export class JobSourcingService {
         // deliberate stop off the error-log path, while `err.budgetExhausted`
         // — read straight off the instance, not re-derived — keeps the DTO
         // flag honest per subclass (`true` only for genuine exhaustion).
+        if (err instanceof SourceBlockedError) await this.pauseAfterRefusal(source, message)
         if (err instanceof JobSourceDeliberateStopError) {
           failures.push({ sourceType: source.type, message, budgetExhausted: err.budgetExhausted })
           this.logger.warn(`Job collection skipped for source ${source.type}: ${message}`)
@@ -1350,7 +1415,39 @@ export class JobSourcingService {
         )
       }
     }
-    return { results, failures }
+    // H.8: read after the run, so a model stage that stopped on limits in it has raised the flag.
+    return { results, failures, sourcingNotice: await readSourcingNotice(this.db.db) }
+  }
+
+  /**
+   * A1k for the legacy loop: a refused source is paused through the ledger's audited
+   * `ACCESS_POLICY` cell, which an ADMIN `resetFailures` clears. Scoped to the LEGACY contract
+   * (spec M): every other type is the run worker's, whose `account()` already writes this cell.
+   *
+   * Best-effort BY CONTRACT (CR-H-2): the catch that calls this exists so one dead third party
+   * cannot stop the others, and a rejected UPDATE here must not undo that — it is logged, the
+   * failures entry is pushed by the caller either way, and the next run tries the source again.
+   * Never a silent no-op: an absent ledger is a warn, because "no readiness, no event, no log line"
+   * is how a broken source goes on looking like a clean skip.
+   */
+  private async pauseAfterRefusal(source: BudgetedSource, message: string): Promise<void> {
+    if (this.registry.get(source.type)?.contract !== 'LEGACY') return
+    if (this.ledger === undefined) {
+      this.logger.warn(`No run ledger wired: source ${source.type} was refused but is not paused`)
+      return
+    }
+    try {
+      const paused = await this.ledger.pauseLegacyAccess({ sourceId: source.id, message })
+      if (!paused) {
+        this.logger.warn(
+          `Access pause matched no row for source ${source.type}: it was refused but is not paused`,
+        )
+      }
+    } catch (err: unknown) {
+      this.logger.warn(
+        `Access pause write failed for source ${source.type}: ${toSafeFailureMessage(err)}`,
+      )
+    }
   }
 
   /**
@@ -1366,7 +1463,9 @@ export class JobSourcingService {
    * the unit-level twin of this predicate.
    */
   async purgeStalePostings(now: Date = new Date()): Promise<number> {
-    const cutoff = new Date(now.getTime() - POSTING_RETENTION_DAYS * 24 * 60 * 60 * 1000)
+    // SR-M-3: the kill switch restores the limit this purge had before vacancy retention.
+    const days = vacancyRetentionEnabled() ? POSTING_RETENTION_DAYS : LEGACY_POSTING_RETENTION_DAYS
+    const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
 
     // Code review round 3 — AC4 hole. This used to keep only APPLIED postings.
     // A REJECTED suggestion cascades away with its posting (`ON DELETE

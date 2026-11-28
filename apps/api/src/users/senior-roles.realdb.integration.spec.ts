@@ -27,6 +27,8 @@ import { RolesGuard } from '../common/guards/roles.guard'
 import { AuditInterceptor } from '../common/interceptors/audit.interceptor'
 import { DatabaseService } from '../database/database.service'
 import {
+  jobDirtyWork,
+  seniorResumes,
   teamAuditLog,
   teamMembers,
   teams,
@@ -249,6 +251,8 @@ describe.skipIf(!hasDatabaseUrl())(
         await db.delete(teamMembers).where(inArray(teamMembers.teamId, teamIds))
         await db.delete(teams).where(inArray(teams.id, teamIds))
       }
+      await db.delete(jobDirtyWork).where(inArray(jobDirtyWork.entityId, ids))
+      await db.delete(seniorResumes).where(inArray(seniorResumes.userId, ids))
       await db.delete(userAuditLog).where(inArray(userAuditLog.targetId, ids))
       await db.delete(userAuditLog).where(inArray(userAuditLog.actorId, ids))
       await db.delete(userEmails).where(inArray(userEmails.userId, ids))
@@ -445,6 +449,97 @@ describe.skipIf(!hasDatabaseUrl())(
           spy.mockRestore()
         }
         expect(await rolesOf(racer.id)).toEqual([])
+      })
+
+      /** A fresh SENIOR self-editing row, optionally with a VERIFIED resume. */
+      async function selfEditor(suffix: string, verified: boolean): Promise<string> {
+        const id = `5e700000-0000-4000-aa00-0000000000${suffix}`
+        await db.insert(users).values({
+          id,
+          email: `srr-self-${suffix}@test.spec`,
+          displayName: 'SRR self editor',
+          role: 'SENIOR',
+          techStack: STACK,
+          technicalRoles: ['BACKEND_ENGINEER'],
+          googleId: `srr-google-${id}`,
+        })
+        if (verified)
+          await db.insert(seniorResumes).values({ userId: id, verificationStatus: 'VERIFIED' })
+        return id
+      }
+      const dirtyReasons = async (id: string) =>
+        (
+          await db
+            .select({ reason: jobDirtyWork.reason })
+            .from(jobDirtyWork)
+            .where(eq(jobDirtyWork.entityId, id))
+        ).map((r) => r.reason)
+      /** `findById` reads the row, then `race` runs before the write (an admin edit landing). */
+      const raceAfterRead = (race: (id: string) => Promise<unknown>) => {
+        const read = usersService.findById.bind(usersService)
+        return vi.spyOn(usersService, 'findById').mockImplementationOnce(async (id) => {
+          const row = await read(id)
+          await race(id)
+          return row
+        })
+      }
+
+      // Senior roles PR 4 Task 4.3: a roles-only self-edit is no longer the plain UPDATE.
+      it('a roles-only self-edit commits with one senior.roles dirty row; a resubmit adds none', async () => {
+        const id = await selfEditor('b1', false)
+        await usersService.updateProfile(id, { technicalRoles: ['DATA_ENGINEER'] })
+        expect(await dirtyReasons(id)).toEqual(['senior.roles'])
+        await usersService.updateProfile(id, { technicalRoles: ['DATA_ENGINEER'] })
+        expect(await dirtyReasons(id)).toEqual(['senior.roles'])
+      })
+
+      // Correction 3: roles + name with a VERIFIED resume, demoted between the read and the write.
+      it('roles + name, VERIFIED resume, demoted after the read -> 400, no re-check flag, nothing written', async () => {
+        const id = await selfEditor('b2', true)
+        const spy = raceAfterRead((uid) =>
+          db.update(users).set({ role: 'JUNIOR' }).where(eq(users.id, uid)),
+        )
+        try {
+          await expect(
+            usersService.updateProfile(id, {
+              displayName: 'SRR renamed',
+              technicalRoles: ['ML_ENGINEER'],
+            }),
+          ).rejects.toMatchObject({
+            response: expect.objectContaining({
+              code: 'TECHNICAL_ROLES_SENIOR_ONLY',
+              statusCode: 400,
+            }),
+          })
+          expect(spy).toHaveBeenCalledTimes(1)
+        } finally {
+          spy.mockRestore()
+        }
+        const [resume] = await db
+          .select({ recheckNeededAt: seniorResumes.recheckNeededAt })
+          .from(seniorResumes)
+          .where(eq(seniorResumes.userId, id))
+        expect(resume?.recheckNeededAt).toBeNull()
+        const row = await db.query.users.findFirst({ where: eq(users.id, id) })
+        expect(row?.displayName).toBe('SRR self editor')
+        expect(row?.technicalRoles).toEqual(['BACKEND_ENGINEER'])
+        expect(await dirtyReasons(id)).toEqual([])
+      })
+
+      // Correction 3: the guarded UPDATE missed because the row is gone, not because of a demotion.
+      it('a roles self-edit on a row deleted after the read -> 404 USER_NOT_FOUND', async () => {
+        const id = await selfEditor('b3', false)
+        const spy = raceAfterRead((uid) => db.delete(users).where(eq(users.id, uid)))
+        try {
+          await expect(
+            usersService.updateProfile(id, { technicalRoles: ['ML_ENGINEER'] }),
+          ).rejects.toMatchObject({
+            response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
+          })
+        } finally {
+          spy.mockRestore()
+        }
+        expect(await dirtyReasons(id)).toEqual([])
       })
 
       it('unauthenticated -> 401', async () => {

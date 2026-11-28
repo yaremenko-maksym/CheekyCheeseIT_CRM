@@ -14,7 +14,6 @@
     "**/.claude/rules/common/zone-of-write.md"
   ],
   "permissions": {
-    "allow": ["*"],
     "deny": ["PowerShell"]
   },
   "hooks": {

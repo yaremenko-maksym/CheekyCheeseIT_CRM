@@ -321,3 +321,84 @@ describe('the run-row-only ending (finish / recoverExpired of a LEGACY run)', ()
     expect(sourceWrites(rec.seen)).toHaveLength(1)
   })
 })
+
+/**
+ * Backlog 470, the presence and absence calls `endRun` makes, on the same double: which ending
+ * marks listed postings present, what it adds to the run row, and what the absence work carries.
+ * The SQL itself runs in `job-run-ledger.coverage.integration.spec.ts`.
+ */
+describe('endRun: listed presence and absence work (backlog 470)', () => {
+  const handle = { runId: RUN, ownerToken: 'dou:t', fencingEpoch: 4 }
+
+  function answers(cycleId: string | null) {
+    return (text: string): Rows => {
+      if (text.startsWith('SELECT id, source_id, account_key'))
+        return [{ id: RUN, source_id: SOURCE, account_key: `#source:${SOURCE}` }]
+      if (text.startsWith('SELECT id FROM job_collection_runs')) return [{ id: RUN }]
+      if (text.includes('slowdown_level FROM job_sources'))
+        return [
+          { type: 'REMOTIVE_API', manifest_id: null, consecutive_failures: 0, slowdown_level: 0 },
+        ]
+      if (text.startsWith('SELECT r.received'))
+        return [{ received: 3, paged: true, cycle_id: cycleId }]
+      if (text.startsWith('SELECT clock_timestamp()')) return [{ db_now: '2026-10-31T05:00:00Z' }]
+      if (text.startsWith('WITH listed')) return [{ id: 'rec-1' }, { id: 'rec-2' }]
+      return []
+    }
+  }
+  const at = (seen: string[], re: RegExp) => seen.findIndex((s) => re.test(s))
+  const MARK = /^WITH listed/
+  const RELISTED = /SELECT 'SOURCE_RECORD', r\.id, h\.observation_seq/
+  const ABSENT = /^WITH picked/
+  const RUN_WRITE = /UPDATE job_collection_runs\s+SET outcome/
+  const present = { held: ['["h1"]', '["h2"]'], quarantined: [] }
+
+  it('a SUCCEEDED ending marks its held postings, adds them to the row, and queues the absent', async () => {
+    const { ledger, seen, params } = ledgerOver(answers(CYCLE))
+    await ledger.finish(handle, {
+      outcome: 'SUCCEEDED',
+      errorCode: null,
+      coverage: 'FULL_INVENTORY',
+      present,
+    })
+    expect(params[at(seen, MARK)]).toContain(JSON.stringify(present.held))
+    // The relisted reopen work carries the run's cycle and the records the mark returned.
+    const relisted = params[at(seen, RELISTED)]
+    expect(relisted).toContain(CYCLE)
+    expect(relisted).toContain(JSON.stringify(['rec-1', 'rec-2']))
+    // Two held postings: `received` and `unchanged` both grow by exactly 2.
+    const row = params[at(seen, RUN_WRITE)]!
+    expect(row.filter((p) => p === 2)).toHaveLength(2)
+    expect(row).not.toContain(-2)
+    const absent = params[at(seen, ABSENT)]
+    expect(absent).toContain(`AVAILABILITY:RUN_ABSENT:${RUN}`)
+    expect(absent).toContain(CYCLE)
+  })
+
+  it('a run with no cycle hands null on, never the text "null"', async () => {
+    const { ledger, seen, params } = ledgerOver(answers(null))
+    await ledger.finish(handle, {
+      outcome: 'SUCCEEDED',
+      errorCode: null,
+      coverage: 'FULL_INVENTORY',
+      present,
+    })
+    for (const re of [RELISTED, ABSENT]) {
+      expect(params[at(seen, re)]).toContain(null)
+      expect(params[at(seen, re)]).not.toContain('null')
+    }
+  })
+
+  it('a failed ending marks nothing present and queues no absence, whatever it listed', async () => {
+    const { ledger, seen } = ledgerOver(answers(CYCLE))
+    await ledger.finish(handle, {
+      outcome: 'FAILED',
+      errorCode: 'UPSTREAM',
+      coverage: 'FULL_INVENTORY',
+      present,
+    })
+    expect(at(seen, RUN_WRITE)).toBeGreaterThanOrEqual(0)
+    expect(at(seen, MARK)).toBe(-1)
+    expect(at(seen, ABSENT)).toBe(-1)
+  })
+})

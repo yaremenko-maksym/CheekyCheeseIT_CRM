@@ -13,7 +13,7 @@
 
 import { test, expect, API_RE, USERS, mockAuthAs } from './fixtures'
 import { assertInCatalog, loadMessages } from '../fixtures/catalog'
-import { SENIOR_TECH_STACK, addTechnologies, techStackInput } from './fixtures/senior-tech'
+import { SENIOR_ROLES, pickRoles } from './fixtures/senior-roles'
 
 test.describe('HR create senior dialog', () => {
   test('HR fills email + name and the dialog POSTs a valid requisite-less SENIOR payload', async ({
@@ -37,7 +37,7 @@ test.describe('HR create senior dialog', () => {
     await expect(dialog).toBeVisible()
     await dialog.getByPlaceholder('senior@cheekycheese.dev').fill('new.senior@cheekycheese.dev')
     await dialog.getByPlaceholder('Іван Іваненко').fill('Іван Іваненко')
-    await addTechnologies(dialog)
+    await pickRoles(dialog)
     await dialog.getByRole('button', { name: 'Створити', exact: true }).click()
 
     // The dialog closes and a success toast confirms the creation.
@@ -51,16 +51,18 @@ test.describe('HR create senior dialog', () => {
       displayName: 'Іван Іваненко',
       role: 'SENIOR',
       seniorSharePercent: 26,
-      techStack: [...SENIOR_TECH_STACK],
+      technicalRoles: [...SENIOR_ROLES],
     })
     // HR never sends requisites or a legal name.
     // The untouched phone widget's seeded "+380" is not sent as a phone number either.
+    // `techStack` too: a SENIOR is described by its roles, and the dialog no longer collects a stack.
     for (const key of [
       'paymentMethod',
       'walletUsdtErc20',
       'legalFullName',
       'bankUahIban',
       'phone',
+      'techStack',
     ]) {
       expect(body).not.toHaveProperty(key)
     }
@@ -68,7 +70,7 @@ test.describe('HR create senior dialog', () => {
     await expect(page.getByText('Не вдалося створити команду')).toHaveCount(0)
   })
 
-  test('with 2 technologies the dialog shows the floor error inline and does not POST', async ({
+  test('with no role the dialog shows the floor error inline and does not POST', async ({
     asHr: page,
   }) => {
     let posts = 0
@@ -81,20 +83,24 @@ test.describe('HR create senior dialog', () => {
     await page.goto('/team')
     await page.locator('main').getByRole('button', { name: 'Створити сеньйора' }).first().click()
     const dialog = page.getByRole('dialog')
-    await dialog.getByPlaceholder('senior@cheekycheese.dev').fill('two.techs@cheekycheese.dev')
+    await dialog.getByPlaceholder('senior@cheekycheese.dev').fill('no.roles@cheekycheese.dev')
     await dialog.getByPlaceholder('Іван Іваненко').fill('Іван Іваненко')
-    await addTechnologies(dialog, SENIOR_TECH_STACK.slice(0, 2))
     await dialog.getByRole('button', { name: 'Створити', exact: true }).click()
 
-    const error = dialog.getByText('Сеньйору потрібно щонайменше 3 різні технології')
-    await expect(error).toBeVisible()
-    const input = await techStackInput(dialog)
-    await expect(input).toHaveAttribute('aria-describedby', (await error.getAttribute('id')) ?? '')
+    const error = dialog.getByTestId('roles-section-error')
+    await expect(error).toHaveText('Сеньйору потрібна щонайменше одна технічна роль')
+    const trigger = dialog.getByTestId('roles-section-add-trigger')
+    await expect(trigger).toHaveAttribute(
+      'aria-describedby',
+      (await error.getAttribute('id')) ?? '',
+    )
     await expect(dialog).toBeVisible()
     expect(posts).toBe(0)
   })
 
-  test('en: the floor error renders in English, tied to the input (SPEC-M-2)', async ({ page }) => {
+  test('en: the floor error renders in English, tied to the add control (SPEC-M-2)', async ({
+    page,
+  }) => {
     const en = await loadMessages('en')
     await mockAuthAs(page, { ...USERS.hr, locale: 'en' })
     let posts = 0
@@ -113,18 +119,17 @@ test.describe('HR create senior dialog', () => {
     const dialog = page.getByRole('dialog')
     await dialog.getByPlaceholder('senior@cheekycheese.dev').fill('en.senior@cheekycheese.dev')
     await dialog.getByPlaceholder(assertInCatalog(en, 'Ivan Ivanenko')).fill('Ivan Ivanenko')
-    const input = dialog.getByPlaceholder(assertInCatalog(en, 'Start typing: React, Node.js…'))
-    for (const tech of SENIOR_TECH_STACK.slice(0, 2)) {
-      await input.fill(tech)
-      await input.press('Enter')
-    }
     await dialog.getByRole('button', { name: assertInCatalog(en, 'Create'), exact: true }).click()
 
-    const error = dialog.getByText(
-      assertInCatalog(en, 'A senior needs at least 3 different technologies'),
+    const error = dialog.getByTestId('roles-section-error')
+    await expect(error).toHaveText(
+      assertInCatalog(en, 'A senior needs at least one technical role'),
     )
-    await expect(error).toBeVisible()
-    await expect(input).toHaveAttribute('aria-describedby', (await error.getAttribute('id')) ?? '')
+    const trigger = dialog.getByTestId('roles-section-add-trigger')
+    await expect(trigger).toHaveAttribute(
+      'aria-describedby',
+      (await error.getAttribute('id')) ?? '',
+    )
     expect(posts).toBe(0)
   })
 })

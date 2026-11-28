@@ -873,6 +873,9 @@ it('JOB_ROLE_AI_ENABLED defaults to false and parses "true"', ...)
       `JOB_MATCH_RECONCILIATION_ENABLED=true`, but **only** once the extraction worker env
       (`EXTRACTION_WORKER_URL`, `EXTRACTION_WORKER_SECRET`) is wired for the API in prod. Until then,
       leave it unset. That is an owner decision (plan Owner decisions, item 1).
+      **As built (PR #1404):** the write sits inside the deploy's existing
+      `if [ -n "$EXTRACTION_WORKER_SECRET" ]` block, not next to `JOB_MATCH_RECONCILIATION_ENABLED`, so the
+      "only once the worker is wired" condition is enforced by the deploy itself on every run.
 - [ ] Commit `infra(deploy): enable role AI pass`.
 
 **PR 3 done when:** Tasks 3.1–3.3 are green, plus `pnpm typecheck` and `pnpm --filter @crm/api test`.
@@ -1358,9 +1361,13 @@ it('self-edit: removing the last role shows the error and does not autosave', ..
   - `users.service.ts` (`updateProfile` self-edit, `changeRole`)
   - `apps/web/app/components/users/user-dialog/validation.ts`
   - the test helpers that build a valid SENIOR today, `apps/api/src/test/create-user-harness.ts` and
-    `apps/api/src/test/senior-tech-stack.ts`. They give a SENIOR valid roles instead of a 3-item
+    `apps/api/src/test/senior-technical-roles.ts`. They give a SENIOR valid roles instead of a 3-item
     stack. Without this, every spec that creates a SENIOR fails on the new floor.
-  - `packages/shared/src/schemas/senior-tech-floor.spec.ts` stays as it is (the schema stays)
+- Delete: `packages/shared/src/schemas/senior-tech-floor.spec.ts`, together with
+  `seniorTechStackSchema` and the error code `SENIOR_MIN_TECHNOLOGIES` (registry and catalog entries
+  included). They were to stay in shared, unthrown, so an old client still resolved the text (A1);
+  **superseded in review round 1 (CR-M-1)** — a code no emitter can produce is unresolvable text, and
+  the schema had only specs left as consumers.
 - Test: the same API specs as Task 2.4 plus `senior-roles.realdb.integration.spec.ts`, and
   `apps/web/app/components/users/user-dialog/__tests__/validation.test.ts`.
 
@@ -1374,9 +1381,8 @@ it('self-edit: removing the last role shows the error and does not autosave', ..
   - `existing.role !== 'SENIOR' || rolesChanged` on the admin update
   - `rolesChanged` on the self-edit
   - in `changeRole`, only when the user becomes a `SENIOR`, checked against the stored roles
-- `assertSeniorTechFloor` and its 4 call sites are deleted. `seniorTechStackSchema` and the error code
-  `SENIOR_MIN_TECHNOLOGIES` stay in shared and the catalogs, unthrown, so an old client still
-  resolves the text (A1).
+- `assertSeniorTechFloor` and its 4 call sites are deleted, as are `seniorTechStackSchema` and
+  `SENIOR_MIN_TECHNOLOGIES` — see the Delete entry under **Files** for why.
 - `changeRole` takes no roles. Making a user a `SENIOR` therefore goes through `PATCH /users/:id`
   with `role` and `technicalRoles` together (spec gap 8).
   - The web already works this way: `useUserDialogMutations.ts` edits through
@@ -1534,8 +1540,11 @@ one PR at a time (PR 1 → PR 5), each reviewed before the next starts.
   lengthen the post-run drain's 60 s budget. Its results are picked up by the next post-run drain.
 - The `model` column stays NULL. The inference port does not return a model id.
 - `TECHNICAL_ROLES_SENIOR_ONLY` and `ROLE_MISMATCH` are new codes that the spec does not name.
-- A former senior's stored roles are kept, because `loadRoster` reads only `SENIOR`.
-- `SENIOR_MIN_TECHNOLOGIES` stays in the catalogs, unthrown.
+- A former senior's stored roles are **cleared** by the write that demotes them (`updateUserRow` sets
+  `technicalRoles: []` whenever the statement writes a role other than `SENIOR`), and every client-facing read
+  endpoint gates on `role === 'SENIOR'` as a second layer. The earlier assumption that the stored list is kept
+  because `loadRoster` reads only `SENIOR` described a version of the plan that was not built.
+- `SENIOR_MIN_TECHNOLOGIES` is deleted, not kept unthrown — see the Task 5 assumption above (CR-M-1).
 - The skill overlap is read from `content.skills` ∪ `facts.experience[].technologies`.
 - The cache is never looked up without a description sha.
 - On the card, the "Збіг за:" list is not rendered when the overlap indicator is present (Task 5.4).

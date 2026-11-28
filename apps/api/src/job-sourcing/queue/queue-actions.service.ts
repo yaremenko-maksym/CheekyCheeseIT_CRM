@@ -4,6 +4,7 @@ import {
   withinTriageGrantCeiling,
   jobQueueDismissalResponseSchema,
   jobQueueDismissReasonSchema,
+  jobQueueManualDuplicateConflictSchema,
   jobQueuePossibleDuplicateConflictSchema,
   jobQueueSubmissionResponseSchema,
   jobQueueTeamTriageGrantSchema,
@@ -30,12 +31,14 @@ import { ZodError } from 'zod'
 import { apiError } from '../../common/api-error'
 import { DatabaseService } from '../../database/database.service'
 import { isDeadlock, uniqueViolationConstraint } from '../../database/pg-errors'
-import { findMatchingExclusion } from '../filtering'
-import { exclusionPosting } from '../funnel/evaluate'
 import { normalizeCompanyName, normalizeTitle } from '../identity/resolver'
 import { canonicalizePostingUrl } from '../job-source.provider'
-import { loadOpportunity, loadSeniorExclusions } from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
+import { retentionTombstone } from '../store/opportunity-purge'
+import {
+  archiveSubmittedInterviewCard,
+  createSubmittedInterviewCard,
+} from './senior-interview-card'
 import {
   type ActionReplay,
   decideDismiss,
@@ -54,9 +57,11 @@ import {
   type LiveSeniorVersion,
   possibleDuplicateJoin,
   scopedTeamRowPredicate,
+  type TeamScope,
   visibleOpportunityPredicate,
 } from './queue-scope'
-import { JobQueueScopeService } from './queue-scope.service'
+import { firstHolding, firstTeam, JobQueueScopeService } from './queue-scope.service'
+import { assertSeniorEligible, notFound } from './senior-eligibility'
 
 /** The duplicates preview's bound (`jobQueueDuplicatesPreviewSchema`). */
 const DUPLICATES_PREVIEW_MAX = 5
@@ -65,13 +70,23 @@ const IDEMPOTENCY_CONSTRAINT = 'uq_job_queue_actions_actor_idempotency'
 const SUBMISSION_CONSTRAINT = 'uq_job_queue_assignments_opportunity_senior'
 const DISMISSAL_CONSTRAINT = 'uq_job_queue_dismissals_opportunity_scope'
 
-const notFound = () => apiError('JOB_OPPORTUNITY_NOT_FOUND', HttpStatus.NOT_FOUND)
 const versionConflict = () => apiError('JOB_QUEUE_VERSION_CONFLICT', HttpStatus.CONFLICT)
 const idempotencyConflict = () => apiError('JOB_QUEUE_IDEMPOTENCY_CONFLICT', HttpStatus.CONFLICT)
 const seniorIneligible = () =>
   apiError('JOB_QUEUE_SENIOR_INELIGIBLE', HttpStatus.UNPROCESSABLE_ENTITY)
 const resumeUnusable = () => apiError('JOB_QUEUE_RESUME_UNUSABLE', HttpStatus.UNPROCESSABLE_ENTITY)
-const manualDuplicate = () => apiError('JOB_QUEUE_MANUAL_DUPLICATE', HttpStatus.CONFLICT)
+/** The generic envelope; `opportunityId` only for a card the actor can already open. */
+const manualDuplicate = (opportunityId: string | undefined) => {
+  const generic = apiError('JOB_QUEUE_MANUAL_DUPLICATE', HttpStatus.CONFLICT)
+  if (opportunityId === undefined) return generic
+  return new HttpException(
+    jobQueueManualDuplicateConflictSchema.parse({
+      ...(generic.getResponse() as object),
+      opportunityId,
+    }),
+    HttpStatus.CONFLICT,
+  )
+}
 const triageNotAllowed = () =>
   apiError('JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED', HttpStatus.UNPROCESSABLE_ENTITY)
 const subscriptionNotFound = () =>
@@ -192,7 +207,15 @@ export class JobQueueActionsService {
     const seniorId = canonicalUuid(request.seniorId)
     if (opportunity === null || seniorId === null) throw notFound()
     return this.write(async (tx) => {
-      const scope = await this.writeScope(user, request.teamId, tx)
+      // From a union: the first team that has this senior and sees the opportunity.
+      const scope = await this.writeScope(user, request.teamId, tx, (teams) =>
+        this.scopes.firstWhere(
+          teams,
+          async (team) =>
+            team.seniorIds.includes(seniorId) &&
+            (await this.scopes.isVisible(team, opportunity, tx)),
+        ),
+      )
       const copies = await this.lockDuplicateSet(tx, opportunity)
       const target = copies.find((c) => c.id === opportunity)
       if (target === undefined) throw notFound()
@@ -213,7 +236,7 @@ export class JobQueueActionsService {
         return this.submissionAnswer(tx, opportunity, earlier, 'TAKEN', seniorId, user.id)
       }
 
-      await this.assertSeniorEligible(tx, scope, seniorId, opportunity)
+      await assertSeniorEligible(this.scopes, tx, scope, seniorId, opportunity)
       if (target.revision !== request.expectedOpportunityRevision) throw versionConflict()
 
       const decision = decideSubmit(
@@ -237,6 +260,16 @@ export class JobQueueActionsService {
         decision.kind === 'UPDATE'
           ? await this.reopenSubmission(tx, decision, user.id)
           : await this.insertSubmission(tx, opportunity, seniorId, scope, user.id)
+      // task-sources-07c: the senior's half of this submission, in the same transaction. Placed
+      // here and NOT inside `insertSubmission` on purpose — `decision.kind === 'UPDATE'` reopens
+      // the existing assignment row and never reaches that helper, and a reopen is exactly the
+      // cancel-then-resubmit case whose archived card has to come back.
+      await createSubmittedInterviewCard(tx, {
+        opportunityId: opportunity,
+        seniorId,
+        actorId: user.id,
+        actorIsHr: user.role === 'HR',
+      })
       const before = decision.kind === 'UPDATE' ? decision.version : 0
       await this.logAction(tx, {
         kind: 'TAKEN',
@@ -280,9 +313,11 @@ export class JobQueueActionsService {
    * and names both, so the refusal discloses nothing about an existing opportunity.
    *
    * Duplicates, two layers. (1) An `applicationUrl` is reduced to the posting dedupe key
-   * (`canonicalizePostingUrl`, stored as `application_url_key`); ANY opportunity, whatever its
-   * visibility, already carrying that key or exactly that link refuses the create with the generic
-   * `JOB_QUEUE_MANUAL_DUPLICATE` (409), which names no team and no card. A card without a link
+   * (`canonicalizePostingUrl`, stored as `application_url_key`); an opportunity already carrying
+   * that key or exactly that link refuses the create with `JOB_QUEUE_MANUAL_DUPLICATE` (409). Another
+   * team's manual card does not count: each team keeps its own card for a vacancy. A collected
+   * opportunity counts whatever its visibility; the 409 carries its `opportunityId` only when the
+   * actor can see it, so it names nothing the actor could not already open. A card without a link
    * cannot be checked this way. (2) The senior's live submission to a possible duplicate in the
    * actor's scope is `submit`'s `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED` until the request confirms.
    */
@@ -325,12 +360,18 @@ export class JobQueueActionsService {
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(${MANUAL_URL_LOCK_CLASS}::int, hashtext(${urlKey}))`,
         )
+        // Another team's manual card does not count. Of the rest, a card the actor can see first
+        // (the team's own before a collected one), so the refusal names a card whenever one is visible.
         const taken = await tx.execute(
-          sql`SELECT 1 FROM job_opportunities
-               WHERE application_url_key = ${urlKey} OR application_url = ${urlHref}
+          sql`SELECT o.id, (${visibleOpportunityPredicate(scope, sql`o.id`)}) AS visible
+                FROM job_opportunities o
+               WHERE (o.application_url_key = ${urlKey} OR o.application_url = ${urlHref})
+                 AND (o.manual_team_id IS NULL OR o.manual_team_id = ${teamId}::uuid)
+               ORDER BY visible DESC, (o.manual_team_id IS NOT NULL) DESC
                LIMIT 1`,
         )
-        if (taken.rows.length > 0) throw manualDuplicate()
+        const row = taken.rows[0] as { id: string; visible: boolean } | undefined
+        if (row !== undefined) throw manualDuplicate(row.visible ? row.id : undefined)
       }
 
       await tx.execute(
@@ -349,7 +390,7 @@ export class JobQueueActionsService {
       )
       const opportunity = String(card.rows[0]?.['id'])
       const copies = await this.lockDuplicateSet(tx, opportunity)
-      await this.assertSeniorEligible(tx, scope, seniorId, opportunity, seniorIneligible)
+      await assertSeniorEligible(this.scopes, tx, scope, seniorId, opportunity, seniorIneligible)
       const resume = await this.scopes.policy(() =>
         tx.execute(
           sql`SELECT id FROM senior_resumes
@@ -363,6 +404,15 @@ export class JobQueueActionsService {
       }
 
       const row = await this.insertSubmission(tx, opportunity, seniorId, scope, user.id, resumeId)
+      // task-sources-07c: a hand-entered vacancy is a submission like any other, so the senior
+      // gets the same card. The opportunity was INSERTed a few statements above, so there is
+      // never an existing card to restore here — the upsert simply inserts.
+      await createSubmittedInterviewCard(tx, {
+        opportunityId: opportunity,
+        seniorId,
+        actorId: user.id,
+        actorIsHr: user.role === 'HR',
+      })
       await this.logAction(tx, {
         kind: 'TAKEN',
         opportunity,
@@ -399,7 +449,18 @@ export class JobQueueActionsService {
     const submission = canonicalUuid(submissionId)
     if (opportunity === null || submission === null) throw notFound()
     return this.write(async (tx) => {
-      const scope = await this.writeScope(user, request.teamId, tx)
+      // From a union: the team whose row this submission is.
+      const scope = await this.writeScope(user, request.teamId, tx, async (teams) => {
+        const { rows: own } = await this.scopes.policy(() =>
+          tx.execute(
+            sql`SELECT a.team_id FROM job_queue_assignments a
+                 WHERE a.id = ${submission}::uuid
+                   AND ${scopedTeamRowPredicate({ kind: 'TEAMS', teams }, sql`a.team_id`)}`,
+          ),
+        )
+        // none of the HR's teams holds it: the first team, so the read below answers the usual 404
+        return firstHolding(teams, own) ?? firstTeam(teams)
+      })
       await this.lockTarget(tx, opportunity)
       await this.lockActor(tx, user, scope)
       const { rows } = await tx.execute(
@@ -438,6 +499,10 @@ export class JobQueueActionsService {
       )
       const after = updated.rows[0]
       if (after === undefined) throw versionConflict()
+      // task-sources-07c: HR withdrew the senior, so the card comes off their active board.
+      // ARCHIVED, never REJECTED — nobody rejected them — and every note they wrote survives, so
+      // a later re-submit of the same pair restores this very card.
+      await archiveSubmittedInterviewCard(tx, { opportunityId: opportunity, seniorId })
       const submittedAt = isoInstant(row['taken_at'])
       await this.logAction(tx, {
         kind: 'RELEASED',
@@ -472,7 +537,10 @@ export class JobQueueActionsService {
     const opportunity = canonicalUuid(opportunityId)
     if (opportunity === null) throw notFound()
     return this.write(async (tx) => {
-      const scope = await this.writeScope(user, request.teamId, tx)
+      // From a union: the team the card's dismissal belongs to (`dismissalOwner`).
+      const scope = await this.writeScope(user, request.teamId, tx, (teams) =>
+        this.scopes.dismissalOwner(teams, opportunity, tx),
+      )
       // An HR never resolves to STUDIO, so a STUDIO dismissal is ADMIN-only by this comparison.
       if (scope.kind !== request.scope) throw notFound()
       await this.lockTarget(tx, opportunity)
@@ -540,7 +608,9 @@ export class JobQueueActionsService {
     const opportunity = canonicalUuid(opportunityId)
     if (opportunity === null) throw notFound()
     return this.write(async (tx) => {
-      const scope = await this.writeScope(user, request.teamId, tx)
+      const scope = await this.writeScope(user, request.teamId, tx, (teams) =>
+        this.scopes.dismissalOwner(teams, opportunity, tx),
+      )
       if (scope.kind !== request.scope) throw notFound()
       await this.lockTarget(tx, opportunity)
       await this.lockActor(tx, user, scope)
@@ -604,7 +674,7 @@ export class JobQueueActionsService {
     const sourceRecord = canonicalUuid(request.sourceRecordId)
     if (opportunity === null || sourceRecord === null) throw notFound()
     await this.write(async (tx) => {
-      const scope = await this.writeScope(user, request.teamId, tx)
+      const scope = await this.writeScope(user, request.teamId, tx, this.seeing(opportunity, tx))
       await this.lockActor(tx, user, scope)
       await this.scopes.assertVisible(scope, opportunity, tx)
       const link = await this.scopes.policy(() =>
@@ -930,12 +1000,12 @@ export class JobQueueActionsService {
     return scope
   }
 
-  /** A live SENIOR team, locked `FOR SHARE` so an archival cannot commit under the write. */
+  /** A live team (SENIOR or DROP), locked `FOR SHARE` so an archival cannot commit under the write. */
   private async lockLiveTeam(tx: SqlExecutor, teamId: string): Promise<boolean> {
     const team = await this.scopes.policy(() =>
       tx.execute(
         sql`SELECT id FROM teams
-             WHERE id = ${teamId}::uuid AND archived_at IS NULL AND type = 'SENIOR'
+             WHERE id = ${teamId}::uuid AND archived_at IS NULL
                FOR SHARE`,
       ),
     )
@@ -1035,14 +1105,27 @@ export class JobQueueActionsService {
     }
   }
 
+  /**
+   * The one scope a write runs under. An HR who reads a union (two or more teams, none named) gets
+   * the team `pick` chooses among theirs (task-hr-queue-all-teams); without a `pick`, the first.
+   */
   private async writeScope(
     user: SessionUser,
     teamId: string | undefined,
     tx: SqlExecutor,
+    // Stryker disable next-line ArrowFunction: equivalent — the one caller without a pick (`createManualCard`) always names its team, and `resolveWrite` calls `pick` only when no team is named
+    pick: (teams: readonly TeamScope[]) => Promise<TeamScope> = async (teams) =>
+      teams[0] as TeamScope,
   ): Promise<WriteScope> {
-    const scope = await this.scopes.resolve(user, teamId, tx)
+    const scope = await this.scopes.resolveWrite(user, teamId, tx, pick)
     if (scope.kind === 'NONE') throw notFound()
     return scope
+  }
+
+  /** The first of the union's teams that sees the opportunity. */
+  private seeing(opportunity: string, tx: SqlExecutor) {
+    return (teams: readonly TeamScope[]) =>
+      this.scopes.firstWhere(teams, (team) => this.scopes.isVisible(team, opportunity, tx))
   }
 
   /**
@@ -1155,41 +1238,6 @@ export class JobQueueActionsService {
     if (membership.rows.length === 0) throw notFound()
   }
 
-  /**
-   * An active, non-archived SENIOR member of the scope's team (ADMIN in STUDIO: of any live team),
-   * with membership, user and team locked `FOR SHARE`, so a leave or an archival of any of them
-   * cannot pass this check and commit under the write; and who has not stop-listed the opportunity.
-   * Their own entries, matched on the funnel's posting (so the DOU slug alias counts) and through its
-   * row mapping; a studio-wide exclusion is the opportunity's verdict, and triage may be submitted.
-   */
-  private async assertSeniorEligible(
-    tx: SqlExecutor,
-    scope: WriteScope,
-    seniorId: string,
-    opportunity: string,
-    refuse: () => HttpException = notFound,
-  ): Promise<void> {
-    const member = await this.scopes.policy(() =>
-      tx.execute(
-        sql`SELECT tm.team_id FROM team_members tm
-              JOIN users u ON u.id = tm.user_id
-              JOIN teams t ON t.id = tm.team_id
-             WHERE tm.user_id = ${seniorId}::uuid AND tm.left_at IS NULL
-               AND u.role = 'SENIOR' AND u.archived_at IS NULL
-               AND t.archived_at IS NULL AND t.type = 'SENIOR'
-               AND ${scopedTeamRowPredicate(scope, sql`tm.team_id`)}
-             ORDER BY tm.team_id
-               FOR SHARE OF tm, u, t`,
-      ),
-    )
-    if (member.rows.length === 0) throw refuse()
-    const loaded = await this.scopes.policy(() => loadOpportunity(tx, opportunity))
-    if (loaded === null) throw refuse()
-    const own = await this.scopes.policy(() => loadSeniorExclusions(tx, seniorId))
-    const stopListed = findMatchingExclusion(exclusionPosting(loaded.canonical), own)
-    if (stopListed !== null) throw refuse()
-  }
-
   private async existingSubmission(
     tx: SqlExecutor,
     opportunity: string,
@@ -1212,7 +1260,10 @@ export class JobQueueActionsService {
   /**
    * The senior's live submission on another copy, inside the actor's own scope and on an opportunity
    * the scope may see: only such a row can be previewed without disclosing anything. Runs after the
-   * sorted locks, so two concurrent submissions to two copies cannot both pass unconfirmed.
+   * sorted locks, so two concurrent submissions to two copies cannot both pass unconfirmed. A copy
+   * removed by vacancy retention (a tombstone: no longer visible to any scope, the submission and
+   * its title and employer kept) still counts (SR-M-2): the submission is the actor's own scope's,
+   * so naming that copy's title and employer discloses nothing new.
    */
   private async assertNoClaimedDuplicate(
     tx: SqlExecutor,
@@ -1229,7 +1280,9 @@ export class JobQueueActionsService {
            WHERE a.senior_id = ${seniorId}::uuid AND a.state = 'TAKEN'
              AND a.opportunity_id IN (SELECT jsonb_array_elements_text(${ids}::jsonb)::uuid)
              AND ${scopedTeamRowPredicate(scope, sql`a.team_id`)}
-             AND ${visibleOpportunityPredicate(scope, sql`a.opportunity_id`)}`,
+             AND (${visibleOpportunityPredicate(scope, sql`a.opportunity_id`)}
+                  OR EXISTS (SELECT 1 FROM job_opportunities tomb
+                              WHERE tomb.id = a.opportunity_id AND ${retentionTombstone(sql`tomb`)}))`,
     )
     if (rows.length === 0) return
     const claimed = new Set(rows.map((r) => String(r['opportunity_id'])))

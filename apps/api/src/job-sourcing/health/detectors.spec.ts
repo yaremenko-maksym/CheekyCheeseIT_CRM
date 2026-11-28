@@ -20,6 +20,8 @@ import {
   median,
   runDetectors,
 } from './detectors'
+import { classifyHealth } from './classify-health'
+import { alertStateOf } from './health-alert-policy'
 import type { HealthSnapshot, RunFact } from './types'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -34,6 +36,7 @@ function run(overrides: Partial<RunFact> & { startedAt: Date }): RunFact {
     created: 0,
     invalid: 0,
     bytesRead: 1_000,
+    requestCount: 1,
     lastHttpStatus: 200,
     newestItemPublishedAt: null,
     envelopeFingerprint: null,
@@ -292,6 +295,31 @@ describe('detectFormatDrift', () => {
     expect(detectFormatDrift(snap(runs))).toEqual([])
   })
 
+  it('compares only fingerprints of the same algorithm: the first top-level run after a legacy one is silent (no deploy burst)', () => {
+    // Literal JSON top-level fingerprints (tag `feed0002`) against a legacy (untagged) one.
+    const newA = `feed0002${'1'.repeat(56)}`
+    const newB = `feed0002${'2'.repeat(56)}`
+    const day = (n: number) => new Date(NOW.getTime() - n * DAY_MS)
+    const firstAfterDeploy = [
+      run({ startedAt: NOW, envelopeFingerprint: newA }),
+      run({ startedAt: day(1), envelopeFingerprint: 'a'.repeat(64) }),
+      run({ startedAt: day(2), envelopeFingerprint: 'b'.repeat(64) }),
+    ]
+    expect(detectFormatDrift(snap(firstAfterDeploy))).toEqual([])
+    // Two top-level runs that differ still fire, across a legacy run between them.
+    const realChange = [
+      run({ startedAt: NOW, envelopeFingerprint: newB }),
+      run({ startedAt: day(1), envelopeFingerprint: 'a'.repeat(64) }),
+      run({ startedAt: day(2), envelopeFingerprint: newA }),
+    ]
+    expect(detectFormatDrift(snap(realChange))).toContain('SCHEMA_DRIFT')
+    const stable = [
+      run({ startedAt: NOW, envelopeFingerprint: newA }),
+      run({ startedAt: day(1), envelopeFingerprint: newA }),
+    ]
+    expect(detectFormatDrift(snap(stable))).toEqual([])
+  })
+
   it('does not fire on a clean run, and does not fire with no runs', () => {
     expect(detectFormatDrift(snap([run({ startedAt: NOW, received: 100, invalid: 2 })]))).toEqual(
       [],
@@ -372,6 +400,97 @@ describe('detectSlowdownGrowth', () => {
         snap([run({ startedAt: NOW, endedAt: new Date(NOW.getTime() + 9_000) })]),
       ),
     ).toEqual([])
+  })
+
+  // Sources-10 SO-1 / N2, end to end through the pure chain: a run that is both slow (over 3x the
+  // median duration) and near the declared cap reports PAYLOAD_GROWTH and alerts. Red against the
+  // old precedence, where SLOW won and the alert was lost.
+  it('a run both slow and near the cap reports PAYLOAD_GROWTH and alerts', () => {
+    const base = steady(() => ({ bytesRead: 7_500 }))
+    const latest = run({
+      startedAt: NOW,
+      endedAt: new Date(NOW.getTime() + 3_001),
+      bytesRead: 8_000,
+    })
+    const reasons = runDetectors(snap([latest, ...base], { declaredCapBytes: 10_000 }))
+    expect(reasons).toEqual(expect.arrayContaining(['SLOW', 'PAYLOAD_GROWTH']))
+    const verdict = classifyHealth({
+      adminState: 'ACTIVE',
+      blocked: false,
+      atFailureCap: false,
+      hostPaused: false,
+      consecutiveFailures: 0,
+      reasons,
+    })
+    expect(verdict).toEqual({ state: 'DEGRADED', reasonCode: 'PAYLOAD_GROWTH' })
+    expect(alertStateOf({ state: verdict.state, reason: verdict.reasonCode })).toBe('DEGRADED')
+  })
+
+  it('reports PAYLOAD_GROWTH when the latest run is at or above 80% of declaredCapBytes (early warning)', () => {
+    // Steady runs of 7,500 bytes (median is 7,500, 3x median is 22,500 — medianOver will not trigger)
+    const base = steady(() => ({ bytesRead: 7_500 }))
+    const cap = 10_000
+
+    // AT 80% (8,000 of 10,000): fires PAYLOAD_GROWTH
+    const at80 = [run({ startedAt: NOW, bytesRead: 8_000 }), ...base]
+    expect(detectSlowdownGrowth(snap(at80, { declaredCapBytes: cap }))).toEqual(['PAYLOAD_GROWTH'])
+
+    // ABOVE 80% (8,001 of 10,000): fires PAYLOAD_GROWTH
+    const above80 = [run({ startedAt: NOW, bytesRead: 8_001 }), ...base]
+    expect(detectSlowdownGrowth(snap(above80, { declaredCapBytes: cap }))).toEqual([
+      'PAYLOAD_GROWTH',
+    ])
+
+    // BELOW 80% (7,999 of 10,000): does NOT fire PAYLOAD_GROWTH
+    const below80 = [run({ startedAt: NOW, bytesRead: 7_999 }), ...base]
+    expect(detectSlowdownGrowth(snap(below80, { declaredCapBytes: cap }))).toEqual([])
+
+    // Without declaredCapBytes (null or undefined): 8,000 bytes does not trigger nearCap
+    expect(detectSlowdownGrowth(snap(at80, { declaredCapBytes: null }))).toEqual([])
+    expect(detectSlowdownGrowth(snap(at80, { declaredCapBytes: undefined }))).toEqual([])
+
+    // When latest run has null bytesRead: nearCap does not fire
+    const nullLatest = [run({ startedAt: NOW, bytesRead: null }), ...base]
+    expect(detectSlowdownGrowth(snap(nullLatest, { declaredCapBytes: cap }))).toEqual([])
+  })
+
+  it('Arbeitnow 24 MiB cap: 2026-11-19 page 1 (9.57 MB) gives no warning; >= 80% (20.13 MB) gives early warning', () => {
+    const arbeitnowCap = 24 * 1024 * 1024 // 25,165,824 bytes
+    const base = steady(() => ({ bytesRead: 9_000_000 }))
+
+    // 2026-11-19 measurement: 9,569,670 bytes (< 80% of 24 MiB)
+    const measuredRun = [run({ startedAt: NOW, bytesRead: 9_569_670 }), ...base]
+    expect(detectSlowdownGrowth(snap(measuredRun, { declaredCapBytes: arbeitnowCap }))).toEqual([])
+
+    // Near cap warning threshold: 80% of 24 MiB = 20,132,659.2 -> 20,132,660 bytes
+    const nearCapRun = [run({ startedAt: NOW, bytesRead: 20_132_660 }), ...base]
+    expect(detectSlowdownGrowth(snap(nearCapRun, { declaredCapBytes: arbeitnowCap }))).toEqual([
+      'PAYLOAD_GROWTH',
+    ])
+  })
+
+  it('H1: a multi-page run whose TOTAL is past 80% of the per-page cap, every page below it, gives no signal', () => {
+    const arbeitnowCap = 24 * 1024 * 1024
+    // Five pages, ~4.6 MB each on average: 23 000 000 bytes total (> 80% of 24 MiB), no page near the cap.
+    const base = steady(() => ({ bytesRead: 22_000_000, requestCount: 5 }))
+    const multiPage = [run({ startedAt: NOW, bytesRead: 23_000_000, requestCount: 5 }), ...base]
+    expect(detectSlowdownGrowth(snap(multiPage, { declaredCapBytes: arbeitnowCap }))).toEqual([])
+  })
+
+  it('H1: the near-cap check reads the run average page (bytes_read / request_count)', () => {
+    const cap = 10_000
+    const base = steady(() => ({ bytesRead: 15_000, requestCount: 2 }))
+    // 2 pages, 16 000 bytes: average 8 000 = exactly 80% of the cap -> signal
+    const at80 = [run({ startedAt: NOW, bytesRead: 16_000, requestCount: 2 }), ...base]
+    expect(detectSlowdownGrowth(snap(at80, { declaredCapBytes: cap }))).toEqual(['PAYLOAD_GROWTH'])
+    // 2 pages, 15 998 bytes: average 7 999 -> no signal
+    const below = [run({ startedAt: NOW, bytesRead: 15_998, requestCount: 2 }), ...base]
+    expect(detectSlowdownGrowth(snap(below, { declaredCapBytes: cap }))).toEqual([])
+    // No request recorded (null or 0): no page to average, no signal
+    for (const requestCount of [null, 0]) {
+      const none = [run({ startedAt: NOW, bytesRead: 16_000, requestCount }), ...base]
+      expect(detectSlowdownGrowth(snap(none, { declaredCapBytes: cap }))).toEqual([])
+    }
   })
 })
 
@@ -764,5 +883,31 @@ describe('U6b: a 304 run trips no detector (CR-H-1, SPEC-L-1)', () => {
     expect(reasons).not.toContain('EMPTY_RESPONSE')
     expect(reasons).not.toContain('BOARD_GONE')
     expect(reasons).not.toContain('VOLUME_DROP')
+  })
+})
+
+describe('sources-09: a never-created source whose items are all quarantined', () => {
+  // sources-09 fix round 2 (CR-M-2, Master A1): quarantine is counted in no persisted counter, so
+  // such a source's runs read `received 0, invalid 0` exactly as on main. No detector may fire on
+  // that steady state: fixing the counters must not raise a new alert for it.
+  it('reports nothing: no SCHEMA_DRIFT, no NO_NEW_ITEMS, no EMPTY_RESPONSE', () => {
+    const runs = [0, 1, 2].map((d) =>
+      run({ startedAt: new Date(NOW.getTime() - d * DAY_MS), received: 0, invalid: 0, created: 0 }),
+    )
+    expect(detectFormatDrift(snap(runs))).toEqual([])
+    expect(detectSilence(snap(runs))).toEqual([])
+    expect(detectEmptyResponse(snap(runs))).toEqual([])
+  })
+
+  // The same source once its items are schema-invalid rather than quarantined: those are counted
+  // (invalid = received), so drift fires as intended, and the silence and empty-answer detectors
+  // still stay quiet because nothing was ever created and `received` has no baseline to drop from.
+  it('a schema-invalid, never-created source reports SCHEMA_DRIFT; silence and empty-answer stay quiet', () => {
+    const runs = [0, 1, 2].map((d) =>
+      run({ startedAt: new Date(NOW.getTime() - d * DAY_MS), received: 3, invalid: 3, created: 0 }),
+    )
+    expect(detectFormatDrift(snap(runs))).toEqual(['SCHEMA_DRIFT'])
+    expect(detectSilence(snap(runs))).toEqual([])
+    expect(detectEmptyResponse(snap(runs))).toEqual([])
   })
 })

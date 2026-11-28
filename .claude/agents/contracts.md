@@ -66,6 +66,13 @@ the path to the agent in the dispatch prompt.
 | `task-<X>.blocked.md`     | (agent X)          | Agent X created it, Master reads it                   |
 | `task-<X>.progress.md`    | Coder              | The Coder sentinel for large tasks (>4 files)         |
 
+**The role and the project context travel with every dispatch.** `jev route` reads
+`.claude/agents/*.md` and prints the `agent` for the task plus a `brief` line. A native `Agent` gets
+the role as `subagent_type`. A `delegate_task` child sees only its `task` text, and only Claude loads
+`CLAUDE.md` by itself (Gemini reads only `GEMINI.md`, which this repo does not have), so every
+`delegate_task` task starts with `brief`: it names `AGENTS.md`, `CLAUDE.md`, the role file (when jev
+picked one) and the rules they point to. Details: `.claude/rules/common/model-routing.md` §"The agent role".
+
 ---
 
 ## 2.1. Critical-path trigger zones (cost-of-error gate)

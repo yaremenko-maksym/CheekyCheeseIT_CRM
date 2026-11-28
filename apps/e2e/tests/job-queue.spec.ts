@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Browser, Page } from '@playwright/test'
-import { test, expect, loginViaApi, REAL_API_BASE, SEED_EMAILS } from './fixtures'
+import { test, expect, loginViaApi, REAL_API_BASE, SEED_EMAILS, BOOKMARKLET_USED } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 import { jobQueueTeamTriageGrantSchema } from '../../../packages/shared/src/schemas/job-sourcing'
 import {
@@ -254,6 +254,43 @@ test.describe('scenario 9 — list states (mocked)', () => {
     await expect(page.getByTestId('job-queue-list')).toBeHidden()
   })
 
+  test('9h: the sort control defaults to relevance; publication date goes into the URL and the request', async ({
+    asHr: page,
+  }) => {
+    const uk = await loadMessages('uk')
+    await mockJobQueue(page)
+    const sorts: Array<string | null> = []
+    page.on('request', (req) => {
+      const url = new URL(req.url())
+      // the list API call only, never the page's own /job-queue document
+      if (/\/api\/job-queue$/.test(url.pathname)) sorts.push(url.searchParams.get('sort'))
+    })
+    await page.goto('/job-queue')
+    const trigger = page.getByTestId('job-queue-sort')
+    await expect(trigger).toHaveText(assertInCatalog(uk, 'За релевантністю'))
+    await expect(page.getByTestId(`job-queue-row-${OPP}`)).toBeVisible()
+    expect(sorts.length).toBeGreaterThan(0)
+    expect(sorts.every((s) => s === null)).toBe(true)
+
+    // keyboard path: focus, open, move to the second option, commit
+    await trigger.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('listbox')).toBeVisible()
+    await page.keyboard.press('ArrowDown')
+    await expect(
+      page.getByRole('option', { name: assertInCatalog(uk, 'Спочатку нові') }),
+    ).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page).toHaveURL(/[?&]sort=published/)
+    await expect(trigger).toHaveText(assertInCatalog(uk, 'Спочатку нові'))
+    await expect.poll(() => sorts.includes('published')).toBe(true)
+
+    // mouse path back to the default drops the param
+    await trigger.click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'За релевантністю') }).click()
+    await expect(page).not.toHaveURL(/sort=/)
+  })
+
   test('9c: a failed load shows the error state; retry loads the list', async ({ asHr: page }) => {
     const uk = await loadMessages('uk')
     const down = { status: 500, body: serverFailure(500) }
@@ -303,6 +340,42 @@ test.describe('scenario 9 — list states (mocked)', () => {
     await expect(page.getByTestId('job-queue-partial')).toBeVisible()
     await expect(page.getByTestId(`job-queue-row-${OPP}`)).toBeVisible()
   })
+
+  test('9f: AI limits exhausted shows the AI-limits notice in a live region, the list still visible', async ({
+    asHr: page,
+  }) => {
+    const uk = await loadMessages('uk')
+    await mockJobQueue(page, {
+      list: [listResponse([listItem()], { sourcingNotice: 'AI_LIMITS_EXHAUSTED' })],
+    })
+    await page.goto('/job-queue')
+    const notice = page.getByTestId('job-queue-ai-limits')
+    await expect(notice).toHaveText(
+      assertInCatalog(
+        uk,
+        'Пошук вакансій тимчасово недоступний: ліміти AI-моделей вичерпано. Спробуйте пізніше.',
+      ),
+    )
+    await expect(page.getByRole('status').filter({ has: notice })).toHaveCount(1)
+    await expect(page.getByTestId(`job-queue-row-${OPP}`)).toBeVisible()
+  })
+
+  test('9g: a null sourcing notice shows no AI-limits notice, the empty live region stays in the tree', async ({
+    asHr: page,
+  }) => {
+    await mockJobQueue(page, { list: [listResponse([listItem()])] })
+    await page.goto('/job-queue')
+    await expect(page.getByTestId(`job-queue-row-${OPP}`)).toBeVisible()
+    await expect(page.getByTestId('job-queue-ai-limits')).toHaveCount(0)
+    // Real CSS: display:none would drop the region from the accessibility tree (no announcement later).
+    const region = page.getByTestId('job-queue-page').locator('[role="status"]:empty')
+    await expect(region).toHaveCount(1)
+    expect(await region.evaluate((el) => getComputedStyle(el).display)).not.toBe('none')
+    // ...and it adds no visible gap.
+    const box = await region.boundingBox()
+    expect(box).not.toBeNull()
+    expect(box!.height).toBeLessThanOrEqual(1)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -330,7 +403,11 @@ test.describe('scenario 11 — SENIOR direct URL (real API)', () => {
 // ---------------------------------------------------------------------------
 type OpenCall = { url: string; inGesture: boolean }
 
-/** Brackets each click dispatch (see job-sourcing-mobile.spec.ts for why this, not a popup wait). */
+/**
+ * Brackets each click dispatch: a phone opens the original only when `window.open` runs inside
+ * the click gesture (PR #476), so the test records whether each call happened in one, rather than
+ * waiting for a popup.
+ */
 async function instrumentWindowOpen(page: Page) {
   await page.addInitScript(() => {
     const calls: { url: string; inGesture: boolean }[] = []
@@ -398,6 +475,55 @@ test.describe('scenario 13 — mobile 375 px (mocked)', () => {
   })
 })
 
+test.describe('sources-17 — salary line on the row and the card (mocked)', () => {
+  const WITH_SALARY = '33333333-3333-4333-8333-333333333333'
+  const salary = { min: 4000, max: 5500, currency: 'EUR', period: 'MONTH' as const }
+
+  for (const width of [320, 768, 1440]) {
+    test(`${width} px: the salary sits in the meta column, never wraps the title, no horizontal scroll`, async ({
+      asHr: page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await mockJobQueue(page, {
+        list: [
+          listResponse([
+            listItem({ opportunityId: WITH_SALARY, salary }),
+            listItem(), // the same title without a salary: the title reference
+          ]),
+        ],
+        card: [card({ opportunityId: WITH_SALARY, salary })],
+      })
+      await page.goto('/job-queue')
+      const rowWith = page.getByTestId(`job-queue-row-${WITH_SALARY}`)
+      const rowWithout = page.getByTestId(`job-queue-row-${OPP}`)
+      const line = rowWith.getByTestId('job-queue-row-salary')
+      await expect(line).toBeVisible()
+      await expect(line).toHaveText(/4.?000.+5.?500.+\/ міс/)
+      await expect(rowWithout.getByTestId('job-queue-row-salary')).toHaveCount(0)
+
+      // the line stays inside the meta column
+      const meta = await rowWith.getByTestId('job-queue-row-meta').boundingBox()
+      const box = await line.boundingBox()
+      expect(meta && box).toBeTruthy()
+      expect(box!.x + box!.width).toBeLessThanOrEqual(meta!.x + meta!.width + 0.5)
+
+      // the title column is not squeezed: the same title takes the same height with and without it
+      const titleHeight = async (row: typeof rowWith) =>
+        (await row.getByText('Senior React Engineer').boundingBox())!.height
+      expect(await titleHeight(rowWith)).toBe(await titleHeight(rowWithout))
+
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+        ),
+      ).toBe(true)
+
+      await rowWith.click()
+      await expect(page.getByTestId('job-queue-card-salary')).toHaveText(/4.?000.+5.?500.+\/ міс/)
+    })
+  }
+})
+
 // ---------------------------------------------------------------------------
 // Wave 2 — the REAL API on the Task 7.6a seed: scenarios 1-6, 10, 12
 // ---------------------------------------------------------------------------
@@ -420,6 +546,7 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
     fn: (page: Page) => Promise<T>,
   ): Promise<T> {
     const ctx = await browser.newContext()
+    await ctx.addInitScript(BOOKMARKLET_USED)
     try {
       const page = await ctx.newPage()
       await loginViaApi(page, email)
@@ -521,7 +648,7 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
       page,
     }) => {
       await loginViaApi(page, SEED_EMAILS.hrA)
-      await page.goto(`/job-queue?teamId=${teamId}`)
+      await page.goto('/job-queue')
       await page.getByTestId(ROW(id)).click()
       const submit = page.getByTestId(`job-queue-submit-${taras}`)
       await expect(submit).toBeEnabled()
@@ -531,9 +658,9 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
       await expect(page.getByTestId(`job-queue-senior-submitted-${taras}`)).toContainText(
         SEED_PEOPLE.anna,
       )
-      await page.goto(`/job-queue?teamId=${teamId}&tab=SUBMITTED`)
+      await page.goto('/job-queue?tab=SUBMITTED')
       await expect(page.getByTestId(ROW(id))).toBeVisible()
-      await page.goto(`/job-queue?teamId=${teamId}&tab=NEW`)
+      await page.goto('/job-queue?tab=NEW')
       await expect(page.getByTestId(ANY_ROW).first()).toBeVisible()
       await expect(page.getByTestId(ROW(id))).toHaveCount(0)
     })
@@ -542,7 +669,7 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
       page,
     }) => {
       await loginViaApi(page, SEED_EMAILS.hr2)
-      await page.goto(`/job-queue?teamId=${teamId}&tab=SUBMITTED`)
+      await page.goto('/job-queue?tab=SUBMITTED')
       await page.getByTestId(ROW(id)).click()
       await expect(page.getByTestId(`job-queue-senior-submitted-${taras}`)).toContainText(
         SEED_PEOPLE.anna,
@@ -619,7 +746,7 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
       // a full navigation each time: the session forgets the dismissal version, so the second
       // hide must take it from the card's own `dismissal` (an undone row keeps its version)
       const hide = async () => {
-        await page.goto(`/job-queue?teamId=${teamId}`)
+        await page.goto('/job-queue')
         await page.getByTestId(ROW(id)).click()
         await page
           .getByTestId('job-queue-card-footer')

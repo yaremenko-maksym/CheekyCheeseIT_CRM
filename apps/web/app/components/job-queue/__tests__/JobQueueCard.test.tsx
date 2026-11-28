@@ -21,6 +21,12 @@ function Wrapper({ children }: { children: ReactNode }) {
   )
 }
 
+// the tailored resume controls have their own spec (TailoredResumeControls.test); none here
+vi.mock('../useTailoredResumes', async (orig) => ({
+  ...(await orig<typeof import('../useTailoredResumes')>()),
+  useTailoredRows: () => new Map(),
+  useOpenForDetail: () => undefined,
+}))
 vi.mock('@/hooks/use-job-queue', async (orig) => ({
   ...(await orig<typeof import('@/hooks/use-job-queue')>()),
   useJobQueueCard: vi.fn(),
@@ -70,6 +76,16 @@ describe('JobQueueCard', () => {
     vi.mocked(useJobQueueSeniors).mockReturnValue(idleContinuation() as never)
     vi.mocked(useJobQueueSources).mockReturnValue(idleContinuation() as never)
     await loadCatalog('uk')
+  })
+
+  it('shows the stated salary under the company, and no salary line when none is stated (sources-17)', () => {
+    const { unmount } = show(
+      cardFixture({ salary: { min: 4000, max: null, currency: 'EUR', period: 'MONTH' } }),
+    )
+    expect(screen.getByTestId('job-queue-card-salary').textContent).toMatch(/^від .+ \/ міс$/)
+    unmount()
+    show(cardFixture())
+    expect(screen.queryByTestId('job-queue-card-salary')).toBeNull()
   })
 
   it('is a modal dialog named by its h2 title, for the requested vacancy', () => {
@@ -325,6 +341,13 @@ describe('JobQueueCard', () => {
     expect(screen.getByTestId('job-queue-card-meta')).toHaveTextContent(
       /^Дата публікації невідома · вперше побачено /,
     )
+  })
+
+  it('says the employer is undisclosed, not merely unknown, when the source withholds it', () => {
+    withCard(cardFixture({ companyName: null, employerDisclosure: 'WITHHELD_AT_SOURCE' }))
+    renderCard()
+    expect(screen.getByText('Роботодавця не розкрито джерелом')).toBeVisible()
+    expect(screen.queryByText('Компанію не вказано')).toBeNull()
   })
 
   it('shows the informational note only when the card is newer than the list', () => {

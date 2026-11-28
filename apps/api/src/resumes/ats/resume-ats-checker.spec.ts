@@ -91,6 +91,8 @@ function input(overrides: Partial<AtsCheckInput> = {}): AtsCheckInput {
     layout: DEFAULT_RESUME_LAYOUT,
     displayName: 'Jane Doe',
     email: 'jane@example.com',
+    phone: '',
+    telegram: '',
     pages: [CLEAN_PAGE.join('\n')],
     pdfBytes: 40_000,
     ...overrides,
@@ -126,6 +128,81 @@ describe('checkResumeAts — clean input', () => {
   it('a blank line inside a wrapped string still matches (normalizeExtractedText keeps one)', () => {
     const page = pageWith('• Led a team of five engineers', '• Led a team of\n\n  \nfive engineers')
     expect(checkResumeAts(input({ pages: [page] }))).toEqual({ ok: true, failures: [] })
+  })
+
+  it('a bullet wrapped right after the hyphen of a compound word still matches', () => {
+    const content = {
+      ...CONTENT,
+      experience: [
+        { ...CONTENT.experience[0]!, bullets: ['Built the multi-tenant billing service'] },
+        CONTENT.experience[1]!,
+      ],
+    }
+    const page = CLEAN_PAGE.flatMap((line) =>
+      line === '• Led a team of five engineers'
+        ? ['• Built the multi-', 'tenant billing service']
+        : line === '• Cut p95 latency by 40%'
+          ? []
+          : [line],
+    ).join('\n')
+    expect(checkResumeAts(input({ content, pages: [page] }))).toEqual({ ok: true, failures: [] })
+  })
+
+  it('a hyphen followed by a space in the source still matches when the line breaks there', () => {
+    const content = {
+      ...CONTENT,
+      experience: [
+        { ...CONTENT.experience[0]!, bullets: ['Owned pre- and post-release checks'] },
+        CONTENT.experience[1]!,
+      ],
+    }
+    const page = CLEAN_PAGE.flatMap((line) =>
+      line === '• Led a team of five engineers'
+        ? ['• Owned pre-', 'and post-release checks']
+        : line === '• Cut p95 latency by 40%'
+          ? []
+          : [line],
+    ).join('\n')
+    expect(checkResumeAts(input({ content, pages: [page] }))).toEqual({ ok: true, failures: [] })
+  })
+
+  it('a hyphenated name wrapped after its hyphen is still in the contact block', () => {
+    const page = pageWith('Jane Doe', 'Jane Smith-\nDoe')
+    const report = checkResumeAts(input({ displayName: 'Jane Smith-Doe', pages: [page] }))
+    expect(report).toEqual({ ok: true, failures: [] })
+  })
+
+  it('a skill compound wrapped after `C++-` still matches', () => {
+    const content = {
+      ...CONTENT,
+      experience: [
+        { ...CONTENT.experience[0]!, bullets: ['Ported the C++-based engine'] },
+        CONTENT.experience[1]!,
+      ],
+    }
+    const page = CLEAN_PAGE.flatMap((line) =>
+      line === '• Led a team of five engineers'
+        ? ['• Ported the C++-', 'based engine']
+        : line === '• Cut p95 latency by 40%'
+          ? []
+          : [line],
+    ).join('\n')
+    expect(checkResumeAts(input({ content, pages: [page] }))).toEqual({ ok: true, failures: [] })
+  })
+
+  it('a spaced dash is a separator, not a word hyphen: its space is not dropped', () => {
+    const content = {
+      ...CONTENT,
+      experience: [
+        {
+          ...CONTENT.experience[0]!,
+          bullets: ['Shipped v2 - on time', 'Cut p95 latency by 40%'],
+        },
+        CONTENT.experience[1]!,
+      ],
+    }
+    const page = pageWith('• Led a team of five engineers', '• Shipped v2 -on time')
+    expect(codes(checkResumeAts(input({ content, pages: [page] })))).toEqual(['MISSING_TEXT'])
   })
 
   it('compact puts the period on the role line, before the company, and still passes', () => {
@@ -670,6 +747,29 @@ describe('CONTACT_NOT_IN_BODY', () => {
     })
   })
 
+  it('a phone and Telegram on the email line count', () => {
+    const page = CLEAN_PAGE.join('\n').replace(
+      'jane@example.com',
+      'jane@example.com | +380 67 000 0000 | Telegram: @jane_doe',
+    )
+    const phone = '+380 67 000 0000'
+    expect(checkResumeAts(input({ phone, telegram: '@jane_doe', pages: [page] }))).toEqual({
+      ok: true,
+      failures: [],
+    })
+  })
+
+  it('a profile phone or Telegram missing from the header fails', () => {
+    expect(
+      checkResumeAts(input({ phone: '+380 67 000 0000', telegram: '@jane_doe' })).failures.map(
+        (f) => [f.code, f.path],
+      ),
+    ).toEqual([
+      ['CONTACT_NOT_IN_BODY', 'phone'],
+      ['CONTACT_NOT_IN_BODY', 'telegram'],
+    ])
+  })
+
   it('with no heading at all the whole of page 1 is the body', () => {
     const empty: ResumeContent = {
       summary: '',
@@ -799,6 +899,8 @@ describe('on a real render', () => {
     return typst.render({
       displayName: 'Jane Doe',
       email: 'jane@example.com',
+      phone: '+380 67 000 0000',
+      telegram: '@jane_doe',
       content: FULL,
       layout: DEFAULT_RESUME_LAYOUT,
       templateName: 'classic',
@@ -813,7 +915,10 @@ describe('on a real render', () => {
     for (const heading of ['Summary', 'Skills', 'Experience', 'Education', 'Languages', 'Links']) {
       expect(lines).toContain(heading)
     }
-    expect(lines.slice(0, 2)).toEqual(['Jane Doe', 'jane@example.com'])
+    expect(lines.slice(0, 2)).toEqual([
+      'Jane Doe',
+      'jane@example.com | +380 67 000 0000 | Telegram: @jane_doe',
+    ])
   }, 60_000)
 
   it('the full classic render passes the ATS check end to end', async () => {
@@ -824,6 +929,8 @@ describe('on a real render', () => {
       layout: DEFAULT_RESUME_LAYOUT,
       displayName: 'Jane Doe',
       email: 'jane@example.com',
+      phone: '+380 67 000 0000',
+      telegram: '@jane_doe',
       pages,
       pdfBytes: pdf.length,
     })

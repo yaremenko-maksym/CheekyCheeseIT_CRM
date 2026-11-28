@@ -1,8 +1,10 @@
 import { type SQL, sql } from 'drizzle-orm'
 import { IDENTITY_RULES_VERSION, canAttach } from '../identity/resolver'
 import type { MeterDb } from '../metering/account-meter.store'
+import { normalizeSalary } from '../normalize/salary'
 import { AVAILABILITY_REASON_PREFIX, enqueueDirty } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
+import { atsCopyMatch } from './ats-copy.store'
 import {
   type ActiveLink,
   type CanonicalFields,
@@ -12,6 +14,7 @@ import {
   decideAuto,
   decisionOrder,
   keepMayClaim,
+  salaryColumns,
   toInstant,
   toResolverRecord,
   trustedTokens,
@@ -129,7 +132,13 @@ async function lockOpportunities(tx: SqlExecutor, ids: readonly string[]): Promi
   return new Set(rows.map((r) => String(r['id'])))
 }
 
-function snapshotOf(r: Row): MemberSnapshot {
+/**
+ * One row of `SNAPSHOT_COLUMNS` as the member the canonical plan reads. Exported for its own unit
+ * spec: it is the single joint between the stored `normalized` payload and the plan, and the
+ * mutation gate cannot execute the integration spec that otherwise covers it
+ * (`.claude/rules/common/mutation-gate-integration-specs.md`).
+ */
+export function snapshotOf(r: Row): MemberSnapshot {
   const normalized = (r['normalized'] ?? {}) as Record<string, unknown>
   const original = (r['original_identity'] ?? {}) as Record<string, unknown>
   const tags = normalized['tags']
@@ -143,16 +152,24 @@ function snapshotOf(r: Row): MemberSnapshot {
     nativeId: typeof original['nativeId'] === 'string' ? original['nativeId'] : null,
     title: String(normalized['title'] ?? ''),
     companyName: String(normalized['companyName'] ?? ''),
+    ...(normalized['employerDisclosure'] === 'WITHHELD_AT_SOURCE'
+      ? { employerWithheldAtSource: true as const }
+      : {}),
     location: typeof normalized['location'] === 'string' ? normalized['location'] : null,
     sourceUrl: (r['source_url'] as string | null) ?? null,
     applicationUrl: (r['application_url'] as string | null) ?? null,
     descriptionSha256: (r['description_sha256'] as string | null) ?? null,
     publishedAt: typeof normalized['publishedAt'] === 'string' ? normalized['publishedAt'] : null,
     tags: Array.isArray(tags) ? tags.map(String) : [],
+    // Re-validated, never cast: a malformed stored value would trip the salary CHECKs mid-resolve.
+    salary: normalizeSalary(normalized['salary']),
+    ...(r['first_seen_at'] == null ? {} : { firstSeenAt: toInstant(r['first_seen_at']) }),
+    ...(r['last_observed_at'] == null ? {} : { lastObservedAt: toInstant(r['last_observed_at']) }),
   }
 }
 
 const SNAPSHOT_COLUMNS = sql`r.id AS record_id, r.source_type, r.namespace, r.source_url, r.application_url,
+  r.first_seen_at, r.last_observed_at,
   v.id AS revision_id, v.received_seq, v.received_at, v.normalized, v.original_identity, v.description_sha256`
 
 async function snapshots(
@@ -257,7 +274,35 @@ const fieldValues = (c: CanonicalFields) => sql`
   employer_key = ${c.employerKey}, location = ${c.location}, application_url = ${c.applicationUrl},
   published_at = ${c.publishedAt}::timestamptz, description_sha256 = ${c.descriptionSha256},
   stack_keywords = ${textArray(c.stackKeywords)},
-  field_revisions = ${JSON.stringify(c.fieldRevisions)}::jsonb`
+  field_revisions = ${JSON.stringify(c.fieldRevisions)}::jsonb,
+  ${salaryAssignments(c)}`
+
+/**
+ * The five salary columns, each cast to its column type so a value that did not move compares
+ * equal in the `changed` tuple (`numeric(12,2)`: the monthly top is rounded to 2 decimals in TS).
+ */
+const salaryValues = (c: CanonicalFields): SQL[] => {
+  const s = salaryColumns(c.salary)
+  return [
+    sql`${s.min}::numeric(12,2)`,
+    sql`${s.max}::numeric(12,2)`,
+    sql`${s.currency}::text`,
+    sql`${s.period}::text`,
+    sql`${s.monthlyTop}::numeric(12,2)`,
+  ]
+}
+const SALARY_COLUMNS = [
+  'salary_min',
+  'salary_max',
+  'salary_currency',
+  'salary_period',
+  'salary_monthly_top',
+]
+const salaryAssignments = (c: CanonicalFields): SQL =>
+  sql.join(
+    salaryValues(c).map((v, i) => sql`${sql.raw(SALARY_COLUMNS[i] as string)} = ${v}`),
+    sql`, `,
+  )
 
 /**
  * Every new revision matters to both consumers, so it yields one row per partition (S-P2, ADR
@@ -287,12 +332,14 @@ async function createOpportunity(tx: SqlExecutor, m: MemberSnapshot): Promise<st
     sql`INSERT INTO job_opportunities
           (title, title_key, employer_name, employer_key, location, application_url, published_at,
            description_sha256, stack_keywords, field_revisions,
-           technical_roles, role_status, role_classifier_version)
+           technical_roles, role_status, role_classifier_version,
+           salary_min, salary_max, salary_currency, salary_period, salary_monthly_top)
         VALUES (${c.title}, ${c.titleKey}, ${c.employerName}, ${c.employerKey}, ${c.location},
                 ${c.applicationUrl}, ${c.publishedAt}::timestamptz, ${c.descriptionSha256},
                 ${textArray(c.stackKeywords)},
                 ${JSON.stringify(c.fieldRevisions)}::jsonb,
-                ${textArray(roles.roles)}, ${roles.status}, ${roles.classifierVersion})
+                ${textArray(roles.roles)}, ${roles.status}, ${roles.classifierVersion},
+                ${sql.join(salaryValues(c), sql`, `)})
         RETURNING id, revision`,
   )
   const row = rows[0] as Row
@@ -323,7 +370,8 @@ async function refreshOpportunity(tx: SqlExecutor, id: string, bump: boolean): P
     c === null
       ? sql`false`
       : sql`(title, title_key, employer_name, employer_key, location, application_url, published_at,
-             description_sha256, stack_keywords, field_revisions) IS DISTINCT FROM (${canonicalRow(c)})`
+             description_sha256, stack_keywords, field_revisions, salary_min, salary_max,
+             salary_currency, salary_period, salary_monthly_top) IS DISTINCT FROM (${canonicalRow(c)})`
   const { rows } = await tx.execute(
     sql`UPDATE job_opportunities
            SET ${c === null ? sql`` : sql`${fieldValues(c)},`} revision = revision + 1,
@@ -349,7 +397,8 @@ const canonicalRow = (c: CanonicalFields) => sql`
   ${c.location}::text, ${c.applicationUrl}::text, ${c.publishedAt}::timestamptz,
   ${c.descriptionSha256}::text,
   ${textArray(c.stackKeywords)},
-  ${JSON.stringify(c.fieldRevisions)}::jsonb`
+  ${JSON.stringify(c.fieldRevisions)}::jsonb,
+  ${sql.join(salaryValues(c), sql`, `)}`
 
 async function insertLink(
   tx: SqlExecutor,
@@ -445,11 +494,46 @@ export async function resolveRecords(
         outcomes.push({ recordId: id, kind: 'ATTACH', opportunityId: decision.opportunityId })
         break
       case 'NEW': {
+        // sources-18: no stored token placed it; it may still be an aggregator copy of an ATS job.
+        // NOT_ASSOCIATED: the one token owner refused it only because a member is a keyless copy
+        // (the every-member check needs a shared key); the copy rule may still accept it there.
+        // `decideAuto`: NOT_ASSOCIATED has exactly one owner (`single`), TOKEN_CONFLICT several (none).
+        const scope =
+          decision.reason === 'NO_TRUSTED_MATCH' ? undefined : single === null ? null : [single]
+        const found =
+          scope === null
+            ? decision
+            : await atsCopyMatch(
+                tx,
+                snap,
+                {
+                  // A row lock this transaction already holds is re-taken as a no-op.
+                  lockLate: async (ids) => {
+                    for (const o of await lockOpportunities(tx, ids)) locked.add(o)
+                  },
+                  members: (opportunityId) => members(tx, opportunityId),
+                },
+                scope,
+              )
+        // Nothing passing keeps the reason `decideAuto` gave.
+        const copy =
+          found.reason === 'NO_TRUSTED_MATCH' ? { ...found, reason: decision.reason } : found
+        if (copy.kind === 'ATTACH') {
+          await insertLink(tx, id, copy.opportunityId, 'AUTO', {
+            actor: 'SYSTEM',
+            rule: 'ATS_COPY',
+            associations: copy.associations,
+          })
+          await claimTokens(tx, tokens, owned, copy.opportunityId, id)
+          await refreshOpportunity(tx, copy.opportunityId, true)
+          outcomes.push({ recordId: id, kind: 'ATTACH', opportunityId: copy.opportunityId })
+          break
+        }
         const opportunityId = await createOpportunity(tx, snap)
         locked.add(opportunityId)
         await insertLink(tx, id, opportunityId, 'AUTO', {
           actor: 'SYSTEM',
-          reason: decision.reason,
+          reason: copy.reason,
         })
         await claimTokens(tx, tokens, owned, opportunityId, id)
         outcomes.push({ recordId: id, kind: 'NEW', opportunityId })

@@ -35,6 +35,12 @@ const ROW = {
   state: 'DEGRADED',
   reasonCode: 'VOLUME_DROP',
   lastCollectedAt: iso(30),
+  lastAttemptAt: iso(30),
+  lastSuccessAt: iso(30),
+  readiness: 'VERIFIED',
+  readinessReason: null,
+  consecutiveFailures: 0,
+  cooldownUntil: null,
   newestItemPublishedAt: iso(300),
   profileSummary: PROFILE,
 }
@@ -51,6 +57,7 @@ const HEALTH = {
       profileSummary: null,
     },
   ],
+  sourcingNotice: null,
 }
 
 const DETAIL = {
@@ -181,6 +188,60 @@ for (const bp of BREAKPOINTS) {
     })
   })
 }
+
+test.describe('U7 source page — admin controls at 375px', () => {
+  test.use({ viewport: { width: 375, height: 667 } })
+
+  test('enable switch PATCHes the opposite value; reset failures posts the trimmed reason', async ({
+    page,
+  }) => {
+    await mockAuthAs(page, USERS.admin)
+    await mockSourceApis(page)
+    // Later registration wins: a failing row makes the reset action visible.
+    const failing = { ...HEALTH, items: [{ ...ROW, consecutiveFailures: 3 }] }
+    await page.route(`${API_GLOB}/job-sourcing/admin/sources/health`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(failing),
+      }),
+    )
+    // Both writes are fulfilled here: no request reaches the backend or an external job site.
+    let patchBody: unknown = null
+    await page.route(`${API_GLOB}/job-sourcing/sources/${SOURCE_ID}`, async (route) => {
+      patchBody = route.request().postDataJSON()
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: SOURCE_ID, enabled: false, changed: true, cancelledRuns: 0 }),
+      })
+    })
+    let resetBody: unknown = null
+    await page.route(
+      `${API_GLOB}/job-sourcing/admin/sources/${SOURCE_ID}/reset-failures`,
+      async (route) => {
+        resetBody = route.request().postDataJSON()
+        await route.fulfill({ status: 204, body: '' })
+      },
+    )
+
+    await page.goto('/admin/sources')
+    const row = page.getByTestId('job-source-health-row').first()
+    await expect(row).toBeVisible()
+    await expectNoHorizontalOverflow(page)
+
+    await row.getByTestId('job-source-enable-switch').click()
+    await expect.poll(() => patchBody).toEqual({ enabled: false })
+
+    await row.getByTestId('job-source-reset-trigger').click()
+    await page.getByTestId('job-source-reset-reason').fill('  provider fixed its side  ')
+    // The reason dialog must sit inside the 375px viewport, not clipped off its left edge.
+    const dialog = page.getByRole('dialog')
+    await expect.poll(async () => (await dialog.boundingBox())?.x ?? -1).toBeGreaterThanOrEqual(0)
+    await page.getByTestId('job-source-reset-submit').click()
+    await expect.poll(() => resetBody).toEqual({ reason: 'provider fixed its side' })
+  })
+})
 
 test.describe('U7 source page — RBAC', () => {
   test('non-ADMIN (SENIOR) does not see the source list', async ({ page }) => {

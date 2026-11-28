@@ -38,6 +38,68 @@ describe('control characters (findings 3, 4)', () => {
     expect(contactNameParts('Ivan\u0080Petrenko')).toEqual([['Ivan', 'Petrenko']])
   })
 
+  it('a backslash in a stored name splits it, a fullwidth one too (PR #1416, SR-H-2)', () => {
+    // a part holding `\n` would overlap the escaped-newline gap between parts
+    expect(contactNameParts('Ivan\\Petrenko')).toEqual([['Ivan', 'Petrenko']])
+    expect(contactNameParts('Ivan＼Petrenko')).toEqual([['Ivan', 'Petrenko']])
+  })
+
+  it('an escaped newline, return or tab in a stored name is one separator (PR #1416 round 3)', () => {
+    // the gap reads `\n` as one unit, so the letter after the backslash is no part of the name
+    expect(contactNameParts('Ivan\\nPetrenko')).toEqual([['Ivan', 'Petrenko']])
+    expect(contactNameParts('Ivan\\rPetrenko\\tKoval')).toEqual([['Ivan', 'Petrenko', 'Koval']])
+    // a fullwidth backslash is one after NFKC
+    expect(contactNameParts('Ivan＼nPetrenko')).toEqual([['Ivan', 'Petrenko']])
+    // round 4 (SR-M-2): only the lowercase escapes are one; an uppercase letter starts a part
+    expect(contactNameParts('Mirko\\Nastenko')).toEqual([['Mirko', 'Nastenko']])
+    expect(contactNameParts('Mirko\\Rastenko\\Tal')).toEqual([['Mirko', 'Rastenko', 'Tal']])
+    expect(contactNameParts('Mirko＼Nastenko')).toEqual([['Mirko', 'Nastenko']])
+    // a name that is only escapes has no part: `n` alone would match every standalone `n`
+    expect(contactNameParts('\\n')).toEqual([[]])
+    expect(contactNameParts('\\n\\n Ivan')).toEqual([['Ivan']])
+    // another escape letter is not a gap escape: its backslash splits, the letter stays
+    expect(contactNameParts('Ivan\\bPetrenko')).toEqual([['Ivan', 'bPetrenko']])
+  })
+
+  it('a part with no letter left after the accent fold is dropped (PR #1416 round 3, SR-H-3)', () => {
+    // spaced combining marks, U+00A8 (NFKC: space + U+0308), a mark after a backslash or a control
+    expect(contactNameParts('Ivan ̈ ̈ Petrenko')).toEqual([['Ivan', 'Petrenko']])
+    expect(contactNameParts('Ivan ¨ Petrenko')).toEqual([['Ivan', 'Petrenko']])
+    expect(contactNameParts('Ivan\\̈ Petrenko')).toEqual([['Ivan', 'Petrenko']])
+    expect(contactNameParts('Ivan\u0085̈ Petrenko')).toEqual([['Ivan', 'Petrenko']])
+    // an apostrophe, a digit or punctuation alone is no part either
+    expect(contactNameParts("Ivan ' 7 . Petrenko")).toEqual([['Ivan', 'Petrenko']])
+    // a letter with its mark is a part as before
+    expect(contactNameParts('Ivan Müller')).toEqual([['Ivan', 'Müller']])
+  })
+
+  it('a part starts and ends with a letter, a mark, a digit or an apostrophe (PR #1416 round 3)', () => {
+    // punctuation the run gap reads (`-`, `,`, `.`, `_`, `·`) never sits on a part edge
+    expect(contactNameParts('Ivan a. .b, -Petrenko_')).toEqual([['Ivan', 'a', 'b', 'Petrenko']])
+    // an edge of several characters goes whole, at either end
+    expect(contactNameParts('..Ivan Petrenko__')).toEqual([['Ivan', 'Petrenko']])
+    // inside a part it stays: a hyphenated surname is one part, an apostrophe stays at an edge
+    expect(contactNameParts("Ivan Petrenko-Kovalenko O'Neil' Petrenko2")).toEqual([
+      ['Ivan', 'Petrenko-Kovalenko', "O'Neil'", 'Petrenko2'],
+    ])
+  })
+
+  it('a stored name of spaced combining marks checks a run of spaces in bounded readings', () => {
+    // SR-H-3: an empty part put two gaps side by side; the parts are now the two real ones
+    const name = ['Ivan', ...Array(8).fill('̈'), 'Petrenko'].join(' ')
+    expect(contactNameParts(name)).toEqual([['Ivan', 'Petrenko']])
+    expect(flags(`Ivan${' '.repeat(40)}x`, name)).toBe(false)
+    expect(flags('by Ivan Petrenko', name)).toBe(true)
+  })
+
+  it('a stored name of escaped-newline parts checks a run of them in bounded time', () => {
+    const start = process.cpuUsage()
+    const flagged = flags(`${'\\n'.repeat(40)} x`, `${Array(10).fill('\\n').join(' ')} Ba`)
+    const { user, system } = process.cpuUsage(start)
+    expect(flagged).toBe(false)
+    expect((user + system) / 1000).toBeLessThan(200)
+  })
+
   it('a C0 or C1 control in the text is stripped, so the name around it still hits', () => {
     expect(normaliseContactText('P\u0000etrenko').text).toBe('Petrenko')
     expect(normaliseContactText('P\u009Fetrenko').text).toBe('Petrenko')

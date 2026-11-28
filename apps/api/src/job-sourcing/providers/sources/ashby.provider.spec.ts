@@ -134,7 +134,7 @@ describe('the Linear capture', () => {
     expect(o?.normalized.employmentType).toBe('FullTime')
     expect(o?.normalized.tags).toEqual(['GTM', 'Creative Studio'])
     expect(o?.normalized.remote).toBe(true)
-    expect(o?.adapterVersion).toBe('ashby-1')
+    expect(o?.adapterVersion).toBe('ashby-2')
   })
 
   it('publishedAt is the PUBLISHED date: 2026-10-21T23:21:02.828+00:00', async () => {
@@ -294,18 +294,55 @@ describe('compensation is never invented', () => {
     return rest
   }
 
-  it('a job that published a tier ("$200K – $270K") maps exactly like the same job without compensation', async () => {
-    const real = supabase().jobs.find((j) => j.id === id)
-    if (real === undefined) throw new Error('fixture job missing')
-    const withComp = await run(withJobs([real]), supabaseCfg())
-    const without = await run(withJobs([stripCompensation(real)]), supabaseCfg())
-    expect(withComp.batch.observations).toHaveLength(1)
-    expect(withComp.batch.observations[0]?.normalized).toEqual(
-      without.batch.observations[0]?.normalized,
-    )
-    expect(withComp.batch.observations[0]?.contentHash).toBe(
-      without.batch.observations[0]?.contentHash,
-    )
+  const real = () => {
+    const j = supabase().jobs.find((x) => x.id === id)
+    if (j === undefined) throw new Error('fixture job missing')
+    return j
+  }
+  const withComponents = (summaryComponents: unknown) => ({
+    ...stripCompensation(real()),
+    compensation: { summaryComponents },
+  })
+  const salaryOfJob = async (j: Record<string, unknown>) => {
+    const { batch } = await run(withJobs([j]), supabaseCfg())
+    expect(batch.counts.normalized).toBe(1)
+    return batch.observations[0]?.normalized.salary ?? null
+  }
+  const SALARY = {
+    compensationType: 'Salary',
+    interval: '1 YEAR',
+    currencyCode: 'USD',
+    minValue: 200000,
+    maxValue: 270000,
+  }
+
+  it('the one Salary component of the capture is the salary; nothing else differs (sources-17)', async () => {
+    expect(await salaryOfJob(real())).toEqual({
+      min: 200000,
+      max: 270000,
+      currency: 'USD',
+      period: 'YEAR',
+    })
+    const withComp = await run(withJobs([real()]), supabaseCfg())
+    const without = await run(withJobs([stripCompensation(real())]), supabaseCfg())
+    const { salary: _s, ...rest } = withComp.batch.observations[0]?.normalized ?? {}
+    expect(rest).toEqual(without.batch.observations[0]?.normalized)
+    expect(without.batch.observations[0]?.normalized.salary ?? null).toBe(null)
+  })
+
+  it('maps 1 MONTH and 1 HOUR; another interval, two Salary components or none is no salary', async () => {
+    expect(await salaryOfJob(withComponents([{ ...SALARY, interval: '1 MONTH' }]))).toMatchObject({
+      period: 'MONTH',
+    })
+    expect(await salaryOfJob(withComponents([{ ...SALARY, interval: '1 HOUR' }]))).toMatchObject({
+      period: 'HOUR',
+    })
+    expect(await salaryOfJob(withComponents([{ ...SALARY, interval: '1 WEEK' }]))).toBe(null)
+    expect(await salaryOfJob(withComponents([SALARY, { ...SALARY, minValue: 1 }]))).toBe(null)
+    expect(
+      await salaryOfJob(withComponents([{ ...SALARY, compensationType: 'EquityPercentage' }])),
+    ).toBe(null)
+    expect(await salaryOfJob(withComponents('lots'))).toBe(null)
   })
 
   it('the compensation summary text is not copied into any tag, location or type', async () => {
@@ -346,13 +383,25 @@ describe('unlisted postings (isListed=false): documented, never observed on a re
     expect(batch.invalidSamples.map((s) => s.reason)).toEqual(['QUARANTINED: NOT_AN_OPEN_VACANCY'])
   })
 
-  it('the consequence is recorded, not accidental: the run SUCCEEDED but its coverage is PARTIAL, so a board with one unlisted posting cannot claim FULL_INVENTORY', async () => {
+  // Backlog 320 / 470: the exclusion is counted but does not weaken the claim. An unlisted posting
+  // is not an open vacancy, so treating it as absent is the truth, and the board can still close
+  // the postings that left it.
+  it('an unlisted posting does not cost the board its FULL_INVENTORY claim, and is not marked present', async () => {
     const clean = await run(withJobs([real()]))
     expect([clean.batch.outcome, clean.batch.coverage]).toEqual(['SUCCEEDED', 'FULL_INVENTORY'])
     const { batch } = await run(
       withJobs([real(), { ...real(), id: 'unlisted-1', isListed: false }]),
     )
-    expect([batch.outcome, batch.coverage]).toEqual(['SUCCEEDED', 'PARTIAL'])
+    expect([batch.outcome, batch.coverage]).toEqual(['SUCCEEDED', 'FULL_INVENTORY'])
+    expect(batch.present).toBeUndefined()
+  })
+
+  it('a posting quarantined with its identity is marked present and keeps the claim', async () => {
+    const { batch } = await run(withJobs([real(), { ...real(), id: 'untitled-1', title: '' }]))
+    expect(batch.coverage).toBe('FULL_INVENTORY')
+    expect(batch.present?.held).toEqual([])
+    expect(batch.present?.quarantined).toHaveLength(1)
+    expect(batch.present?.quarantined[0]).toContain('untitled-1')
   })
 
   it('an unlisted posting with no employer is still named for what it is, not for the gap', async () => {

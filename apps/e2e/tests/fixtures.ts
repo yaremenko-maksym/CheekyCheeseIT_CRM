@@ -25,14 +25,12 @@ export {
 export {
   buildAdminViewingUser,
   buildHrViewingSenior,
-  buildJuniorViewingSenior,
-  buildJuniorViewingJunior,
   buildSelfView,
 } from './fixtures/view-builders'
 
 export { API_GLOB, API_RE } from './fixtures/route-helpers'
 
-export { mockAuthAs, test, expect, waitForPageReady, dismissDialog } from './fixtures/mock-auth'
+export { mockAuthAs, test, expect, dismissDialog, BOOKMARKLET_USED } from './fixtures/mock-auth'
 
 export {
   REAL_API_BASE,
@@ -48,7 +46,6 @@ export { loginViaApi, findUserByEmailViaApi } from './fixtures/api-helpers/auth'
 export {
   createDropViaAPI,
   addSeniorToDropTeamViaAPI,
-  archiveDropTeamViaAPI,
   getTeamViaAPI,
   getTeamAuditLogViaAPI,
   getUserViaAPI,

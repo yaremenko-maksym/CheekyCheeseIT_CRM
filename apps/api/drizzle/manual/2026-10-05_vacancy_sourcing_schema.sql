@@ -6,8 +6,8 @@
 -- -------
 -- Vacancy-sourcing phase 1 (docs/superpowers/plans/2026-10-04-vacancy-sourcing-plan.md,
 -- Task 1.2). Turns `job_postings` into an HR-facing work queue and widens the
--- source catalogue from 1 to 31 types:
---   * 30 new `job_source_type` members (DOU_RSS already exists);
+-- source catalogue from 1 to 30 types (31 until The Muse was removed, 2026-11-23_remove_muse_api.sql):
+--   * 29 new `job_source_type` members (DOU_RSS already exists);
 --   * three new enums: job_queue_status, job_seniority, job_posting_signal_kind;
 --   * cadence + auto-disable columns on `job_sources`;
 --   * queue / dedupe / ranking columns + indexes on `job_postings`;
@@ -57,7 +57,6 @@ ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'PERSONIO_ATS';
 ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'JOOBLE_API';
 ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'JSEARCH_API';
 ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'THEIRSTACK_API';
-ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'MUSE_API';
 ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'REED_API';
 ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'DJINNI_RSS';
 ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'WWR_RSS';
@@ -69,6 +68,19 @@ ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'NEXTLEVELJOBS_HTML';
 ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'DICE_HTML';
 ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'THEHUB_HTML';
 ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'WTTJ_HTML';
+ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'PYTHONORG_RSS';
+ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'SOLIDJOBS_RSS';
+ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'BERLINSTARTUPJOBS_RSS';
+ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'HELLOWORLD_RSS';
+ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'LARAJOBS_RSS';
+ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'RELOCATEME_HTML';
+ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'REACTJOBS_HTML';
+ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'REMOTEIO_HTML';
+ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'REMOTEFIRSTJOBS_HTML';
+ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'JOBSPRESSO_HTML';
+ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'FOURDAYWEEK_API';
+ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'GERMANTECHJOBS_API';
+ALTER TYPE job_source_type ADD VALUE IF NOT EXISTS 'JOBTECH_API';
 
 DO $$ BEGIN CREATE TYPE job_queue_status AS ENUM ('NEW', 'IN_PROGRESS', 'DISMISSED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TYPE job_seniority AS ENUM ('MIDDLE', 'SENIOR', 'LEAD', 'UNKNOWN'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;

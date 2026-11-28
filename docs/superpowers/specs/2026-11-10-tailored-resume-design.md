@@ -140,13 +140,14 @@ The model returns structured fields only (strict JSON schema), never Typst or ma
 
 **Cover letter [owner + call].** Plain text, English, roughly 120–200 words **[call]**: who the senior is, two or
 three concrete matches between the posting and the senior's real experience. No invented recruiter name, no salary,
-no claims outside the base resume. The greeting ("Dear Hiring Team,") and the closing ("Kind regards," plus the
-display name) are fixed strings added by the service, not model output, so the gates judge only the body the model
-wrote. **[call]** The body goes through the same content gates as the resume, with two adjustments **[call]**: the
-posting's `employerName` and `title` are allowed tokens for the fact gate (only those two metadata fields, never
-arbitrary posting text; technologies still must exist in the base resume); and each sentence is checked for
-entailment against the tailoring payload (§3) plus "the senior is applying to <title> at <employer>", since a letter
-sentence has no single source item.
+no claims outside the base resume. The greeting ("Dear Hiring Team,") and the closing (the fixed sentence "I would be glad to walk you through this experience on a call.", then "Kind regards,"
+plus the display name) are fixed strings added by the service, not model output, so the gates judge only the body the model
+wrote. **Owner decision 2026-11-22 (supersedes the earlier call here):** the writer never receives the
+posting's `employerName`, and the letter names neither the employer nor the title ("your team" / "this role"). The
+body goes through the same content gates as the resume, as written: no posting string is an allowed token, and each
+sentence is checked for entailment against the tailoring payload (§3) only, since a letter sentence has no single
+source item. A sentence containing the posting's `employerName` (case-insensitive, whole word, after dropping invisible characters and accents and reading Cyrillic and Greek look-alike letters as Latin; also without its trailing legal suffixes and parentheticals; checked per sentence and over the whole body) fails before the fact
+gate and Jev.
 
 **Entailment source = the payload, not the whole record.** Summary and cover letter sentences are judged against the
 same minimised fields the generator saw (`summary`, `skills`, `experience`), never education, languages or links,
@@ -208,7 +209,7 @@ fetch, 1–3 generation calls, 1–4 renders and 1–8 vision calls; the 10 min 
    and order equal.
 10. **Fact gate (deterministic).** Tokenise the prose fields (summary, bullets, cover letter): numbers, technology
     tokens (skills vocabulary + synonym groups), capitalised proper nouns and title words. Each must occur in the base
-    resume (or, for the cover letter only, in the posting's `employerName` / `title`). Skills must be a subset of base
+    resume (the cover letter included: owner decision 2026-11-22, see §5). Skills must be a subset of base
     skills or their canonical synonyms. Frozen fields are compared field by field (step 9).
 11. **Entailment gate (Jev).** For each reworded bullet (against its `sourceIndices` bullets), each summary sentence
     and each cover letter body sentence (against the tailoring payload; see §5): Jev `noul` "Is this statement fully
@@ -387,6 +388,46 @@ All answered by the owner on 2026-11-10 (after the builder check).
   Gemini's free tier may train on and human-review the tailored fields (router ADR §4), and that company + role +
   period can identify a person without the name. Name and contacts still never leave (A4). The pool for generation is
   Gemini + Groq + Cloudflare; the OpenRouter `:free` route joins when job sourcing builds it and is not a dependency.
+  **Transliteration coverage (backlog 463, fixed 2026-11-18).** "The name never leaves" held only in the script the
+  name is stored in: the redaction built its patterns from the stored spelling, so a Cyrillic stored name left its
+  Latin spelling inside a free-text value. The redaction now also matches a Latin reading of each Cyrillic part of
+  the stored display and legal name. **Its limit:** the table is the Ukrainian national romanisation plus the common
+  variants of the ambiguous letters and the four Russian letters Ukrainian lacks, and it carries no position rules, so
+  a spelling outside the table is not matched (`зг` read as `zgh`, or a German or Polish reading such as
+  `Schtscherban`), and a Cyrillic letter outside the table leaves its part matched in the stored script only. A
+  pattern whose readings multiply past the module's budget falls back to one primary (national romanisation) reading
+  per letter: a stored name is user-settable, and an unbounded pattern of ambiguous readings is a denial-of-service
+  shape. A part of under four letters is matched alone in its stored script only (its Latin reading alone is an
+  English word); the full Latin name is still matched. The
+  submission gate is deliberately not widened the same way — it refuses text, and the table over-matches by design —
+  so the guarantee is "the redaction removes more", not "the gate flags every spelling".
+  **Surname-first legal names (backlog 464, fixed 2026-11-19).** The same guarantee held only for the LAST part of a
+  stored name: the redaction matched the full name and its last part alone, so a `legalFullName` stored surname first
+  (the order the contracts use) redacted the given name alone and left the real surname standing wherever the resume
+  text wrote it by itself. The redaction now matches BOTH edge parts alone — in the stored script and in the Latin
+  reading, always — but only on the contact context built from `legalFullName`, the one name stored surname first; the
+  `displayName` context keeps the last-part rule, so an ordinary normal-order name still redacts no given name alone.
+  **Its cost:** on the legal context the owner's own given name is redacted alone too. Review round 1 deleted a
+  narrowing that read the `displayName` as the normal-order spelling and kept the first part out when that spelling
+  named the last part as the surname: nothing in a stored name says which order it is written in, so a `displayName`
+  of one part, or itself written surname first, named the wrong edge and left the real surname standing. Over-redacting
+  the owner's own given name in their own resume is accepted; leaving the surname is not. Review round 2 extended the
+  rule to the per-part reading of a name stored with an invisible separator (a zero-width space, a soft hyphen)
+  between surname and given name: that reading matched only its parts after the first alone, so such a legal name
+  still left its surname standing. Its first part is a lone source too now, weighed by the same two-letter predicate
+  the joined reading uses (`isSurnameSource(storedSource(part))`), which counts letters AFTER accent folding — round 3
+  replaced a raw-letter count that left a one-syllable Hangul surname (one letter raw, three jamo folded) standing
+  while the same name stored with a plain space was redacted. The submission gate still matches the last part only, on
+  every context and in every reading.
+  **Cost cap (backlog 466, the redaction half, 2026-11-19).** A stored name split by zero-width spaces into many parts
+  built one source per part and per order — about 510 regex patterns at the 255-character `displayName` cap, each run
+  over the whole field. The redaction now builds at most `MAX_NAME_SOURCES` of them and, past that, redacts the field
+  whole: the name is still removed and no pattern runs, the same fail-closed exit the pass limit takes. A field with
+  no non-whitespace character is left as it is instead, since `[REDACTED]` there would read as a contact that was
+  never written. **Its limit:**
+  the submission gate is deliberately NOT capped, and that half of backlog 466 stays open — capping it would either
+  refuse honest text (a hit past the cap) or fail it open (a dropped source), and widening or narrowing the gate is an
+  owner decision. Its own worst case stays linear in the field length and bounded only by the existing run-part limit.
 - **Q-contact. The CV header email is the senior's registration email, `users.email`. [owner]** It is the work
   address the studio creates for each senior, not one of the extra addresses in `user_emails`. The template prints it;
   the ATS gate checks it. It is never sent to a model (A4).
@@ -409,3 +450,31 @@ All answered by the owner on 2026-11-10 (after the builder check).
 - **Over-conservative fact gate** may revert most rewording on resumes with thin bullets. Measured in slice 7 QA.
 - **"100 % valid"** is guaranteed for the deterministic checks; the vision check reduces but cannot exclude a visual
   defect a model misses.
+
+## Amendment 2026-11-21 (plan `docs/superpowers/plans/2026-11-21-tailored-resume.md`)
+
+**Owner decisions (2026-11-21):**
+
+1. **Scope.** Backend (slices 3–5) plus a minimal web UI in `MatchedSeniors.tsx`: generate button, stage progress,
+   auto-download, copy cover letter, edit form, regenerate confirm dialog, Lingui `uk` + `en`. **No Claude Design
+   mockups and no design-fidelity gate**: this supersedes the design-gate paragraph of §4; the redesign programme
+   restyles it later.
+2. **Jev-first** (`.claude/rules/common/jev-first.md`). Every judging call goes to Jev (`DecisionPort`): injection
+   check, gap buckets, entailment, reviewer. Hosted routes are used for generation only. This supersedes "Jev + a
+   second pool model" in §6.4 item 12 (Jev only). The visual check of §6.4 item 18 goes through the existing
+   `VisualCheckClient` / `visualGate`, so it inherits whatever backend `task-jev-offload` Part A gives that client;
+   "a vision-capable pool model" is read as "that client". §7's router state is stale: the generation path is a new
+   extraction-worker route `/resume-tailor`, not a package port.
+3. **Delivery.** Each PR merges when ready and is inert on prod until the last one; the feature flag
+   `TAILORED_RESUME_ENABLED` (default `false`) gates every route.
+   **Findings from the code, confirmed by the owner 2026-11-21:**
+
+4. **§6.1 step 2 (wait for the detail fetch) does not hold on `main`.** The detail-on-demand consumer is a daily cron,
+   so a 10 min job cannot wait for it. A senior row shows "posting text is being fetched" while a fetch is pending
+   (eligibility `POSTING_PENDING`); with no description and nothing pending, generation runs on title + stack
+   keywords and marks the posting partial (Q3's fallback). An inline fetch is an external GET and needs a separate
+   owner "go". Confirmed by the owner 2026-11-21 (plan D1).
+5. **§9 "matched".** The submission path's `assertSeniorEligible` checks scope membership and the stop-list, not a
+   match row; the plan follows that check (plan D20, confirmed by the owner 2026-11-21; security review mandatory).
+6. **§6 "1–3 generation calls".** The cover-letter regeneration of §6.4 is its own attempt, so a run makes at
+   most 4 generation calls (plan D19).

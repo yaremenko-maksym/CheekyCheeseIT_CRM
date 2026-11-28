@@ -13,7 +13,14 @@ import {
   enqueueDirty,
   failDirty,
 } from '../ownership/dirty-work.store'
+import { vacancyRetentionEnabled } from '../retention'
 import type { SqlExecutor } from '../scheduling/host-state'
+import {
+  isGoneAvailability,
+  isRemoved,
+  purgeOpportunityInline,
+  readActiveRecordStates,
+} from '../store/opportunity-purge'
 import type { RecomputeSteps } from './recompute-worker'
 
 /**
@@ -121,20 +128,8 @@ export async function reconcileSourceRecordAvailability(
   return completeDirty(db, work)
 }
 
-/** The ACTIVE source records' availability for an opportunity (most-open input to S8b). */
-export async function readActiveRecordStates(
-  tx: SqlExecutor,
-  opportunityId: string,
-): Promise<JobAvailability[]> {
-  const { rows } = await tx.execute(
-    sql`SELECT r.availability
-          FROM job_opportunity_sources os
-          JOIN job_source_records r ON r.id = os.source_record_id
-         WHERE os.opportunity_id = ${opportunityId}::uuid AND os.unlinked_at IS NULL`,
-  )
-  // Our own enum column: every value is a valid JobAvailability.
-  return rows.map((r) => String(r['availability']) as JobAvailability)
-}
+// Moved to the purge module (its inline-removal path reads the same states); still exported here.
+export { readActiveRecordStates }
 
 /**
  * OPPORTUNITY: lock the opportunity, re-derive availability from its active records, complete the
@@ -158,7 +153,23 @@ export function reconcileOpportunityAvailability(
     if (row === undefined || Number(row['revision']) !== work.targetVersion)
       return completeDirty(tx, work)
     const current = String(row['availability']) as JobAvailability
-    const next = deriveOpportunityAvailability(await readActiveRecordStates(tx, work.entityId))
+    let next = deriveOpportunityAvailability(await readActiveRecordStates(tx, work.entityId))
+    // Owner 2026-11-25: a CLOSED/EXPIRED opportunity is removed at detection, never written as such.
+    // Completed first (the dirty row has no FK), then deleted or tombstoned in this transaction —
+    // completed only once the purge is certain (its re-checks passed, nothing written yet). The
+    // purge runs in a savepoint (CR-M-2) and only while VACANCY_RETENTION_ENABLED is on (SR-M-3).
+    if (vacancyRetentionEnabled() && isGoneAvailability(next)) {
+      let completed: CompleteOutcome | undefined
+      const outcome = await purgeOpportunityInline(tx, work.entityId, async () => {
+        completed = await completeDirty(tx, work)
+      })
+      if (completed !== undefined && isRemoved(outcome)) return completed
+      // SKIPPED: a member row busy elsewhere, or a member reopened/linked under us. FAILED: the
+      // purge was rolled back to its savepoint, the completion with it. Either way write what the
+      // records say now, as before the purge existed; the queue hides CLOSED/EXPIRED and the sweep
+      // removes it.
+      next = deriveOpportunityAvailability(await readActiveRecordStates(tx, work.entityId))
+    }
     if (next === current) return completeDirty(tx, work)
     // S-P2 successor row (ADR 2026-11-02 step 4): the bump stales any match row at the current
     // revision, so a MATCH row at the new one goes in first. The row lock above holds `revision`

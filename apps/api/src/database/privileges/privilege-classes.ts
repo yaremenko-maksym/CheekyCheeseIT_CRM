@@ -205,6 +205,9 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     // Task 4.5: canonical identity tokens; the API's record store claims them. Promoted to manual/ (Task 4.6 S0).
     'job_opportunity_identity_tokens',
     'job_opportunity_matches',
+    // Queue relevance PR1: Jev's vacancy-senior fit grades; the relevance pass upserts them, so not
+    // A-log. Declared in schema/job-opportunity-relevance.ts; created by manual/2026-11-24_job_opportunity_relevance.sql.
+    'job_opportunity_relevance',
     'job_opportunity_sources',
     'job_opportunity_team_triage',
     'job_posting_signals',
@@ -252,6 +255,9 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'senior_availability',
     'senior_resumes',
     'signed_contracts',
+    // Tailored resumes (tailored-resume design §8): the API inserts, updates and deletes the
+    // per-opportunity variant and its run/PDF state.
+    'tailored_resumes',
     'team_members',
     'teams',
     'telemetry_errors',

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { JobSourceType } from '@crm/shared'
 import type { Pool } from 'pg'
 import type { SourceObservation } from '../job-sourcing/normalize/observation'
+import type { SalaryObservation } from '../job-sourcing/normalize/salary'
 
 /**
  * Fixtures for the record store's real-Postgres specs (r5 Task 4.5). Spec-only. Every record's
@@ -17,18 +18,34 @@ export interface ObservationSeed {
   company?: string
   postingUrl?: string
   applicationUrl?: string | null
+  /** The source publishes no employer by design: empty company + the declared marker. */
+  employerWithheld?: true
   /** Anything that should change the content hash (a new revision of the same posting). */
   version?: string
+  /** A stated salary (sources-17); it moves the content hash, its absence keeps the old bytes. */
+  salary?: SalaryObservation
+  /** Defaults to 'Remote'; when given, it moves the content hash too. */
+  location?: string | null
   tag: string
 }
 
 export function observation(s: ObservationSeed): SourceObservation {
   const title = s.title ?? 'Senior Go Engineer'
-  const company = s.company ?? 'Acme'
+  const company = s.employerWithheld === true ? '' : (s.company ?? 'Acme')
   const posting = s.postingUrl ?? `https://fixture.test/jobs/${s.nativeId}`
   const description = `Build things (${s.tag}, ${s.version ?? 'v1'}).`
   const contentHash = createHash('sha256')
-    .update(JSON.stringify([s.nativeId, title, company, posting, description]))
+    .update(
+      JSON.stringify([
+        s.nativeId,
+        title,
+        company,
+        posting,
+        description,
+        ...(s.salary === undefined ? [] : [s.salary]),
+        ...(s.location === undefined ? [] : [s.location]),
+      ]),
+    )
     .digest('hex')
   return {
     identity: {
@@ -45,11 +62,13 @@ export function observation(s: ObservationSeed): SourceObservation {
       title,
       companyName: company,
       companyNameNormalized: company.toLowerCase(),
-      location: 'Remote',
+      ...(s.employerWithheld === true ? { employerDisclosure: 'WITHHELD_AT_SOURCE' as const } : {}),
+      location: s.location === undefined ? 'Remote' : s.location,
       descriptionMd: description,
       publishedAt: null,
       dates: [],
       tags: ['go'],
+      ...(s.salary === undefined ? {} : { salary: s.salary }),
     },
     evidence: [],
     adapterVersion: 'remotive_api-1',

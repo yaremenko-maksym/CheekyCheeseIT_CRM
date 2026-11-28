@@ -35,6 +35,7 @@ import { LegendsModule } from './legends/legends.module'
 import { TelemetryModule } from './telemetry/telemetry.module'
 import { VacanciesModule } from './vacancies/vacancies.module'
 import { SeniorResumesModule } from './resumes/resumes.module'
+import { TailoredResumesModule } from './tailored-resumes/tailored-resumes.module'
 import { MeetingRecorderModule } from './integrations/meeting-recorder/meeting-recorder.module'
 
 @Module({
@@ -102,6 +103,7 @@ import { MeetingRecorderModule } from './integrations/meeting-recorder/meeting-r
     // task-resume-base: canonical structured resume of a SENIOR — upload +
     // one-shot AI extraction + editable structure + PDF export.
     SeniorResumesModule,
+    TailoredResumesModule,
     // task-telemetry-api: prod-error tracking + UX-event analytics + digest.
     TelemetryModule,
     // task-landing-contact-and-hiring-strip: public "Start a project" contact

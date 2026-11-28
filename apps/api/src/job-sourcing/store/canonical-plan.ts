@@ -1,14 +1,23 @@
+import { type JobSourceType, jobSourceTypeSchema } from '@crm/shared'
 import {
   type AttachResult,
+  type Authority,
   type ClaimValue,
   type FieldClaim,
   type ResolverRecord,
+  atsCopyAttach,
   canAttach,
   chooseCanonical,
   normalizeCompanyName,
   normalizeTitle,
   trustedAtsKeys,
 } from '../identity/resolver'
+import {
+  decodeSalaryClaim,
+  encodeSalaryClaim,
+  type SalaryObservation,
+  salaryMonthlyTop,
+} from '../normalize/salary'
 import { sortedUniqueIds } from './lock-order'
 
 /**
@@ -16,6 +25,15 @@ import { sortedUniqueIds } from './lock-order'
  * about identity, what AUTO resolution may do with it, and the canonical fields of a set of
  * members. The store reads the rows under lock and binds the results to SQL.
  */
+
+/** The employer ATS adapters (`GREENHOUSE_ATS`, ...): every shared source type ending `_ATS`. */
+export const ATS_SOURCE_TYPES: readonly JobSourceType[] = jobSourceTypeSchema.options.filter((t) =>
+  t.endsWith('_ATS'),
+)
+
+/** An ATS adapter's record speaks for the employer; every other source is an aggregator. */
+const authorityOf = (m: MemberSnapshot): Authority =>
+  (ATS_SOURCE_TYPES as readonly string[]).includes(m.provider) ? 'EMPLOYER_ATS' : 'AGGREGATOR'
 
 /** One active member of an opportunity: a record and its latest revision. */
 export interface MemberSnapshot {
@@ -28,12 +46,22 @@ export interface MemberSnapshot {
   nativeId: string | null
   title: string
   companyName: string
+  /**
+   * The source publishes no employer BY DESIGN, so the empty `companyName` above is declared, not a
+   * defect (`../normalize/employer-disclosure.ts`). Absent on every other record.
+   */
+  employerWithheldAtSource?: true
   location: string | null
   sourceUrl: string | null
   applicationUrl: string | null
   descriptionSha256: string | null
   publishedAt: string | null
   tags: readonly string[]
+  /** The revision's validated structured salary (`../normalize/salary.ts`); null = not stated. */
+  salary: SalaryObservation | null
+  /** The record's observation interval (`job_source_records`); the ATS_COPY window reads it. */
+  firstSeenAt?: Date
+  lastObservedAt?: Date
 }
 
 export function toResolverRecord(m: MemberSnapshot): ResolverRecord {
@@ -50,6 +78,9 @@ export function toResolverRecord(m: MemberSnapshot): ResolverRecord {
     applicationUrl: m.applicationUrl,
     // No adapter reports a verified job-specific apply URL yet, so none is trusted (A-4).
     applicationUrlVerified: false,
+    ...(m.firstSeenAt !== undefined && m.lastObservedAt !== undefined
+      ? { seen: { first: m.firstSeenAt, last: m.lastObservedAt } }
+      : {}),
   }
 }
 
@@ -74,7 +105,8 @@ export function trustedTokens(m: MemberSnapshot): IdentityToken[] {
     key: k.key,
     claimable:
       m.provider === `${k.provider.toUpperCase()}_ATS` &&
-      boardOf(k.namespace) === boardOf(m.namespace.toLowerCase()) &&
+      // An Ashby key has no board (`atsJobKey`): its job id alone is checked, below.
+      (k.provider === 'ashby' || boardOf(k.namespace) === boardOf(m.namespace.toLowerCase())) &&
       m.nativeId !== null &&
       k.jobId.toLowerCase() === m.nativeId.toLowerCase(),
   }))
@@ -108,11 +140,14 @@ export function decisionOrder(
 /**
  * KEEP may claim a linked record's new tokens only when the record still associates with every
  * OTHER member (SR-M-2), the same every-member check ATTACH passes; alone, nothing contradicts it.
+ * sources-18: or by the ATS_COPY rule, the other way a record joins, so an ATS record sharing its
+ * opportunity with a keyless aggregator copy still claims its key.
  */
 export function keepMayClaim(others: readonly MemberSnapshot[], self: MemberSnapshot): boolean {
-  return (
-    others.length === 0 || canAttach(others.map(toResolverRecord), toResolverRecord(self)).attach
-  )
+  if (others.length === 0) return true
+  const cluster = others.map(toResolverRecord)
+  const record = toResolverRecord(self)
+  return canAttach(cluster, record).attach || atsCopyAttach(cluster, record).attach
 }
 
 /** A database instant as a Date, milliseconds kept (CR-M-5): pg hands timestamptz back as Date. */
@@ -158,7 +193,23 @@ export function decideAuto(input: {
 
 export type FieldRevision =
   | string
-  | { status: 'UNKNOWN'; reason: 'NO_CLAIMS' | 'EQUAL_AUTHORITY_CONFLICT'; candidates: string[] }
+  | {
+      status: 'UNKNOWN'
+      /** `WITHHELD_AT_SOURCE`: no source published one, and some source withholds it by design. */
+      reason: 'NO_CLAIMS' | 'EQUAL_AUTHORITY_CONFLICT' | 'WITHHELD_AT_SOURCE'
+      candidates: string[]
+    }
+
+/**
+ * The revision as the UNKNOWN record it is, or `undefined` when a source actually named a value.
+ * Its own function, not an inline `typeof`, so a test can reach the "a named value is not an
+ * unknown" half directly: inline, a string's missing `.reason` hides it from every assertion.
+ */
+export function unknownFieldRevision(
+  revision: FieldRevision | undefined,
+): Exclude<FieldRevision, string> | undefined {
+  return typeof revision === 'object' ? revision : undefined
+}
 
 export interface CanonicalFields {
   title: string
@@ -170,6 +221,7 @@ export interface CanonicalFields {
   publishedAt: string | null
   descriptionSha256: string | null
   stackKeywords: string[]
+  salary: SalaryObservation | null
   fieldRevisions: Record<string, FieldRevision>
 }
 
@@ -181,6 +233,7 @@ type Field =
   | 'publishedAt'
   | 'descriptionSha256'
   | 'stackKeywords'
+  | 'salary'
 
 const valueOf: Record<Field, (m: MemberSnapshot) => ClaimValue | null> = {
   title: (m) => m.title,
@@ -190,6 +243,8 @@ const valueOf: Record<Field, (m: MemberSnapshot) => ClaimValue | null> = {
   publishedAt: (m) => m.publishedAt,
   descriptionSha256: (m) => m.descriptionSha256,
   stackKeywords: (m) => (m.tags.length === 0 ? null : m.tags),
+  // ONE atomic claim, never per bound: no min can come from one member and a currency from another.
+  salary: (m) => (m.salary === null ? null : encodeSalaryClaim(m.salary)),
 }
 
 const usable = (v: ClaimValue | null): v is ClaimValue => v !== null && v !== ''
@@ -199,9 +254,9 @@ const memberOf = (members: readonly MemberSnapshot[], recordId: string) =>
   members.find((m) => m.recordId === recordId) as MemberSnapshot
 
 /**
- * Per field, `chooseCanonical` over the members' latest revisions. Every source record is an
- * AGGREGATOR claim. shortcut: one authority for all sources, so differing values are UNKNOWN;
- * upgrade when an adapter can certify employer/ATS authority (canonical authority policy).
+ * Per field, `chooseCanonical` over the members' latest revisions. An ATS adapter's record is an
+ * EMPLOYER_ATS claim and outranks the rest, which are AGGREGATOR claims (sources-18): the ATS copy
+ * of a job wins every field it states. Two differing claims of one authority are UNKNOWN.
  * An UNKNOWN title keeps `previousTitle` (the column is NOT NULL), else the lowest record id's.
  */
 export function canonicalFields(
@@ -218,7 +273,7 @@ export function canonicalFields(
       if (!usable(value)) continue
       claims.push({
         sourceRecordId: m.recordId,
-        authority: 'AGGREGATOR',
+        authority: authorityOf(m),
         value,
         observedAt: m.receivedAt,
         revision: m.receivedSeq,
@@ -241,6 +296,16 @@ export function canonicalFields(
   const title =
     (chosen.title as string | null) ?? previousTitle ?? memberOf(members, lowestId).title
   const employerName = chosen.employerName as string | null
+  // No source named an employer AND some member's source publishes none by design: say which it is.
+  // A DISAGREEMENT is left alone — a conflict is not a withholding, and a disclosed winner above
+  // never reaches here, so a disclosed employer still wins over a withheld one.
+  const employerRevision = unknownFieldRevision(fieldRevisions['employerName'])
+  if (
+    employerRevision?.reason === 'NO_CLAIMS' &&
+    members.some((m) => m.employerWithheldAtSource === true)
+  ) {
+    fieldRevisions['employerName'] = { ...employerRevision, reason: 'WITHHELD_AT_SOURCE' }
+  }
   return {
     title,
     titleKey: normalizeTitle(title),
@@ -251,6 +316,27 @@ export function canonicalFields(
     publishedAt: chosen.publishedAt as string | null,
     descriptionSha256: chosen.descriptionSha256 as string | null,
     stackKeywords: [...((chosen.stackKeywords as readonly string[] | null) ?? [])].sort(),
+    salary: chosen.salary === null ? null : decodeSalaryClaim(chosen.salary as string),
     fieldRevisions,
+  }
+}
+
+/** The five `job_opportunities` salary columns of a canonical salary; all null without one. */
+export interface SalaryColumns {
+  min: number | null
+  max: number | null
+  currency: string | null
+  period: SalaryObservation['period'] | null
+  monthlyTop: number | null
+}
+
+export function salaryColumns(s: SalaryObservation | null): SalaryColumns {
+  if (s === null) return { min: null, max: null, currency: null, period: null, monthlyTop: null }
+  return {
+    min: s.min,
+    max: s.max,
+    currency: s.currency,
+    period: s.period,
+    monthlyTop: salaryMonthlyTop(s),
   }
 }

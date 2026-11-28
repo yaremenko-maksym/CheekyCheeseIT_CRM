@@ -15,6 +15,8 @@ import type { DatabaseService } from '../../database/database.service'
 import {
   matchEvidence,
   matchFacts,
+  relevancePercentOf,
+  skillOverlapOf,
   JobQueueService,
   noMatchReason,
   toAvailability,
@@ -23,7 +25,7 @@ import {
 } from './job-queue.service'
 import { parseCursor, type QueueCursor, requestSignature, signCursor } from './queue-cursor'
 import { filterIdentity, policySignature } from './queue-read-sql'
-import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
+import type { JobQueueScope, JobQueueViewScope, LiveSeniorVersion, TeamScope } from './queue-scope'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -54,24 +56,41 @@ const teamScope: JobQueueScope = {
   inputsVersion: 'inputs-1',
   previousInputsVersion: 'inputs-1-prev',
 }
+// task-hr-queue-all-teams: an HR's union of two teams, each with its own senior and versions.
+const GEN_2 = '99999999-9999-4999-8999-999999999999'
+const versions2: LiveSeniorVersion[] = [{ seniorId: SEN_2, profile: 'p2', exclusion: 'e2' }]
+const team2Scope: TeamScope = {
+  kind: 'TEAM',
+  teamId: OTHER_TEAM,
+  seniorIds: [SEN_2],
+  versions: versions2,
+  inputsVersion: 'inputs-2',
+  previousInputsVersion: 'inputs-2-prev',
+}
+const unionScope: JobQueueViewScope = { kind: 'TEAMS', teams: [teamScope as TeamScope, team2Scope] }
 const user = { id: ACTOR, role: 'HR', email: 'x@example.test' } as SessionUser
 const query = (over: Partial<JobQueueListQuery> = {}): JobQueueListQuery => ({
   tab: 'NEW',
+  sort: 'relevance',
   limit: 2,
   ...over,
 })
 
 type Rows = Array<Record<string, unknown>>
 
-function harness(scope: JobQueueScope, ...answers: Rows[]) {
+function harness(scope: JobQueueViewScope, ...answers: Rows[]) {
   const execute = vi.fn(async (_q: SQL) => {
     const next = answers.shift()
     if (next === undefined) throw new Error('unexpected query')
     return { rows: next }
   })
   const scopes = {
-    resolve: vi.fn(async () => scope),
+    resolve: vi.fn(async (_u?: unknown, _t?: unknown, _d?: unknown) => scope),
+    // single-team fake: the union entry points answer exactly what `resolve` answers
+    resolveView: vi.fn((u?: unknown, t?: unknown, d?: unknown) => scopes.resolve(u, t, d)),
+    resolveWrite: vi.fn((u?: unknown, t?: unknown, d?: unknown) => scopes.resolve(u, t, d)),
     assertVisible: vi.fn(async () => undefined),
+    dismissalOwner: vi.fn(async (): Promise<JobQueueScope> => team2Scope),
     liveVersions: vi.fn(async () => versions),
     policy: vi.fn(<T>(fn: () => Promise<T>) => fn()),
     triagePolicyVersion: vi.fn(async () => 7),
@@ -79,7 +98,11 @@ function harness(scope: JobQueueScope, ...answers: Rows[]) {
   const transaction = vi.fn(<T>(fn: (tx: unknown) => Promise<T>, _config?: unknown) =>
     fn({ execute }),
   )
-  const db = { execute, transaction }
+  // H.8: the sourcing-notice read is the one select; push a row to raise MODEL_LIMITS_EXHAUSTED.
+  const flagRows: unknown[] = []
+  const limit = vi.fn(async () => flagRows)
+  const select = vi.fn(() => ({ from: () => ({ where: () => ({ limit }) }) }))
+  const db = { execute, transaction, select }
   const get = vi.fn(() => SECRET)
   const config = { get } as unknown as ConfigService<Env, true>
   const svc = new JobQueueService(
@@ -91,7 +114,7 @@ function harness(scope: JobQueueScope, ...answers: Rows[]) {
     const q = new PgDialect().sqlToQuery((execute.mock.calls[call] as [SQL])[0])
     return { text: q.sql.replace(/\s+/g, ' '), params: q.params }
   }
-  return { svc, execute, scopes, compiled, get, transaction, db }
+  return { svc, execute, scopes, compiled, get, transaction, db, flagRows, select }
 }
 
 async function refusal(p: Promise<unknown>): Promise<{ status: number; code: string }> {
@@ -202,13 +225,24 @@ describe('JobQueueService.list', () => {
     expect((await h.svc.list(user, query())).counts.NEW).toBe(0)
   })
 
-  it('a NONE scope is an empty list and runs no query', async () => {
+  it('a NONE scope is an empty list and runs no queue query', async () => {
     const h = harness({ kind: 'NONE' })
     await expect(h.svc.list(user, query())).resolves.toEqual({
       items: [],
       nextCursor: null,
       counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
       generation: null,
+      sourcingNotice: null,
+    })
+    expect(h.execute).not.toHaveBeenCalled()
+  })
+
+  it('a NONE scope still carries a raised AI-limits notice (global state, H.8)', async () => {
+    const h = harness({ kind: 'NONE' })
+    h.flagRows.push({ flag: 'MODEL_LIMITS_EXHAUSTED' })
+    await expect(h.svc.list(user, query())).resolves.toMatchObject({
+      items: [],
+      sourcingNotice: 'AI_LIMITS_EXHAUSTED',
     })
     expect(h.execute).not.toHaveBeenCalled()
   })
@@ -284,6 +318,189 @@ describe('JobQueueService.list', () => {
     expect(h.compiled(2).text).toContain(`count(*) FILTER (WHERE d.tab = 'HIDDEN') AS hidden`)
     expect(h.compiled(2).text).toContain(`count(*) FILTER (WHERE d.tab = 'NEW') AS new`)
     expect(h.compiled(3).text).toContain('o.id, o.revision, o.title')
+  })
+
+  it('one team pages its own generation table directly, not the union merge', async () => {
+    const h = harness(teamScope, [generationRow()], [generationRow()], [tally], [])
+    await h.svc.list(user, query())
+    for (const call of [2, 3]) {
+      expect(h.compiled(call).text).toContain(
+        'FROM job_queue_generation_entries e JOIN job_opportunities o',
+      )
+      expect(h.compiled(call).text).not.toContain('row_number()')
+    }
+  })
+
+  it('the published sort of one team pages its stored published key, never a window', async () => {
+    const h = harness(teamScope, [generationRow()], [generationRow()], [tally], [])
+    await h.svc.list(user, query({ sort: 'published' }))
+    expect(h.compiled(2).text).toMatch(
+      /WHERE nk\.generation_id = \$\d+::uuid AND nk\.published_order_key IS NULL\) AS unkeyed/,
+    )
+    expect(h.compiled(2).params).toContain(GEN)
+    expect(h.compiled(2).text).not.toContain('row_number()')
+    const page = h.compiled(3).text
+    expect(page).toContain('e.published_order_key AS order_key')
+    expect(page).toContain('AND e.published_order_key > $')
+    expect(page).toContain('ORDER BY e.published_order_key')
+    expect(page).toContain('FROM job_queue_generation_entries e JOIN job_opportunities o')
+    expect(page).not.toContain('row_number()')
+  })
+
+  it('a published read of an unkeyed (pre-deploy) generation numbers the published order', async () => {
+    const h = harness(
+      teamScope,
+      [generationRow()],
+      [generationRow()],
+      [{ ...tally, unkeyed: true }],
+      [],
+    )
+    await h.svc.list(user, query({ sort: 'published' }))
+    const page = h.compiled(3).text
+    expect(page).toContain(
+      'row_number() OVER (ORDER BY max(ue.published_at) DESC NULLS LAST, max(ue.first_seen_at) DESC, ue.opportunity_id DESC)',
+    )
+    expect(page).toContain('e.order_key AS order_key')
+    expect(page).not.toContain('published_order_key')
+    expect(page).not.toContain('max(ue.rank_score)')
+  })
+
+  it('a relevance read of an unkeyed generation still pages its stored order_key', async () => {
+    const h = harness(
+      teamScope,
+      [generationRow()],
+      [generationRow()],
+      [{ ...tally, unkeyed: true }],
+      [],
+    )
+    await h.svc.list(user, query())
+    const page = h.compiled(3).text
+    expect(page).toContain('ORDER BY e.order_key')
+    expect(page).not.toContain('row_number()')
+  })
+
+  describe('a TEAMS union (task-hr-queue-all-teams)', () => {
+    const gen2 = (over: Record<string, unknown> = {}) =>
+      generationRow({
+        id: GEN_2,
+        team_id: OTHER_TEAM,
+        policy_signature: policySignature(team2Scope, versions2),
+        // the earlier member: the union answers with its evaluation and its expiry
+        evaluated_at: new Date('2026-11-04T11:40:00.000Z'),
+        expires_at: new Date('2026-11-04T12:14:00.000Z'),
+        ...over,
+      })
+    const unionHarness = (...answers: Rows[]) => {
+      const h = harness(unionScope, ...answers)
+      h.scopes.liveVersions.mockImplementation(async (s?: unknown) =>
+        (s as JobQueueViewScope).kind === 'TEAM' ? (s as TeamScope).versions : versions,
+      )
+      return h
+    }
+
+    it('a first page takes each member team generation and pages their merged entries', async () => {
+      const h = unionHarness(
+        [generationRow()],
+        [gen2()],
+        [generationRow()],
+        [gen2()],
+        [tally],
+        [dbRow(), dbRow({ order_key: 8 }), dbRow({ order_key: 9 })],
+      )
+      const res = await h.svc.list(user, query())
+      expect(res.items).toEqual([ITEM, ITEM])
+      expect(res.counts).toEqual({ NEW: 3, SUBMITTED: 1, HIDDEN: 2 })
+      expect(res.generation).toEqual({ ...FACTS, evaluatedAt: '2026-11-04T11:40:00.000Z' })
+      // each member generation is looked up for its own team
+      expect(h.compiled(0).params).toContain(TEAM)
+      expect(h.compiled(1).params).toContain(OTHER_TEAM)
+      for (const call of [4, 5]) {
+        const { text, params } = h.compiled(call)
+        expect(text).toContain(
+          'ue.generation_id IN (SELECT x::uuid FROM jsonb_array_elements_text($',
+        )
+        expect(params).toContain(JSON.stringify([GEN, GEN_2]))
+      }
+      // the counts never number the order: the union's distinct opportunities
+      expect(h.compiled(4).text).toContain('(SELECT DISTINCT ue.opportunity_id')
+      // the union's distinct subquery has no generation_id: its frame filters nothing more
+      expect(h.compiled(4).text).toContain(
+        ') e JOIN job_opportunities o ON o.id = e.opportunity_id',
+      )
+      expect(h.compiled(4).text).toMatch(/ WHERE TRUE AND /)
+      expect(h.compiled(4).text).not.toMatch(/\be\.generation_id/)
+      expect(h.compiled(4).text).toContain(
+        'WHERE nk.generation_id IN (SELECT x::uuid FROM jsonb_array_elements_text($',
+      )
+      expect(h.compiled(4).text).not.toContain('row_number()')
+      expect(h.compiled(5).text).toContain('row_number() OVER (ORDER BY max(ue.rank_score) DESC')
+      expect(h.compiled(4).text).toContain(
+        'top.generation_id IN (SELECT x::uuid FROM jsonb_array_elements_text($',
+      )
+      expect(h.compiled(5).text).toContain(
+        ') e JOIN job_opportunities o ON o.id = e.opportunity_id',
+      )
+      expect(h.compiled(5).text).toMatch(/ WHERE TRUE AND /)
+      const cursor = parseCursor(res.nextCursor as string, 'L', SECRET)
+      expect(cursor.k).toBe(8)
+      expect(cursor.e).toBe(Math.floor(new Date('2026-11-04T12:14:00.000Z').getTime() / 1000))
+      expect(cursor.s).toBe(
+        requestSignature([
+          ACTOR,
+          policySignature(unionScope, versions),
+          GEN,
+          GEN_2,
+          ...filterIdentity(query()),
+        ]),
+      )
+    })
+
+    it('a first page publishes a member with no current generation; the earliest member answers', async () => {
+      const later = gen2({
+        evaluated_at: new Date('2026-11-04T11:55:00.000Z'),
+        expires_at: new Date('2026-11-04T12:20:00.000Z'),
+      })
+      const h = unionHarness(
+        [generationRow()],
+        [], // member B has no published generation
+        [], // its publish lock
+        [later], // published by a concurrent request while the lock was awaited
+        [generationRow()],
+        [later],
+        [tally],
+        [dbRow(), dbRow({ order_key: 8 }), dbRow({ order_key: 9 })],
+      )
+      const res = await h.svc.list(user, query())
+      expect(h.transaction).toHaveBeenCalled()
+      expect(res.generation).toEqual(FACTS)
+      expect(parseCursor(res.nextCursor as string, 'L', SECRET).e).toBe(FAR)
+    })
+
+    it('a member generation served to another team is a refresh, never a mixed page', async () => {
+      const h = unionHarness(
+        [generationRow()],
+        [gen2()],
+        [generationRow()],
+        [gen2({ team_id: TEAM })],
+      )
+      expect(await refusal(h.svc.list(user, query()))).toEqual(REFRESH)
+      expect(h.execute).toHaveBeenCalledTimes(4)
+    })
+
+    it('a cursor page only looks the member generations up and never publishes', async () => {
+      const sig = requestSignature([
+        ACTOR,
+        policySignature(unionScope, versions),
+        GEN,
+        GEN_2,
+        ...filterIdentity(query()),
+      ])
+      const cursor = signCursor({ t: 'L', g: GEN, k: 7, s: sig, e: FAR } as QueueCursor, SECRET)
+      const h = unionHarness([generationRow()], [])
+      expect(await refusal(h.svc.list(user, query({ cursor })))).toEqual(REFRESH)
+      expect(h.execute).toHaveBeenCalledTimes(2)
+      expect(h.transaction).not.toHaveBeenCalled()
+    })
   })
 
   it('a page exactly at the limit has no next cursor', async () => {
@@ -403,8 +620,19 @@ describe('JobQueueService.list', () => {
       nextCursor: null,
       counts: { NEW: 3, SUBMITTED: 1, HIDDEN: 2 },
       generation: FACTS,
+      sourcingNotice: null,
     })
     expect(h.execute).toHaveBeenCalledTimes(3)
+  })
+
+  it('a scoped page carries a raised AI-limits notice beside its rows (H.8)', async () => {
+    const h = harness(teamScope, [generationRow()], [generationRow()], [tally])
+    h.flagRows.push({ flag: 'MODEL_LIMITS_EXHAUSTED' })
+    await expect(h.svc.list(user, query({ seniorIds: [OTHER_TEAM] }))).resolves.toMatchObject({
+      counts: { NEW: 3, SUBMITTED: 1, HIDDEN: 2 },
+      sourcingNotice: 'AI_LIMITS_EXHAUSTED',
+    })
+    expect(h.select).toHaveBeenCalledTimes(1)
   })
 
   it('a mix of a foreign senior and a scope senior reads the page', async () => {
@@ -456,10 +684,23 @@ describe('JobQueueService.seniorOptions', () => {
 
   it('reads only the scope seniors, bounded, inside the policy wrapper', async () => {
     const h = harness(teamScope, [
-      { id: SEN, display_name: 'A Senior', team_name: 'Alpha', email: 'x@example.com' },
+      {
+        id: SEN,
+        display_name: 'A Senior',
+        team_name: 'Alpha',
+        technical_roles: ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'],
+        email: 'x@example.com',
+      },
     ])
     await expect(h.svc.seniorOptions(user, { teamId: TEAM })).resolves.toEqual({
-      items: [{ id: SEN, name: 'A Senior', teamName: 'Alpha' }],
+      items: [
+        {
+          id: SEN,
+          name: 'A Senior',
+          teamName: 'Alpha',
+          technicalRoles: ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'],
+        },
+      ],
     })
     expect(h.scopes.resolve).toHaveBeenCalledWith(user, TEAM, h.db)
     expect(h.scopes.liveVersions).toHaveBeenCalledWith(teamScope, h.db)
@@ -476,13 +717,13 @@ describe('JobQueueService.seniorOptions', () => {
 
   it('STUDIO names no team: any live membership may name the group, none is null (SO2-1)', async () => {
     const h = harness({ kind: 'STUDIO' } as JobQueueScope, [
-      { id: SEN, display_name: 'A Senior', team_name: 'Beta' },
-      { id: SEN_2, display_name: 'B Senior', team_name: null },
+      { id: SEN, display_name: 'A Senior', team_name: 'Beta', technical_roles: ['QA_ENGINEER'] },
+      { id: SEN_2, display_name: 'B Senior', team_name: null, technical_roles: [] },
     ])
     await expect(h.svc.seniorOptions(user, {})).resolves.toEqual({
       items: [
-        { id: SEN, name: 'A Senior', teamName: 'Beta' },
-        { id: SEN_2, name: 'B Senior', teamName: null },
+        { id: SEN, name: 'A Senior', teamName: 'Beta', technicalRoles: ['QA_ENGINEER'] },
+        { id: SEN_2, name: 'B Senior', teamName: null, technicalRoles: [] },
       ],
     })
     expect(h.compiled(0).params).toEqual([JSON.stringify([SEN]), JOB_QUEUE_SENIOR_OPTIONS_MAX])
@@ -491,7 +732,7 @@ describe('JobQueueService.seniorOptions', () => {
 
   it('clips a name and a team name to the wire bound (SO2-2)', async () => {
     const h = harness(teamScope, [
-      { id: SEN, display_name: 'n'.repeat(300), team_name: 't'.repeat(300) },
+      { id: SEN, display_name: 'n'.repeat(300), team_name: 't'.repeat(300), technical_roles: [] },
     ])
     const { items } = await h.svc.seniorOptions(user, {})
     expect(items[0]?.name).toBe('n'.repeat(255))
@@ -545,6 +786,30 @@ describe('JobQueueService without a cursor key', () => {
 })
 
 describe('toListItem', () => {
+  it('sources-17: a stated salary arrives as numbers; numeric(12,2) comes from the driver as text', () => {
+    const item = toListItem(
+      dbRow({
+        salary_min: '4000.00',
+        salary_max: '5500.50',
+        salary_currency: 'EUR',
+        salary_period: 'MONTH',
+      }),
+    )
+    expect(item.salary).toEqual({ min: 4000, max: 5500.5, currency: 'EUR', period: 'MONTH' })
+    const single = toListItem(
+      dbRow({
+        salary_min: null,
+        salary_max: '90000.00',
+        salary_currency: 'USD',
+        salary_period: 'YEAR',
+      }),
+    )
+    expect(single.salary).toEqual({ min: null, max: 90000, currency: 'USD', period: 'YEAR' })
+  })
+  it('sources-17: no salary is no key at all, so an older client parses the item unchanged', () => {
+    expect('salary' in toListItem(dbRow())).toBe(false)
+    expect('salary' in toListItem(dbRow({ salary_currency: null, salary_min: '1.00' }))).toBe(false)
+  })
   it('clips text to the wire bounds rather than failing the whole page', () => {
     const item = toListItem(
       dbRow({ title: 'x'.repeat(501), employer_name: 'y'.repeat(256), location: 'z'.repeat(501) }),
@@ -563,6 +828,18 @@ describe('toListItem', () => {
       publishedAt: null,
       alsoSeenOnCount: 0,
     })
+  })
+  it('tells the UI the employer is withheld at the source, not merely unknown', () => {
+    const item = toListItem(
+      dbRow({ employer_name: null, employer_disclosure_reason: 'WITHHELD_AT_SOURCE' }),
+    )
+    expect(item).toMatchObject({ companyName: null, employerDisclosure: 'WITHHELD_AT_SOURCE' })
+  })
+  it('says nothing about disclosure when the sources merely disagreed or none claimed one', () => {
+    for (const reason of ['EQUAL_AUTHORITY_CONFLICT', 'NO_CLAIMS', null]) {
+      const item = toListItem(dbRow({ employer_name: null, employer_disclosure_reason: reason }))
+      expect('employerDisclosure' in item).toBe(false)
+    }
   })
   it('a manual card has no primary source and carries its stated application URL', () => {
     const item = toListItem(
@@ -667,6 +944,71 @@ describe('card text bounds', () => {
 })
 
 describe('matchFacts', () => {
+  // Senior roles PR 4.
+  it('ROLE_MATCH is never approximate; matchedKeywords are the matched skills', () => {
+    const role = { code: 'ROLE_MATCH', evidence: ['ROLE:BACKEND_ENGINEER'] }
+    const overlap = { kind: 'OVERLAP', matched: ['Go', 'Kafka'], total: 3 }
+    expect(matchFacts({ reasons: [role], skillOverlap: overlap })).toEqual({
+      keywords: ['Go', 'Kafka'],
+      approximate: false,
+    })
+    // CR-M-1 / SPEC-M-2: with no overlap to show the keywords are EMPTY, never the role ids —
+    // `rowKeywords` feeds this into the list row's and the card's `matchedKeywords`, which plan
+    // 4.5 / 5.4 define as matched skills. The roles are carried by `matchEvidence` instead.
+    for (const skillOverlap of [{ kind: 'NO_RESUME' }, null, undefined, { kind: 'OVERLAP' }])
+      expect(matchFacts({ reasons: [role], skillOverlap })).toEqual({
+        keywords: [],
+        approximate: false,
+      })
+    expect(
+      matchFacts({
+        reasons: [{ code: 'ROLE_MATCH', evidence: ['ROLE:QA_ENGINEER:WIDENED', 'ROLE:SRE'] }],
+        skillOverlap: { kind: 'OVERLAP', matched: [], total: 0 },
+      }),
+    ).toEqual({ keywords: [], approximate: false })
+    // ANY reason being ROLE_MATCH is enough: a LEAD row also carries the stack reasons.
+    expect(
+      matchFacts({
+        reasons: [{ code: 'TECH_MATCH', evidence: ['Go:CORE'] }, role],
+        skillOverlap: overlap,
+      }),
+    ).toEqual({ keywords: ['Go', 'Kafka'], approximate: false })
+  })
+
+  it('a role never becomes a keyword, however many roles matched', () => {
+    const many = Array.from({ length: 201 }, (_, i) => `ROLE:R${i}`)
+    expect(matchFacts({ reasons: [{ code: 'ROLE_MATCH', evidence: many }] }).keywords).toEqual([])
+  })
+
+  it('passes a full-size overlap through whole and reads an over-long one as malformed', () => {
+    // The wire cap lives in `jobQueueSkillOverlapSchema` (`matched` max 200), so the branch does not
+    // truncate: at the limit every skill survives, and one over it fails the parse and yields `[]`.
+    const facts = (length: number) =>
+      matchFacts({
+        reasons: [{ code: 'ROLE_MATCH', evidence: ['ROLE:BACKEND_ENGINEER'] }],
+        skillOverlap: {
+          kind: 'OVERLAP',
+          matched: Array.from({ length }, (_, i) => `s${i}`),
+          total: length,
+        },
+      })
+    const full = facts(200)
+    expect(full.keywords).toHaveLength(200)
+    expect(full.keywords[199]).toBe('s199')
+    expect(facts(201)).toEqual({ keywords: [], approximate: false })
+  })
+
+  it('a reason code other than ROLE_MATCH does not make the match exact', () => {
+    const overlap = { kind: 'OVERLAP', matched: ['Go'], total: 1 }
+    expect(
+      matchFacts({ reasons: [{ code: 'TECH_MATCH', evidence: [] }], skillOverlap: overlap }),
+    ).toEqual({ keywords: [], approximate: true })
+    expect(matchFacts({ reasons: 'ROLE_MATCH', skillOverlap: overlap })).toEqual({
+      keywords: [],
+      approximate: true,
+    })
+  })
+
   it('reads the keywords of the TECH_MATCH reason, keeping colons inside a keyword', () => {
     const evidence = {
       reasons: [
@@ -716,6 +1058,106 @@ describe('matchFacts', () => {
   })
 })
 
+describe('skillOverlapOf (CR-L-2: a malformed overlap is not silent)', () => {
+  const OPP = '00000000-0000-4000-8000-000000000abc'
+  let warn: ReturnType<typeof vi.spyOn>
+  const contexts: unknown[] = []
+
+  beforeEach(() => {
+    contexts.length = 0
+    warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(function (this: Logger) {
+      contexts.push((this as unknown as { context?: unknown }).context)
+      return undefined
+    })
+  })
+  afterEach(() => warn.mockRestore())
+
+  it('reads a valid overlap without a word', () => {
+    const overlap = { kind: 'OVERLAP', matched: ['Go'], total: 2 }
+    expect(skillOverlapOf({ skillOverlap: overlap }, OPP)).toEqual(overlap)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('warns once on a present but malformed value, names the issue path, and returns null', () => {
+    const evidence = { skillOverlap: { kind: 'OVERLAP', matched: ['Go'], total: 'three' } }
+    expect(skillOverlapOf(evidence, OPP)).toBeNull()
+    expect(warn).toHaveBeenCalledTimes(1)
+    const message = String(warn.mock.calls[0]?.[0])
+    expect(message).toContain('job-queue.skill-overlap-malformed')
+    expect(message).toContain(OPP)
+    expect(message).toContain('total')
+    // The evidence itself never reaches the log: a vacancy's own values are not log material.
+    expect(message).not.toContain('Go')
+  })
+
+  it('spells each failing path out, comma-separated, under its own logger', () => {
+    const evidence = { skillOverlap: { kind: 'OVERLAP', matched: [1], total: 0 } }
+    expect(skillOverlapOf(evidence, OPP)).toBeNull()
+    expect(String(warn.mock.calls[0]?.[0])).toContain('issues=matched.0,total')
+    expect(contexts).toEqual(['JobQueueEvidence'])
+  })
+
+  it('an overlap that is not an object at all is blamed at the root', () => {
+    expect(skillOverlapOf({ skillOverlap: 'OVERLAP' }, OPP)).toBeNull()
+    expect(String(warn.mock.calls[0]?.[0])).toContain('issues=(root)')
+    expect(contexts).toEqual(['JobQueueEvidence'])
+  })
+
+  it.each([
+    ['an absent key', {}],
+    ['a null overlap', { skillOverlap: null }],
+    ['null evidence', null],
+  ])('says nothing about %s: there is no value to blame', (_label, evidence) => {
+    expect(skillOverlapOf(evidence, OPP)).toBeNull()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('stays quiet without an opportunity id: that read is the one that already reported', () => {
+    expect(skillOverlapOf({ skillOverlap: { kind: 'OVERLAP' } })).toBeNull()
+    expect(warn).not.toHaveBeenCalled()
+  })
+})
+
+describe('relevancePercentOf (eval.3: Jev fit only, null when ungraded)', () => {
+  const OPP = '00000000-0000-4000-8000-000000000abc'
+  let warn: ReturnType<typeof vi.spyOn>
+  beforeEach(() => {
+    warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+  })
+  afterEach(() => warn.mockRestore())
+
+  it.each([
+    [0.734, 73],
+    [0.735, 74],
+    [0.005, 1],
+    [0, 0],
+    [1, 100],
+  ])('fit %s -> %s', (fit, percent) => {
+    expect(relevancePercentOf({ score: 300, fit }, OPP)).toBe(percent)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['fit absent (legacy eval.2 evidence)', { score: 120 }],
+    ['fit null (ungraded)', { score: 250, fit: null }],
+    ['manual-card NULL evidence', null],
+  ])('%s -> null, never 0, and no log', (_label, evidence) => {
+    expect(relevancePercentOf(evidence, OPP)).toBeNull()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it.each([[1.2], [-0.1], ['0.5'], [Number.NaN]])(
+    'a malformed fit %s -> null and one warn naming the opportunity only',
+    (fit) => {
+      expect(relevancePercentOf({ fit }, OPP)).toBeNull()
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(String(warn.mock.calls[0]?.[0])).toBe(
+        `job-queue.relevance-fit-malformed opportunityId=${OPP}`,
+      )
+    },
+  )
+})
+
 describe('matchEvidence (Task 7.3b «Чому збіг»)', () => {
   it('pairs each TECH_MATCH keyword with its strength, keeping colons inside a keyword', () => {
     const evidence = {
@@ -750,6 +1192,54 @@ describe('matchEvidence (Task 7.3b «Чому збіг»)', () => {
     ['a null reason', { reasons: [null] }],
   ])('tolerates %s', (_label, evidence) => {
     expect(matchEvidence(evidence)).toEqual([])
+  })
+  // CR-L-1 / SPEC-L-1: a role match carried no evidence at all, so the card rendered no block.
+  it('pairs each matched role with a strength: exact is CORE, widened is OPTIONAL', () => {
+    const evidence = {
+      reasons: [{ code: 'ROLE_MATCH', evidence: ['ROLE:BACKEND_ENGINEER', 'ROLE:SRE:WIDENED'] }],
+    }
+    expect(matchEvidence(evidence)).toEqual([
+      { keyword: 'BACKEND_ENGINEER', strength: 'CORE', kind: 'ROLE' },
+      { keyword: 'SRE', strength: 'OPTIONAL', kind: 'ROLE' },
+    ])
+  })
+  // CR-M-1 / SPEC-M-2: `kind` is what lets the web localise a role id and leave a skill alone.
+  it('marks a role item ROLE and leaves a stack keyword unmarked, roles first', () => {
+    const evidence = {
+      reasons: [
+        { code: 'ROLE_MATCH', evidence: ['ROLE:SRE'] },
+        { code: 'TECH_MATCH', evidence: ['Go:CORE'] },
+      ],
+    }
+    expect(matchEvidence(evidence)).toEqual([
+      { keyword: 'SRE', strength: 'CORE', kind: 'ROLE' },
+      { keyword: 'Go', strength: 'CORE' },
+    ])
+  })
+  it('drops a role item that names no role', () => {
+    const evidence = { reasons: [{ code: 'ROLE_MATCH', evidence: ['ROLE:', 'ROLE:x:WIDENED'] }] }
+    expect(matchEvidence(evidence)).toEqual([{ keyword: 'x', strength: 'OPTIONAL', kind: 'ROLE' }])
+  })
+  it('clips an overlong role id and stops at the wire cap', () => {
+    const long = `ROLE:${'R'.repeat(MAX_STACK_KEYWORD_CHARS + 1)}`
+    expect(
+      matchEvidence({ reasons: [{ code: 'ROLE_MATCH', evidence: [long] }] })[0]?.keyword,
+    ).toHaveLength(MAX_STACK_KEYWORD_CHARS)
+    const many = Array.from({ length: 201 }, (_, i) => `ROLE:R${i}`)
+    const items = matchEvidence({ reasons: [{ code: 'ROLE_MATCH', evidence: many }] })
+    expect(items).toHaveLength(200)
+    expect(items[199]).toEqual({ keyword: 'R199', strength: 'CORE', kind: 'ROLE' })
+  })
+  it('an item that is not a ROLE: term says no role (it is not a keyword either)', () => {
+    const evidence = { reasons: [{ code: 'ROLE_MATCH', evidence: ['SRE', 'role:sre'] }] }
+    expect(matchEvidence(evidence)).toEqual([])
+  })
+  it('a ROLE: term is read only at the start of the item', () => {
+    const evidence = {
+      reasons: [{ code: 'ROLE_MATCH', evidence: ['NOT_A_ROLE:BACKEND_ENGINEER'] }],
+    }
+    expect(matchEvidence(evidence)).toEqual([])
+    expect(matchFacts(evidence).keywords).toEqual([])
   })
   it('clips an overlong keyword and stops at the wire cap', () => {
     const long = { reasons: [{ code: 'TECH_MATCH', evidence: [`${'k'.repeat(101)}:CORE`] }] }
@@ -948,6 +1438,16 @@ describe('JobQueueService.card', () => {
     expect(h.execute).not.toHaveBeenCalled()
   })
 
+  it('a union card carries the dismissal of the one team dismiss / undo would name', async () => {
+    const h = harness(unionScope, [])
+    expect(await refusal(h.svc.card(user, OPP))).toEqual(NOT_FOUND)
+    expect(h.scopes.dismissalOwner).toHaveBeenCalledWith(unionScope.teams, OPP, h.db)
+    const { text, params } = h.compiled(0)
+    const at = /dm\.team_id IS NOT DISTINCT FROM \$(\d+)::uuid/.exec(text)
+    expect(at).not.toBeNull()
+    expect(params[Number(at?.[1]) - 1]).toBe(OTHER_TEAM)
+  })
+
   it('the full shape: facts, seniors, sources, duplicates', async () => {
     const h = harness(
       teamScope,
@@ -989,6 +1489,8 @@ describe('JobQueueService.card', () => {
             matchApproximate: false,
             matchedKeywords: ['Go'],
             matchEvidence: [{ keyword: 'Go', strength: 'CORE' }],
+            skillOverlap: null,
+            relevancePercent: null,
             submission: null,
           },
         ],
@@ -1275,6 +1777,49 @@ describe('JobQueueService continuations', () => {
     expect(page.items.map((s) => [s.matchApproximate, s.matchedKeywords])).toEqual([
       [false, []],
       [true, []],
+    ])
+  })
+
+  it('seniors: card senior relevancePercent is round(100 * fit) from the evidence, null when ungraded (eval.3)', async () => {
+    const h = harness(
+      teamScope,
+      [
+        seniorDbRow({ evidence: { reasons: [], fit: 0.734 } }),
+        seniorDbRow({ senior_id: SEN_2, evidence: { reasons: [], fit: null } }),
+        seniorDbRow({ senior_id: SEN_2, evidence: null }),
+      ],
+      [{ total: '3' }],
+    )
+    const page = await h.svc.seniors(user, OPP, { teamId: TEAM })
+    expect(page.items.map((s) => s.relevancePercent)).toEqual([73, null, null])
+  })
+
+  it('seniors: card senior skillOverlap is OVERLAP {matched,total} / NO_RESUME / null (senior roles PR 4)', async () => {
+    const role = [{ code: 'ROLE_MATCH', evidence: ['BACKEND_ENGINEER'] }]
+    const overlap = { kind: 'OVERLAP', matched: ['Go'], total: 4 }
+    const h = harness(
+      teamScope,
+      [
+        seniorDbRow({ evidence: { reasons: role, skillOverlap: overlap } }),
+        seniorDbRow({
+          senior_id: SEN_2,
+          evidence: { reasons: role, skillOverlap: { kind: 'NO_RESUME' } },
+        }),
+        seniorDbRow({
+          senior_id: SEN_2,
+          evidence: { reasons: role, skillOverlap: { kind: 'OVERLAP', matched: [], total: 0 } },
+        }),
+        seniorDbRow({ senior_id: SEN_2, evidence: null }),
+      ],
+      [{ total: '4' }],
+    )
+    const page = await h.svc.seniors(user, OPP, { teamId: TEAM })
+    expect(page.items.map((s) => [s.skillOverlap, s.matchApproximate, s.matchedKeywords])).toEqual([
+      [overlap, false, ['Go']],
+      [{ kind: 'NO_RESUME' }, false, []],
+      // a malformed overlap (total 0) is dropped, never shown as "0 of 0"
+      [null, false, []],
+      [null, false, []],
     ])
   })
 

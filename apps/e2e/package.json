@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc-rs --noEmit",
     "lint": "eslint tests scripts fixtures playwright.config.ts",
     "test": "playwright test",
     "test:ui": "playwright test --ui",

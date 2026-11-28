@@ -12,6 +12,7 @@ import {
   policySignature,
   queueRowColumns,
   rankSelect,
+  scopeTeamIds,
   queueRowJoins,
   seniorOptionRows,
   seniorRows,
@@ -23,7 +24,7 @@ import {
   triagePolicyVersion,
 } from './queue-read-sql'
 import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
-import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
+import type { JobQueueScope, JobQueueViewScope, LiveSeniorVersion, TeamScope } from './queue-scope'
 
 /** What each fragment binds; that the SQL works on real rows is the integration spec's job. */
 const TEAM = '11111111-1111-4111-8111-111111111111'
@@ -41,12 +42,20 @@ const team: JobQueueScope = {
   previousInputsVersion: 'inputs-1-prev',
 }
 const studio: JobQueueScope = { kind: 'STUDIO' }
+const team2: TeamScope = {
+  ...(team as TeamScope),
+  teamId: TEAM_2,
+  seniorIds: [SEN_2],
+  versions: [],
+}
+const union: JobQueueViewScope = { kind: 'TEAMS', teams: [team as TeamScope, team2] }
 const render = (q: SQL) => {
   const r = new PgDialect().sqlToQuery(q)
   return { text: r.sql.replace(/\s+/g, ' '), params: r.params }
 }
 const query = (over: Partial<JobQueueListQuery> = {}): JobQueueListQuery => ({
   tab: 'NEW',
+  sort: 'relevance',
   limit: 20,
   ...over,
 })
@@ -101,11 +110,41 @@ describe('listFilters', () => {
   })
 })
 
+describe('listFilters — salary (sources-17)', () => {
+  const rendered = (over: Partial<JobQueueListQuery>) =>
+    listFilters(query(over), versions)
+      .slice(1)
+      .map((x) => render(x))
+
+  it('stated alone is a present currency; not stated alone is an absent one', () => {
+    expect(rendered({ salary: ['STATED'] })).toEqual([
+      { text: 'o.salary_currency IS NOT NULL', params: [] },
+    ])
+    expect(rendered({ salary: ['NOT_STATED'] })).toEqual([
+      { text: 'o.salary_currency IS NULL', params: [] },
+    ])
+  })
+
+  it('both at once is no condition at all', () => {
+    expect(rendered({ salary: ['STATED', 'NOT_STATED'] })).toEqual([])
+  })
+
+  it('a currency and a monthly minimum bind their values against the indexed pair', () => {
+    expect(rendered({ salary: ['STATED'], salaryCurrency: 'EUR', salaryMinMonthly: 4000 })).toEqual(
+      [
+        { text: 'o.salary_currency IS NOT NULL', params: [] },
+        { text: 'o.salary_currency = $1', params: ['EUR'] },
+        { text: 'o.salary_monthly_top >= $1', params: [4000] },
+      ],
+    )
+  })
+})
+
 describe('seniorOptionRows', () => {
   it('a TEAM scope names its own team; the ids are one bound uuid list', () => {
-    const r = render(seniorOptionRows([SEN, SEN_2], TEAM, 200))
+    const r = render(seniorOptionRows([SEN, SEN_2], [TEAM], 200))
     expect(r.text).toBe(
-      'SELECT u.id, u.display_name, t.name AS team_name FROM users u LEFT JOIN LATERAL ( ' +
+      'SELECT u.id, u.display_name, u.technical_roles, t.name AS team_name FROM users u LEFT JOIN LATERAL ( ' +
         'SELECT t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id ' +
         'WHERE tm.user_id = u.id AND tm.left_at IS NULL AND tm.team_id = $1::uuid ' +
         "ORDER BY t.archived_at IS NOT NULL, t.type <> 'SENIOR', t.name, t.id LIMIT 1) t ON TRUE " +
@@ -113,6 +152,14 @@ describe('seniorOptionRows', () => {
         'ORDER BY t.name NULLS LAST, u.display_name, u.id LIMIT $3',
     )
     expect(r.params).toEqual([TEAM, JSON.stringify([SEN, SEN_2]), 200])
+  })
+
+  it('a union of teams names the first membership among exactly those teams', () => {
+    const r = render(seniorOptionRows([SEN], [TEAM, TEAM_2], 200))
+    expect(r.text).toContain(
+      'tm.left_at IS NULL AND tm.team_id IN (SELECT x::uuid FROM jsonb_array_elements_text($1::jsonb) x) ORDER BY',
+    )
+    expect(r.params).toEqual([JSON.stringify([TEAM, TEAM_2]), JSON.stringify([SEN]), 200])
   })
 
   it('STUDIO names the first live membership, with no team condition', () => {
@@ -164,6 +211,39 @@ describe('filterIdentity', () => {
     filterIdentity(q)
     expect(q.eligibility).toEqual(['TRIAGE', 'LEAD'])
   })
+  it('the published sort extends the identity; relevance leaves it exactly as it was', () => {
+    const plain = ['NEW', null, [], [], [], [], []]
+    expect(filterIdentity(query({ sort: 'relevance' }))).toEqual(plain)
+    expect(filterIdentity(query({ sort: 'published' }))).toEqual([...plain, { sort: 'published' }])
+    // after the salary part, so the two extensions never read as one another
+    expect(filterIdentity(query({ sort: 'published', salary: ['STATED'] }))).toEqual([
+      ...plain,
+      [['STATED'], null, null],
+      { sort: 'published' },
+    ])
+  })
+  it('sources-17: a salary filter extends the identity; without one it stays as it was', () => {
+    const plain = ['NEW', null, [], [], [], [], []]
+    expect(filterIdentity(query({ salary: ['STATED'] }))).toEqual([
+      ...plain,
+      [['STATED'], null, null],
+    ])
+    expect(filterIdentity(query({ salaryCurrency: 'EUR', salaryMinMonthly: 4000 }))).toEqual([
+      ...plain,
+      [[], 'EUR', 4000],
+    ])
+    // each salary key alone opens the salary part (the schema refuses a lone minimum upstream)
+    expect(filterIdentity(query({ salaryMinMonthly: 4000 }))).toEqual([...plain, [[], null, 4000]])
+    expect(filterIdentity(query({ salary: ['STATED', 'NOT_STATED'] }))).toEqual(
+      filterIdentity(query({ salary: ['NOT_STATED', 'STATED'] })),
+    )
+    expect(filterIdentity(query({ salaryCurrency: 'EUR' }))).not.toEqual(
+      filterIdentity(query({ salaryCurrency: 'USD' })),
+    )
+    expect(filterIdentity(query({ salaryCurrency: 'EUR', salaryMinMonthly: 4000 }))).not.toEqual(
+      filterIdentity(query({ salaryCurrency: 'EUR', salaryMinMonthly: 4001 })),
+    )
+  })
 })
 
 describe('the triage eligibility fragment the grant and the ADMIN card share (426, CR-M-1)', () => {
@@ -214,6 +294,14 @@ describe('triagePolicyVersion (backlog 425)', () => {
   })
 })
 
+describe('scopeTeamIds', () => {
+  it("a union's member team ids, in its order; any other scope has none", () => {
+    expect(scopeTeamIds(union)).toEqual([TEAM, TEAM_2])
+    expect(scopeTeamIds(team)).toBeNull()
+    expect(scopeTeamIds(studio)).toBeNull()
+  })
+})
+
 describe('policySignature', () => {
   const base = () => policySignature(team, versions)
   it('is a hex digest the generation column can hold', () => {
@@ -235,6 +323,10 @@ describe('policySignature', () => {
   ])('changes with %s', (_label, scope, v) => {
     expect(policySignature(scope, v as LiveSeniorVersion[])).not.toBe(base())
   })
+  it('a union is the sha-256 of its member team ids, so another set of teams is another signature', () => {
+    const json = JSON.stringify(['TEAMS', [TEAM, TEAM_2], MATCH_RULE_VERSION, versions])
+    expect(policySignature(union, versions)).toBe(createHash('sha256').update(json).digest('hex'))
+  })
 })
 
 describe('field scoping — what each read binds', () => {
@@ -248,19 +340,25 @@ describe('field scoping — what each read binds', () => {
     expect(joins.text).toContain(`m.evidence->>'stage' = 'SCOPED_RESTRICTIONS'`)
   })
 
-  it('the row keyword evidence is the TECH_MATCH reasons of LEAD rows of the scope versions', () => {
+  it('the row keyword evidence is the TECH_MATCH / ROLE_MATCH reasons and skillOverlap of LEAD rows of the scope versions', () => {
     const columns = render(queueRowColumns(versions))
     expect(columns.params).toContain(
       JSON.stringify([{ senior_id: SEN, profile: 'p', exclusion: 'e' }]),
     )
     expect(columns.text).toContain(
-      `(SELECT jsonb_agg(jsonb_build_object('reasons', jsonb_path_query_array(m.evidence, 'strict $.reasons[*] ? (@.code == "TECH_MATCH")', '{}', true))) FROM job_opportunity_matches m`,
+      `(SELECT jsonb_agg(jsonb_build_object('reasons', jsonb_path_query_array(m.evidence, 'strict $.reasons[*] ? (@.code == "TECH_MATCH" || @.code == "ROLE_MATCH")', '{}', true), 'skillOverlap', m.evidence -> 'skillOverlap')) FROM job_opportunity_matches m`,
     )
     expect(columns.text).toContain(
       `m.rule_version = $2 AND m.outcome = 'LEAD') AS matched_evidence`,
     )
     expect(columns.text).toContain('o.seniority')
     expect(render(cardRow(team, versions, OPP)).text).toContain(') AS matched_evidence')
+  })
+
+  it('sources-17: a row reads the four salary columns the wire carries, never the derived top', () => {
+    const { text } = render(queueRowColumns(versions))
+    expect(text).toContain('o.salary_min, o.salary_max, o.salary_currency, o.salary_period')
+    expect(text).not.toContain('salary_monthly_top')
   })
 
   it('the tab counts never aggregate evidence: the joins carry no blob (SO-1)', () => {
@@ -285,17 +383,23 @@ describe('field scoping — what each read binds', () => {
     expect(params).toContain('STUDIO')
   })
 
-  it('the rank reads LEAD rows of the given versions only, with the rank weights', () => {
+  it('the rank reads LEAD rows of the given versions only', () => {
     const { text, params } = render(rankSelect(versions))
     expect(text).toContain(`m.outcome = 'LEAD'`)
     expect(params).toContain(JSON.stringify([{ senior_id: SEN, profile: 'p', exclusion: 'e' }]))
-    expect(params).toEqual(expect.arrayContaining([10]))
+  })
+
+  it('the rank is the best senior score only: no count term (eval.3)', () => {
+    const { text, params } = render(rankSelect(versions))
+    expect(text).not.toContain('count(')
+    expect(params).not.toContain(10)
   })
 
   it('the rank is clamped to the 1000 ceiling rankScore documents', () => {
     const { text, params } = render(rankSelect(versions))
-    expect(text).toContain('SELECT LEAST((COALESCE(max(')
-    expect(text).toMatch(/- 1, 0\)\)::int, \$\d+::int\) AS score/)
+    expect(text).toMatch(
+      /^SELECT LEAST\(COALESCE\(max\(\(m\.evidence->>'score'\)::int\), 0\), \$\d+::int\)::int AS score/,
+    )
     expect(params).toEqual(expect.arrayContaining([1000]))
   })
 
@@ -404,6 +508,8 @@ describe('field scoping — what each read binds', () => {
       'JOIN job_opportunities dup ON (dup.id = o.id OR (o.employer_key IS NOT NULL AND dup.employer_key = o.employer_key AND dup.title_key = o.title_key)) AND dup.id <> o.id',
     )
     expect(text).toContain('m.opportunity_id = dup.id')
+    // SR-M-2: a vacancy-retention tombstone is a duplicate-guard row only, never listed as one.
+    expect(text).toContain(`AND NOT (dup.field_revisions @> '{"retention":"TOMBSTONE"}'::jsonb)`)
     expect(params).toEqual(expect.arrayContaining([OPP, TEAM, 5]))
   })
 
@@ -451,6 +557,32 @@ describe('field scoping — what each read binds', () => {
     expect(bound(cardRow(team, versions, OPP), 'dm.team_id IS NOT DISTINCT FROM')).toBe(TEAM)
     expect(bound(cardRow(studio, [], OPP), 'dm.scope_kind =')).toBe('STUDIO')
     expect(bound(cardRow(studio, [], OPP), 'dm.team_id IS NOT DISTINCT FROM')).toBeNull()
+  })
+
+  it("a union's card carries the dismissal of the team undo names, and none without one", () => {
+    const owned = render(cardRow(union, versions, OPP, team2))
+    const at = (marker: string) => {
+      const m = new RegExp(`${marker} \\$(\\d+)`).exec(owned.text)
+      expect(m).not.toBeNull()
+      return owned.params[Number(m![1]) - 1]
+    }
+    expect(at('dm.scope_kind =')).toBe('TEAM')
+    expect(at('dm.team_id IS NOT DISTINCT FROM')).toBe(TEAM_2)
+    // no owner named: the union itself is never a dismissal row, so the card carries none
+    for (const q of [cardRow(union, versions, OPP), cardRow(team, versions, OPP, null)])
+      expect(render(q).text).toContain('WHERE dm.opportunity_id = o.id AND FALSE LIMIT 1')
+    expect(render(cardRow({ kind: 'NONE' }, [], OPP)).text).toContain(
+      'WHERE dm.opportunity_id = o.id AND FALSE LIMIT 1',
+    )
+  })
+
+  it("a union's list row is hidden by its member teams' TEAM dismissals", () => {
+    const { text, params } = render(queueRowJoins(union, versions))
+    const m = /d\.scope_kind = \$(\d+)::job_queue_scope_kind/.exec(text)
+    expect(m).not.toBeNull()
+    expect(params[Number(m![1]) - 1]).toBe('TEAM')
+    expect(text).toContain('(d.team_id = $')
+    expect(params).toEqual(expect.arrayContaining([TEAM, TEAM_2]))
   })
 
   it('card seniors name a team only in the STUDIO scope (Task 7.3b)', () => {

@@ -30,9 +30,9 @@ jobs:
   # ── Required-context contract (audit #5/#6, 2026-10) ──────────────────────
   # Branch protection requires the context `Typecheck · Lint · Unit Tests`.
   # That name now belongs to the thin AGGREGATOR job `quality` (below), which
-  # `needs:` the two parallel legs `quality_core` (typecheck/lint/unit/build)
-  # and `guard_tests`. Same shape as `mutation` -> `mutation_summary` and
-  # `e2e` -> `e2e_summary`. The legs have their own, NON-required names; never
+  # `needs:` the parallel legs `quality_core` (typecheck/lint/shared+landing unit/build),
+  # `unit_web` (web unit tests), `unit_api` (api unit tests) and `guard_tests`.
+  # Same shape as `mutation` -> `mutation_summary` and `e2e` -> `e2e_summary`. The legs have their own, NON-required names; never
   # rename the aggregator's `name:` — a vanished required context does not go
   # red, it hangs every PR in "waiting" forever.
   quality_core:
@@ -182,44 +182,8 @@ jobs:
           key: turbo-${{ runner.os }}-${{ github.sha }}
           restore-keys: turbo-${{ runner.os }}-
 
-      # Typst binary (task-resume-template, PR #504): apps/api/src/test/typst-availability.ts
-      # asserts loudly — rather than skipping — when Typst isn't on PATH, because "a suite
-      # that quietly does nothing when a tool is missing is the exact failure this project
-      # keeps paying for" (that file's own header). The résumé render specs need the REAL
-      # binary, and it must be the EXACT version apps/api/Dockerfile's `typst` build stage
-      # ships: résumé PDF byte-determinism (PR #504's AC1) depends on every environment —
-      # CI, prod, a developer's machine — rendering with the same Typst build, since Typst
-      # gives no cross-version guarantee on glyph shaping/layout.
-      #
-      # Version + checksum are NOT duplicated here. A second hardcoded copy in this file is
-      # exactly the shape of drift this repo's other guards exist to catch after the fact
-      # (check-prod-ddl-wiring.py, check-ssh-action-capture-stdout-version.py) — this instead
-      # removes the second place to drift: install-typst-from-dockerfile.sh parses BOTH the
-      # version and the SHA-256 straight out of apps/api/Dockerfile's typst stage at every
-      # run and checksum-verifies the download against that parsed pin (same fail-closed
-      # `sha256sum -c` the Dockerfile itself uses). Bump TYPST_VERSION in the Dockerfile and
-      # the very next CI run installs the new pin with no second edit anywhere; if the
-      # Dockerfile's own pin is ever wrong, the checksum step rejects the download outright
-      # instead of silently installing an unverified binary. See that script's own header for
-      # the full rationale and scripts/devops/tests/test-install-typst-from-dockerfile.sh for
-      # the proof (positive case + checksum-mismatch + Dockerfile-parse-broke, all asserted).
-      #
-      # Cached on the Dockerfile's own hash, so a version bump there also busts this cache —
-      # no separate cache-key bump to remember.
-      - uses: actions/cache@v4
-        id: typst-cache
-        if: steps.scope.outputs.code == 'true'
-        with:
-          path: ~/.cache/crm-typst-bin
-          key: typst-${{ runner.os }}-${{ hashFiles('apps/api/Dockerfile') }}
-
-      - name: Install Typst (version + checksum parsed from apps/api/Dockerfile)
-        if: steps.scope.outputs.code == 'true' && steps.typst-cache.outputs.cache-hit != 'true'
-        run: scripts/devops/install-typst-from-dockerfile.sh "$HOME/.cache/crm-typst-bin"
-
-      - name: Add Typst to PATH
-        if: steps.scope.outputs.code == 'true'
-        run: echo "$HOME/.cache/crm-typst-bin" >> "$GITHUB_PATH"
+      # Typst (apps/api résumé render specs) is no longer installed here: the api unit tests run in
+      # the `unit_api` leg, which carries the pinned install (see its comment).
 
       - if: steps.scope.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
@@ -315,9 +279,10 @@ jobs:
 
       # Run unit tests only — no DATABASE_URL means dbAvailable=false and
       # integration specs skip themselves via their guard. No DB service needed.
+      # The web and api suites run in their own parallel legs (`unit_web`, `unit_api`), not here.
       - name: Run unit tests (no DB)
         if: steps.scope.outputs.code == 'true'
-        run: pnpm --filter @crm/shared --filter @crm/api --filter @crm/web --filter @crm/landing test
+        run: pnpm --filter @crm/shared --filter @crm/landing test
 
       # FM-5 guard: every apps/e2e/tests/**/*.spec.ts must be either in a CI shard
       # or explicitly listed as debt in KNOWN_UNSHARDED. Pure Python parse — no stack
@@ -410,10 +375,20 @@ jobs:
   # check-no-russian-letters guard test needs `typescript` from node_modules),
   # NO build, NO Typst, NO turbo cache.
   guard_tests:
-    name: Guard Tests
+    name: Guard Tests (${{ matrix.leg }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: playwright-deps
+            filter: install-playwright-system-deps
+            exclude: ''
+          - leg: rest
+            filter: ''
+            exclude: install-playwright-system-deps
     steps:
       - uses: actions/checkout@v4
         with:
@@ -478,21 +453,218 @@ jobs:
         if: steps.scope.outputs.code == 'true'
         env:
           GUARD_TEST_HOOKS_TOUCHED: ${{ steps.scope.outputs.hooks == 'true' && '1' || '0' }}
-        run: bash scripts/devops/tests/run-guard-tests.sh
+        run: GUARD_TEST_EXCLUDE="${{ matrix.exclude }}" bash scripts/devops/tests/run-guard-tests.sh ${{ matrix.filter }}
 
       - name: Docs-only short-circuit
         if: steps.scope.outputs.code != 'true'
         run: echo "Docs-only PR — skipping guard tests, satisfying required status."
 
+  # Web unit tests, split out of quality_core (gardener 2026-11-21, category #10).
+  # quality_core ran the shared/api/web/landing unit suites on ONE runner: the
+  # unit step took ~960 s, and api (~764 s) and web (~936 s) contended for CPU there.
+  # Own runner, own leg. Setup is lighter than quality_core: install plus the two
+  # generated artifacts the web tests import (below), NO Typst, NO turbo cache.
+  # apps/web/vitest.config.ts aliases `@crm/shared` to TypeScript source, so no
+  # shared build is needed. Hard gate: the `quality` aggregator below `needs:` this
+  # job, so a red web suite turns the required context red exactly as before.
+  unit_web:
+    name: Unit Tests (web ${{ matrix.shard }}/2)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 2
+
+      # Same scope detection as quality_core / guard_tests (predicate-quantifier:
+      # every — see the comment on quality_core's `filter` step for why).
+      - name: Detect non-docs changes
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          predicate-quantifier: 'every'
+          filters: |
+            code:
+              - '!docs/**'
+              - '!**/*.md'
+              - '!.github/CODEOWNERS'
+
+      - name: Resolve run scope
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_CODE: ${{ steps.filter.outputs.code }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then CODE="$PR_CODE"; else CODE=true; fi
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Run scope: event=$EVENT code=$CODE"
+
+      - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.code == 'true'
+        with:
+          version: 7.32.4
+
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.code == 'true'
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - if: steps.scope.outputs.code == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # Generated artifacts the web suite imports and a fresh checkout lacks
+      # (both gitignored). Without them 2 of 536 files fail to resolve (verified
+      # locally 2026-11-21): the Lingui catalog `locales/uk/messages.ts`, and
+      # `apps/web/app/routeTree.gen.ts`, which the TanStack router plugin writes
+      # during the web build. The web build is the same `pnpm --filter @crm/web build`
+      # quality_core runs; no shared build is needed.
+      - name: Compile Lingui catalogs
+        if: steps.scope.outputs.code == 'true'
+        run: pnpm i18n:compile
+
+      - name: Build web (generates routeTree.gen.ts)
+        if: steps.scope.outputs.code == 'true'
+        run: pnpm --filter @crm/web build
+
+      # No DATABASE_URL: web unit tests are DB-free (same as the core leg's unit step).
+      - name: Run web unit tests
+        if: steps.scope.outputs.code == 'true'
+        run: pnpm --filter @crm/web test -- --shard=${{ matrix.shard }}/2
+
+      - name: Docs-only short-circuit
+        if: steps.scope.outputs.code != 'true'
+        run: echo "Docs-only PR — skipping web unit tests, satisfying required status."
+
+  # API unit tests, split out of quality_core (gardener 2026-11-28, category #10).
+  # After the web split, quality_core still ran shared + api + landing on one runner: the unit
+  # step took 332-517 s of a 411-697 s job, nearly all of it the api suite (vitest: 782 files,
+  # `Duration 497.56s`, tests 430 s) — and the job ended last on the critical path of run
+  # 45849497324. Two shards, same pattern as `unit_web`: `vitest --shard` hashes the spec paths
+  # (every project spec runs in exactly one shard — verified by listing both shards against the
+  # unsharded set). shared and landing stay in quality_core. Hard gate: the `quality`
+  # aggregator below `needs:` this job.
+  # Prerequisites carried over from quality_core, plus the generated artifacts the suite needs on a
+  # fresh checkout (verified by running both shards without them, then with them): the Lingui
+  # catalogs `locales/{uk,en}/messages.ts` and the `dist/` of `@crm/inference` (package entry point;
+  # 49 of 392 files in shard 1 failed to load without them) and of `@crm/shared` (only
+  # app.module.container.spec.ts needs it: it boots the tsc-compiled DI container, which resolves
+  # `@crm/shared` through node_modules, not through the vitest alias). The full `pnpm build`
+  # (web, api, landing) is not needed.
+  unit_api:
+    name: Unit Tests (api ${{ matrix.shard }}/2)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    # S3 dummy creds: env-schema validation runs at import time (same block as quality_core).
+    env:
+      S3_ENDPOINT: http://localhost:9000
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_REGION: us-east-1
+      S3_BUCKET: crm-documents
+      S3_USE_SSE: 'false'
+      AWS_ACCESS_KEY_ID: crmdevaccesskey
+      AWS_SECRET_ACCESS_KEY: crmdevsecretkey
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 2
+
+      # Same scope detection as quality_core / guard_tests / unit_web (predicate-quantifier:
+      # every — see the comment on quality_core's `filter` step for why).
+      - name: Detect non-docs changes
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          predicate-quantifier: 'every'
+          filters: |
+            code:
+              - '!docs/**'
+              - '!**/*.md'
+              - '!.github/CODEOWNERS'
+
+      - name: Resolve run scope
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_CODE: ${{ steps.filter.outputs.code }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then CODE="$PR_CODE"; else CODE=true; fi
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Run scope: event=$EVENT code=$CODE"
+
+      - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.code == 'true'
+        with:
+          version: 7.32.4
+
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.code == 'true'
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      # Typst pin + cache key: identical to timing_specs / ats_suite — the résumé render specs
+      # need the real binary, at the exact Dockerfile version (see those jobs and
+      # scripts/devops/install-typst-from-dockerfile.sh).
+      - uses: actions/cache@v4
+        id: typst-cache
+        if: steps.scope.outputs.code == 'true'
+        with:
+          path: ~/.cache/crm-typst-bin
+          key: typst-${{ runner.os }}-${{ hashFiles('apps/api/Dockerfile') }}
+
+      - name: Install Typst (version + checksum parsed from apps/api/Dockerfile)
+        if: steps.scope.outputs.code == 'true' && steps.typst-cache.outputs.cache-hit != 'true'
+        run: scripts/devops/install-typst-from-dockerfile.sh "$HOME/.cache/crm-typst-bin"
+
+      - name: Add Typst to PATH
+        if: steps.scope.outputs.code == 'true'
+        run: echo "$HOME/.cache/crm-typst-bin" >> "$GITHUB_PATH"
+
+      - if: steps.scope.outputs.code == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Compile Lingui catalogs
+        if: steps.scope.outputs.code == 'true'
+        run: pnpm i18n:compile
+
+      - name: Build @crm/shared and @crm/inference (dist/ is their package entry point)
+        if: steps.scope.outputs.code == 'true'
+        run: pnpm --filter @crm/shared --filter @crm/inference build
+
+      # No DATABASE_URL: integration specs are excluded from discovery on a non-integration run.
+      - name: Run api unit tests
+        if: steps.scope.outputs.code == 'true'
+        run: pnpm --filter @crm/api test -- --shard=${{ matrix.shard }}/2
+
+      - name: Docs-only short-circuit
+        if: steps.scope.outputs.code != 'true'
+        run: echo "Docs-only PR — skipping api unit tests, satisfying required status."
+
   # Timing specs — assertions that compare measured wall-clock times
   # (`apps/api/**/*.timing.spec.ts`; backlog 278). They are excluded from the shared unit
-  # run (`quality_core`, the mutation gate, pre-push) because a ratio of two stopwatch readings
+  # run (`unit_api`, the mutation gate, pre-push) because a ratio of two stopwatch readings
   # cancels machine speed but not machine contention: they failed PRs that did not touch the code
   # they test (growth exponent 2.2 at load ~100; a 5x stall ratio at 197 vs 211). Here they run
   # ALONE: their own job (own runner), no matrix, no sibling work on that runner, and
   # `--no-file-parallelism` so the spec files do not contend with each other either.
   # Thresholds are the original ones. The deterministic half of each guarantee stays in the
-  # unit suite. NOT part of the `quality` aggregator, on purpose: one miss here is a signal to
+  # unit suite. Runs DB-backed timing specs (e.g. MP-13 queue benchmarks) against disposable Postgres.
+  # NOT part of the `quality` aggregator, on purpose: one miss here is a signal to
   # read, not a reason to block an unrelated push, so it is NOT a required context (that would
   # reinstate the load-sensitivity the split removed). It IS a leg of `post_merge_alert`, so a red
   # run on main raises an alert instead of staying red unnoticed (the nightly mutation run once
@@ -503,6 +675,22 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: crm_ci
+          POSTGRES_USER: crm_user
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_ci
     steps:
       - uses: actions/checkout@v4
         with:
@@ -541,7 +729,7 @@ jobs:
           node-version: '22'
           cache: 'pnpm'
 
-      # Same Typst pin + cache key as `quality_core` (the render timing spec needs the real binary).
+      # Same Typst pin + cache key as `unit_api` (the render timing spec needs the real binary).
       - uses: actions/cache@v4
         id: typst-cache
         if: steps.scope.outputs.run == 'true'
@@ -559,6 +747,18 @@ jobs:
 
       - if: steps.scope.outputs.run == 'true'
         run: pnpm install --frozen-lockfile
+
+      - if: steps.scope.outputs.run == 'true'
+        run: pnpm build
+
+      # Push schema directly to fresh CI Postgres (no migration history needed).
+      - name: Push DB schema
+        if: steps.scope.outputs.run == 'true'
+        run: pnpm --filter @crm/api db:push
+
+      - name: Seed DB
+        if: steps.scope.outputs.run == 'true'
+        run: pnpm --filter @crm/api db:seed
 
       - name: Run timing specs (alone)
         if: steps.scope.outputs.run == 'true'
@@ -630,7 +830,7 @@ jobs:
           node-version: '22'
           cache: 'pnpm'
 
-      # Same Typst pin + cache key as `quality_core`.
+      # Same Typst pin + cache key as `unit_api`.
       - uses: actions/cache@v4
         id: typst-cache
         if: steps.scope.outputs.run == 'true'
@@ -786,8 +986,8 @@ jobs:
         if: steps.scope.outputs.run != 'true'
         run: echo "No résumé template / Typst / extraction change — ATS oracle skipped."
 
-  # REQUIRED CONTEXT: `Typecheck · Lint · Unit Tests`. Aggregator over the two
-  # parallel legs; green <=> both legs green. `if: always()` so it still
+  # REQUIRED CONTEXT: `Typecheck · Lint · Unit Tests`. Aggregator over the
+  # parallel legs (quality_core, unit_web, unit_api, guard_tests); green <=> all legs green. `if: always()` so it still
   # reports (red) when a leg fails instead of being skipped — a skipped
   # required check counts as passing for merge purposes in some configs, and
   # a never-reported one hangs the PR. Owns the `ci-failed` label, which used
@@ -795,7 +995,7 @@ jobs:
   quality:
     name: Typecheck · Lint · Unit Tests
     runs-on: ubuntu-latest
-    needs: [quality_core, guard_tests]
+    needs: [quality_core, unit_web, unit_api, guard_tests]
     if: always()
     permissions:
       contents: read
@@ -807,14 +1007,16 @@ jobs:
       - name: Aggregate leg results
         env:
           CORE_RESULT: ${{ needs.quality_core.result }}
+          WEB_RESULT: ${{ needs.unit_web.result }}
+          API_RESULT: ${{ needs.unit_api.result }}
           GUARD_RESULT: ${{ needs.guard_tests.result }}
         run: |
-          echo "quality_core=$CORE_RESULT guard_tests=$GUARD_RESULT"
-          if [ "$CORE_RESULT" != "success" ] || [ "$GUARD_RESULT" != "success" ]; then
-            echo "::error::quality leg(s) not green (quality_core=$CORE_RESULT, guard_tests=$GUARD_RESULT). See the individual job logs."
+          echo "quality_core=$CORE_RESULT unit_web=$WEB_RESULT unit_api=$API_RESULT guard_tests=$GUARD_RESULT"
+          if [ "$CORE_RESULT" != "success" ] || [ "$WEB_RESULT" != "success" ] || [ "$API_RESULT" != "success" ] || [ "$GUARD_RESULT" != "success" ]; then
+            echo "::error::quality leg(s) not green (quality_core=$CORE_RESULT, unit_web=$WEB_RESULT, unit_api=$API_RESULT, guard_tests=$GUARD_RESULT). See the individual job logs."
             exit 1
           fi
-          echo "Both legs passed ✓"
+          echo "All quality legs passed ✓"
 
       - name: Remove ci-failed label on success
         if: success() && github.event_name == 'pull_request'
@@ -835,12 +1037,35 @@ jobs:
             --color "d73a4a" --description "CI checks failed" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --add-label "ci-failed"
 
-  integration:
-    name: Integration Tests (Postgres)
+  integration_shard:
+    name: Integration (${{ matrix.name }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Sharded into 3 legs, each with its own Postgres: one serial leg (fileParallelism: false, 280 files) was the slowest PR job at 11-15 min.
+    # A 4th leg runs job-run-ledger.concurrency.integration.spec.ts alone (gardener 2026-11-28, category #10): its
+    # single test ("1000 iterations, no deadlock") takes ~124 s, and the hash shard that held it ran 606-616 s against
+    # 292-500 s for the others. The three hash shards EXCLUDE it, so the 4 legs cover the original file set exactly
+    # (288 = 96 + 96 + 95 + 1, checked with vitest's own sequencer). All legs sit in this one matrix, so the
+    # `integration` aggregator below still gates the ledger spec. A new concurrency spec belongs in the same leg.
+    # The CLI `--exclude` is ignored once the integration vitest config defines `test.projects`; adding projects
+    # there means moving this exclude into each project, or the ledger spec runs twice.
     # Runs DB-backed *.integration.spec.ts against a real Postgres instance.
     # Separated from the unit-test `quality` job so unit tests stay fast and
     # DB-free, while integration specs get migrate + seed + fixture data.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: shard 1/3
+            vitest_args: --shard=1/3 --exclude=**/job-run-ledger.concurrency.integration.spec.ts integration.spec
+          - name: shard 2/3
+            vitest_args: --shard=2/3 --exclude=**/job-run-ledger.concurrency.integration.spec.ts integration.spec
+          - name: shard 3/3
+            vitest_args: --shard=3/3 --exclude=**/job-run-ledger.concurrency.integration.spec.ts integration.spec
+          # Positional filter = path substring; it also contains `integration.spec`, so vitest.config.mts
+          # still detects an integration run (serial files + the DB guard).
+          - name: ledger concurrency
+            vitest_args: job-run-ledger.concurrency.integration.spec
     permissions:
       pull-requests: write
     services:
@@ -1022,10 +1247,14 @@ jobs:
       # (not silent skip via dbAvailable guard).
       - name: Run integration tests
         if: steps.scope.outputs.code == 'true'
+        env:
+          VITEST_ARGS: ${{ matrix.vitest_args }}
         run: |
-          pnpm --filter @crm/api exec vitest run \
-            --reporter=verbose \
-            integration.spec
+          # Unquoted on purpose: VITEST_ARGS is a space-separated argument list from the matrix above;
+          # `set -f` keeps the `**/` in --exclude from being globbed by the shell.
+          set -f
+          # shellcheck disable=SC2086
+          pnpm --filter @crm/api exec vitest run --reporter=verbose $VITEST_ARGS
 
       - name: Docs-only short-circuit
         if: steps.scope.outputs.code != 'true'
@@ -1041,6 +1270,25 @@ jobs:
           gh label create "ci-failed" --repo "$REPO" \
             --color "d73a4a" --description "CI checks failed" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --add-label "ci-failed"
+
+  # Aggregates the shard legs into the single required check; post_merge_alert needs this job id.
+  integration:
+    name: Integration Tests (Postgres)
+    runs-on: ubuntu-latest
+    needs: integration_shard
+    # !cancelled(), not always(): a cancelled run must reach post_merge_alert as cancelled, not as an integration failure.
+    if: ${{ !cancelled() && needs.integration_shard.result != 'skipped' }}
+    steps:
+      - name: Aggregate shard results
+        env:
+          INTEGRATION_RESULT: ${{ needs.integration_shard.result }}
+        run: |
+          echo "All shards aggregate result: $INTEGRATION_RESULT"
+          if [ "$INTEGRATION_RESULT" != "success" ]; then
+            echo "::error::Integration shards failed (result=$INTEGRATION_RESULT). See individual shard logs above."
+            exit 1
+          fi
+          echo "All integration shards passed ✓"
 
   # ── Mutation gate — own job, parallel to `quality`/`integration`/`e2e` ────
   # (task-infra-split-mutation-gate, 2026-09-03; the gate itself dates to
@@ -1092,7 +1340,8 @@ jobs:
   # nightly full sweep (.github/workflows/mutation-nightly.yml) independently
   # arrived at the identical Typst-then-build sequence for the identical
   # reason — see that workflow's own comments on its `sweep` job.
-  # Split into a 3-package matrix (task-infra-mutation-gate-matrix,
+  # Split into a per-package matrix — three legs at the split, four since
+  # backlog 461 added `@crm/inference` (2026-11-19) — (task-infra-mutation-gate-matrix,
   # 2026-09-03): the three packages ran SEQUENTIALLY inside
   # mutation-gate.mjs's own loop (measured: shared ~10s, web ~230s, api
   # typically ~250s but up to 2489s seen — see the runbook's "Measured cost"
@@ -1160,6 +1409,15 @@ jobs:
       matrix:
         package:
           - { name: '@crm/shared', slug: 'shared', budget: 3600, timeout: 75 }
+          # Added by backlog 461 (2026-11-19). Measured locally on the largest
+          # diff the package has had (PR #1396, 10 files under
+          # `packages/inference/src/router`): 623 mutants in 170.0s on 4 workers
+          # — runbook, "Measured cost". The budget is ~20x that measurement. It
+          # keeps `@crm/shared`'s 3600s/75min pair: the package's whole unit suite
+          # is a node-environment suite in the same order of magnitude as
+          # `@crm/shared`'s, with none of the jsdom/React cost that forced
+          # `@crm/web` to 10800s.
+          - { name: '@crm/inference', slug: 'inference', budget: 3600, timeout: 75 }
           - { name: '@crm/api', slug: 'api', budget: 10800, timeout: 195 }
           - { name: '@crm/web', slug: 'web', budget: 10800, timeout: 195 }
     env:
@@ -1258,9 +1516,9 @@ jobs:
       # the CHANGED lines of this PR, so a suppression that drifts into untouched
       # code would otherwise never be looked at again.
       #
-      # Runs identically on all three matrix legs (task-infra-mutation-gate-
+      # Runs identically on every matrix leg (task-infra-mutation-gate-
       # matrix, 2026-09-03): it is a whole-repo, sub-second scan independent of
-      # `matrix.package`, so tripling it costs nothing observable and avoids
+      # `matrix.package`, so repeating it per leg costs nothing observable and avoids
       # pinning a repo-wide correctness check on one arbitrarily-chosen leg.
       - name: Mutation suppressions must state a reason
         if: steps.scope.outputs.code == 'true'
@@ -1352,15 +1610,18 @@ jobs:
             --color "d73a4a" --description "CI checks failed" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --add-label "ci-failed"
 
-  # Aggregate status of all 3 mutation-gate package legs into one PR-level
+  # Aggregate status of all 4 mutation-gate package legs into one PR-level
   # check — the exact same shape `e2e_summary` below uses for the 8 E2E
   # shards (see that job's own comment for the "do not trust a hardcoded
   # count blindly" caveat; it applies here too — recount `matrix.package`
   # entries above rather than copying "3" forward if a package is ever
   # added or removed). Branch protection depends on this single job's
-  # `Mutation Gate` context, not on any of the three per-package contexts
+  # `Mutation Gate` context, not on any of the four per-package contexts
   # the matrix above produces (those are named `Mutation Gate (@crm/...)`
   # and cannot themselves satisfy a required check named `Mutation Gate`).
+  # `@crm/inference` joined the matrix with backlog 461 (2026-11-19): nothing
+  # here changes for it, because this job aggregates `needs: mutation` as a
+  # whole rather than naming its legs.
   mutation_summary:
     name: Mutation Gate
     runs-on: ubuntu-latest
@@ -1371,7 +1632,7 @@ jobs:
         env:
           MUTATION_RESULT: ${{ needs.mutation.result }}
         run: |
-          echo "All 3 mutation-gate package legs aggregate result: $MUTATION_RESULT"
+          echo "Mutation-gate package legs aggregate result: $MUTATION_RESULT"
           if [ "$MUTATION_RESULT" != "success" ]; then
             echo "::error::Mutation gate package(s) failed (result=$MUTATION_RESULT). See individual package logs above."
             exit 1
@@ -1405,7 +1666,35 @@ jobs:
     name: E2E (${{ matrix.shard.name }})
     # Pinned: Playwright 1.59 cannot install chromium on ubuntu-26.04 (now ubuntu-latest). Unpin after a Playwright bump passes there.
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # 22 for every shard (round 4 review, items 1/16). Addendum 3 set it back to
+    # 15 and that number did not survive its own arithmetic: the step budgets
+    # under `Install Playwright system deps` plus the four steps this PR adds
+    # ahead of it sum to more than 900s in the worst case, so the ceiling was
+    # claiming a bound the terms exceeded. The worst case is spelled out term by
+    # term at DEPS_STEP_DEADLINE_SECONDS below and comes to 1127s for the webkit
+    # leg and 1278s for the longest chromium leg (`misc`, 487s sampled), both
+    # under 1320s.
+    #
+    # THIS IS NOT THE EARLIER "RAISE THE JOB BUDGET" FIX. An earlier round of
+    # this PR raised this leg to 25 so that a 125 MB `install-deps webkit` could
+    # finish over the ec2 mirror; the sampled evidence refuted that reading and
+    # the byte source changed instead (below). What 22 buys is an honest ceiling
+    # over bounds that already exist — nothing here lengthens an install, and a
+    # hang is still cut by the step budgets long before this number.
+    # The AWS-region runners fetch from `*.ec2.archive.ubuntu.com` at ~100 KB/s
+    # steady (job 134915543321: apt's cache grew 5376 KB -> 53492 KB over 481s,
+    # fetch process alive at every 30s sample), i.e. ~21 min for the webkit set
+    # (125000 KB / 100 KB/s = 1250s — the rate and the duration are one
+    # measurement, so they are quoted as one),
+    # while the Azure runners fetch the same 125 MB in 9s. No job budget fixes a
+    # ~21-minute download, so the byte source changes instead: the steps before
+    # `Install Playwright system deps` point apt at the official archive and
+    # restore the .debs from actions/cache (the same job restored 177 MB of
+    # cache at 22-41 MB/s, two orders of magnitude faster than that mirror). The
+    # budgets under that step are sized for an install that fetches little or
+    # nothing, and their sum is checked against this 22-minute (1320s) ceiling
+    # there.
+    timeout-minutes: 22
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
@@ -1477,7 +1766,9 @@ jobs:
             # pattern as the other three files here (`mockAuthAs`, no live
             # backend calls).
             # tests/job-queue.spec.ts (Task 7.6): the vacancy queue /job-queue — mocked render states plus real-API team visibility on the seed
-            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/locale-switcher.spec.ts tests/hr-create-senior.spec.ts tests/team-share-override.spec.ts tests/hr-dashboard.spec.ts tests/rbac-senior-junior.spec.ts tests/senior-create-default.spec.ts tests/senior-teamless.spec.ts tests/junior-hub.spec.ts tests/job-source-admin-rbac-api.spec.ts tests/job-queue.spec.ts
+            # tests/tailored-resume.spec.ts (tailored resume PR 5): per-senior generate/edit/regenerate controls on /job-queue, mocked progress plus one real-API batch GET for HR
+            # tests/job-queue-external-submission.spec.ts (external vacancy intake PR 1): the «register external submission» dialog and #external= hand-off, mocked dialog flows plus real-API post-login restore and SENIOR 403
+            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/locale-switcher.spec.ts tests/hr-create-senior.spec.ts tests/team-share-override.spec.ts tests/hr-dashboard.spec.ts tests/rbac-senior-junior.spec.ts tests/senior-create-default.spec.ts tests/senior-teamless.spec.ts tests/junior-hub.spec.ts tests/job-source-admin-rbac-api.spec.ts tests/job-queue.spec.ts tests/senior-roles.spec.ts tests/tailored-resume.spec.ts tests/job-queue-external-submission.spec.ts
           - name: projects
             # tests/project-status-filter-ui.spec.ts (task-project-status-filter-ui,
             # PR #646, feat/project-status-filter-ui, not yet merged as of this line
@@ -1544,21 +1835,12 @@ jobs:
             # unlikely to make it the new critical-path leg.
             files: tests/finance.spec.ts tests/finance-senior-flow.spec.ts tests/company-share-cta.spec.ts tests/finance-funding-source.spec.ts tests/finance-senior-payment-flow.spec.ts tests/finance-smoke-regressions.spec.ts tests/accountant-dashboard.spec.ts tests/phase8-payout-company.spec.ts tests/finance-admin-edit-tx-date.spec.ts
           - name: misc
-            # tests/job-sourcing-mobile.spec.ts (task-job-sourcing-slice1, PR #493): the "Подбор
-            # вакансий" modal on the kanban — same screen/mock-stack shape as
-            # tests/interviews.spec.ts right next to it (page.route mocks only, no live
-            # backend), 11 tests, ~5s. Placed here rather than a new shard: misc is already the
-            # heaviest shard by both file count (16 specs) and wall time (~4:53 of a 15-minute
-            # job timeout on a recent main run, gh run 31194170529) but has ample headroom —
-            # 11 fast mocked tests do not meaningfully move that number.
-            files: tests/interviews.spec.ts tests/job-sourcing-mobile.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/vacancies.spec.ts tests/crm tests/dashboard-russian-strings.spec.ts tests/polish-regressions.spec.ts tests/senior-archive-regression.spec.ts tests/onboarding-regression-pr110.spec.ts tests/ui-invariants-pr56.spec.ts tests/onboarding-flow.spec.ts tests/admin-templates.spec.ts
-          - name: meeting-recorder
-            # The Meeting Recorder flow is a self-contained mocked-browser suite
-            # spanning admin connection setup, unmatched-recording linking and
-            # interview playback metadata. Keep it isolated from `misc`: that
-            # shard is already the slowest leg, while this integration has its
-            # own contract and should fail independently when it regresses.
-            files: tests/meeting-recorder.spec.ts
+            # Heaviest shard by file count and wall time: test step ~4:28, job ~7:25
+            # of the 22-minute job timeout on a push run on main (gh run 44584768393,
+            # 2026-11-19; next were team-users 6:21, finance 5:21), with headroom left.
+            # tests/job-sourcing-mobile.spec.ts used to sit here; PR #1431 removed it
+            # with the suggestion dialog it covered.
+            files: tests/interviews.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/vacancies.spec.ts tests/crm tests/dashboard-russian-strings.spec.ts tests/polish-regressions.spec.ts tests/senior-archive-regression.spec.ts tests/onboarding-regression-pr110.spec.ts tests/ui-invariants-pr56.spec.ts tests/onboarding-flow.spec.ts tests/admin-templates.spec.ts
           - name: drop-finance
             # tests/drop-payout-currency.spec.ts (PR #521, feat/drop-payout-currency,
             # not yet merged as of this line landing): drop obligation payout in
@@ -1628,10 +1910,12 @@ jobs:
             # actually test, not just by filename prefix.
             files: tests/drop-archive-real.spec.ts tests/drop-archive-user-real.spec.ts tests/drop-archive-impact-contract.spec.ts tests/drop-project-create.spec.ts tests/drop-duplicate-email.spec.ts tests/drop-multi-hr.spec.ts tests/interviews-drop-team-board.spec.ts tests/drop-archive-cascade.spec.ts tests/drop-create-ui-regressions.spec.ts tests/drop-junior-rbac.spec.ts tests/drop-rotate-senior.spec.ts tests/drop-routing-hub.spec.ts tests/drop-rbac.spec.ts tests/drop-route-guards.spec.ts tests/drop-findings-pr198.spec.ts tests/drop-create.spec.ts tests/drop-add-senior.spec.ts tests/drop-senior-readonly.spec.ts
           # `docs-money`: documents + invoices + payout specs gated in the
-          # gate-ungated-e2e-specs task. Small mocked/real-API specs (~50 s together) grouped in ONE
-          # leg so they do not each pay a full runner set-up (checkout + install + build + seed).
+          # gate-ungated-e2e-specs task, plus meeting-recorder (folded into docs-money
+          # to save one runner slot; mock-based, runs under standard chromium project).
+          # Small mocked/real-API specs grouped in ONE leg so they do not each pay
+          # a full runner set-up (checkout + install + build + seed).
           - name: docs-money
-            files: tests/documents-pr1.spec.ts tests/documents-pr3.spec.ts tests/invoice-public-verify.spec.ts tests/invoices-signing-flow.spec.ts tests/invoice-aggregate.spec.ts tests/invoice-signing-real.spec.ts tests/payout-admin-projectid-regression.spec.ts tests/payout-auto-cascade-invoice.spec.ts tests/payout-manual-confirm-method.spec.ts tests/phase2-auto-distribution-regression.spec.ts tests/senior-confirm-payout.spec.ts tests/senior-payout-no-dup.spec.ts tests/senior-project-distribution-regression.spec.ts
+            files: tests/documents-pr1.spec.ts tests/documents-pr3.spec.ts tests/invoice-public-verify.spec.ts tests/invoices-signing-flow.spec.ts tests/invoice-aggregate.spec.ts tests/invoice-signing-real.spec.ts tests/payout-admin-projectid-regression.spec.ts tests/payout-auto-cascade-invoice.spec.ts tests/payout-manual-confirm-method.spec.ts tests/phase2-auto-distribution-regression.spec.ts tests/senior-confirm-payout.spec.ts tests/senior-payout-no-dup.spec.ts tests/senior-project-distribution-regression.spec.ts tests/meeting-recorder.spec.ts
           # `cache`: the Service-Worker / cache-integration project (Playwright project
           # `cache`, serviceWorkers:'allow'). The default `chromium` project blocks service
           # workers and `testIgnore`s tests/cache/, so these specs need their own leg
@@ -1718,6 +2002,7 @@ jobs:
       # in env.ts). THROTTLER_LIMIT=2000 is enough for the heaviest rbac-matrix-smoke.
       THROTTLE_RELAXED: 'true'
       THROTTLER_LIMIT: '2000'
+      TAILORED_RESUME_ENABLED: 'true'
 
     steps:
       # `inputs.ref` — как в `quality` / `integration` (review PR #441, LOW).
@@ -1860,6 +2145,80 @@ jobs:
         if: steps.scope.outputs.code == 'true' && matrix.shard.name != 'landing'
         run: timeout 30 bash -c 'until curl -sf http://localhost:3000; do sleep 2; done'
 
+      # BOTH deps paths below run plain `apt-get` (playwright-core builds
+      # `apt-get update` + `apt-get install` and spawns them through sudo with
+      # no `-o` overrides and no APT_CONFIG), so the only seams that reach them
+      # are apt's own files: the mirror list (next step) and the archives
+      # directory the .deb cache fills (the two steps after it). Both therefore
+      # serve the cache-MISS path (`playwright install --with-deps`, which has
+      # no budget of its own at all) and the cache-HIT path (the wrapper step)
+      # alike, and both are no-ops on a runner whose layout does not match.
+      #
+      # Round 4 measured why the webkit leg failed: the AWS-region runners fetch
+      # from `*.ec2.archive.ubuntu.com` at ~100 KB/s steady (125 MB => ~21 min),
+      # while the same job restores a 177 MB actions/cache entry at 22-41 MB/s.
+      # So the fix is the byte source, not a bigger budget — the `Acquire::*`
+      # drop-in that used to live here was removed with its test: a fetch
+      # timeout only ever helps an INACTIVE socket, and this socket is never
+      # inactive. Numbers and job ids: the two scripts' headers.
+      # The same step also VERIFIES apt afterwards (refresh the lists, then
+      # check that the universe package `fonts-unifont` has a candidate),
+      # because one leg of 12 on 2026-11-18 (job 134961852153) had apt
+      # enumerate zero Ubuntu sources — including the direct
+      # `security.ubuntu.com` stanza, which the mirror list does not feed — and
+      # only found out three steps later as `exit 100` inside playwright. On a
+      # failed verification the step prints the sources state, rolls back its
+      # own rewrite and claims recovery only if the re-check passes. It still
+      # cannot fail the job.
+      - name: Prefer the official Ubuntu archive and verify apt's package lists
+        if: steps.scope.outputs.code == 'true'
+        env:
+          # 120 -> 60 (round 4 review, item 1). This step runs on EVERY leg and
+          # its rollback path pays the `apt-get update` budget TWICE (verify,
+          # roll back, re-verify) — and `--kill-after` with it, once per call,
+          # so at the script's own 120s default its worst case is
+          # 120 + 15 (kill-after) + 30 (lock wait) + 120 + 15 + ~10 = ~310s
+          # of a job ceiling every leg shares. At 60 the same path is
+          # 60 + 15 + 30 + 60 + 15 + 10 = ~190s. What has to fit in 60s is a list
+          # refresh against the OFFICIAL archive, measured at 7s end to end for
+          # this whole step (run 44353835133, job E2E (webkit-iphone)).
+          APT_UPDATE_TIMEOUT_SECONDS: '60'
+        run: bash scripts/devops/prefer-official-apt-mirror.sh
+
+      # The image version is a runner process variable, not a workflow context,
+      # so it has to be read in a step and published to be usable in a cache
+      # key. It belongs in the key because the .deb SET depends on the image.
+      - name: Compute the apt .deb cache key
+        id: aptkey
+        if: steps.scope.outputs.code == 'true'
+        run: echo "image=${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+
+      # restore/save split, not plain actions/cache: the post-step of
+      # actions/cache saves only when the job SUCCEEDS, and the run that most
+      # needs to seed this cache is the one whose tests went red after a slow
+      # install. The save step below runs with `always()`.
+      - uses: actions/cache/restore@v4
+        id: apt-debs
+        if: steps.scope.outputs.code == 'true'
+        with:
+          path: ~/.cache/apt-debs
+          # Browser-scoped, like the ms-playwright key above: the webkit leg
+          # needs 181 packages, the chromium legs a fraction of that, and a
+          # shared key would serve one leg the other's set.
+          #
+          # The LOCKFILE, not apps/e2e/package.json (round 4 review DS-L-3): the
+          # .deb set depends on the Playwright version actually installed, and
+          # package.json carries a RANGE. A `playwright` minor that changes the
+          # dependency list arrives through pnpm-lock.yaml with package.json
+          # untouched, which would serve the new Playwright the old set under an
+          # unchanged key. package.json stays in the key as well, so that a
+          # declared-dependency change nobody has re-locked yet still rotates it.
+          key: apt-debs-${{ runner.os }}-${{ steps.aptkey.outputs.image }}-${{ matrix.shard.name == 'webkit-iphone' && 'webkit' || 'chromium' }}-${{ hashFiles('pnpm-lock.yaml', 'apps/e2e/package.json') }}
+
+      - name: Restore apt .deb cache into apt's archives
+        if: steps.scope.outputs.code == 'true'
+        run: bash scripts/devops/apt-deb-cache.sh restore ~/.cache/apt-debs
+
       - name: Install Playwright browsers
         if: steps.scope.outputs.code == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
         run: |
@@ -1892,7 +2251,137 @@ jobs:
           # needs WebKit's own shared libraries instead (same browser split as
           # the install step above and the browser-scoped cache key).
           PLAYWRIGHT_DEPS_CMD: ${{ matrix.shard.name == 'webkit-iphone' && 'pnpm --filter @crm/e2e exec playwright install-deps webkit' || 'pnpm --filter @crm/e2e exec playwright install-deps chromium' }}
+          # webkit's package set is far larger than chromium's: `181 newly
+          # installed` / `Need to get 125 MB of archives.` against chromium's
+          # low single digits, and a healthy mirror serves it in 27-39s (runs
+          # 44249232698 / 44271763575 / 44302203345). 90s was still too small
+          # for it once (run 44216565244), which is what first left an orphaned
+          # `sudo apt-get` holding the dpkg lock against every retry.
+          #
+          # 720 -> 240 (round 4). The larger values this PR carried earlier
+          # assumed a download that needs 8-12 minutes; the sampler measured
+          # ~21 min on the ec2 mirror and 9s on Azure, so no per-attempt budget
+          # is the right instrument at all. With the .deb cache restored the
+          # install fetches 0 B (`Need to get 0 B/125 MB`, mechanism proven in
+          # ubuntu:24.04) and finishes in the unpack time alone; on a cache miss
+          # it fetches from the official archive. 240 covers a healthy install
+          # plus unpack with margin, and the step's own
+          # DEPS_STEP_DEADLINE_SECONDS caps the step regardless of this value,
+          # so no per-attempt budget can reach the job's `timeout-minutes`
+          # ceiling. A miss whose fetch is still slow degrades exactly as
+          # before, with the launch probe naming the cause.
+          CALL_TIMEOUT_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '240' || '90' }}
+          # Only the webkit leg opts into the degrade-path launch probe:
+          # chromium shards clear their tests with no install at all, so
+          # there is nothing there for a probe to protect. Empty keeps round
+          # 2's warn-and-continue behaviour untouched.
+          DEPS_VERIFY_BROWSER: ${{ matrix.shard.name == 'webkit-iphone' && 'webkit' || '' }}
+          # Shard-scoped for the same reason CALL_TIMEOUT_SECONDS is. The
+          # holder wait only ever helps the leg whose own install can outlive
+          # its per-attempt budget and orphan an apt-get; on a chromium leg a
+          # named holder is someone else's, and an unscoped wait would turn the
+          # pre-existing ~75s fast-refusal path (two flat pauses) into minutes.
+          # '0' must be written out: an empty string falls through the script's
+          # `${VAR:-180}` default back to 180. With the wait off,
+          # _pause_before_retry falls back to the tier's flat pause, so the
+          # chromium legs keep round 2's timings exactly — and the round-4
+          # post-tier re-check is gated on this same knob being > 0, so it is
+          # inert there too.
+          #
+          # 420 -> 180 (round 4), back to the script's own default. 420 was
+          # sized for an orphan holding the lock for as long as a stalled fetch
+          # lasts. With the bytes coming from the cache (or the official
+          # archive) the orphan this step may have to outlast is a FINISHING
+          # install, not one crawling at 100 KB/s. The wait stays the fallback for the case where a collision
+          # happens at all; the step's own DEPS_STEP_DEADLINE_SECONDS below
+          # remains the single ceiling the arithmetic is checked against.
+          HOLDER_WAIT_MAX_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '180' || '0' }}
+          # The step budget, both legs (round 4 review, items 1/10/16). Written
+          # out rather than leaning on the script's 420 default, because this
+          # number is only defensible next to the job's own
+          # `timeout-minutes: 22` (1320s), and the reader needs to see which leg
+          # gets what.
+          #
+          # 480 -> 360 for webkit, 420 -> 360 for chromium. 480 and 420 were
+          # sized against a 900s ceiling whose arithmetic did not include the
+          # four steps this PR adds ahead of this one, and whose sum exceeded it
+          # anyway. What 360 has to hold is measured: the cached install is 19s
+          # end to end (run 44353835133, job E2E (webkit-iphone)), a healthy
+          # mirror on a cache MISS serves the 125 MB webkit set in 9-39s (runs
+          # 44249232698 / 44271763575 / 44302203345), and chromium's set is low
+          # single digits. An install still unfinished after 360s is a broken
+          # byte source, which no larger budget fixes — the launch probe then
+          # fails the step by name instead of handing a dead browser to the
+          # tests.
+          #
+          # THE STEP CAN EXCEED THIS DEADLINE, by four bounded amounts and
+          # nothing else:
+          #   * the post-tier wait's DEPS_RECHECK_WAIT_FLOOR_SECONDS (60s, the
+          #     script's default — it is what makes that wait reachable once the
+          #     tiers have spent the budget, round 4 review SR-H-1)
+          #   * the re-check install's DEPS_RECHECK_FLOOR_SECONDS (60s)
+          #   * if that re-check also fails, the launch probe's 30s floor
+          #   * DEPS_MIN_CALL_SECONDS (60s) — the bound on a tier's FIRST
+          #     attempt, which is deliberately unconditional, when the budget is
+          #     already spent at entry (round 4 review, item 14). It is applied
+          #     as a CEILING on that attempt, so it can never lengthen one; the
+          #     earlier form left that attempt unclamped at the full
+          #     CALL_TIMEOUT_SECONDS, which is the overshoot this term replaces.
+          # Every other attempt, wait and pause is clamped to the remaining
+          # budget. On a chromium leg the first three are inert
+          # (HOLDER_WAIT_MAX_SECONDS=0 gates the wait and the re-check,
+          # DEPS_VERIFY_BROWSER is empty so there is no probe), so only the
+          # fourth applies there.
+          #
+          # THE WEBKIT LEG'S WORST CASE, every term measured on run
+          # 44353835133 (job E2E (webkit-iphone), 171s total) unless marked:
+          #   * job start to this step's predecessors done: 140s (worst sampled;
+          #     127s on 44353835133, 138s on 44261481950, 124s on 44302203345)
+          #   * "Prefer the official Ubuntu archive": 7s measured, ~190s worst
+          #     (its rollback path, bounded by APT_UPDATE_TIMEOUT_SECONDS above)
+          #   * "Compute the apt .deb cache key": 0s measured, 1s
+          #   * actions/cache/restore of ~/.cache/apt-debs: 2s measured, 60s
+          #     bound (the same job restored a 177 MB entry at 22-41 MB/s)
+          #   * "Restore apt .deb cache into apt's archives", including the
+          #     SHA256 verification of every cached .deb against apt's own index
+          #     (round 4 review, SR-M-1): 2s measured, 60s bound
+          #   * this step: 360 + 60 + 60 + 30 + 60 = 570s worst (above)
+          #   * the E2E run itself: 8s measured (9s/5s/5s on 44302203345 /
+          #     44271763575 / 44249232698 — one spec file declaring 9 tests, of
+          #     which the INP describe (3) skips under WebKit); budget 10s
+          #   * teardown: ~6s
+          #   * "Stage apt .debs for the cache" + actions/cache/save: 1s + 0s
+          #     measured on a hit; 90s bound for a MISS that uploads ~125 MB
+          #   => 140 + 190 + 1 + 60 + 60 + 570 + 10 + 6 + 90 = 1127s, leaving
+          #      193s of slack under the 1320s job ceiling.
+          #
+          # THE LONGEST CHROMIUM LEG (`misc`, 487s on that same run, dominated
+          # by its own test run): 487 measured, minus the 11s its four new
+          # pre-steps took and the 19s of this step, plus their worst cases
+          # (401s incl. the save — 190 + 1 + 60 + 60 + 90 — and 360 + 60 = 420s
+          # here)
+          #   => 487 - 30 + 401 + 420 = 1278s, leaving 42s of slack under the
+          #      same 1320s ceiling. `misc` is the leg with the least room, so
+          #      this is the slack the arithmetic is checked against.
+          # So round 4 DOES touch the chromium legs — the mirror step and both
+          # cache steps run on every shard — and the earlier claim that it does
+          # not was removed with this block (round 4 review, item 10).
+          DEPS_STEP_DEADLINE_SECONDS: '360'
         run: scripts/devops/install-playwright-system-deps.sh
+
+      # `always()`: a run whose tests fail after a ~21-minute install is exactly
+      # the run whose downloaded .debs the NEXT run needs. Both steps are
+      # harmless on a hit — nothing new was downloaded, so the staging step says
+      # so and the save finds the key already present.
+      - name: Stage apt .debs for the cache
+        if: always() && steps.scope.outputs.code == 'true'
+        run: bash scripts/devops/apt-deb-cache.sh save ~/.cache/apt-debs
+
+      - uses: actions/cache/save@v4
+        if: always() && steps.scope.outputs.code == 'true' && steps.apt-debs.outputs.cache-hit != 'true'
+        with:
+          path: ~/.cache/apt-debs
+          key: ${{ steps.apt-debs.outputs.cache-primary-key }}
 
       # ── landing-only steps (task-landing-e2e-in-ci.md КОНТРАКТ) ─────────
       # Real admin HTTP API (dev-login → POST/PATCH /api/vacancies), not a

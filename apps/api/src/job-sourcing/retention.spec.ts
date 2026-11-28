@@ -1,5 +1,13 @@
-import { describe, expect, it } from 'vitest'
-import { NEW_STORE_CLEANUP_DISABLED, type ObservationContext, shouldKeepPosting } from './retention'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  NEW_STORE_CLEANUP_DISABLED,
+  NEW_STORE_CLEANUP_ENABLED,
+  type ObservationContext,
+  VACANCY_RETENTION_DAYS,
+  isPastRetention,
+  shouldKeepPosting,
+  vacancyRetentionEnabled,
+} from './retention'
 
 const cutoff = new Date('2026-07-06T00:00:00Z')
 const old = new Date('2026-06-01T00:00:00Z')
@@ -62,8 +70,10 @@ describe('shouldKeepPosting — new-store context (r5 §1.4)', () => {
   const legacyDroppable = { collectedAt: old, queueStatus: 'NEW' as const, decidedBySenior: false }
   const cleanupOn = { newStoreCleanupEnabled: true }
 
-  it('new-store cleanup is DISABLED by default (AC5 — the seam ships off)', () =>
-    expect(NEW_STORE_CLEANUP_DISABLED.newStoreCleanupEnabled).toBe(false))
+  it('new-store cleanup is ENABLED by default (owner froze the durations 2026-11-25)', () => {
+    expect(NEW_STORE_CLEANUP_ENABLED.newStoreCleanupEnabled).toBe(true)
+    expect(NEW_STORE_CLEANUP_DISABLED.newStoreCleanupEnabled).toBe(false)
+  })
 
   it('keeps a stale record that is still actively observed — insertion age alone never deletes', () =>
     // Kills: `obs.lastObservedAt >= cutoff`.
@@ -180,6 +190,59 @@ describe('shouldKeepPosting — new-store context (r5 §1.4)', () => {
     ).toBe(true)
   })
 
-  it('the default policy argument is the disabled one (a caller cannot forget the switch)', () =>
-    expect(shouldKeepPosting({ ...legacyDroppable, observation: observed() }, cutoff)).toBe(true))
+  it('the default policy argument is the enabled one (owner 2026-11-25)', () =>
+    expect(shouldKeepPosting({ ...legacyDroppable, observation: observed() }, cutoff)).toBe(false))
+})
+
+describe('isPastRetention — the 60-day limit by publication date (owner 2026-11-25)', () => {
+  const now = new Date('2026-11-25T12:00:00.000Z')
+
+  it('the limit is 60 days', () => expect(VACANCY_RETENTION_DAYS).toBe(60))
+
+  it('a posting published 61 days ago is past it', () =>
+    expect(isPastRetention(new Date('2026-09-25T12:00:00.000Z'), now)).toBe(true))
+
+  it('a posting published 59 days ago is not', () =>
+    expect(isPastRetention(new Date('2026-09-27T12:00:00.000Z'), now)).toBe(false))
+
+  it('exactly 60 days ago is still inside the limit (strictly older is past it)', () =>
+    expect(isPastRetention(new Date('2026-09-26T12:00:00.000Z'), now)).toBe(false))
+
+  it('one millisecond past 60 days is past it', () =>
+    expect(isPastRetention(new Date('2026-09-26T11:59:59.999Z'), now)).toBe(true))
+
+  it('no publication date is never past it (first_seen_at is the store fallback)', () => {
+    expect(isPastRetention(null, now)).toBe(false)
+    expect(isPastRetention(undefined, now)).toBe(false)
+  })
+})
+
+describe('vacancyRetentionEnabled — the SR-M-3 kill switch, read at call time', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('is on when unset', () => {
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', undefined)
+    expect(vacancyRetentionEnabled()).toBe(true)
+  })
+
+  it('is off only for "false", in any case', () => {
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', 'false')
+    expect(vacancyRetentionEnabled()).toBe(false)
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', 'FaLsE')
+    expect(vacancyRetentionEnabled()).toBe(false)
+  })
+
+  it('is on for "true", in any case', () => {
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', 'true')
+    expect(vacancyRetentionEnabled()).toBe(true)
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', 'TrUe')
+    expect(vacancyRetentionEnabled()).toBe(true)
+  })
+
+  it('SR-M-6: any other value throws, the same refusal as boot (never read as on)', () => {
+    for (const v of ['0', 'off', 'no', 'flase', '']) {
+      vi.stubEnv('VACANCY_RETENTION_ENABLED', v)
+      expect(() => vacancyRetentionEnabled(), v).toThrow()
+    }
+  })
 })

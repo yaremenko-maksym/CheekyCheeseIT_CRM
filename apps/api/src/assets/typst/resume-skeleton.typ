@@ -9,7 +9,8 @@
 // fingerprint covers the theme for free.
 //
 // THE CONTRACT. The template receives one dictionary: `displayName`, `email`,
-// the resume `content` and the four `layout` switches. It reads nothing else:
+// `phone`, `telegram` (`@handle`; both `""` when absent), the resume `content`
+// and the four `layout` switches. It reads nothing else:
 // no file, no environment, no network.
 //
 // THE SKELETON RULES (ATS-safe; each one is a test in
@@ -17,8 +18,8 @@
 //   - a single column: no grid, table, columns or column break;
 //   - the fixed headings Summary / Experience / Skills / Education / Languages
 //     / Links, as real headings, in `layout.sectionOrder`, absent when hidden;
-//   - name and email as body text at the top of page one, never in a page
-//     header or footer;
+//   - name, then email / phone / Telegram on one line, as body text at the top of page one, never in a page
+//     header or footer; each contact a link (mailto: / tel: / https://t.me/) whose text is the value;
 //   - no images, icons, floats or absolute placement;
 //   - ligatures off, so extracted text spells words the way they were typed;
 //   - the document title is "<name> - Resume" with an em dash, or "Resume"
@@ -43,10 +44,14 @@
 // --- the layout switches -----------------------------------------------------
 // Closed sets. The theme scales spacing and margins; it cannot add a switch.
 
+// Every gap runs from the baseline of one line to the cap height of the next, like
+// `leading`. So the order leading < item-gap < section-gap is what keeps the
+// spacing even: a gap below `leading` puts two blocks closer than two lines of
+// one paragraph, and descenders touch the next line.
 #let densities = (
-  compact: (leading: 0.52em, section-gap: 0.75em, item-gap: 0.35em, margin: 1.4cm),
-  normal: (leading: 0.68em, section-gap: 1.1em, item-gap: 0.55em, margin: 1.8cm),
-  relaxed: (leading: 0.85em, section-gap: 1.5em, item-gap: 0.8em, margin: 2.3cm),
+  compact: (leading: 0.52em, section-gap: 1.2em, item-gap: 0.9em, margin: 1.4cm),
+  normal: (leading: 0.68em, section-gap: 1.5em, item-gap: 1.1em, margin: 1.8cm),
+  relaxed: (leading: 0.85em, section-gap: 1.9em, item-gap: 1.35em, margin: 2.3cm),
 )
 
 #let font-sizes = (small: 9pt, normal: 10.5pt, large: 12pt)
@@ -74,9 +79,11 @@
       #item.company \
       #text(fill: theme.muted)[#item.period]
     ]
+    // The bullets sit one `leading` below the period and one `leading` apart:
+    // the same rhythm as the lines inside a bullet.
     #if item.bullets.len() > 0 {
-      v(0.2em, weak: true)
-      list(indent: 0.2em, spacing: 0.45em, tight: true, ..item.bullets.map(b => [#b]))
+      context v(par.leading, weak: true)
+      list(indent: 0.2em, tight: true, ..item.bullets.map(b => [#b]))
     }
   ]
 }
@@ -119,7 +126,21 @@
     if content.links.len() == 0 { return none }
     // The URL was restricted to https:/mailto: by the shared schema on the way
     // in, so no `javascript:` can reach a PDF annotation here.
-    return content.links.map(l => block(above: 0.3em)[#link(l.url)[#l.label]]).join()
+    // The label stays the link text (the ATS check reads it); the bare address
+    // follows it, so a printed copy still says where the link goes.
+    // The address is printed after the label only while it is short: a URL gets
+    // no inserted break opportunities (resume-glyphs.ts), so a long one could
+    // run off the page. The scheme check upstream is case-insensitive, so the
+    // strip is too.
+    return content.links
+      .map(l => {
+        let shown = l.url.replace(regex("(?i)^(https://|mailto:)"), "").trim("/", at: end)
+        let fits = shown.len() <= 60
+        if l.label.trim() == "" { link(l.url)[#if fits { shown } else { "Link" }] }
+        else if fits [#link(l.url)[#l.label]: #text(fill: theme.muted)[#shown]]
+        else { link(l.url)[#l.label] }
+      })
+      .join(" · ")
   }
   none
 }
@@ -143,17 +164,30 @@
   set par(leading: density.leading * theme.spacing-scale, justify: false)
 
   show heading: it => {
-    set text(size: theme.heading-size, weight: theme.heading-weight, fill: theme.accent, tracking: 0pt)
+    // `heading-size` is a ratio to the body text, not to Typst's own heading size.
+    set text(size: size * (theme.heading-size / 1em), weight: theme.heading-weight, fill: theme.accent, tracking: 0pt)
     block(above: gap, below: 0.35em, sticky: true)[#it.body]
+    // In its own block, or the rule takes the default paragraph spacing and
+    // floats far below its heading; sticky, so it never ends a page alone.
     if theme.heading-rule != none {
-      line(length: 100%, stroke: theme.heading-rule)
-      v(0.2em, weak: true)
+      block(above: 0.35em, below: 0.6em, sticky: true, line(length: 100%, stroke: theme.heading-rule))
     }
   }
 
   align(theme.name-align)[
     #if data.displayName.trim() != "" [#text(size: theme.name-size, weight: "bold")[#data.displayName] \ ]
-    #if data.email != "" [#data.email]
+    // One contact line: email, phone, Telegram. ASCII separators only (GLYPHS above).
+    // Each is a link (mailto:, tel:, t.me) so a recruiter reaches the senior in one click; the
+    // printed text stays the value itself, which the ATS check reads.
+    #let email = data.email
+    #let phone = data.at("phone", default: "")
+    #let telegram = data.at("telegram", default: "")
+    #let contact = (
+      if email != "" { link("mailto:" + email)[#email] },
+      if phone != "" { link("tel:" + phone.replace(regex("[^0-9+]"), ""))[#phone] },
+      if telegram != "" [Telegram: #link("https://t.me/" + telegram.trim("@", at: start))[#telegram]],
+    ).filter(c => c != none)
+    #if contact.len() > 0 [#contact.join(" | ")]
   ]
 
   for key in layout.sectionOrder {

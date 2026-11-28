@@ -80,22 +80,26 @@ function buildOnce(): Manifest {
 }
 
 describe('every adapter in the tree is accounted for', () => {
-  it('the adapter modules declare exactly the 23 types the manifest marks implemented on the reporting contract', () => {
+  it('the adapter modules declare exactly the types the manifest marks implemented on the reporting contract', () => {
     // Adapters that are built through a factory name their type in `{ type: 'X', configSchema }`
     // or `type: 'X'` of a spec; both shapes are matched, and the quota/ATS helpers are skipped
-    // because they carry no `type:` of their own.
+    // because they carry no `type:` of their own. The literal may be wrapped by Stryker's
+    // instrumentation (`type: stryMutAct_x("1") ? "" : (stryCov_x("1"), 'X')`) during a
+    // mutation run, so the match allows anything between `type:` and the quoted name.
     const declared = providerFiles
-      .flatMap((f) => [...text(f).matchAll(/\btype: '([A-Z]+(?:_[A-Z]+)+)'/g)].map((m) => m[1]!))
+      .flatMap((f) =>
+        [...text(f).matchAll(/\btype: [^\n]*?'([A-Z]+(?:_[A-Z]+)+)'/g)].map((m) => m[1]!),
+      )
       .sort()
     const implemented = manifest.types
       .filter((t) => t.disposition.kind === 'IMPLEMENTED' && t.disposition.contract === 'REPORTING')
       .map((t) => t.type)
       .sort()
     expect(new Set(declared)).toEqual(new Set(implemented))
-    expect(implemented).toHaveLength(23)
+    expect(implemented).toHaveLength(41)
   })
 
-  it('the adapter map used for validation holds exactly those 23 and nothing else', () => {
+  it('the adapter map used for validation holds exactly the IMPLEMENTED REPORTING types and nothing else', () => {
     expect([...MANIFEST_VALIDATION_ADAPTERS.keys()].sort()).toEqual(
       manifest.types
         .filter(
@@ -116,7 +120,7 @@ describe('every readiness constant is reconciled', () => {
       .sort()
     const reconciled = manifest.types.flatMap((t) => (t.status ? [t.status.symbol] : [])).sort()
     expect(reconciled).toEqual(exported)
-    expect(exported).toHaveLength(10)
+    expect(exported).toHaveLength(24)
   })
 
   it('each exported *_DEADLINE in an adapter is the date a definition reads', () => {
@@ -196,7 +200,7 @@ describe('the generated seed delta', () => {
 
   it('writes every inserted row disabled and no row that is VERIFIED', () => {
     const { sources } = seedRowsOf(manifest)
-    expect(sources).toHaveLength(34)
+    expect(sources).toHaveLength(55)
     expect(new Set(sources.map((s) => s.readiness))).toEqual(new Set(['CANDIDATE', 'BLOCKED']))
     // The reason column's own bound, and its own rule: a blocked row has one.
     for (const s of sources) {
@@ -231,12 +235,18 @@ describe('the generated seed delta', () => {
 
   it('blocks the types that are not ready, so a seeded row of one is not left a candidate', () => {
     const blocked = seedRowsOf(manifest).typeBlocks.map((b) => b.type)
-    expect(blocked).toEqual([
-      'WORKINGNOMADS_API',
-      'SMARTRECRUITERS_ATS',
-      'MUSE_API',
-      'EUREMOTEJOBS_RSS',
-    ])
+    // SmartRecruiters and Working Nomads left this list in task sources-04: SmartRecruiters' only
+    // blocker was the missing payload capture, now committed, and Working Nomads is permitted by
+    // the owner decision of 2026-11-16. EU Remote Jobs is PROHIBITED by its own terms, which no
+    // decision lifts, so it is the only type left blocking its rows.
+    // Which step reverses a block already written to prod depends on whether the row is claimed
+    // yet (CR-L-2, CR-L-10). The Working Nomads row comes from the 2026-10-05 seed and still has
+    // `manifest_id IS NULL`, so it is STEP 1 (claim) that adopts it and writes the manifest's
+    // CANDIDATE through its `CASE WHEN s.readiness='VERIFIED' AND m.readiness='CANDIDATE'` guard -
+    // step 5 matches on `s.manifest_id = m.manifest_id` and cannot see an unclaimed row at all.
+    // Step 5 is what keeps a row that is ALREADY claimed following the manifest on later
+    // deploys; it only sees rows whose `manifest_id` still names an entry of the manifest.
+    expect(blocked).toEqual(['EUREMOTEJOBS_RSS'])
   })
 
   it('stores no KEY_REQUIRED: a keyed row and type are not blocked by the key, which the runtime checks', () => {
@@ -459,7 +469,7 @@ describe('every fetch profile names an IANA zone, not an offset', () => {
 
 describe('T8: every reporting source has a host key that scopes what it really requests', () => {
   it('every entry carries a valid, non-empty key (the ADR drift rule)', () => {
-    expect(manifest.entries).toHaveLength(34)
+    expect(manifest.entries).toHaveLength(55)
     for (const e of manifest.entries) expect(isValidHostKey(e.hostKey), e.id).toBe(true)
   })
 
@@ -603,7 +613,6 @@ describe('T8: every reporting source has a host key that scopes what it really r
       JOOBLE_API: keyOf('JOOBLE_API'),
       JSEARCH_API: keyOf('JSEARCH_API'),
       THEIRSTACK_API: keyOf('THEIRSTACK_API'),
-      MUSE_API: keyOf('MUSE_API'),
       REED_API: keyOf('REED_API'),
       DJINNI_RSS: keyOf('DJINNI_RSS'),
       WWR_RSS: keyOf('WWR_RSS'),
@@ -625,7 +634,6 @@ describe('T8: every reporting source has a host key that scopes what it really r
       JOOBLE_API: 'jooble.org',
       JSEARCH_API: 'jsearch.p.rapidapi.com',
       THEIRSTACK_API: 'api.theirstack.com',
-      MUSE_API: 'www.themuse.com',
       REED_API: 'www.reed.co.uk',
       DJINNI_RSS: 'djinni.co',
       WWR_RSS: 'weworkremotely.com',
@@ -726,5 +734,35 @@ describe('T8: the generated host-key delta', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('the wave-3 payload fixtures are named by their definitions and exist on disk', () => {
+  const expected: [string, readonly string[]][] = [
+    ['FOURDAYWEEK_API', ['jobs-engineering.json']],
+    ['GERMANTECHJOBS_API', ['jobs-light.json']],
+    ['JOBTECH_API', ['jobs-data-it.json']],
+  ]
+  it.each(expected)(
+    '%s names its payload fixtures, and each is a file in its fixture directory',
+    (type, files) => {
+      const def = MANIFEST_DEFINITIONS.find((d) => d.type === type)
+      expect(def?.payloadFixtures).toEqual(files)
+      for (const file of files) {
+        expect(existsSync(join(FIXTURE_ROOT, def?.fixtureDir ?? '', file))).toBe(true)
+      }
+    },
+  )
+})
+
+describe('the wave-3 definitions register their entry ids', () => {
+  const entries: [string, string][] = [
+    ['FOURDAYWEEK_API', 'fourdayweek.api.engineering'],
+    ['GERMANTECHJOBS_API', 'germantechjobs.api.jobs'],
+    ['JOBTECH_API', 'jobtech.api.data-it'],
+  ]
+  it.each(entries)('%s is registered under exactly the entry id %s', (type, id) => {
+    const def = MANIFEST_DEFINITIONS.find((d) => d.type === type)
+    expect(def?.entries.map((e) => e.id)).toEqual([id])
   })
 })

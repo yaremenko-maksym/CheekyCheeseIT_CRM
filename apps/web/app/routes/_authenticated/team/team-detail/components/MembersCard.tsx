@@ -1,5 +1,5 @@
 import { Mail, Phone, Send, UserMinus } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { useMemo } from 'react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { Role, TeamDto } from '@crm/shared'
@@ -8,6 +8,7 @@ import { hasRealPhone } from '@/lib/format-phone'
 import { tgUrl, tgDisplay } from '@/lib/tg-url'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProfileNameLink } from '@/components/users/ProfileNameLink'
+import { RoleChips } from '@/components/users/RoleChips'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -68,10 +69,10 @@ export function MembersCard({
           return (
             <div className="grid gap-2 sm:grid-cols-2">
               {visibleMembers.map((member) => (
-                <motion.div
+                <m.div
                   key={member.id}
                   className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/50 p-3"
-                  // Stryker disable next-line ObjectLiteral: hover animation config; framer-motion applies it only on real pointer events, which no jsdom assertion observes
+                  // Stryker disable next-line ObjectLiteral: hover animation config; motion applies it only on real pointer events, which no jsdom assertion observes
                   whileHover={{ scale: 1.01 }}
                   // Stryker disable next-line ObjectLiteral: animation timing config; not observable in jsdom
                   transition={{ duration: 0.15 }}
@@ -115,18 +116,24 @@ export function MembersCard({
                           {i18n._(ROLE_LABEL_MESSAGES[member.role])}
                         </Badge>
                       </div>
-                      {Array.isArray(member.techStack) && member.techStack.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {(member.techStack as string[]).map((t) => (
-                            <Badge
-                              key={t}
-                              variant="outline"
-                              className="text-[9px] px-1.5 py-0 font-mono"
-                            >
-                              {t}
-                            </Badge>
-                          ))}
-                        </div>
+                      {member.role === 'SENIOR' ? (
+                        // A SENIOR shows its technical roles; a legacy one with none shows nothing, never the stale stack.
+                        <RoleChips roles={member.technicalRoles} limit={3} className="mt-1" />
+                      ) : (
+                        Array.isArray(member.techStack) &&
+                        member.techStack.length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {(member.techStack as string[]).map((t) => (
+                              <Badge
+                                key={t}
+                                variant="outline"
+                                className="text-[9px] px-1.5 py-0 font-mono"
+                              >
+                                {t}
+                              </Badge>
+                            ))}
+                          </div>
+                        )
                       )}
                       <div className="mt-1 flex flex-col gap-0.5 min-w-0">
                         <a
@@ -189,7 +196,7 @@ export function MembersCard({
                         </Button>
                       ) : null
                     })()}
-                </motion.div>
+                </m.div>
               ))}
               {visibleMembers.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-12 text-center col-span-2">

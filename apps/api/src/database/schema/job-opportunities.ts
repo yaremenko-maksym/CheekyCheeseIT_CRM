@@ -27,6 +27,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -328,8 +329,22 @@ export const jobOpportunities = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::text[]`),
-    roleStatus: text('role_status').$type<'RULE' | 'AI' | 'PENDING' | 'UNCLEAR' | 'NON_IT'>(),
+    roleStatus: text('role_status').$type<
+      'RULE' | 'AI' | 'PENDING' | 'UNCLEAR' | 'NON_IT' | 'OUT_OF_SCOPE'
+    >(),
     roleClassifierVersion: text('role_classifier_version'),
+    /**
+     * Sources-17: the canonical STRUCTURED salary, one atomic claim over the members
+     * (`job-sourcing/store/canonical-plan.ts`), all five null when no source states one.
+     * `salary_monthly_top` is the range's top per month (max, else min), computed in TS and
+     * comparable only within one currency (there is no FX source). Production gets them ONLY
+     * through manual/2026-11-21_job_opportunities_salary.sql; declared last (ADD COLUMN rank).
+     */
+    salaryMin: numeric('salary_min', { precision: 12, scale: 2 }),
+    salaryMax: numeric('salary_max', { precision: 12, scale: 2 }),
+    salaryCurrency: text('salary_currency'),
+    salaryPeriod: text('salary_period').$type<'HOUR' | 'MONTH' | 'YEAR'>(),
+    salaryMonthlyTop: numeric('salary_monthly_top', { precision: 12, scale: 2 }),
   },
   (t) => [
     foreignKey({
@@ -359,11 +374,39 @@ export const jobOpportunities = pgTable(
       sql`${t.roleFamily} IS NULL OR (${t.roleFamily} ~ '[^[:space:]]' AND length(${t.roleFamily}) <= ${sql.raw(String(JOB_SHORT_TEXT_MAX))})`,
     ),
     index('idx_job_opportunities_technical_roles').using('gin', t.technicalRoles),
+    /**
+     * Senior roles 3b: the role-AI candidate scan (`role-ai.store.ts`, `candidates`) reads
+     * PENDING rows newest-first with a LIMIT, so the predicate matches its WHERE and the key order
+     * its ORDER BY. `nullsFirst` is NOT cosmetic: it is Postgres's default for DESC, so it is what
+     * the query's `ORDER BY last_observed_at DESC` asks for and what the forward DDL's plain
+     * `DESC` builds, while Drizzle's bare `.desc()` emits `DESC NULLS LAST` — an index the planner
+     * cannot use for that order, and a drift from the DDL. Production gets it ONLY through
+     * manual/2026-11-18_job_opportunities_role_pending_index.sql.
+     */
+    index('idx_job_opportunities_role_pending')
+      .on(t.lastObservedAt.desc().nullsFirst(), t.id)
+      .where(sql`${t.roleStatus} = 'PENDING'`),
     check('ck_job_opportunities_technical_roles_known', allTechnicalRolesCheck(t.technicalRoles)),
     check(
       'ck_job_opportunities_role_status',
-      sql`${t.roleStatus} IS NULL OR ${t.roleStatus} IN ('RULE', 'AI', 'PENDING', 'UNCLEAR', 'NON_IT')`,
+      sql`${t.roleStatus} IS NULL OR ${t.roleStatus} IN ('RULE', 'AI', 'PENDING', 'UNCLEAR', 'NON_IT', 'OUT_OF_SCOPE')`,
     ),
+    check(
+      'ck_job_opportunities_salary_currency',
+      sql`${t.salaryCurrency} IS NULL OR ${t.salaryCurrency} ~ '^[A-Z]{3}$'`,
+    ),
+    check(
+      'ck_job_opportunities_salary_period',
+      sql`${t.salaryPeriod} IS NULL OR ${t.salaryPeriod} IN ('HOUR', 'MONTH', 'YEAR')`,
+    ),
+    check(
+      'ck_job_opportunities_salary_shape',
+      sql`(${t.salaryMin} IS NULL AND ${t.salaryMax} IS NULL AND ${t.salaryCurrency} IS NULL AND ${t.salaryPeriod} IS NULL AND ${t.salaryMonthlyTop} IS NULL) OR (${t.salaryCurrency} IS NOT NULL AND ${t.salaryPeriod} IS NOT NULL AND ${t.salaryMonthlyTop} IS NOT NULL AND (${t.salaryMin} IS NOT NULL OR ${t.salaryMax} IS NOT NULL) AND (${t.salaryMin} IS NULL OR ${t.salaryMin} > 0) AND (${t.salaryMax} IS NULL OR ${t.salaryMax} > 0) AND (${t.salaryMin} IS NULL OR ${t.salaryMax} IS NULL OR ${t.salaryMin} <= ${t.salaryMax}))`,
+    ),
+    /** Sources-17: the queue's same-currency monthly-minimum filter (`queue-read-sql.ts`). */
+    index('idx_job_opportunities_salary')
+      .on(t.salaryCurrency, t.salaryMonthlyTop)
+      .where(sql`${t.salaryCurrency} IS NOT NULL`),
     check(
       'ck_job_opportunities_roles_iff_status',
       sql`${t.roleStatus} IS NULL OR ((cardinality(${t.technicalRoles}) > 0) = (${t.roleStatus} IN ('RULE', 'AI')))`,

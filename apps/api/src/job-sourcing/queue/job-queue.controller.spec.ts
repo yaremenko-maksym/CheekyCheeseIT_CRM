@@ -14,6 +14,8 @@ import { RolesGuard } from '../../common/guards/roles.guard'
 import { JobQueueController } from './job-queue.controller'
 import type { JobQueueService } from './job-queue.service'
 import type { JobQueueActionsService } from './queue-actions.service'
+import type { BlockPickService } from './block-pick.service'
+import type { ManualParseService } from './manual-parse.service'
 import type { JobQueueRecomputeService } from './queue-recompute.service'
 
 /**
@@ -36,6 +38,7 @@ const LIST = {
   nextCursor: null,
   counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
   generation: null,
+  sourcingNotice: null,
 }
 const PAGE = { items: [], totalCount: 0, nextCursor: null }
 const CARD = {
@@ -135,7 +138,7 @@ function harness() {
     sources: vi.fn(async () => PAGE),
     seniors: vi.fn(async () => PAGE),
     seniorOptions: vi.fn(async (): Promise<unknown> => ({
-      items: [{ id: OPP, name: 'A Senior', teamName: 'Alpha' }],
+      items: [{ id: OPP, name: 'A Senior', teamName: 'Alpha', technicalRoles: ['QA_ENGINEER'] }],
     })),
   }
   const actions = {
@@ -156,15 +159,25 @@ function harness() {
     })),
   }
   const recomputes = { enqueue: vi.fn(async () => ({ runId: RUN })) }
+  const parses = {
+    parse: vi.fn(async (): Promise<unknown> => ({ isVacancy: true, title: 'Go Developer' })),
+  }
+  const picks = {
+    pick: vi.fn(async (): Promise<unknown> => ({ isVacancy: true, title: 'Go Developer' })),
+  }
   return {
     controller: new JobQueueController(
       queue as unknown as JobQueueService,
       actions as unknown as JobQueueActionsService,
       recomputes as unknown as JobQueueRecomputeService,
+      parses as unknown as ManualParseService,
+      picks as unknown as BlockPickService,
     ),
     queue,
     actions,
     recomputes,
+    parses,
+    picks,
   }
 }
 
@@ -192,6 +205,8 @@ describe('JobQueueController — routing and gates', () => {
     ['sources', RequestMethod.GET, ':id/sources', ['ADMIN', 'HR'], 60, undefined],
     ['seniors', RequestMethod.GET, ':id/seniors', ['ADMIN', 'HR'], 60, undefined],
     ['seniorOptions', RequestMethod.GET, 'seniors', ['ADMIN', 'HR'], 60, undefined],
+    ['parseManual', RequestMethod.POST, 'manual/parse', ['ADMIN', 'HR'], 10, 200],
+    ['pickManual', RequestMethod.POST, 'manual/pick', ['ADMIN', 'HR'], 10, 200],
     ['submit', RequestMethod.POST, ':id/submissions', ['ADMIN', 'HR'], 30, undefined],
     [
       'cancel',
@@ -269,13 +284,26 @@ describe('JobQueueController — reads', () => {
   it('list: parses the query (defaults applied) and passes the caller', async () => {
     const h = harness()
     expect(await h.controller.list({ teamId: TEAM }, HR)).toEqual(LIST)
-    expect(h.queue.list).toHaveBeenCalledWith(HR, { teamId: TEAM, tab: 'NEW', limit: 20 })
+    expect(h.queue.list).toHaveBeenCalledWith(HR, {
+      teamId: TEAM,
+      tab: 'NEW',
+      sort: 'relevance',
+      limit: 20,
+    })
   })
 
   it('list: a limit string is coerced', async () => {
     const h = harness()
     await h.controller.list({ limit: '50' }, HR)
-    expect(h.queue.list).toHaveBeenCalledWith(HR, { tab: 'NEW', limit: 50 })
+    expect(h.queue.list).toHaveBeenCalledWith(HR, { tab: 'NEW', sort: 'relevance', limit: 50 })
+  })
+
+  it('list: the sort reaches the service, and an unknown one is refused', async () => {
+    const h = harness()
+    await h.controller.list({ sort: 'published' }, HR)
+    expect(h.queue.list).toHaveBeenCalledWith(HR, { tab: 'NEW', sort: 'published', limit: 20 })
+    await expect(async () => h.controller.list({ sort: 'newest' }, HR)).rejects.toThrow()
+    expect(h.queue.list).toHaveBeenCalledTimes(1)
   })
 
   it.each([
@@ -296,7 +324,7 @@ describe('JobQueueController — reads', () => {
   it('seniorOptions: passes the caller and the team, and answers the items', async () => {
     const h = harness()
     expect(await h.controller.seniorOptions({ teamId: TEAM }, HR)).toEqual({
-      items: [{ id: OPP, name: 'A Senior', teamName: 'Alpha' }],
+      items: [{ id: OPP, name: 'A Senior', teamName: 'Alpha', technicalRoles: ['QA_ENGINEER'] }],
     })
     expect(h.queue.seniorOptions).toHaveBeenCalledWith(HR, { teamId: TEAM })
   })
@@ -310,10 +338,18 @@ describe('JobQueueController — reads', () => {
     },
   )
 
-  it('seniorOptions: a field beyond id, name and team never leaves the API', async () => {
+  it('seniorOptions: a field beyond id, name, team and roles never leaves the API', async () => {
     const h = harness()
     h.queue.seniorOptions.mockResolvedValue({
-      items: [{ id: OPP, name: 'A Senior', teamName: 'Alpha', email: 'x@example.com' }],
+      items: [
+        {
+          id: OPP,
+          name: 'A Senior',
+          teamName: 'Alpha',
+          technicalRoles: [],
+          email: 'x@example.com',
+        },
+      ],
     })
     await expect(h.controller.seniorOptions({}, HR)).rejects.toThrow(ZodError)
   })
@@ -438,6 +474,62 @@ describe('JobQueueController — writes', () => {
     const h = harness()
     await expect(h.controller.createManualCard(body, HR)).rejects.toThrow(ZodError)
     expect(h.actions.createManualCard).not.toHaveBeenCalled()
+  })
+
+  it('manual parse: passes the trimmed text and the caller to the service', async () => {
+    const h = harness()
+    expect(await h.controller.parseManual({ text: '  Go dev wanted  ' }, HR)).toEqual({
+      isVacancy: true,
+      title: 'Go Developer',
+    })
+    expect(h.parses.parse).toHaveBeenCalledWith(HR, 'Go dev wanted')
+  })
+
+  it.each([
+    ['a blank text', { text: '   ' }],
+    ['no text', {}],
+    ['an extra key', { text: 'Go dev', url: 'https://acme.test' }],
+  ])('manual parse: refuses %s before the service is called', async (_name, body) => {
+    const h = harness()
+    await expect(h.controller.parseManual(body, HR)).rejects.toThrow(ZodError)
+    expect(h.parses.parse).not.toHaveBeenCalled()
+  })
+
+  it('manual parse: an off-contract service answer never reaches the wire', async () => {
+    const h = harness()
+    h.parses.parse.mockResolvedValueOnce({ isVacancy: true, applyUrl: 'x' })
+    await expect(h.controller.parseManual({ text: 'Go dev' }, HR)).rejects.toThrow(ZodError)
+  })
+
+  const PICK_BLOCK = { t: 'Go dev', k: 'h1', fs: 32, fw: 700, x: 0, y: 0, w: 800, r: 'main' }
+
+  it('manual pick: passes the parsed request and the caller to the service', async () => {
+    const h = harness()
+    const body = { url: 'https://jobs.example.com/1', tabTitle: 'Go dev', blocks: [PICK_BLOCK] }
+    expect(await h.controller.pickManual(body, HR)).toEqual({
+      isVacancy: true,
+      title: 'Go Developer',
+    })
+    expect(h.picks.pick).toHaveBeenCalledWith(HR, body)
+  })
+
+  it.each([
+    ['no blocks', { tabTitle: 'x', blocks: [] }],
+    ['no tab title', { blocks: [PICK_BLOCK] }],
+    ['an extra key', { tabTitle: 'x', blocks: [PICK_BLOCK], text: 'Go dev' }],
+    ['a plain-http url', { url: 'http://jobs.example.com/1', tabTitle: 'x', blocks: [PICK_BLOCK] }],
+  ])('manual pick: refuses %s before the service is called', async (_name, body) => {
+    const h = harness()
+    await expect(h.controller.pickManual(body, HR)).rejects.toThrow(ZodError)
+    expect(h.picks.pick).not.toHaveBeenCalled()
+  })
+
+  it('manual pick: an off-contract service answer never reaches the wire', async () => {
+    const h = harness()
+    h.picks.pick.mockResolvedValueOnce({ isVacancy: false, title: 'x' })
+    await expect(
+      h.controller.pickManual({ tabTitle: 'x', blocks: [PICK_BLOCK] }, HR),
+    ).rejects.toThrow(ZodError)
   })
 
   it('recompute: answers the run id the service enqueued, for the caller', async () => {

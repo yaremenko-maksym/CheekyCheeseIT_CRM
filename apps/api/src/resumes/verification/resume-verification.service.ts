@@ -40,6 +40,7 @@ import {
   RESUME_LIMITS,
   RESUME_TEMPLATE_NAMES,
   checkResumeCompleteness,
+  resolveResumeHeader,
   isLatinScript,
   normalizeResumeLayout,
   resumeContentSchema,
@@ -59,6 +60,7 @@ import {
 import { apiError } from '../../common/api-error'
 import { DatabaseService } from '../../database/database.service'
 import { describeDbError } from '../../database/pg-errors'
+import { markSeniorResumeDirty } from '../../job-sourcing/dirty-producers'
 import { S3Service } from '../../documents/s3.service'
 import { seniorResumes, teamMembers, users, type SeniorResume } from '../../database/schema'
 import { resolveTemplateName } from '../resume-typst.service'
@@ -229,24 +231,29 @@ export class ResumeVerificationService {
   /** PUT facts: bump `version`, DRAFT, staged cleared; also disowns an extraction in flight. */
   async saveFacts(row: SeniorResume, facts: ResumeFacts, viewerId: string): Promise<SeniorResume> {
     const validated = resumeFactsSchema.parse(facts)
-    const [updated] = await this.db.db
-      .update(seniorResumes)
-      .set({
-        facts: validated,
-        ...draftReset(),
-        // Same as a manual content save: the human decided, so a model that
-        // started earlier must not land its facts on top of this a moment later.
-        status: 'READY',
-        errorCode: null,
-        errorMessage: null,
-        quotaResetsAt: null,
-        extractionStartedAt: null,
-        extractionRunId: null,
-        updatedByUserId: viewerId,
-        updatedAt: new Date(),
-      })
-      .where(draftWriteGuard(row))
-      .returning()
+    // Senior roles PR 4: new facts are new resume skills; the dirty row commits with them.
+    const [updated] = await this.db.db.transaction(async (tx) => {
+      const rows = await tx
+        .update(seniorResumes)
+        .set({
+          facts: validated,
+          ...draftReset(),
+          // Same as a manual content save: the human decided, so a model that
+          // started earlier must not land its facts on top of this a moment later.
+          status: 'READY',
+          errorCode: null,
+          errorMessage: null,
+          quotaResetsAt: null,
+          extractionStartedAt: null,
+          extractionRunId: null,
+          updatedByUserId: viewerId,
+          updatedAt: new Date(),
+        })
+        .where(draftWriteGuard(row))
+        .returning()
+      if (rows[0]) await markSeniorResumeDirty(tx, rows[0].userId, { before: row, after: rows[0] })
+      return rows
+    })
     if (!updated) return this.resolveMiss(row.id)
     await this.deleteStagedObject(row.stagedPdfS3Key)
     return updated
@@ -494,40 +501,46 @@ export class ResumeVerificationService {
       throw apiError('RESUME_INCOMPLETE', HttpStatus.UNPROCESSABLE_ENTITY)
     }
     const runId = randomUUID()
-    const [updated] = await this.db.db
-      .update(seniorResumes)
-      .set({
-        // Stored as checked: a legacy row's mapped facts become its facts, unchanged.
-        facts,
-        verificationStatus: 'QUEUED',
-        verificationRunId: runId,
-        verificationKind: 'full',
-        verificationTargetPath: null,
-        verificationBaseVersion: sql`${seniorResumes.version}`,
-        verificationQueuedAt: new Date(),
-        verificationStartedAt: null,
-        verificationErrorCode: null,
-        verificationReport: null,
-        ...CLEARED_STAGED,
-        updatedByUserId: viewerId,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          draftWriteGuard(row),
-          or(
-            inArray(seniorResumes.verificationStatus, ['DRAFT', 'FAILED', 'AWAITING_CONFIRM']),
-            and(
-              eq(seniorResumes.verificationStatus, 'VERIFIED'),
-              isNotNull(seniorResumes.recheckNeededAt),
+    // Senior roles PR 4: this write can adopt a legacy row's mapped facts (a facts write), so it
+    // commits with the roster dirty row.
+    const [updated] = await this.db.db.transaction(async (tx) => {
+      const rows = await tx
+        .update(seniorResumes)
+        .set({
+          // Stored as checked: a legacy row's mapped facts become its facts, unchanged.
+          facts,
+          verificationStatus: 'QUEUED',
+          verificationRunId: runId,
+          verificationKind: 'full',
+          verificationTargetPath: null,
+          verificationBaseVersion: sql`${seniorResumes.version}`,
+          verificationQueuedAt: new Date(),
+          verificationStartedAt: null,
+          verificationErrorCode: null,
+          verificationReport: null,
+          ...CLEARED_STAGED,
+          updatedByUserId: viewerId,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            draftWriteGuard(row),
+            or(
+              inArray(seniorResumes.verificationStatus, ['DRAFT', 'FAILED', 'AWAITING_CONFIRM']),
+              and(
+                eq(seniorResumes.verificationStatus, 'VERIFIED'),
+                isNotNull(seniorResumes.recheckNeededAt),
+              ),
             ),
+            notInArray(seniorResumes.status, EXTRACTION_BUSY),
+            isNull(seniorResumes.templateSource),
+            eq(seniorResumes.version, row.version),
           ),
-          notInArray(seniorResumes.status, EXTRACTION_BUSY),
-          isNull(seniorResumes.templateSource),
-          eq(seniorResumes.version, row.version),
-        ),
-      )
-      .returning()
+        )
+        .returning()
+      if (rows[0]) await markSeniorResumeDirty(tx, rows[0].userId, { before: row, after: rows[0] })
+      return rows
+    })
     if (!updated) return this.resolveMiss(row.id)
     await this.deleteStagedObject(row.stagedPdfS3Key)
     void this.runner.run(row.id, runId)
@@ -570,17 +583,22 @@ export class ResumeVerificationService {
           displayName: users.displayName,
           email: users.email,
           legalFullName: users.legalFullName,
+          phone: users.phone,
           telegram: users.telegram,
         })
         .from(users)
         .where(eq(users.id, row.userId))
         .for('share')
-      if (!locked || storedOwnerKey(row.verificationReport) !== renderOwnerKey(locked)) return null
+      if (!locked) return null
       const [current] = await tx
-        .select({ key: seniorResumes.pdfS3Key })
+        .select({ key: seniorResumes.pdfS3Key, header: seniorResumes.header })
         .from(seniorResumes)
         .where(eq(seniorResumes.id, row.id))
         .for('update')
+      // The key covers the header the staged PDF prints: HR's overrides over the locked profile, read
+      // under the row lock, so a header write cannot commit between this check and the UPDATE either.
+      const printed = { ...resolveResumeHeader(locked, current?.header), profile: locked }
+      if (storedOwnerKey(row.verificationReport) !== renderOwnerKey(printed)) return null
       // Every right-hand side reads the pre-update row, so both versions get version + 1.
       const [won] = await tx
         .update(seniorResumes)
@@ -623,7 +641,10 @@ export class ResumeVerificationService {
           ),
         )
         .returning()
-      return won ? { row: won, old: current?.key ?? null } : null
+      if (!won) return null
+      // Senior roles PR 4: the staged content became the live content (new resume skills).
+      await markSeniorResumeDirty(tx, won.userId, { before: row, after: won })
+      return { row: won, old: current?.key ?? null }
     })
     if (!result) throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
     await this.deleteStagedObject(result.old)

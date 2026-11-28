@@ -27,6 +27,8 @@ import {
   RESUME_SOURCE_MAX_BYTES,
   encodeResumeMessage,
   normalizeResumeLayout,
+  parseResumeHeader,
+  resolveResumeHeader,
   resumeContentSchema,
   resumeFactsSchema,
   type ConfirmResumeInput,
@@ -35,6 +37,7 @@ import {
   type ResumeContent,
   type ResumeFacts,
   type ResumeFailureCode,
+  type ResumeHeaderOverrides,
   type ResumeLayoutOptions,
   type ResumeTemplateName,
   type SeniorResumeDto,
@@ -45,6 +48,8 @@ import { DatabaseService } from '../database/database.service'
 import { seniorResumes, type SeniorResume, type User } from '../database/schema'
 import { S3Service, presignTtlForCategory } from '../documents/s3.service'
 import { isS3NoSuchKey } from '../documents/s3-not-found.util'
+import { markSeniorResumeDirty } from '../job-sourcing/dirty-producers'
+import { isTailoredActive } from '../tailored-resumes/tailored-run'
 import { ResumeAiService } from './resume-ai.service'
 import { canAccessResume, canConfirmResume, type ResumeAccessMode } from './resume-access'
 import { apiError } from '../common/api-error'
@@ -53,11 +58,13 @@ import {
   draftReset,
   draftWriteGuard,
   isVerificationBusy,
+  lookWriteGuard,
   notVerificationBusy,
 } from './verification/resume-verification.service'
 import { contentToFacts } from './verification/derive-content'
 import { stagedPdfPrefix } from './verification/run-columns'
 import {
+  headerContacts,
   ResumeRenderError,
   ResumeTypstService,
   resolveTemplateName,
@@ -68,6 +75,7 @@ import {
   ResumeTextExtractionService,
 } from './resume-text-extraction.service'
 import { detectResumeSourceMime } from './resume-source.util'
+import { headerFromUpload, ownHeaderOverrides } from './resume-header-extraction'
 
 /**
  * How many times `deleteResume` will re-read and re-erase when an upload keeps
@@ -77,11 +85,22 @@ import { detectResumeSourceMime } from './resume-source.util'
  */
 const DELETE_RACE_ATTEMPTS = 3
 
+/**
+ * The bound on each base-object delete inside `deleteResume`'s transaction: it holds `FOR UPDATE`
+ * on the senior's tailored rows, so a hung storage call must not hold them. A timeout rolls the
+ * transaction back and leaves the row, like any other storage failure.
+ */
+export const BASE_ERASE_TIMEOUT_MS = 5_000
+
+/** A locked `tailored_resumes` row whose run or render a worker still owns (C3). */
+const isTailoredBusy = (t: Record<string, unknown>): boolean =>
+  isTailoredActive(t['run_status']) || isTailoredActive(t['pdf_status'])
+
 /** A RUNNING row older than this was abandoned (process died) — AC3 sweep. */
 export const STUCK_EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000
 
 /** Whose resume it is — both fields are printed at the top of the PDF. */
-type ResumeOwner = Pick<User, 'displayName' | 'email'>
+type ResumeOwner = Pick<User, 'displayName' | 'email' | 'phone' | 'telegram'>
 
 /** The 403 of every denied resume request. */
 export const noAccess = () => apiError('RESUME_NO_ACCESS', HttpStatus.FORBIDDEN)
@@ -237,7 +256,13 @@ export class SeniorResumesService {
         if (isS3NoSuchKey(error)) return null
         throw error
       })
-      if (pdfBuffer) return { ready: true, pdfBuffer, displayName: target.displayName }
+      if (pdfBuffer) {
+        return {
+          ready: true,
+          pdfBuffer,
+          displayName: resolveResumeHeader(target, row.header).displayName,
+        }
+      }
       // Backlog 447: the row says ready but the object is gone, so it is re-rendered below. A
       // queued render, or one running and younger than the stuck-render cutoff, is left alone:
       // re-queuing disowns it on every poll.
@@ -280,7 +305,7 @@ export class SeniorResumesService {
       if (isS3NoSuchKey(error)) throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
       throw error
     })
-    return { pdfBuffer, displayName: target.displayName }
+    return { pdfBuffer, displayName: resolveResumeHeader(target, row.header).displayName }
   }
 
   // ==========================================================================
@@ -302,29 +327,39 @@ export class SeniorResumesService {
     const validated = resumeContentSchema.parse(content)
     const existing = await this.ensureRow(targetUserId)
 
-    const [updated] = await this.db.db
-      .update(seniorResumes)
-      .set({
-        content: validated,
-        // Status rule: a content write resets to DRAFT. `draftReset` bumps
-        // `version` IN SQL, not read-modify-write: two concurrent saves that
-        // computed the next value from a separate read would lose an increment,
-        // and `version` is what task-resume-tailoring reads to notice a stale base.
-        ...draftReset(),
-        status: 'READY',
-        errorCode: null,
-        errorMessage: null,
-        quotaResetsAt: null,
-        extractionStartedAt: null,
-        // Disown any extraction in flight: the human just decided what this
-        // resume says, and a model that started earlier must not land on top
-        // of that decision a few seconds later.
-        extractionRunId: null,
-        updatedByUserId: viewer.id,
-        updatedAt: new Date(),
-      })
-      .where(draftWriteGuard(existing))
-      .returning()
+    // Senior roles PR 4: the resume skills feed the matching profile, so the write commits with
+    // its roster dirty row.
+    const [updated] = await this.db.db.transaction(async (tx) => {
+      const rows = await tx
+        .update(seniorResumes)
+        .set({
+          content: validated,
+          // Status rule: a content write resets to DRAFT. `draftReset` bumps
+          // `version` IN SQL, not read-modify-write: two concurrent saves that
+          // computed the next value from a separate read would lose an increment,
+          // and `version` is what task-resume-tailoring reads to notice a stale base.
+          ...draftReset(),
+          status: 'READY',
+          errorCode: null,
+          errorMessage: null,
+          quotaResetsAt: null,
+          extractionStartedAt: null,
+          // Disown any extraction in flight: the human just decided what this
+          // resume says, and a model that started earlier must not land on top
+          // of that decision a few seconds later.
+          extractionRunId: null,
+          updatedByUserId: viewer.id,
+          updatedAt: new Date(),
+        })
+        .where(draftWriteGuard(existing))
+        .returning()
+      // `after` is the row the UPDATE returned, never a hand-built pair (SR-L-3): a mirror of the
+      // `.set()` clause drifts silently the day the clause gains a skill-bearing column, and the
+      // guard would then read a stale value and skip the mark.
+      if (rows[0])
+        await markSeniorResumeDirty(tx, rows[0].userId, { before: existing, after: rows[0] })
+      return rows
+    })
 
     if (!updated) return this.verification.resolveMiss(existing.id)
     await this.verification.deleteStagedObject(existing.stagedPdfS3Key)
@@ -494,6 +529,14 @@ export class SeniorResumesService {
       }
       // CD-4: a run owning the row would upload a staged PDF no row points at any more.
       if (isVerificationBusy(row)) throw apiError('RESUME_VERIFICATION_BUSY', HttpStatus.CONFLICT)
+      // C3: a tailored run reads this base and a tailored render is built from it; refuse while
+      // either is active. One that starts after this read fails on the missing base (benign).
+      const { rows: tailoredBusy } = await this.db.db.execute(
+        sql`SELECT id FROM tailored_resumes WHERE senior_user_id = ${row.userId}::uuid
+              AND (run_status IN ('QUEUED', 'RUNNING') OR pdf_status IN ('QUEUED', 'RUNNING'))
+            LIMIT 1`,
+      )
+      if (tailoredBusy.length > 0) throw apiError('RESUME_DELETE_BUSY', HttpStatus.CONFLICT)
 
       const key = row.sourceS3Key
       // BOTH stored objects go: the uploaded original AND the rendered PDF.
@@ -503,28 +546,62 @@ export class SeniorResumesService {
       const pdfKey = row.pdfS3Key
       // P5: the staged PDF is a third copy (it carries the real name).
       const stagedKey = row.stagedPdfS3Key
-      if (key) await this.s3.delete(key)
-      if (pdfKey) await this.s3.delete(pdfKey)
-      if (stagedKey) await this.s3.delete(stagedKey)
 
-      const removed = await this.db.db
-        .delete(seniorResumes)
-        .where(
-          and(
-            eq(seniorResumes.id, row.id),
-            // NULL-safe equality: `= NULL` is never true, so a resume without a
-            // stored file would never match and could never be deleted.
-            sql`${seniorResumes.sourceS3Key} IS NOT DISTINCT FROM ${key}`,
-            // The render key moves independently of the source key (a layout
-            // change rewrites one and not the other), so the guard has to cover
-            // it too — otherwise a render landing mid-delete orphans its PDF.
-            sql`${seniorResumes.pdfS3Key} IS NOT DISTINCT FROM ${pdfKey}`,
-            sql`${seniorResumes.stagedPdfS3Key} IS NOT DISTINCT FROM ${stagedKey}`,
-          ),
+      // Senior roles PR 4: deleting drops the resume skills; the dirty row commits with it.
+      // Hoisted so the directive below is a leading comment of a statement: on a chained
+      // `.returning(...)` line Stryker does not attach it (see meeting-recorder-retention.cron.ts).
+      // Stryker disable next-line ObjectLiteral: only gone.length is consumed; the RETURNING columns cannot change which row the guarded delete matched, and the query shape is observable only against real Postgres (resume-dirty.integration.spec.ts)
+      const returningProjection = { id: seniorResumes.id }
+      const { removed, tailoredKeys } = await this.db.db.transaction(async (tx) => {
+        // The base FK cascades into the tailored rows, and publish locks a tailored row before
+        // the base: take the tailored rows first, in the same order, so the two cannot deadlock.
+        // SR-M-2: the lock re-checks the rows that exist now; a run or render that started after
+        // the fast-path read above is seen here, and the transaction rolls back untouched. A row
+        // inserted after the lock (a first generate racing this delete) is not seen: that run fails
+        // on the missing base, and its PDF, if any, is left to the orphan sweep.
+        const { rows: locked } = await tx.execute(
+          sql`SELECT id, run_status, pdf_status, pdf_s3_key FROM tailored_resumes
+                WHERE senior_user_id = ${row.userId}::uuid ORDER BY id FOR UPDATE`,
         )
-        .returning({ id: seniorResumes.id })
+        if (locked.some(isTailoredBusy)) throw apiError('RESUME_DELETE_BUSY', HttpStatus.CONFLICT)
+        // The objects go before the row (R-INT-12g): `deleteOrThrow`, so a storage failure or a
+        // timeout rolls the transaction back and leaves the row, and the erase can be retried; a
+        // refusal above leaves every object. Bounded, because the tailored rows stay locked.
+        const bounded = { timeoutMs: BASE_ERASE_TIMEOUT_MS }
+        if (key) await this.s3.deleteOrThrow(key, bounded)
+        if (pdfKey) await this.s3.deleteOrThrow(pdfKey, bounded)
+        if (stagedKey) await this.s3.deleteOrThrow(stagedKey, bounded)
+        const gone = await tx
+          .delete(seniorResumes)
+          .where(
+            and(
+              eq(seniorResumes.id, row.id),
+              // NULL-safe equality: `= NULL` is never true, so a resume without a
+              // stored file would never match and could never be deleted.
+              // Stryker disable next-line StringLiteral: a raw SQL fragment is only observable against Postgres — resume-dirty.integration.spec.ts covers the guarded delete
+              sql`${seniorResumes.sourceS3Key} IS NOT DISTINCT FROM ${key}`,
+              // The render key moves independently of the source key (a layout
+              // change rewrites one and not the other), so the guard has to cover
+              // it too — otherwise a render landing mid-delete orphans its PDF.
+              // Stryker disable next-line StringLiteral: a raw SQL fragment is only observable against Postgres — resume-dirty.integration.spec.ts covers the guarded delete
+              sql`${seniorResumes.pdfS3Key} IS NOT DISTINCT FROM ${pdfKey}`,
+              // Stryker disable next-line StringLiteral: a raw SQL fragment is only observable against Postgres — resume-dirty.integration.spec.ts covers the guarded delete
+              sql`${seniorResumes.stagedPdfS3Key} IS NOT DISTINCT FROM ${stagedKey}`,
+            ),
+          )
+          .returning(returningProjection)
+        // The row is gone, so the matcher reads no skills for it at all.
+        if (gone.length > 0) await markSeniorResumeDirty(tx, row.userId, { before: row, after: {} })
+        const tailoredKeys = locked.flatMap((t) =>
+          typeof t['pdf_s3_key'] === 'string' ? [t['pdf_s3_key']] : [],
+        )
+        return { removed: gone, tailoredKeys }
+      })
 
       if (removed.length > 0) {
+        // The FK cascade removed the tailored rows with the base; their PDFs go after the commit
+        // (SR-M-1). `s3.delete` logs and swallows a failure; the orphan sweep takes what is left.
+        for (const tailoredKey of tailoredKeys) await this.s3.delete(tailoredKey)
         await this.deleteUnder(row.id, renderedPdfPrefix(row.userId, row.id))
         await this.deleteUnder(row.id, stagedPdfPrefix(row.id))
         this.logger.log(`Resume of ${targetUserId} deleted by ${viewer.id}`)
@@ -656,29 +733,56 @@ export class SeniorResumesService {
     }
 
     const [current] = await this.db.db
-      .select({ id: seniorResumes.id, stagedPdfS3Key: seniorResumes.stagedPdfS3Key })
+      .select({
+        id: seniorResumes.id,
+        stagedPdfS3Key: seniorResumes.stagedPdfS3Key,
+        // SR-L-1: the skills before the write, read in the select that was already here.
+        content: seniorResumes.content,
+        facts: seniorResumes.facts,
+        userId: seniorResumes.userId,
+        header: seniorResumes.header,
+      })
       .from(seniorResumes)
       .where(eq(seniorResumes.id, resumeId))
       .limit(1)
     if (!current) return
-    const written = await this.db.db
-      .update(seniorResumes)
-      .set({
-        facts: facts.data,
-        ...draftReset(),
-        status: 'READY',
-        errorCode: null,
-        errorMessage: null,
-        quotaResetsAt: null,
-        extractionStartedAt: null,
-        extractionRunId: null,
-        lastExtractionTokens: result.tokensUsed,
-        // `draftReset` bumps `version`: the facts changed, and a stable version
-        // under changed facts is exactly what task-resume-tailoring would miss.
-        updatedAt: new Date(),
-      })
-      .where(and(this.ownedByRun(resumeId, runId), draftWriteGuard(current)))
-      .returning({ id: seniorResumes.id })
+    // The contacts printed in the file become the header (headerFromUpload), not the CRM profile.
+    const header = ownHeaderOverrides(
+      headerFromUpload(result.contacts, text, parseResumeHeader(current.header)),
+      await this.ownerFor(current.userId),
+    )
+    // Senior roles PR 4: new facts are new resume skills; the dirty row commits with them.
+    const written = await this.db.db.transaction(async (tx) => {
+      const rows = await tx
+        .update(seniorResumes)
+        .set({
+          facts: facts.data,
+          header,
+          ...draftReset(),
+          status: 'READY',
+          errorCode: null,
+          errorMessage: null,
+          quotaResetsAt: null,
+          extractionStartedAt: null,
+          extractionRunId: null,
+          lastExtractionTokens: result.tokensUsed,
+          // `draftReset` bumps `version`: the facts changed, and a stable version
+          // under changed facts is exactly what task-resume-tailoring would miss.
+          updatedAt: new Date(),
+        })
+        .where(and(this.ownedByRun(resumeId, runId), draftWriteGuard(current)))
+        // `content` and `facts` are here for the dirty guard below, which reads the row the UPDATE
+        // returned rather than mirroring the `.set()` clause by hand (SR-L-3).
+        .returning({
+          id: seniorResumes.id,
+          userId: seniorResumes.userId,
+          content: seniorResumes.content,
+          facts: seniorResumes.facts,
+        })
+      if (rows[0])
+        await markSeniorResumeDirty(tx, rows[0].userId, { before: current, after: rows[0] })
+      return rows
+    })
 
     if (written.length === 0) {
       this.logger.log(
@@ -881,10 +985,13 @@ export class SeniorResumesService {
    * would eventually disagree about some field, and the fingerprint would stop
    * meaning "these bytes are current" without anything failing loudly.
    */
-  private renderInputFor(row: SeniorResume, owner: ResumeOwner): ResumeRenderInput {
+  private renderInputFor(row: SeniorResume, profile: ResumeOwner): ResumeRenderInput {
+    // The header HR set for this resume, each field defaulting to the profile.
+    const owner = resolveResumeHeader(profile, row.header)
     return {
       displayName: owner.displayName,
       email: owner.email,
+      ...headerContacts(owner),
       content: this.safeContent(row.content),
       layout: this.safeLayout(row.layout),
       templateName: resolveTemplateName(row.templateName),
@@ -1171,8 +1278,10 @@ export class SeniorResumesService {
     // Stryker disable next-line StringLiteral: equivalent — any mode but 'read' refuses a SENIOR, and ADMIN/HR ignore it
     const target = await this.assertAccess(viewer, targetUserId, 'write')
     const existing = await this.ensureRow(targetUserId)
+    // The completeness check reads the name and Telegram the PDF prints (HR's header override).
+    const header = resolveResumeHeader(target, existing.header)
     return this.toResponse(
-      await this.verification.submit(existing, target.displayName, viewer.id, target.telegram),
+      await this.verification.submit(existing, header.displayName, viewer.id, header.telegram),
       viewer,
     )
   }
@@ -1197,8 +1306,11 @@ export class SeniorResumesService {
       templateName: existing.stagedTemplateName ?? existing.templateName,
     }
     const fingerprint = this.typst.fingerprint(this.renderInputFor(promoted, target))
+    // The owner key is taken over the header the staged PDF prints (overrides applied) and the
+    // profile values the run redacted.
+    const owner = { ...resolveResumeHeader(target, existing.header), profile: target }
     return this.toResponse(
-      await this.verification.confirm(existing, input, viewer.id, fingerprint, target),
+      await this.verification.confirm(existing, input, viewer.id, fingerprint, owner),
       viewer,
     )
   }
@@ -1243,6 +1355,38 @@ export class SeniorResumesService {
     return this.afterLookWrite(updated, target, viewer)
   }
 
+  /**
+   * PUT header — HR's overrides of the PDF header; a `null` field follows the profile. The header is
+   * owner data, not resume text, so it is written like a profile edit: no version bump and no check
+   * run, the live PDF re-renders by its fingerprint. 409 while a check runs (its staged PDF prints the
+   * header it read); an AWAITING_CONFIRM result printed the old header, so it is discarded (DRAFT).
+   */
+  async updateHeader(
+    viewer: SessionUser,
+    targetUserId: string,
+    header: ResumeHeaderOverrides,
+  ): Promise<SeniorResumeResponse> {
+    // Stryker disable next-line StringLiteral: equivalent — any mode but 'read' refuses a SENIOR, and ADMIN/HR ignore it
+    const target = await this.assertAccess(viewer, targetUserId, 'write')
+    const existing = await this.ensureRow(targetUserId)
+    const awaiting = existing.verificationStatus === 'AWAITING_CONFIRM'
+    const [updated] = await this.db.db
+      .update(seniorResumes)
+      .set({
+        header: ownHeaderOverrides(header, target),
+        ...(awaiting ? draftReset() : {}),
+        updatedByUserId: viewer.id,
+        updatedAt: new Date(),
+      })
+      // The status CAS: `awaiting` chose the DRAFT reset, so a row that moved since is a miss.
+      .where(lookWriteGuard(existing))
+      .returning()
+    if (!updated) return this.verification.resolveMiss(existing.id)
+    if (awaiting) await this.verification.deleteStagedObject(existing.stagedPdfS3Key)
+    await this.enqueueRender(updated.id, target)
+    return this.toResponse(updated, viewer)
+  }
+
   /** A VERIFIED row kept its live look (a template run started): nothing to render. */
   private async afterLookWrite(
     updated: SeniorResume,
@@ -1254,16 +1398,21 @@ export class SeniorResumesService {
   }
 
   /**
-   * The resume owner's name and email, both printed at the top of the PDF.
+   * The resume owner's name, email, phone and Telegram, all printed at the top of the PDF.
    * Empty when the owner row is gone: the skeleton then titles the PDF
    * `Resume` and prints no name (PDF content is English-only).
    */
   private async ownerFor(userId: string): Promise<ResumeOwner> {
     const user = await this.db.db.query.users.findFirst({
       where: (tbl, { eq: equals }) => equals(tbl.id, userId),
-      columns: { displayName: true, email: true },
+      columns: { displayName: true, email: true, phone: true, telegram: true },
     })
-    return { displayName: user?.displayName ?? '', email: user?.email ?? '' }
+    return {
+      displayName: user?.displayName ?? '',
+      email: user?.email ?? '',
+      phone: user?.phone ?? null,
+      telegram: user?.telegram ?? null,
+    }
   }
 
   // ==========================================================================
@@ -1315,6 +1464,7 @@ export class SeniorResumesService {
       : undefined
 
     const layout = this.safeLayout(row.layout)
+    const owner = await this.ownerFor(row.userId)
 
     return {
       resume: {
@@ -1349,9 +1499,10 @@ export class SeniorResumesService {
         // document, so it is part of the render input like any other field.
         pdfUpToDate:
           Boolean(row.pdfS3Key) &&
-          row.pdfFingerprint ===
-            this.typst.fingerprint(this.renderInputFor(row, await this.ownerFor(row.userId))),
+          row.pdfFingerprint === this.typst.fingerprint(this.renderInputFor(row, owner)),
         ...(await this.verification.toDtoFields(row)),
+        header: parseResumeHeader(row.header),
+        headerDefaults: owner,
       },
       // Server-computed, never echoed from the client.
       canEdit: canAccessResume(viewer, row.userId, 'write'),

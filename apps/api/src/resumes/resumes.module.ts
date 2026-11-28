@@ -53,6 +53,13 @@ import {
     VisualCheckClient,
     ResumeEntailmentClient,
   ],
-  exports: [SeniorResumesService],
+  // The renderer, the extractor and the two model clients are shared with the tailored run.
+  exports: [
+    SeniorResumesService,
+    ResumeTypstService,
+    ResumeTextExtractionService,
+    VisualCheckClient,
+    ResumeEntailmentClient,
+  ],
 })
 export class SeniorResumesModule {}

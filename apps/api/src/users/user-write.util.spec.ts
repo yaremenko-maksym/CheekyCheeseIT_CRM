@@ -6,6 +6,8 @@
  */
 import { describe, expect, it } from 'vitest'
 
+import { PgDialect } from 'drizzle-orm/pg-core'
+
 import { updateUserRow } from './user-write.util'
 
 function captureSet(): { db: Parameters<typeof updateUserRow>[0]; written: () => unknown } {
@@ -40,5 +42,112 @@ describe('updateUserRow — technical roles follow the role', () => {
     const { db, written } = captureSet()
     await updateUserRow(db, 'u1', ACTIVE, { monthlySalary: 100 })
     expect(written()).toEqual({ monthlySalary: 100 })
+  })
+})
+
+/**
+ * Review SR-L-2: `existing` is read before this call, so a roles write carries the role it was
+ * READ as. The statement therefore re-checks `role = 'SENIOR'` itself, where Postgres evaluates it
+ * against the committed row — the same two-layer shape the archival predicate above uses, and the
+ * same guard the self-edit path already had (SR2-L-1). The real-DB outcome is in
+ * `senior-roles.realdb.integration.spec.ts`; this pins the predicate and the miss split.
+ */
+describe('updateUserRow — a roles write re-checks the SENIOR role in the statement', () => {
+  const whereSql = (condition: unknown) => new PgDialect().sqlToQuery(condition as never).sql
+
+  function captureWhere(rows: unknown[] = [{ id: 'u1' }]) {
+    let captured: unknown
+    const db = {
+      update: () => ({
+        set: () => ({
+          where: (c: unknown) => {
+            captured = c
+            return { returning: async () => rows }
+          },
+        }),
+      }),
+    } as unknown as Parameters<typeof updateUserRow>[0]
+    return { db, where: () => captured }
+  }
+
+  const whereQuery = (condition: unknown) => new PgDialect().sqlToQuery(condition as never)
+
+  it('attaches the role re-check to a non-empty roles write that does not set the role', async () => {
+    const { db, where } = captureWhere()
+    await updateUserRow(db, 'u1', ACTIVE, { technicalRoles: ['CTO'], updatedAt: 1 })
+    const q = whereQuery(where())
+    expect(q.sql).toContain('"role"')
+    // the role it re-checks against, not merely that some role predicate is there
+    expect(q.params).toContain('SENIOR')
+  })
+
+  it('attaches no role re-check when the same statement sets the role', async () => {
+    const { db, where } = captureWhere()
+    await updateUserRow(db, 'u1', ACTIVE, { role: 'SENIOR', technicalRoles: ['CTO'] })
+    expect(whereSql(where())).not.toContain('"role"')
+  })
+
+  it('attaches no role re-check when the roles write clears the list', async () => {
+    const { db, where } = captureWhere()
+    await updateUserRow(db, 'u1', ACTIVE, { technicalRoles: [], updatedAt: 1 })
+    expect(whereSql(where())).not.toContain('"role"')
+  })
+
+  function missed(current: { archivedAt: Date | null; role: string } | null) {
+    return {
+      update: () => ({ set: () => ({ where: () => ({ returning: async () => [] }) }) }),
+      select: () => ({ from: () => ({ where: async () => (current ? [current] : []) }) }),
+    } as unknown as Parameters<typeof updateUserRow>[0]
+  }
+
+  it('reads a missed roles write on a surviving non-SENIOR row as a 400, not a 404', async () => {
+    const err = await updateUserRow(missed({ archivedAt: null, role: 'JUNIOR' }), 'u1', ACTIVE, {
+      technicalRoles: ['CTO'],
+      updatedAt: 1,
+    }).catch((e: unknown) => e as { response?: { code?: string }; status?: number })
+    expect(err?.response?.code).toBe('TECHNICAL_ROLES_SENIOR_ONLY')
+    expect(err?.status).toBe(400)
+  })
+
+  it('reads a missed roles write on a vanished row as a 404', async () => {
+    const err = await updateUserRow(missed(null), 'u1', ACTIVE, {
+      technicalRoles: ['CTO'],
+      updatedAt: 1,
+    }).catch((e: unknown) => e as { response?: { code?: string }; status?: number })
+    expect(err?.response?.code).toBe('USER_NOT_FOUND')
+    expect(err?.status).toBe(404)
+  })
+
+  it('reads a missed roles write on a row that is still SENIOR as a 404', async () => {
+    // The re-check refuses only an actual demotion: a row that is still SENIOR and still there
+    // did not lose the roles, so the miss has no better explanation than "no such row".
+    const err = await updateUserRow(missed({ archivedAt: null, role: 'SENIOR' }), 'u1', ACTIVE, {
+      technicalRoles: ['CTO'],
+      updatedAt: 1,
+    }).catch((e: unknown) => e as { response?: { code?: string }; status?: number })
+    expect(err?.response?.code).toBe('USER_NOT_FOUND')
+    expect(err?.status).toBe(404)
+  })
+
+  it('reports a demotion, not an archival refusal, when a roles-only write misses an archived row', async () => {
+    // No entitlement field is being written, so the statement never carried the archival
+    // predicate and an archival refusal would be a wrong diagnosis of this miss.
+    const err = await updateUserRow(
+      missed({ archivedAt: new Date(), role: 'JUNIOR' }),
+      'u1',
+      ACTIVE,
+      { technicalRoles: ['CTO'], updatedAt: 1 },
+    ).catch((e: unknown) => e as { response?: { code?: string } })
+    expect(err?.response?.code).toBe('TECHNICAL_ROLES_SENIOR_ONLY')
+  })
+
+  it('keeps reporting an archival miss as the archived-entitlement refusal', async () => {
+    const err = await updateUserRow(
+      missed({ archivedAt: new Date(), role: 'SENIOR' }),
+      'u1',
+      ACTIVE,
+      { monthlySalary: 100, technicalRoles: ['CTO'] },
+    ).catch((e: unknown) => e as { response?: { code?: string } })
+    expect(err?.response?.code).toBe('ENTITLEMENT_TARGET_ARCHIVED')
   })
 })

@@ -34,7 +34,12 @@ function harness(rows: Record<string, unknown>[] = [], resetRows: unknown[] = [{
   const transaction = vi.fn(async (cb: (tx: { execute: typeof txExecute }) => unknown) =>
     cb({ execute: txExecute }),
   )
-  const database = { db: { execute, transaction } } as unknown as DatabaseService
+  // H.8: the sourcing-notice read is the one select; push a row to raise MODEL_LIMITS_EXHAUSTED.
+  const flagRows: unknown[] = []
+  const select = vi.fn(() => ({
+    from: () => ({ where: () => ({ limit: async () => flagRows }) }),
+  }))
+  const database = { db: { execute, transaction, select } } as unknown as DatabaseService
   // T7: the service runs on THE ledger; its catalog gives the provider floor OVERDUE applies.
   const catalog = new SpecCatalog()
   catalog.add('remotive.api.software-dev', {
@@ -56,8 +61,28 @@ function harness(rows: Record<string, unknown>[] = [], resetRows: unknown[] = [{
     service: new JobSourceAdminService(database, ledger),
     execute,
     txExecute,
+    flagRows,
+    select,
   }
 }
+
+describe('JobSourceAdminService.sourcingNotice (H.8)', () => {
+  it('ADMIN reads the raised flag as AI_LIMITS_EXHAUSTED, and null once it is cleared', async () => {
+    const h = harness()
+    h.flagRows.push({ flag: 'MODEL_LIMITS_EXHAUSTED' })
+    await expect(h.service.sourcingNotice(ADMIN)).resolves.toBe('AI_LIMITS_EXHAUSTED')
+    h.flagRows.length = 0
+    await expect(h.service.sourcingNotice(ADMIN)).resolves.toBeNull()
+  })
+
+  it.each(NON_ADMIN)('%s is refused before the flag is read', async (role) => {
+    const h = harness()
+    await expect(h.service.sourcingNotice({ ...ADMIN, role })).rejects.toBeInstanceOf(
+      ForbiddenException,
+    )
+    expect(h.select).not.toHaveBeenCalled()
+  })
+})
 
 const HOUR = 3_600_000
 const NEXT = Date.parse('2026-10-20T00:00:00.000Z')
@@ -223,6 +248,99 @@ describe('listExcluded — the row mapping', () => {
         '{MANIFEST_ENTRY_MISSING,NOT_ACTIVATABLE,READINESS_BLOCKED,TRANSPORT_NOT_WIRED,METER_MISSING,HOST_KEY_MISSING,HOST_PAUSED,HOST_BUSY,HOST_RATE_GAP,HOST_DAILY_CAP,HOST_REQUEST_BUDGET,NOT_SCHEDULED}',
       ]),
     )
+  })
+})
+
+describe('listSourceHealth — the admin row carries the runtime fields', () => {
+  type LatestSpy = {
+    latestTransitions: (
+      ids: readonly string[],
+    ) => Promise<Map<string, { toState: string | null; reasonCode: string | null }>>
+  }
+
+  it('maps the attempt/success stamps, readiness, failure counter and cooldown to ISO strings', async () => {
+    const h = harness()
+    const sourceRows = [
+      {
+        id: SOURCE,
+        type: 'REMOTIVE_API',
+        enabled: true,
+        manifestId: null,
+        lastCollectedAt: null,
+        lastAttemptAt: new Date('2026-11-20T08:00:00.000Z'),
+        lastSuccessAt: null,
+        readiness: 'BLOCKED',
+        readinessReason: 'NO_ADAPTER: no adapter wired',
+        consecutiveFailures: 2,
+        cooldownUntil: new Date('2026-11-21T00:00:00.000Z'),
+      },
+    ]
+    let call = 0
+    // First select: the source rows (from→orderBy). Second: the freshness aggregate (from→where→groupBy).
+    h.select.mockImplementation((() => {
+      call += 1
+      return call === 1
+        ? { from: () => ({ orderBy: async () => sourceRows }) }
+        : { from: () => ({ where: () => ({ groupBy: async () => [] }) }) }
+    }) as unknown as typeof h.select)
+    vi.spyOn(h.service as unknown as LatestSpy, 'latestTransitions').mockResolvedValue(
+      new Map([[SOURCE, { toState: 'DEGRADED', reasonCode: 'HTTP_429' }]]),
+    )
+
+    expect(await h.service.listSourceHealth(ADMIN)).toEqual([
+      {
+        id: SOURCE,
+        type: 'REMOTIVE_API',
+        enabled: true,
+        state: 'DEGRADED',
+        reasonCode: 'HTTP_429',
+        lastCollectedAt: null,
+        lastAttemptAt: '2026-11-20T08:00:00.000Z',
+        lastSuccessAt: null,
+        readiness: 'BLOCKED',
+        readinessReason: 'NO_ADAPTER: no adapter wired',
+        consecutiveFailures: 2,
+        cooldownUntil: '2026-11-21T00:00:00.000Z',
+        newestItemPublishedAt: null,
+        profileSummary: null,
+      },
+    ])
+  })
+
+  it('maps a never-attempted source (all runtime stamps NULL) to null, not to a crash', async () => {
+    const h = harness()
+    const sourceRows = [
+      {
+        id: SOURCE,
+        type: 'REMOTIVE_API',
+        enabled: false,
+        manifestId: null,
+        lastCollectedAt: null,
+        lastAttemptAt: null,
+        lastSuccessAt: null,
+        readiness: 'VERIFIED',
+        readinessReason: null,
+        consecutiveFailures: 0,
+        cooldownUntil: null,
+      },
+    ]
+    let call = 0
+    h.select.mockImplementation((() => {
+      call += 1
+      return call === 1
+        ? { from: () => ({ orderBy: async () => sourceRows }) }
+        : { from: () => ({ where: () => ({ groupBy: async () => [] }) }) }
+    }) as unknown as typeof h.select)
+    vi.spyOn(h.service as unknown as LatestSpy, 'latestTransitions').mockResolvedValue(new Map())
+
+    const [row] = await h.service.listSourceHealth(ADMIN)
+    expect(row).toMatchObject({
+      lastAttemptAt: null,
+      lastSuccessAt: null,
+      cooldownUntil: null,
+      consecutiveFailures: 0,
+      state: null,
+    })
   })
 })
 

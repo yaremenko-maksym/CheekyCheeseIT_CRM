@@ -1,4 +1,3 @@
-import type { Page } from '@playwright/test'
 import { test, expect, USERS, mockAuthAs, API_RE } from '../../fixtures'
 import { loadMessages, assertInCatalog } from '../../../fixtures/catalog'
 
@@ -38,15 +37,19 @@ test.describe('Users page refactor (PR 2)', () => {
       await expect(row.getByText(assertInCatalog(uk, 'Сеньйор'))).toBeVisible()
     })
 
-    test('tech column renders array as individual pills (fix for stringified array bug)', async ({
+    test('a SENIOR row renders role chips as individual pills, never the stack', async ({
       asAdmin: page,
     }) => {
       await page.goto('/users')
       const row = page.getByTestId(`user-row-${USERS.senior.id}`)
-      // techStack = ['TypeScript', 'React', 'Node.js'] should render as pills, not a
-      // single bracket-wrapped string. Each tech token visible.
-      await expect(row.getByText('TypeScript', { exact: true })).toBeVisible()
-      await expect(row.getByText('React', { exact: true })).toBeVisible()
+      // A SENIOR is described by its technical roles; the stack column is for the other
+      // roles, and this fixture's stale `techStack` must not surface. One chip per role,
+      // not a single bracket-wrapped string — the stringified-array bug this test was
+      // written for. The stack side of that guard lives in UserRow.test.tsx, which
+      // asserts each pill of a JUNIOR's stack on its own.
+      await expect(row.getByTestId('role-chip-BACKEND_ENGINEER')).toBeVisible()
+      await expect(row.getByTestId('role-chip-FRONTEND_ENGINEER')).toBeVisible()
+      await expect(row.getByText('TypeScript', { exact: true })).toHaveCount(0)
     })
 
     test('self-row marked with "Вы" label', async ({ asAdmin: page }) => {

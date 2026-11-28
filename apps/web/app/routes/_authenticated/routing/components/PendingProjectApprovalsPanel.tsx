@@ -1,5 +1,5 @@
 import { Clock } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { useEffect, useState } from 'react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { renderPendingTitle, resolveProposer } from '@/components/pending/pending-title'
@@ -9,7 +9,7 @@ import { usePendingItems } from '@/hooks/use-pending-items'
 import { ProjectApprovalActions } from '@/components/projects/ProjectApprovalActions'
 
 // Exported (not module-private) so a plain object-equality unit test can
-// pin the exact animation values without fighting jsdom/framer-motion's
+// pin the exact animation values without fighting jsdom/motion's
 // runtime (which never actually animates in a test environment) — see
 // __tests__/PendingProjectApprovalsPanel.test.tsx.
 export const card = {
@@ -121,7 +121,7 @@ export function PendingProjectApprovalsPanel() {
   if (visiblePending.length === 0) return null
 
   return (
-    <motion.div initial={card.hidden} animate={card.show}>
+    <m.div initial={card.hidden} animate={card.show}>
       <Card className="border-amber-500/20" data-testid="pending-project-approvals-panel">
         <CardHeader className="px-5 pb-2 pt-4">
           <div className="flex items-center gap-2">
@@ -189,6 +189,6 @@ export function PendingProjectApprovalsPanel() {
           })}
         </CardContent>
       </Card>
-    </motion.div>
+    </m.div>
   )
 }

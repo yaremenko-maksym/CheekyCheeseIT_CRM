@@ -100,44 +100,49 @@ export class ProjectScopedReadService {
       currentUser.role === 'JUNIOR' &&
       project.members.some((m) => m.userId === currentUser.id && m.leftAt === null)
     const isTeamHr =
-      currentUser.role === 'HR' &&
-      project.seniorId !== null &&
-      (await this.hrAccess.hrSharesActiveTeamWith(currentUser.id, project.seniorId))
+      currentUser.role === 'HR' && (await this.hrAccess.hrCoversProject(currentUser.id, project))
 
     if (!isAdmin && !isActiveJunior && !isTeamHr) {
       throw apiError('NO_HR_CONTACT_ACCESS', HttpStatus.FORBIDDEN)
     }
 
-    if (!project.seniorId) {
-      return { displayName: null, telegram: null, phone: null, avatarUrl: null }
-    }
+    // Anchor on the senior's active team, or the drop's for a drop-project whose
+    // senior was rotated out of every team.
+    const anchorIds = [project.seniorId, project.dropId].filter((id): id is string => id !== null)
 
-    // Find HR in the senior's active team
-    const seniorMembership = await this.db.db.query.teamMembers.findFirst({
-      where: and(eq(teamMembers.userId, project.seniorId), isNull(teamMembers.leftAt)),
-    })
-    if (!seniorMembership) {
-      return { displayName: null, telegram: null, phone: null, avatarUrl: null }
-    }
-
-    const hrRow = await this.db.db
-      .select({
-        displayName: users.displayName,
-        telegram: users.telegram,
-        phone: users.phone,
-        avatarUrl: users.avatarUrl,
+    // Senior's team first, then the drop's: the first anchor team that has an
+    // active HR gives the contact.
+    let hrRow: {
+      displayName: string | null
+      telegram: string | null
+      phone: string | null
+      avatarUrl: string | null
+    } | null = null
+    for (const anchorId of anchorIds) {
+      const membership = await this.db.db.query.teamMembers.findFirst({
+        where: and(eq(teamMembers.userId, anchorId), isNull(teamMembers.leftAt)),
       })
-      .from(teamMembers)
-      .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(
-        and(
-          eq(teamMembers.teamId, seniorMembership.teamId),
-          eq(users.role, 'HR'),
-          isNull(teamMembers.leftAt),
-        ),
-      )
-      .limit(1)
-      .then((rows) => rows[0] ?? null)
+      if (!membership) continue
+      hrRow = await this.db.db
+        .select({
+          displayName: users.displayName,
+          telegram: users.telegram,
+          phone: users.phone,
+          avatarUrl: users.avatarUrl,
+        })
+        .from(teamMembers)
+        .innerJoin(users, eq(users.id, teamMembers.userId))
+        .where(
+          and(
+            eq(teamMembers.teamId, membership.teamId),
+            eq(users.role, 'HR'),
+            isNull(teamMembers.leftAt),
+          ),
+        )
+        .limit(1)
+        .then((rows) => rows[0] ?? null)
+      if (hrRow) break
+    }
 
     return {
       displayName: hrRow?.displayName ?? null,

@@ -19,7 +19,11 @@ import {
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
 import { DouRssProvider } from './dou.provider'
-import { JobSourcingService, POSTING_RETENTION_DAYS } from './job-sourcing.service'
+import {
+  JobSourcingService,
+  LEGACY_POSTING_RETENTION_DAYS,
+  POSTING_RETENTION_DAYS,
+} from './job-sourcing.service'
 import { JobSourceBudgetExhaustedError } from './source-budget.error'
 import { BRIDGE_FLAG_VALUES, bridgeConfig } from './bridge-flag.test-helper'
 import { JobRunLedger } from './ownership/job-run-ledger'
@@ -43,7 +47,7 @@ const BRIDGE_DDL = join(
  *
  *   1. decided postings (APPLIED / REJECTED) survive a purge AND a re-collection, while undecided
  *      ones are purged and come back as fresh rows with fresh NEW suggestions;
- *   2. the purge cutoff is exact (`collected_at < now - 90 days`), with a controlled `now`;
+ *   2. the purge cutoff is exact (`collected_at < now - 60 days`), with a controlled `now`;
  *   3. the one-unit budget arithmetic against real counters over the golden feed, including a
  *      zero-postings run that keeps its spent unit and leaves `last_collected_at` untouched;
  *   4. the legacy resume-based ranking of the GOLDEN postings (order, scores, threshold split).
@@ -79,6 +83,24 @@ const S_DECIDER = seniorUser(1, 'decider')
 const S_BYSTANDER = seniorUser(2, 'bystander')
 const SENIORS = [S_DECIDER, S_BYSTANDER]
 const SENIOR_IDS = SENIORS.map((s) => s.id)
+
+/**
+ * task-sources-07c closed the queue to seniors (`JobSourcingService.assertNotSenior`), so every
+ * `listSuggestions` / `updateStatus` call here runs as an ADMIN. The seniors stay the SUBJECTS of
+ * the queue — only the actor moved. A real `users` row is required, not just a session: the
+ * `job_suggestions.status_changed_by` FK references `users.id`.
+ */
+const ADMIN: SessionUser = {
+  id: id('aa00', 9),
+  email: 'compat-barrier-admin@test.spec',
+  displayName: 'Compat Barrier Admin',
+  avatarUrl: null,
+  role: 'ADMIN',
+  seniorSharePercent: 50,
+  legalFullName: null,
+}
+const SEEDED_USERS = [...SENIORS, ADMIN]
+const SEEDED_USER_IDS = SEEDED_USERS.map((u) => u.id)
 
 const TEAM_ID = id('bb00', 1)
 const SOURCE_ID = id('dd00', 1)
@@ -183,7 +205,7 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       await db
         .insert(users)
         .values(
-          SENIORS.map((u) => ({
+          SEEDED_USERS.map((u) => ({
             id: u.id,
             email: u.email,
             displayName: u.displayName,
@@ -246,7 +268,7 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       await db.delete(seniorResumes).where(inArray(seniorResumes.userId, SENIOR_IDS))
       await db.delete(teamMembers).where(inArray(teamMembers.userId, SENIOR_IDS))
       await db.delete(teams).where(eq(teams.id, TEAM_ID))
-      await db.delete(users).where(inArray(users.id, SENIOR_IDS))
+      await db.delete(users).where(inArray(users.id, SEEDED_USER_IDS))
       await pool.end()
     }, 30_000)
 
@@ -260,8 +282,8 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       const rejected = await postingIdByUrl('/ciklum/vacancies/9360003')
       const appliedSuggestion = await suggestionOf(S_DECIDER.id, applied)
       const rejectedSuggestion = await suggestionOf(S_DECIDER.id, rejected)
-      await service.updateStatus(appliedSuggestion!.id, { status: 'APPLIED' }, S_DECIDER)
-      await service.updateStatus(rejectedSuggestion!.id, { status: 'REJECTED' }, S_DECIDER)
+      await service.updateStatus(appliedSuggestion!.id, { status: 'APPLIED' }, ADMIN)
+      await service.updateStatus(rejectedSuggestion!.id, { status: 'REJECTED' }, ADMIN)
       const before = await myPostings()
       const oldIds = new Set(before.map((p) => p.id))
       const fingerprintOf = (rows: typeof before, rowId: string) =>
@@ -306,7 +328,7 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       expect(await statusCounts(S_DECIDER.id)).toMatchObject({ NEW: 6, APPLIED: 1, REJECTED: 1 })
       // A senior who decided nothing keeps their NEW offer on the survivors and gets the six again.
       expect((await statusCounts(S_BYSTANDER.id))['NEW']).toBe(8)
-      const queue = await service.listSuggestions(S_DECIDER.id, S_DECIDER)
+      const queue = await service.listSuggestions(S_DECIDER.id, ADMIN)
       expect(queue.total).toBe(6)
       expect(queue.items.map((i) => i.posting.id)).not.toContain(applied)
       expect(queue.items.map((i) => i.posting.id)).not.toContain(rejected)
@@ -314,8 +336,8 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
 
     // ── 2. the purge cutoff is exact ───────────────────────────────────────────
 
-    it('purge cutoff: a posting collected exactly 90 days before `now` is kept, one millisecond older is purged', async () => {
-      expect(POSTING_RETENTION_DAYS).toBe(90)
+    it('purge cutoff: a posting collected exactly 60 days before `now` is kept, one millisecond older is purged', async () => {
+      expect(POSTING_RETENTION_DAYS).toBe(60)
       await service.collectSource(source)
       const rows = await myPostings()
       const [atCutoff, justOlder] = rows as [(typeof rows)[number], (typeof rows)[number]]
@@ -327,11 +349,11 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
         .where(eq(jobPostings.sourceId, SOURCE_ID))
       await dbSvc.db
         .update(jobPostings)
-        .set({ collectedAt: new Date(NOW.getTime() - 90 * DAY_MS) })
+        .set({ collectedAt: new Date(NOW.getTime() - 60 * DAY_MS) })
         .where(eq(jobPostings.id, atCutoff.id))
       await dbSvc.db
         .update(jobPostings)
-        .set({ collectedAt: new Date(NOW.getTime() - 90 * DAY_MS - 1) })
+        .set({ collectedAt: new Date(NOW.getTime() - 60 * DAY_MS - 1) })
         .where(eq(jobPostings.id, justOlder.id))
 
       // Global delete: assert the exact outcome on this spec's own rows, the count only as a floor.
@@ -341,6 +363,36 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       expect(left).toContain(atCutoff.id)
       expect(left).not.toContain(justOlder.id)
       expect(left).toHaveLength(7)
+    })
+
+    it('SR-M-3: with VACANCY_RETENTION_ENABLED=false the purge keeps its old 90-day limit', async () => {
+      expect(LEGACY_POSTING_RETENTION_DAYS).toBe(90)
+      await service.collectSource(source)
+      const rows = await myPostings()
+      const [past60, past90] = rows as [(typeof rows)[number], (typeof rows)[number]]
+      await dbSvc.db
+        .update(jobPostings)
+        .set({ collectedAt: new Date(NOW.getTime() - DAY_MS) })
+        .where(eq(jobPostings.sourceId, SOURCE_ID))
+      await dbSvc.db
+        .update(jobPostings)
+        .set({ collectedAt: new Date(NOW.getTime() - 61 * DAY_MS) })
+        .where(eq(jobPostings.id, past60.id))
+      await dbSvc.db
+        .update(jobPostings)
+        .set({ collectedAt: new Date(NOW.getTime() - 90 * DAY_MS - 1) })
+        .where(eq(jobPostings.id, past90.id))
+
+      vi.stubEnv('VACANCY_RETENTION_ENABLED', 'false')
+      try {
+        expect(await service.purgeStalePostings(NOW)).toBeGreaterThanOrEqual(1)
+      } finally {
+        vi.unstubAllEnvs()
+      }
+
+      const left = (await myPostings()).map((p) => p.id)
+      expect(left).toContain(past60.id)
+      expect(left).not.toContain(past90.id)
     })
 
     // ── 3. one-unit budget arithmetic over the golden feed ─────────────────────
@@ -408,7 +460,7 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       await pinCollectedAt()
       await setStack(['AWS', 'Kubernetes', 'Terraform'])
 
-      const ranked = await service.listSuggestions(S_DECIDER.id, S_DECIDER)
+      const ranked = await service.listSuggestions(S_DECIDER.id, ADMIN)
 
       // DevOps/9360010 is the oldest published item here, yet scores 1, so it must lead. Freshness
       // alone would put wetelo (published 08-06) first. The two 1/3 ties keep freshness order
@@ -425,7 +477,7 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       await pinCollectedAt()
       await setStack(['TypeScript', 'React', 'GraphQL', 'Kubernetes'])
 
-      const ranked = await service.listSuggestions(S_DECIDER.id, S_DECIDER)
+      const ranked = await service.listSuggestions(S_DECIDER.id, ADMIN)
 
       expect({
         threshold: ranked.threshold,
@@ -455,7 +507,7 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
         ],
       })
 
-      const fresh = await service.listSuggestions(S_BYSTANDER.id, S_BYSTANDER)
+      const fresh = await service.listSuggestions(S_BYSTANDER.id, ADMIN)
       expect(fresh.lowMatch).toEqual([])
       expect(fresh.lowMatchCount).toBe(0)
       expect(fresh.stackKeywords).toEqual([])

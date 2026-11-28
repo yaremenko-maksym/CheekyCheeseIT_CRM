@@ -55,18 +55,34 @@ export function stateBeforeSql(t: AlertTransition): SQL {
 
 /**
  * The earlier TRANSITION events of this source on the Kyiv day of `t.at` (this event excluded),
- * each with the state it came from. Bounded to that day (`at >= <Kyiv midnight>`), so the read
- * does not grow with the source's history. The previous REASON is not needed: consecutive events
- * always differ in `(state, reason)`, so "was DEGRADED/SCHEMA_DRIFT and entered it again" cannot
- * occur. Exported so a unit spec can pin the statements; their behaviour is
+ * each with the `(state, reason)` it came from, taken with the same ordering (`at, id`) as
+ * `stateBeforeSql` takes it live: the previous TRANSITION's `to_state` and `reason_code`
+ * (`LAG` over `at, id`). The live read takes the latest committed transition, so under racing
+ * passes the two can differ in which event they treat as the entry (the daily total almost always
+ * matches). The reason is needed because DEGRADED alerts for two reasons, so DEGRADED/SCHEMA_DRIFT
+ * -> DEGRADED/PAYLOAD_GROWTH is an entry and DEGRADED/SCHEMA_DRIFT -> DEGRADED/SCHEMA_DRIFT (a racing
+ * duplicate) is not (fix round 3, R3-2). Bounded: the window starts at the last event before
+ * Kyiv midnight (so the first event of the day has its predecessor), never the whole history.
+ * Exported so a unit spec can pin the statements; their behaviour is
  * `source-health-alerts.integration.spec.ts`.
  */
 export function earlierEventsTodaySql(t: AlertTransition): SQL {
+  const midnight = sql`(date_trunc('day', ${t.at}::timestamptz AT TIME ZONE ${KYIV}) AT TIME ZONE ${KYIV})`
+  const others = sql`source_id = ${t.sourceId} AND kind = 'TRANSITION' AND id <> ${t.eventId}`
   return sql`
-    SELECT from_state, to_state, reason_code FROM job_source_health_events
-     WHERE source_id = ${t.sourceId} AND kind = 'TRANSITION' AND id <> ${t.eventId}
-       AND at <= ${t.at}
-       AND at >= (date_trunc('day', ${t.at}::timestamptz AT TIME ZONE ${KYIV}) AT TIME ZONE ${KYIV})`
+    SELECT prev_state, prev_reason, to_state, reason_code FROM (
+      SELECT at, to_state, reason_code,
+             LAG(to_state) OVER w AS prev_state, LAG(reason_code) OVER w AS prev_reason
+        FROM job_source_health_events
+       WHERE ${others} AND at <= ${t.at}
+         AND at >= COALESCE(
+           (SELECT at FROM job_source_health_events
+             WHERE ${others} AND at < ${midnight}
+             ORDER BY at DESC, id DESC LIMIT 1),
+           ${midnight})
+      WINDOW w AS (ORDER BY at, id)
+    ) day
+     WHERE at >= ${midnight}`
 }
 
 type Row = Record<string, string | null>
@@ -95,6 +111,8 @@ export class SourceHealthAlertService {
           data: {
             sourceName: t.sourceName,
             state: entered,
+            // The cause rides along so a DEGRADED alert names it (sources-10 N1).
+            reason: t.to.reason,
             failures: capped ? t.failures : null,
             since: capped && t.since !== null ? t.since.toISOString() : null,
           },
@@ -117,7 +135,7 @@ export class SourceHealthAlertService {
       const r = row as Row
       return (
         isAlertEntry(
-          { state: r['from_state'] ?? null, reason: null },
+          { state: r['prev_state'] ?? null, reason: r['prev_reason'] ?? null },
           { state: r['to_state'] ?? null, reason: r['reason_code'] ?? null },
         ) !== null
       )

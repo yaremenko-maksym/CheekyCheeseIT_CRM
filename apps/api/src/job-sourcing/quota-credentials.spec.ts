@@ -23,13 +23,12 @@ function recordingEnv(values: Record<string, string | undefined>) {
 const CLOUDFLARE = { CLOUDFLARE_ACCOUNT_ID: 'cf-account', CLOUDFLARE_AI_TOKEN: 'cf-token' }
 
 describe('readQuotaCredential', () => {
-  it('maps each keyed provider to its own env key, and The Muse to none', () => {
+  it('maps each keyed provider to its own env key', () => {
     expect(QUOTA_PROVIDER_ENV_KEY).toEqual({
       jooble: 'JOOBLE_API_KEY',
       jsearch: 'RAPIDAPI_KEY',
       theirstack: 'THEIRSTACK_API_KEY',
       reed: 'REED_API_KEY',
-      themuse: null,
     })
   })
 
@@ -93,16 +92,6 @@ describe('readQuotaCredential', () => {
       secrets: [],
     })
   })
-
-  it('The Muse needs no key and reads no env at all', () => {
-    const env = recordingEnv({ ...CLOUDFLARE })
-    expect(readQuotaCredential('themuse', env.read)).toEqual({
-      configured: true,
-      apiKey: null,
-      secrets: [],
-    })
-    expect(env.asked).toEqual([])
-  })
 })
 
 describe('hasKeyedCredential / keyProvisioned (task key-sources-smoke)', () => {
@@ -111,8 +100,8 @@ describe('hasKeyedCredential / keyProvisioned (task key-sources-smoke)', () => {
     ['JSEARCH_API', true],
     ['THEIRSTACK_API', true],
     ['REED_API', true],
-    // The Muse needs no key, and a type without a quota provider has none to provision.
-    ['MUSE_API', false],
+    // A type without a quota provider (WTTJ has no adapter yet) has no key to provision.
+    ['WTTJ_HTML', false],
     ['REMOTEOK_API', false],
   ] as const)('%s has a keyed credential: %s', (type, keyed) => {
     expect(hasKeyedCredential(type)).toBe(keyed)
@@ -127,7 +116,7 @@ describe('hasKeyedCredential / keyProvisioned (task key-sources-smoke)', () => {
   })
 
   it('a keyless type is never provisioned, whatever the env holds', () => {
-    expect(keyProvisioned('MUSE_API', () => 'k')).toBe(false)
+    expect(keyProvisioned('WTTJ_HTML', () => 'k')).toBe(false)
     expect(keyProvisioned('REMOTEOK_API', () => 'k')).toBe(false)
   })
 })

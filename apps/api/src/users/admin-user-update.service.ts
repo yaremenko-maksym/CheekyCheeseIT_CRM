@@ -10,8 +10,8 @@ import {
   assertAdminTargetEditableForUpdate,
   assertAssignableRoleOnChange,
   assertSeniorOnlyRoles,
-  assertSeniorTechFloor,
-  techStackChanged,
+  assertSeniorRoleFloor,
+  rolesChanged,
 } from './role-guards.util'
 import { buildAdminUserUpdateSet } from './user-update.util'
 import { assertAvatarDocument } from './user-avatar.util'
@@ -129,15 +129,12 @@ export class AdminUserUpdateService {
     }
     // Senior roles PR 2: checked against the EFFECTIVE role (after a role change in this write).
     assertSeniorOnlyRoles(effectiveRole, data.technicalRoles)
-    // SENIOR technology floor: on a role change TO SENIOR or an actual stack
-    // change; an unrelated edit of a legacy SENIOR below the floor still passes.
-    const stackChanged = techStackChanged(data.techStack, existing.techStack)
-    // (`assertSeniorTechFloor` is a no-op unless `effectiveRole` is SENIOR.)
-    if (existing.role !== 'SENIOR' || stackChanged) {
-      assertSeniorTechFloor(
-        effectiveRole,
-        stackChanged ? (data.techStack ?? null) : existing.techStack,
-      )
+    // SENIOR role floor: on a role change TO SENIOR or an actual roles change;
+    // an unrelated edit of a legacy SENIOR with no roles still passes.
+    const technicalRolesChanged = rolesChanged(data.technicalRoles, existing.technicalRoles)
+    // (`assertSeniorRoleFloor` is a no-op unless `effectiveRole` is SENIOR.)
+    if (existing.role !== 'SENIOR' || technicalRolesChanged) {
+      assertSeniorRoleFloor(effectiveRole, data.technicalRoles ?? existing.technicalRoles)
     }
     // Email uniqueness check — only when actually changing it.
     if (data.email !== undefined && data.email !== existing.email) {

@@ -92,26 +92,12 @@ describe('AuthService', () => {
       expect(url).toContain(encodeURIComponent('https://example.com/cb'))
     })
 
-    // COPY-H-3 (copy-review PR #623 round 4): `promptSelectAccount` was
-    // ONLY exercised through `AuthController.startInviteAccept`'s tests,
-    // which mock `buildGoogleAuthUrl` entirely — the real implementation
-    // was never actually invoked with this option by any test.
-    it('omits prompt=select_account by default (no opts, ordinary login button)', () => {
+    // The account chooser is always forced: an HR signed into a senior's
+    // Google account must be able to pick their own account for the CRM.
+    it('always adds prompt=select_account', () => {
       const service = new AuthService(makeConfig())
-      const url = service.buildGoogleAuthUrl('state-xyz')
-      expect(url).not.toContain('prompt=')
-    })
-
-    it('omits prompt=select_account when explicitly false', () => {
-      const service = new AuthService(makeConfig())
-      const url = service.buildGoogleAuthUrl('state-xyz', { promptSelectAccount: false })
-      expect(url).not.toContain('prompt=')
-    })
-
-    it('adds prompt=select_account when promptSelectAccount is true (invite-accept round)', () => {
-      const service = new AuthService(makeConfig())
-      const url = service.buildGoogleAuthUrl('state-xyz', { promptSelectAccount: true })
-      expect(url).toContain('prompt=select_account')
+      const url = new URL(service.buildGoogleAuthUrl('state-xyz'))
+      expect(url.searchParams.get('prompt')).toBe('select_account')
     })
   })
 

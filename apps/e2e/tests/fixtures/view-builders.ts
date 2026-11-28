@@ -90,38 +90,6 @@ export function buildHrViewingSenior(senior: (typeof USERS)[keyof typeof USERS])
   }
 }
 
-/** JUNIOR viewing their senior: overview only, no actions.
- *  RBAC 2026-06-09: JUNIOR can view+edit legend of their SENIOR/DROP. */
-export function buildJuniorViewingSenior(senior: (typeof USERS)[keyof typeof USERS]): object {
-  const isLegendTarget = senior.role === 'SENIOR' || senior.role === 'DROP'
-  return {
-    user: { ...senior, ...profileExtras(senior) },
-    permissions: {
-      tabs: ['overview', 'projects', 'team'],
-      actions: [],
-      fields: {
-        techStack: true,
-        registrationDate: true,
-        ...(isLegendTarget ? { legend: true as const } : {}),
-      },
-    },
-    data: {},
-  }
-}
-
-/** Junior viewing another junior: header only, no tabs, no actions */
-export function buildJuniorViewingJunior(targetUser: (typeof USERS)[keyof typeof USERS]): object {
-  return {
-    user: { ...targetUser, ...profileExtras(targetUser) },
-    permissions: {
-      tabs: [],
-      actions: [],
-      fields: {},
-    },
-    data: {},
-  }
-}
-
 /** Self-view response (used by GET /users/me on profile page) */
 export function buildSelfView(user: MockUser): object {
   // Mirrors users-access.service.ts isSelf branch exactly.

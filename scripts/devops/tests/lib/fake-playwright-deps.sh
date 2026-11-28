@@ -38,6 +38,40 @@
 #                              NEXT call hits a genuine, unrelated
 #                              dependency error" — a case a blanket
 #                              FAKE_PW_DEPS_LOCK_TEXT=1 cannot represent.
+#   FAKE_PW_DEPS_ORPHAN_PIDFILE   optional (round 3, 2026-11-18) — models
+#                              the gh-run-44216565244 mechanism at unit
+#                              level, the one shape no other env here can
+#                              express. On the FIRST call this stub spawns a
+#                              DETACHED background sleeper (the stand-in for
+#                              `sudo apt-get`, which real
+#                              run_with_timeout cannot kill because it is a
+#                              grandchild owned by root), records its pid in
+#                              this file, and then hangs forever so the
+#                              caller times it out and kills only THIS
+#                              process — leaving the sleeper alive exactly
+#                              as CI leaves the orphaned apt-get. Every
+#                              LATER call checks that sleeper: still alive
+#                              -> print apt's lock wording NAMING ITS REAL
+#                              PID and fail; already exited -> succeed,
+#                              because in CI the orphan's own install is
+#                              what actually put the packages on disk.
+#                              FAKE_PW_DEPS_RC_SEQUENCE is ignored in this
+#                              mode. Takes priority over every other mode.
+#   FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS   optional — how long that sleeper
+#                              lives (default: 4).
+#   FAKE_PW_DEPS_ORPHAN_SUCCESS_DELAY_SECONDS   optional (round 4) — how long
+#                              the POST-ORPHAN success call takes before it
+#                              answers. The real one is `apt-get install` over
+#                              packages already on disk: seconds, not
+#                              instant. Default 0 keeps every earlier case
+#                              unchanged; a case that sets it can prove the
+#                              re-check is given a timeout it can actually
+#                              finish in, which an instant success cannot.
+#   FAKE_PW_DEPS_ECHO_BEFORE_SLEEP   optional (round 3) — text printed
+#                              BEFORE the stub hangs, so a test can prove
+#                              the timed-out attempt's captured output is
+#                              actually printed (requirement 3) rather than
+#                              thrown away as it was on run 44216565244.
 #   FAKE_PW_DEPS_MIXED_OUTPUT   optional (round 2, PR #562 review
 #                              4956397222) — "lock-then-real" or
 #                              "real-then-lock". Every FAILING call
@@ -71,6 +105,63 @@ was_first_call=0
 # fake-gh.sh's `pr merge` branch.
 n=$((n + 1))
 printf '%s' "$n" >"$FAKE_PW_DEPS_CALL_COUNTER"
+
+# ── round 3: the orphaned-holder mode ─────────────────────────────────────
+if [ -n "${FAKE_PW_DEPS_ORPHAN_PIDFILE:-}" ]; then
+  orphan_lifetime="${FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS:-4}"
+  if [ "$was_first_call" -eq 1 ]; then
+    # Detached on purpose (setsid when available, plain background
+    # otherwise): the caller must NOT be able to reap it by killing this
+    # process, which is the entire mechanism under test.
+    # The holder's process NAME is NOT set here (round 4 review, SR-L-7):
+    # renaming a binary is not portable — a copy is SIGKILLed on macOS by code
+    # signing, and the GitHub runner's `sleep` is a uutils multi-call binary
+    # that refuses a foreign argv0. A case that needs a specific comm fakes
+    # `ps` on PATH instead; this stays a plain detached sleeper.
+    if command -v setsid >/dev/null 2>&1; then
+      setsid sleep "$orphan_lifetime" >/dev/null 2>&1 &
+    else
+      sleep "$orphan_lifetime" >/dev/null 2>&1 &
+    fi
+    printf '%s' "$!" >"$FAKE_PW_DEPS_ORPHAN_PIDFILE"
+    echo "fake-playwright-deps: call $n started the install (pid $! holds the lock)"
+    # Hang until killed — the stand-in for an apt-get run that outlives its
+    # per-attempt budget. `exec` on purpose: run_with_timeout kills the
+    # direct child only, so a forked `sleep` here would SURVIVE the kill and
+    # leak one long sleeper per suite run (measured: five stale `sleep 3600`
+    # processes after five runs). exec replaces this shell, so the pid the
+    # caller kills IS the sleep, and the bound is short enough that an
+    # abandoned one cannot linger.
+    exec sleep 60
+  fi
+  orphan_pid="$(cat "$FAKE_PW_DEPS_ORPHAN_PIDFILE" 2>/dev/null || echo '')"
+  # `kill -0`, NOT `ps` (round 5, SR-L-15): a case that injects an unreadable
+  # `ps` on PATH to exercise the script's UNKNOWN arms would otherwise break
+  # THIS probe too — the stub would decide the orphan had finished, the step
+  # would never name a holder, and the arms under test would go unreached
+  # (observed as a case asserting a message the run could not produce). `kill`
+  # is a shell builtin, so no PATH shadow reaches it; the orphan is this
+  # suite's own process under the same user, which is the one case where
+  # `kill -0` is a sound liveness answer (the script under test cannot use it:
+  # its holder is root-owned `sudo apt-get` and EPERM would read as "gone").
+  if [ -n "$orphan_pid" ] && kill -0 "$orphan_pid" 2>/dev/null; then
+    echo "E: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process $orphan_pid (apt-get)" >&2
+    echo "E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), is another process using it?" >&2
+    exit 1
+  fi
+  # The orphan finished — in CI its own apt-get is what installed the
+  # packages, so this call is the no-op success that follows. It is not
+  # instant in reality (apt still reads its lists and resolves), hence the
+  # optional delay.
+  orphan_success_delay="${FAKE_PW_DEPS_ORPHAN_SUCCESS_DELAY_SECONDS:-0}"
+  [ "$orphan_success_delay" -gt 0 ] && sleep "$orphan_success_delay"
+  echo "fake-playwright-deps: call $n ok (the previous install had already finished; 0 newly installed)"
+  exit 0
+fi
+
+if [ -n "${FAKE_PW_DEPS_ECHO_BEFORE_SLEEP:-}" ]; then
+  echo "$FAKE_PW_DEPS_ECHO_BEFORE_SLEEP"
+fi
 
 if [ -n "${FAKE_PW_DEPS_SLEEP_SECONDS:-}" ]; then
   sleep "$FAKE_PW_DEPS_SLEEP_SECONDS"

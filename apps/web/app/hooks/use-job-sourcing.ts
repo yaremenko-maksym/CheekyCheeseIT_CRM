@@ -1,59 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
-import { useLingui } from '@lingui/react/macro'
 import {
-  jobExclusionListSchema,
-  jobExclusionSchema,
   jobSourceListSchema,
   jobSourceSwitchResultSchema,
-  jobSuggestionListSchema,
-  jobSuggestionSchema,
-  type CreateJobExclusionDto,
-  type JobExclusionDto,
-  type JobExclusionListDto,
   type JobSourceListDto,
   type JobSourceSwitchResultDto,
-  type JobSuggestionDto,
-  type JobSuggestionListDto,
-  type JobSuggestionStatus,
 } from '@crm/shared'
 import { api } from '@/lib/axios'
-import { getUserFacingErrorMessage } from '@/lib/axios-utils'
 import { jobSourceHealthQueryKey } from './use-job-source-admin'
 
 /**
- * Job sourcing queries — task-job-sourcing-slice1.
+ * Job sourcing — the ADMIN source catalog (task-job-sourcing-slice1).
+ *
+ * The suggestion and exclusion hooks that used to live here were deleted with
+ * the Interviews-board dialog (task-sources-07c, 2026-11-19): the vacancy queue
+ * is ADMIN/HR work on `/job-queue`, and a senior sees only its outcome as an
+ * interview card. What is left is the source switchboard.
  *
  * Query keys are namespaced `['job-sourcing', …]` and that prefix is NOT in the
- * persist allow-list in `__root.tsx`: this data names the companies a specific
- * senior is being pitched to, which has no business sitting in IndexedDB on a
- * shared laptop. Same reasoning as `['hr', 'summary']` — see use-hr-summary.ts.
+ * persist allow-list in `__root.tsx` — same reasoning as `['hr', 'summary']`,
+ * see use-hr-summary.ts.
  *
  * Every response is `.parse()`d: the payload originates in a third-party feed,
  * so the schema (https-only URL in particular) is a real runtime guard here,
  * not a formality.
  */
-
-export const jobSuggestionsQueryKey = (seniorId: string | undefined) =>
-  ['job-sourcing', 'suggestions', seniorId ?? 'self'] as const
-
-export const jobExclusionsQueryKey = (seniorId: string | undefined) =>
-  ['job-sourcing', 'exclusions', seniorId ?? 'self'] as const
-
-/** The senior's queue of NEW suggestions (already filtered server-side). */
-export function useJobSuggestions(seniorId: string | undefined, enabled = true) {
-  return useQuery<JobSuggestionListDto>({
-    queryKey: jobSuggestionsQueryKey(seniorId),
-    queryFn: async () => {
-      const res = await api.get<unknown>('/job-sourcing/suggestions', {
-        params: seniorId ? { seniorId } : undefined,
-      })
-      return jobSuggestionListSchema.parse(res.data)
-    },
-    enabled,
-    staleTime: 30_000,
-  })
-}
 
 export const jobSourcesQueryKey = ['job-sourcing', 'sources'] as const
 
@@ -100,94 +70,5 @@ export function useSetJobSourceEnabled() {
         queryClient.invalidateQueries({ queryKey: jobSourcesQueryKey }),
         queryClient.invalidateQueries({ queryKey: jobSourceHealthQueryKey }),
       ]),
-  })
-}
-
-export function useJobExclusions(seniorId: string | undefined, enabled = true) {
-  return useQuery<JobExclusionListDto>({
-    queryKey: jobExclusionsQueryKey(seniorId),
-    queryFn: async () => {
-      const res = await api.get<unknown>('/job-sourcing/exclusions', {
-        params: seniorId ? { seniorId } : undefined,
-      })
-      return jobExclusionListSchema.parse(res.data)
-    },
-    enabled,
-    staleTime: 60_000,
-  })
-}
-
-/**
- * «Откликнулись» / «Не подходит».
- *
- * NOTE FOR CALLERS: this mutation must never gate opening the original posting.
- * `window.open` has to run synchronously inside the click handler — see
- * JobSuggestionDialog and its test for why (a popup opened after an `await` is
- * blocked on mobile).
- */
-export function useUpdateJobSuggestionStatus(seniorId: string | undefined) {
-  const queryClient = useQueryClient()
-  const { t } = useLingui()
-
-  return useMutation<JobSuggestionDto, unknown, { id: string; status: JobSuggestionStatus }>({
-    mutationFn: async ({ id, status }) => {
-      const res = await api.patch<unknown>(`/job-sourcing/suggestions/${id}/status`, { status })
-      return jobSuggestionSchema.parse(res.data)
-    },
-    onSuccess: (updated) => {
-      void queryClient.invalidateQueries({ queryKey: jobSuggestionsQueryKey(seniorId) })
-      toast.success(updated.status === 'APPLIED' ? t`Позначено: відгукнулися` : t`Вакансію приховано`)
-    },
-    onError: (error) => {
-      toast.error(getUserFacingErrorMessage(error))
-    },
-  })
-}
-
-export function useCreateJobExclusion(seniorId: string | undefined) {
-  const queryClient = useQueryClient()
-  const { t } = useLingui()
-
-  return useMutation<JobExclusionDto, unknown, CreateJobExclusionDto>({
-    mutationFn: async (dto) => {
-      const res = await api.post<unknown>('/job-sourcing/exclusions', dto)
-      return jobExclusionSchema.parse(res.data)
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: jobExclusionsQueryKey(seniorId) })
-      void queryClient.invalidateQueries({ queryKey: jobSuggestionsQueryKey(seniorId) })
-      toast.success(t`Виняток додано`)
-    },
-    onError: (error) => {
-      // Surface the server's own words (e.g. "Оберіть сеньйора…") instead of a
-      // generic failure — design review round 3: a refusal the user cannot act
-      // on is barely better than the silent no-op it replaced.
-      //
-      // `getUserFacingErrorMessage`, not `getApiErrorMessage`: the latter falls
-      // through to axios's raw `.message`, so a dropped connection showed the
-      // English string "Network Error" verbatim (caught by the test for this
-      // handler). This one maps every non-backend case to a localized
-      // sentence and still passes a real backend message through untouched.
-      toast.error(getUserFacingErrorMessage(error))
-    },
-  })
-}
-
-export function useDeleteJobExclusion(seniorId: string | undefined) {
-  const queryClient = useQueryClient()
-  const { t } = useLingui()
-
-  return useMutation<void, unknown, string>({
-    mutationFn: async (id) => {
-      await api.delete(`/job-sourcing/exclusions/${id}`)
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: jobExclusionsQueryKey(seniorId) })
-      void queryClient.invalidateQueries({ queryKey: jobSuggestionsQueryKey(seniorId) })
-      toast.success(t`Виняток видалено`)
-    },
-    onError: (error) => {
-      toast.error(getUserFacingErrorMessage(error))
-    },
   })
 }

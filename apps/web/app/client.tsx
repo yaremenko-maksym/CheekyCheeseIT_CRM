@@ -8,8 +8,11 @@ import {
   PRELOAD_RELOAD_RESET_MS,
   PRELOAD_RELOAD_TS_KEY,
 } from './lib/preload-reload'
-import { shouldReloadOnControllerChange } from './lib/sw-reload'
+import { pollForUpdates, shouldReloadOnControllerChange } from './lib/sw-reload'
+import { aDialogIsOpen } from './hooks/use-any-dialog-open'
+import { pendingWriteCount } from './lib/axios'
 import { activateLocale, readPreLoginLocale } from './lib/i18n'
+import { stashPrefillFromLocation } from './lib/external-prefill'
 
 // Service Worker регистрируется плагином vite-plugin-pwa автоматически
 // через injectRegister: 'script' — плагин генерирует registerSW.js и
@@ -62,7 +65,8 @@ if (typeof window !== 'undefined') {
 //      do NOT reload (otherwise the page reloads 2-3 s after opening and mid-use).
 //   2. The reload runs once the tab is hidden: immediately if it is already
 //      hidden when the event fires, otherwise on the next visibilitychange to hidden.
-//   3. registration.update() every 60 s: idle tabs would not learn of a redeploy otherwise.
+//   3. registration.update() every 60 s: idle tabs would not learn of a redeploy otherwise;
+//      each tick also re-runs flushPendingReload (busy may have cleared while hidden).
 // Stale lazy chunks are still caught by vite:preloadError (see above).
 // The guard logic lives in ./lib/sw-reload (covered by unit tests).
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
@@ -78,6 +82,9 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
           hadControllerAtLoad,
           alreadyReloading,
           pageVisible: document.visibilityState === 'visible',
+          // aDialogIsOpen matches data-state="open" only, so a dialog mid-exit
+          // or a hidden force-mounted one does not keep the page "busy" forever.
+          userBusy: pendingWriteCount() > 0 || aDialogIsOpen(),
         })
       ) {
         alreadyReloading = true
@@ -94,14 +101,9 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
     // Периодический poll чтобы idle-вкладки замечали редеплой.
     navigator.serviceWorker.ready
       .then((registration) => {
-        setInterval(
-          () => {
-            registration.update().catch(() => {
-              // update() может упасть в offline — игнорируем.
-            })
-          },
-          60 * 1000, // 60 секунд
-        )
+        // The tick also re-runs the deferred reload: a write that settles (or a
+        // dialog that closes) while the tab is already hidden fires no event.
+        pollForUpdates(registration, flushPendingReload)
       })
       .catch(() => {
         // serviceWorker.ready отклоняется только при аномальных состояниях браузера.
@@ -109,6 +111,18 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   } catch {
     // Safari private mode и некоторые браузеры выбрасывают SecurityError при
     // обращении к serviceWorker — молча пропускаем, чтобы не ломать загрузку.
+  }
+}
+
+// A bookmarklet hand-off (`#external=…`) is stashed before the router reads the URL, so it
+// survives the Google login round-trip; the hash is dropped from the address bar and history.
+if (typeof window !== 'undefined') {
+  try {
+    if (stashPrefillFromLocation(window.location)) {
+      history.replaceState(null, '', window.location.pathname + window.location.search)
+    }
+  } catch {
+    // The dialog then opens empty; never block the app boot.
   }
 }
 

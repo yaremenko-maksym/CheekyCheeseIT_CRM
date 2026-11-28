@@ -131,9 +131,9 @@ export interface CollectionWindow {
  * `namespace` is the store's own word for a board / account scope (`jobSourceIdentitySchema`), not
  * a synonym invented here.
  *
- * `query` being non-null is what makes a scope a SEARCH scope, and a search scope that hits the
- * page cap is a WINDOW rather than a truncated inventory (AC1). A full-inventory scope that hits
- * the cap is PARTIAL — we were supposed to see everything and did not.
+ * `query` being non-null is what makes a scope a SEARCH scope, and an exhausted search scope is a
+ * WINDOW. A scope of either kind that hits the page cap is PARTIAL (CR-M-4, backlog 470; AC1 made
+ * a capped search a WINDOW): what lay past the cap was never read, so no absence in it is a miss.
  *
  * ONE `namespace`, SINGULAR, AND THAT IS THE LAYER BOUNDARY. A batch covers one board, so this
  * layer has no representation for a multi-board attempt and no opinion about one. Aggregating
@@ -1015,6 +1015,8 @@ export interface CollectionBatchFields {
   counts: CollectionCounts
   checkpoint: ValidatedCheckpoint | null
   invalidSamples: InvalidSample[]
+  /** Backlog 470: listed-but-not-kept postings the ledger marks present at the run's end. */
+  present?: Pick<ListedPresence, 'held' | 'quarantined'>
 }
 
 export type CollectionBatch = CollectionBatchFields & { readonly [BATCH_BUILT]: true }
@@ -1074,6 +1076,27 @@ export interface DerivationFacts {
    * reported `FULL_INVENTORY` on the strength of a single tail page (SPEC-L-2).
    */
   resumed: boolean
+  /**
+   * Backlog 470: the postings the run saw listed but did not keep. Absent = none, the old rule.
+   * `listed` are the identity keys the store must count as present (a held posting the delta
+   * source did not re-read, a quarantined posting that still had an identity). `notOpen` counts
+   * the quarantined `NOT_AN_OPEN_VACANCY` items: accounted for, deliberately NOT present.
+   */
+  presence?: ListedPresence
+}
+
+export interface ListedPresence {
+  /** Held postings the listing showed and the run did not re-read: present, counted unchanged. */
+  readonly held: readonly string[]
+  /** Quarantined postings with an identity: present, already counted as refused. */
+  readonly quarantined: readonly string[]
+  /** Quarantined because the source says the posting is not open: accounted, not present. */
+  readonly notOpen: number
+  /**
+   * The listing (the sitemap) was read whole, so it IS the inventory: a detail page the budget
+   * left unread, or one that failed to parse, belongs to a posting the store does not hold yet.
+   */
+  readonly listingComplete: boolean
 }
 
 /**
@@ -1131,21 +1154,40 @@ export function deriveOutcome(facts: DerivationFacts): CollectionOutcome {
  *   purpose: the attempt succeeded, the inventory is not full.)
  * - an attempt that RESUMED never read the pages before its start, so its inventory is incomplete
  *   by construction -> PARTIAL, even when it then ran to exhaustion (SPEC-L-2)
- * - a cap or cycle on a SEARCH scope (`query !== null`) is a WINDOW: a search was never going to
- *   enumerate an inventory, and a bounded slice of it is exactly what WINDOW means (AC1)
+ * - a cap or cycle is PARTIAL on any scope (CR-M-4, backlog 470; it was WINDOW on a search scope
+ *   under AC1): WINDOW feeds the expiry, and a posting past the cap was never looked at
  * - the same cap on a FULL-INVENTORY scope is PARTIAL: we were supposed to see everything
  * - a scope that asked for a time window gets WINDOW even when exhausted
  * - only an exhausted, clean, unwindowed, unqueried, UNRESUMED scope is FULL_INVENTORY
+ *
+ * Backlog 470, what "clean" means. A quarantined item is accounted for, and so does not cost the
+ * claim, when it still carried an identity (the store counts its record present) or the source said
+ * it is not an open vacancy (absence is the truth for it). Any other quarantine (no identity: we
+ * cannot say which record it was) and any invalid item still make the run PARTIAL. A listing read
+ * whole (`presence.listingComplete`, an unqueried, unwindowed sitemap) is the inventory, whatever
+ * the detail budget left unread.
  */
+/** D4's drop-guard fraction (`derive-availability.ts`): a run below half the baseline is a collapse. */
+const MIN_INVENTORY_FRACTION = 0.5
+
 export function deriveCoverage(facts: DerivationFacts): CollectionCoverage {
   const outcome = deriveOutcome(facts)
   if (outcome !== 'SUCCEEDED') return 'PARTIAL'
-  if (facts.counts.invalid > 0 || facts.counts.quarantined > 0) return 'PARTIAL'
   if (facts.resumed) return 'PARTIAL'
   // A 304 read no inventory, so it claims none: the run is clean, the coverage is not full.
   if (facts.stop === 'NOT_MODIFIED') return 'PARTIAL'
+  const presence = facts.presence
+  // SR-H-1: not-open items still count in `received`, the size D4's drop guard reads, while none
+  // is present. Past the guard's own fraction they are a feed drift, not closures: claim nothing.
+  if ((presence?.notOpen ?? 0) > facts.counts.raw * (1 - MIN_INVENTORY_FRACTION)) return 'PARTIAL'
+  const unscoped = facts.scope.window === null && facts.scope.query === null
+  if (presence?.listingComplete === true && unscoped) return 'FULL_INVENTORY'
+  const accounted = (presence?.quarantined.length ?? 0) + (presence?.notOpen ?? 0)
+  if (facts.counts.invalid > 0 || facts.counts.quarantined > accounted) return 'PARTIAL'
   const truncated = facts.stop === 'PAGE_CAP' || facts.stop === 'CURSOR_CYCLE'
-  if (truncated) return facts.scope.query !== null ? 'WINDOW' : 'PARTIAL'
+  // CR-M-4: a capped run did not see what lay past its cap, search or not, so an absence in it
+  // proves nothing: no WINDOW claim, and no WINDOW expiry fed by it.
+  if (truncated) return 'PARTIAL'
   if (facts.scope.window !== null || facts.scope.query !== null) return 'WINDOW'
   return 'FULL_INVENTORY'
 }
@@ -1210,6 +1252,14 @@ export function buildCollectionBatch(input: {
     counts: input.facts.counts,
     checkpoint: input.checkpoint,
     invalidSamples: input.invalidSamples.slice(0, MAX_SAMPLES),
+    // Only when there is something to mark: a batch with nothing listed-but-not-kept keeps its shape.
+    ...(input.facts.presence !== undefined &&
+      input.facts.presence.held.length + input.facts.presence.quarantined.length > 0 && {
+        present: {
+          held: input.facts.presence.held,
+          quarantined: input.facts.presence.quarantined,
+        },
+      }),
   }
   assertBatchInvariant(batch)
   // `enumerable: false` IS load-bearing and IS asserted: the brand must not reach a database row.
@@ -1323,6 +1373,8 @@ export interface FetchRequest {
    * past it is REFUSED (`PAYLOAD_TOO_LARGE`), never truncated: nothing partial reaches a parser.
    */
   maxBytes?: number
+  /** Per-request timeout. Absent, the transport's default (15 s) applies; capped at its ceiling (60 s). */
+  timeoutMs?: number
   /**
    * `false`: a redirect is NOT followed — it comes back as its 3xx status, so a caller that checks
    * every URL it fetches (robots, approved hosts) is never taken to one it did not check. Absent,
@@ -1368,12 +1420,22 @@ export interface CollectionContext {
    */
   observeEnvelope?(fingerprint: string): void
   /**
+   * U10: the UTF-8 decoded byte count of each fetched page body. Optional.
+   */
+  observePageBytes?(bytes: number): void
+  /**
    * U6b: the collection loop calls this when the run was a FRESH, whole read of a resource that
    * fits one page (exactly one page, exhausted, not resumed). Only such a run's validators may be
    * stored: a 304 then legitimately means the whole resource is unchanged. A paged or resumed run
    * must never be answered "not modified" for page 1 alone. Optional, like `observeEnvelope`.
    */
   observeSinglePage?(): void
+  /**
+   * Sources-12: which of these identity keys the run's source already holds as a record (read-only).
+   * A delta source fetches a detail only for a key NOT in the answer. Optional: a context without
+   * it holds nothing, and the source's own per-run cap still bounds what it fetches.
+   */
+  heldIdentityKeys?(keys: readonly string[]): Promise<ReadonlySet<string>>
   meter: {
     /** RESERVED before any I/O (the store's own ordering). Returns `null` when the budget refuses,
      * which is a COST_STOP, not an error. */

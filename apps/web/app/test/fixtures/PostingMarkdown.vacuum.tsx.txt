@@ -1,0 +1,127 @@
+/**
+ * Vacuous test fixture for PostingMarkdown (replaces the pre-fix 2026-08-07 dialog fixture
+ * after task-sources-07c deleted JobSuggestionDialog).
+ *
+ * It exercises the component (bold text, typography, headings, inert script, links and images),
+ * but lacks assertions on the actual security properties of the defence:
+ *   - does not assert that http: links are stripped (urlTransform)
+ *   - does not assert that images are disallowed / omitted from DOM (NO_IMAGES)
+ *   - does not assert on rel / target attributes on links (MARKDOWN_COMPONENTS)
+ *   - does not assert on queryByRole('link') or queryByRole('img')
+ *   - does not test MARKDOWN_URL_TRANSFORM directly
+ *
+ * All tests PASS against the unmutated component, every defence mutant is covered,
+ * and ZERO mutants in the defence block are killed (all 8 survive).
+ */
+import { render, screen } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
+import { PostingMarkdown } from '../PostingMarkdown'
+
+function renderMd(markdown: string) {
+  render(<PostingMarkdown markdown={markdown} testId="md" />)
+  return screen.getByTestId('md')
+}
+
+describe('PostingMarkdown', () => {
+  it('renders markdown (bold becomes <strong>)', () => {
+    renderMd('**Strong** text')
+    expect(screen.getByText('Strong', { selector: 'strong' })).toBeInTheDocument()
+  })
+
+  it('a <script> renders as inert text, never an element', () => {
+    const md = renderMd('<script>alert(document.cookie)</script>Real text')
+    expect(md.innerHTML).not.toMatch(/<script/i)
+    expect(md.textContent).toBe('<script>alert(document.cookie)</script>Real text')
+  })
+
+  it('an <img onerror> payload stays text', () => {
+    const md = renderMd('<img src=x onerror="alert(1)"> Job')
+    expect(md.innerHTML).not.toMatch(/<img/i)
+    expect(md.textContent).toContain('<img src=x onerror="alert(1)">')
+  })
+
+  it('renders link markdown for safe links', () => {
+    const md = renderMd('[Apply](https://jobs.dou.ua/x/1)')
+    expect(md).toBeInTheDocument()
+  })
+
+  it('renders link markdown for unsafe links without asserting on href', () => {
+    const md = renderMd('[click me](javascript:alert(1))')
+    expect(md).toBeInTheDocument()
+  })
+
+  it('renders image markdown without asserting on img elements', () => {
+    const md = renderMd('![photo](https://example.com/photo.png)')
+    expect(md).toBeInTheDocument()
+  })
+
+  it('merges the caller class with the typography base', () => {
+    render(<PostingMarkdown markdown="x" testId="md2" className="mt-4" />)
+    expect(screen.getByTestId('md2')).toHaveClass('mt-4', 'text-sm', 'leading-relaxed')
+  })
+
+  it('styles lists, quotes and code explicitly and carries no dead prose class', () => {
+    const md = renderMd('1. one\n2. two\n\n> quoted\n\n`code`')
+    expect(md).toHaveClass(
+      'break-words',
+      '[&>:first-child]:mt-0',
+      '[&_p]:my-2',
+      '[&_ul]:my-2',
+      '[&_ul]:list-disc',
+      '[&_ul]:pl-5',
+      '[&_ol]:my-2',
+      '[&_ol]:list-decimal',
+      '[&_ol]:pl-5',
+      '[&_li]:my-0.5',
+      '[&_blockquote]:my-2',
+      '[&_blockquote]:border-l-2',
+      '[&_blockquote]:pl-3',
+      '[&_blockquote]:text-muted-foreground',
+      '[&_code]:rounded',
+      '[&_code]:bg-muted',
+      '[&_code]:px-1',
+      '[&_code]:font-mono',
+      '[&_code]:text-xs',
+      '[&_pre]:my-2',
+      '[&_pre]:overflow-x-auto',
+      '[&_pre]:rounded-md',
+      '[&_pre]:bg-muted',
+      '[&_pre]:p-3',
+      '[&_pre_code]:bg-transparent',
+      '[&_pre_code]:p-0',
+    )
+    expect(md.className).not.toMatch(/(^|\s)(dark:)?prose(-\S+)?(\s|$)/)
+    expect(md.className).not.toContain('max-w-none')
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.getByRole('list').tagName).toBe('OL')
+  })
+
+  it('links take the primary colour and keep the underline', () => {
+    expect(renderMd('[Apply](https://jobs.dou.ua/x/1)')).toHaveClass(
+      '[&_a]:text-primary',
+      '[&_a]:underline',
+      '[&_a]:underline-offset-4',
+    )
+  })
+
+  it.each([
+    ['# Title', 4],
+    ['## Title', 4],
+    ['### Title', 5],
+    ['#### Title', 5],
+    ['##### Title', 5],
+    ['###### Title', 5],
+  ])('%s renders as an h%i', (markdown, level) => {
+    renderMd(markdown)
+    const heading = screen.getByRole('heading', { name: 'Title' })
+    expect(heading.tagName).toBe(`H${level}`)
+    expect(heading).toHaveClass(
+      ...(level === 4
+        ? ['mt-4', 'mb-1', 'text-sm', 'font-semibold']
+        : ['mt-3', 'mb-1', 'text-sm', 'font-medium']),
+    )
+    for (const higher of [1, 2, 3]) {
+      expect(screen.queryByRole('heading', { level: higher })).toBeNull()
+    }
+  })
+})

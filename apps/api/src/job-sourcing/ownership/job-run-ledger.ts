@@ -1,7 +1,17 @@
 import { randomUUID } from 'node:crypto'
-import type { JobMeterUnit, JobMeterWindow, JobSourceType } from '@crm/shared'
+import type {
+  JobCollectionCoverage,
+  JobMeterUnit,
+  JobMeterWindow,
+  JobSourceType,
+} from '@crm/shared'
 import { type SQL, sql } from 'drizzle-orm'
 import type { DrizzleTx } from '../../database/types'
+import {
+  type RunPresence,
+  enqueueRunAbsentRecords,
+  markListedPresent,
+} from '../availability/run-absence-producer'
 import {
   type StoredValidators,
   parseStoredValidators,
@@ -23,6 +33,7 @@ import {
 import type { JobSourceRegistry } from '../registry/job-source-registry'
 import { MAX_EARLY_DUE_SLACK_MS } from '../scheduling/due-policy'
 import { dueSourcesPredicate } from '../scheduling/due-sources.query'
+import { localDay } from '../scheduling/next-slot'
 import { type SqlExecutor, claimHostSlot, hostOpenPredicate } from '../scheduling/host-state'
 import type { LedgerCatalog } from './ledger-catalog'
 import { type LegacyClaimInput, claimLegacy, isLegacyKind } from './legacy-run-claim'
@@ -45,6 +56,7 @@ import {
   nextSlowdownLevel,
   refusalWrite,
   resolveLedgerOptions,
+  terminalCounters,
   validateEnding,
 } from './ledger-policy'
 import {
@@ -157,6 +169,51 @@ export interface RunEnding {
   readonly errorMessage?: string | null
   /** U2: what the run's context counted. Absent (recovery), the metric columns stay NULL. */
   readonly metrics?: RunMetrics
+  /**
+   * sources-09: how many items the attempt READ, the schema refused, and got NO ROW for, or its
+   * page was thrown away by something that is not a database failure. A page write records only
+   * what it PERSISTED, so without this a feed whose items are all schema-refused ends
+   * `received 0, invalid 0`: indistinguishable from an empty feed (the prod symptom on Djinni and
+   * WWR, 2026-11-19). `finish` adds it to `received` AND to `invalid`.
+   *
+   * QUARANTINE IS NOT HERE (CR-M-2, fix round 2, Master A1). An identity- or observation-quarantined
+   * item is counted in no persisted counter, exactly as on main: the run row has no `quarantined`
+   * column, and counting it as `invalid` would raise SCHEMA_DRIFT on every employer board whose
+   * postings are all quarantined. The honest bucket needs DDL in both CHECKs and deploy wiring; it is
+   * a follow-up.
+   */
+  readonly refused?: number
+  /**
+   * sources-09 (CR-M-1 / SO-E1, fix round 1): how many items the attempt read, OBSERVED, and then
+   * lost because OUR OWN page write failed — `PERSISTENCE`, never the provider's doing. `finish`
+   * adds it to `received` and to `persistence_errors`, and never to `invalid`: `invalid / received`
+   * is what raises `SCHEMA_DRIFT` (`health/detectors.ts` `detectFormatDrift`), and a lock or
+   * statement timeout on a page write is not the provider drifting.
+   *
+   * NET OF THE CHUNKS THAT COMMITTED (CR-L-1 / SO-E2). A page above the store's cap is written in
+   * chunks, each its own transaction; the chunks that committed are already in the persisted
+   * `received`, so only the remainder is counted here. Counting the whole page would put the
+   * committed chunks in `received` twice.
+   */
+  readonly lost?: number
+  /**
+   * Backlog 472: the batch's own coverage claim (`deriveCoverage`). Written to the run row only
+   * when the ending is SUCCEEDED; every other ending, and an absent value, stores PARTIAL, so no
+   * failed, cancelled, fenced or recovered run can ever claim an inventory (`coverageOf`).
+   */
+  readonly coverage?: JobCollectionCoverage
+  /**
+   * Backlog 470: identity keys the run saw listed and did not keep. On SUCCEEDED `finish` gives each
+   * existing record of this source a `job_run_records` row and a fresh `last_observed_at`; `held`
+   * ones are also counted `received` + `unchanged` (nothing else counted them), `quarantined` ones
+   * are already counted through `refused`.
+   */
+  readonly present?: RunPresence
+}
+
+/** The coverage a run row stores: the claim only on SUCCEEDED, PARTIAL otherwise (backlog 472). */
+export function coverageOf(ending: Pick<RunEnding, 'outcome' | 'coverage'>): JobCollectionCoverage {
+  return ending.outcome === 'SUCCEEDED' ? (ending.coverage ?? 'PARTIAL') : 'PARTIAL'
 }
 
 /** U2 (ADR section 10): the run metrics `finish` writes onto `job_collection_runs`. */
@@ -165,9 +222,15 @@ export interface RunMetrics {
   readonly bytesRead: number
   /** The last answered request's HTTP status; null when no request was answered. */
   readonly lastHttpStatus: number | null
-  /** sha256 hex of the first decoded response's field names; null when none was decoded. */
+  /** Envelope fingerprint (`envelope-fingerprint.ts`) of the first decoded response; null when none was decoded. */
   readonly envelopeFingerprint: string | null
   readonly validatorsSeen: boolean
+  /**
+   * sources-10: the largest decoded page body the adapter reported (`observePageBytes`); 0 when it
+   * reported none. NOT written by `finish`: there is no column for it (no DDL in sources-10; backlog
+   * `max_page_bytes`), so the health detector reads the average page from `bytes_read / request_count`.
+   */
+  readonly maxPageBytes: number
   /**
    * U6b: the validators of the run's first request, for `finish` to store in the checkpoint when
    * the run SUCCEEDED; null when that response showed none (the stored ones are then dropped).
@@ -566,6 +629,8 @@ export class JobRunLedger {
    * U3: the sweep predicate (ADR section 5) narrowed to the sweepable manifest entries
    * (`isSweepable`: an interval profile, no fixed slots) and minus the window's skipped sources.
    * The profile lives in code, so the entries are resolved here from the stored manifest ids.
+   * A profile with a window and no off interval is swept only when the cycle's start falls on one
+   * of the window's days in the window's zone (a Mondays-only source is not swept on a Tuesday).
    *
    * CR-M-1 / SR-M-1 / CR-M-3: a source is swept ONCE around the sweep (ADR section 5 as amended by
    * Master). The sweep also skips a source with ANY run (any cycle) started since
@@ -577,12 +642,27 @@ export class JobRunLedger {
     const { rows } = await this.db.execute(
       sql`SELECT DISTINCT manifest_id FROM job_sources WHERE manifest_id IS NOT NULL`,
     )
+    const cycle = await this.db.execute(
+      sql`SELECT (extract(epoch FROM started_at) * 1000)::float8 AS started_ms
+          FROM job_collection_cycles WHERE id = ${sweep.cycleId}::uuid`,
+    )
+    const startedAt = new Date(Number(cycle.rows[0]?.['started_ms']))
     // The query excludes NULL; an id the catalog does not know is not sweepable (fail closed).
     const ids: string[] = []
     const floors: number[] = []
     for (const id of rows.map((r) => String(r['manifest_id']))) {
       const entry = this.catalog.entry(id)
       if (!isSweepable(entry)) continue
+      // A windowed profile with no off interval has no slot outside its window days (TheirStack's
+      // Mondays): sweep it only on such a day, in the window's zone. An unreadable start fails closed.
+      const { window, offIntervalMinutes } = entry.fetchProfile
+      if (
+        window !== null &&
+        offIntervalMinutes === null &&
+        (Number.isNaN(startedAt.getTime()) ||
+          !window.days.includes(localDay(window.timeZone, startedAt)))
+      )
+        continue
       ids.push(id)
       floors.push(Math.ceil(entry.floorHours * 60))
     }
@@ -918,7 +998,7 @@ export class JobRunLedger {
     // "A page was saved" (SR-M-22) from what only a page write (`writePageProgress`) writes (SR-M-1): observations
     // received, or a checkpoint moved off the one the claim inherited. Never `updated_at`.
     const { rows: locked } = await tx.execute(
-      sql`SELECT r.received, (r.received > 0 OR r.checkpoint IS DISTINCT FROM
+      sql`SELECT r.received, r.cycle_id, (r.received > 0 OR r.checkpoint IS DISTINCT FROM
                  ${inheritedCheckpoint(sql`r.source_id`, sql`r.config_version`, sql`l.fencing_epoch < r.fencing_epoch`)}) AS paged
             FROM job_collection_runs r WHERE ${runPredicate} FOR UPDATE OF r`,
     )
@@ -936,10 +1016,32 @@ export class JobRunLedger {
         ? null
         : ending.errorMessage.slice(0, ERROR_MESSAGE_MAX)
     const m = ending.metrics
+    // sources-09: the items the attempt read and could not keep, split by WHOSE failure it was and
+    // added in ONE statement (arithmetic and its reasons: `terminalCounters`).
+    // `persistence_errors` is only ever non-zero on a non-SUCCEEDED ending
+    // (`ck_job_collection_runs_succeeded_complete` requires 0 there), which holds because every
+    // path that discards a page also records the page's failure on the attempt.
+    const counters = terminalCounters(ending, run)
+    const coverage = coverageOf(ending)
+    // Backlog 470: listed-but-not-kept postings become present BEFORE the row is ended, so the
+    // held ones land in `received` + `unchanged` of the same UPDATE (the SUCCEEDED CHECK balances).
+    const held =
+      ending.outcome === 'SUCCEEDED' && ending.present !== undefined
+        ? await markListedPresent(tx, {
+            runId: head.runId,
+            sourceId: head.sourceId,
+            cycleId: run['cycle_id'] == null ? null : String(run['cycle_id']),
+            present: ending.present,
+          })
+        : 0
     await tx.execute(
       sql`UPDATE job_collection_runs
              SET outcome = ${ending.outcome}::job_collection_outcome, error_code = ${ending.errorCode},
                  error_message = ${message}, ended_at = ${endedAt}, updated_at = clock_timestamp(),
+                 coverage = ${coverage}::job_collection_coverage,
+                 unchanged = unchanged + ${held}::integer,
+                 received = received + ${counters.received + held}::integer, invalid = invalid + ${counters.invalid}::integer,
+                 persistence_errors = persistence_errors + ${counters.persistenceErrors}::integer,
                  request_count = ${m?.requestCount ?? null}::integer, bytes_read = ${m?.bytesRead ?? null}::bigint,
                  last_http_status = ${m?.lastHttpStatus ?? null}::smallint,
                  envelope_fingerprint = ${m?.envelopeFingerprint ?? null}::text,
@@ -956,10 +1058,22 @@ export class JobRunLedger {
                                    ELSE (checkpoint - 'validators') || ${patch}::jsonb END
            WHERE id = ${head.runId}::uuid`,
     )
+    // Backlog 470: the absence work exists exactly when the SUCCEEDED row with its claim does.
+    await enqueueRunAbsentRecords(tx, {
+      runId: head.runId,
+      sourceId: head.sourceId,
+      sourceType: String(source['type']) as JobSourceType,
+      cycleId: run['cycle_id'] == null ? null : String(run['cycle_id']),
+      outcome: ending.outcome,
+      coverage,
+      endedAt: dbNow,
+    })
     await this.account(tx, head, source, ending, {
       dbNow,
       paged: run['paged'] === true,
-      nonEmpty: Number(run['received']) > 0,
+      // sources-09 SO-E3: the value the row carries AFTER the increment, not the persisted-only
+      // `received` the lock read (see `terminalCounters`).
+      nonEmpty: counters.nonEmpty,
     })
     return true
   }
@@ -1026,6 +1140,34 @@ export class JobRunLedger {
   // -------------------------------------------------------------------------
   // ADMIN exit (T9 calls it)
   // -------------------------------------------------------------------------
+
+  /**
+   * A1k for a LEGACY source: the audited access pause, written to the SAME cell `account()` writes
+   * for a reporting source. `account()` deliberately returns early on a LEGACY run (ADR Q5 /
+   * SR-M-17 — "ends on its run row only"), so the legacy collection loop has no other way to reach
+   * the pause that `enableRefusal` reads (`AUTH_PAUSED`) and `resetFailures` is the one action to
+   * clear. The ADR invariant is untouched: no cap, no backoff, no cadence — one cell and its
+   * message. False for an unknown source.
+   */
+  async pauseLegacyAccess(input: {
+    readonly sourceId: string
+    readonly message: string
+  }): Promise<boolean> {
+    if (!UUID.test(input.sourceId)) throw new RangeError('pauseLegacyAccess: invalid id')
+    const message = input.message.slice(0, ERROR_MESSAGE_MAX)
+    const { rows } = await this.db.transaction(
+      (tx) =>
+        tx.execute(
+          // Stryker disable next-line StringLiteral: raw SQL text -- only a real Postgres can tell it apart; job-run-ledger.switch.integration.spec.ts runs it against one, beside the resetFailures case that clears this cell
+          sql`UPDATE job_sources
+                 SET last_error_code = ${AUTH_PAUSE_CODE}::text, last_error_message = ${message}::text,
+                     updated_at = clock_timestamp()
+               WHERE id = ${input.sourceId}::uuid RETURNING 1 AS ok`,
+        ),
+      READ_COMMITTED,
+    )
+    return rows.length === 1
+  }
 
   /**
    * Reset a source's failure cap (SR-L-25): counter 0, no cooldown, due now, and ONE

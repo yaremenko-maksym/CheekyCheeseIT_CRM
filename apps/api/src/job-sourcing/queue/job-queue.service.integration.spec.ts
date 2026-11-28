@@ -23,6 +23,7 @@ import {
   type SeniorVersions,
 } from '../runtime/recompute-inputs'
 import { findPgError } from '../../database/pg-errors'
+import { purgeOpportunity } from '../store/opportunity-purge'
 import { JobQueueService } from './job-queue.service'
 import { JobQueueActionsService } from './queue-actions.service'
 import { parseCursor, signCursor } from './queue-cursor'
@@ -85,8 +86,10 @@ async function mkOpp(key: string, o: OppOpts = {}) {
   }
   const { rows } = await sqlq(
     `INSERT INTO job_opportunities
-       (title, title_key, revision, availability, first_seen_at, employer_name, employer_key, description_sha256)
-     VALUES ($1, $2, $3, 'OPEN', COALESCE($4::timestamptz, now()), $5, $5, $6) RETURNING id`,
+       (title, title_key, revision, availability, first_seen_at, employer_name, employer_key, description_sha256,
+        technical_roles, role_status)
+     VALUES ($1, $2, $3, 'OPEN', COALESCE($4::timestamptz, now()), $5, $5, $6,
+             ARRAY['BACKEND_ENGINEER'], 'RULE') RETURNING id`,
     [
       `${TAG} ${key}`,
       o.employerKey === undefined ? `${TAG}-${key}` : `${TAG}-dup`,
@@ -412,6 +415,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
         nextCursor: null,
         counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
         generation: null,
+        sourcingNotice: null,
       })
       expect(await refusal(service.card(none, id('oppShared')))).toEqual(NOT_FOUND)
     })
@@ -871,7 +875,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
         [id('teamA')],
       )
       expect(res.generation).toEqual({
-        ruleVersion: 'eval.1+l1.1',
+        ruleVersion: 'eval.3+l1.1',
         evaluatedAt: new Date(rows[0].evaluated_at as string).toISOString(),
         capped: false,
       })
@@ -879,7 +883,8 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
 
     it('the scope rank never passes the 1000 ceiling', async () => {
       await mkOpp('rankCeiling')
-      await lead('rankCeiling', 'senA', 999)
+      // eval.3: the rank is the best own score only, so the clamp shows on an over-range score.
+      await lead('rankCeiling', 'senA', 1500)
       await lead('rankCeiling', 'senShared', 999)
       await expireGeneration('teamA')
       await service.list(hrA(), q())
@@ -896,9 +901,9 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
           WHERE g.id = $1 AND e.opportunity_id = $2`,
         [generation, id('oppShared')],
       )
-      // The best own score, 50, plus one match weight for the second own senior.
+      // The best own score, 50; the number of own seniors is not a rank input (eval.3).
       expect(rows).toEqual([
-        { rule_version: MATCH_RULE_VERSION, rank_score: 60, opportunity_revision: 1 },
+        { rule_version: MATCH_RULE_VERSION, rank_score: 50, opportunity_revision: 1 },
       ])
     })
 
@@ -1136,6 +1141,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
           nextCursor: null,
           counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
           generation: null,
+          sourcingNotice: null,
         },
       )
     })
@@ -1146,6 +1152,147 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       const raw = JSON.stringify(res)
       expect(raw).not.toContain('descriptionMd')
       expect(raw).not.toContain('secret body')
+    })
+  })
+
+  describe('sort by publication date', () => {
+    const SEARCH = `${TAG} pub`
+    const publishedAt = (opp: string, at: string | null) =>
+      sqlq(`UPDATE job_opportunities SET published_at = $2::timestamptz WHERE id = $1`, [
+        id(opp),
+        at,
+      ])
+    const walk = async (over: Record<string, unknown>) => {
+      const seen: string[] = []
+      let cursor: string | null | undefined
+      do {
+        const page = await service.list(
+          hrA(),
+          q({ search: SEARCH, limit: 2, ...over, ...(cursor ? { cursor } : {}) }),
+        )
+        seen.push(...page.items.map((i) => i.opportunityId))
+        cursor = page.nextCursor
+      } while (cursor)
+      return seen
+    }
+
+    beforeAll(async () => {
+      // score, first seen, published: relevance and publication date disagree on every pair
+      for (const [k, score, firstSeen, published] of [
+        ['pubOld', 10, '2023-01-01T00:00:00Z', '2024-01-01T00:00:00Z'],
+        ['pubNew', 20, '2023-01-01T00:00:00Z', '2025-01-01T00:00:00Z'],
+        ['pubNullOld', 5, '2020-01-01T00:00:00Z', null],
+        ['pubNullNew', 90, '2022-01-01T00:00:00Z', null],
+        ['pubMid', 70, '2023-01-01T00:00:00Z', '2024-06-01T00:00:00Z'],
+      ] as const) {
+        await mkOpp(k, { firstSeen })
+        await lead(k, 'senA', score)
+        await publishedAt(k, published)
+      }
+    })
+
+    it('newest publication first across pages; unknown dates last, newest first seen first', async () => {
+      await expireGeneration('teamA')
+      expect(await walk({ sort: 'published' })).toEqual(
+        ['pubNew', 'pubMid', 'pubOld', 'pubNullNew', 'pubNullOld'].map(id),
+      )
+    })
+
+    it('relevance stays the default and its order is unchanged', async () => {
+      await expireGeneration('teamA')
+      const relevance = ['pubNullNew', 'pubMid', 'pubNew', 'pubOld', 'pubNullOld'].map(id)
+      expect(await walk({})).toEqual(relevance)
+      expect(await walk({ sort: 'relevance' })).toEqual(relevance)
+    })
+
+    it('a publication date change between pages neither moves nor repeats a row', async () => {
+      await expireGeneration('teamA')
+      const first = await service.list(hrA(), q({ search: SEARCH, limit: 2, sort: 'published' }))
+      expect(first.items.map((i) => i.opportunityId)).toEqual([id('pubNew'), id('pubMid')])
+      // Would jump to the top of a fresh order; this generation snapshotted the old date.
+      await publishedAt('pubNullOld', '2030-01-01T00:00:00Z')
+      try {
+        const second = await service.list(
+          hrA(),
+          q({ search: SEARCH, limit: 2, sort: 'published', cursor: first.nextCursor }),
+        )
+        expect(second.items.map((i) => i.opportunityId)).toEqual([id('pubOld'), id('pubNullNew')])
+      } finally {
+        await publishedAt('pubNullOld', null)
+      }
+    })
+
+    it('one team pages its stored published_order_key across two pages', async () => {
+      await expireGeneration('teamA')
+      const first = await service.list(hrA(), q({ search: SEARCH, limit: 3, sort: 'published' }))
+      const [generation] = await publishedOf('teamA')
+      const keyed = await sqlq(
+        `SELECT e.opportunity_id FROM job_queue_generation_entries e
+          WHERE e.generation_id = $1 AND e.opportunity_id = ANY($2::uuid[])
+          ORDER BY e.published_order_key`,
+        [generation, ['pubOld', 'pubNew', 'pubNullOld', 'pubNullNew', 'pubMid'].map(id)],
+      )
+      const order = ['pubNew', 'pubMid', 'pubOld', 'pubNullNew', 'pubNullOld'].map(id)
+      // the publish INSERT wrote the key, in the «спочатку нові» order
+      expect(keyed.rows.map((r: { opportunity_id: string }) => r.opportunity_id)).toEqual(order)
+      expect(first.items.map((i) => i.opportunityId)).toEqual(order.slice(0, 3))
+      expect(first.nextCursor).toBeTruthy()
+      const second = await service.list(
+        hrA(),
+        q({ search: SEARCH, limit: 3, sort: 'published', cursor: first.nextCursor }),
+      )
+      expect(second.items.map((i) => i.opportunityId)).toEqual(order.slice(3))
+      expect(second.nextCursor).toBeNull()
+    })
+
+    it('a generation published before the key existed (NULL key) still pages by date', async () => {
+      await expireGeneration('teamA')
+      await service.list(hrA(), q({ search: SEARCH, limit: 1 }))
+      const [generation] = await publishedOf('teamA')
+      // The pre-deploy shape: the entries are immutable, so only the owner can fake an old row.
+      // The trigger exists once the append-only DDL ran in this database; db:push alone has none.
+      const immutable = 'trg_job_queue_generation_entries_immutable'
+      const guarded =
+        (await sqlq(`SELECT 1 FROM pg_trigger WHERE tgname = $1`, [immutable])).rowCount === 1
+      if (guarded)
+        await sqlq(`ALTER TABLE job_queue_generation_entries DISABLE TRIGGER ${immutable}`)
+      try {
+        await sqlq(
+          `UPDATE job_queue_generation_entries SET published_order_key = NULL WHERE generation_id = $1`,
+          [generation],
+        )
+      } finally {
+        if (guarded)
+          await sqlq(`ALTER TABLE job_queue_generation_entries ENABLE ALWAYS TRIGGER ${immutable}`)
+      }
+      // A stored-key read would match nothing (`NULL > -1`); the fallback numbers the order.
+      expect(await walk({ sort: 'published' })).toEqual(
+        ['pubNew', 'pubMid', 'pubOld', 'pubNullNew', 'pubNullOld'].map(id),
+      )
+      expect((await publishedOf('teamA'))[0]).toBe(generation)
+      // the relevance read of the same generation keeps its stored order_key
+      expect(await walk({})).toEqual(
+        ['pubNullNew', 'pubMid', 'pubNew', 'pubOld', 'pubNullOld'].map(id),
+      )
+    })
+
+    it('a cursor of one sort is refused by the other, both ways', async () => {
+      await expireGeneration('teamA')
+      const byDate = await service.list(hrA(), q({ search: SEARCH, limit: 1, sort: 'published' }))
+      const byRank = await service.list(hrA(), q({ search: SEARCH, limit: 1 }))
+      expect(
+        await refusal(
+          service.list(hrA(), q({ search: SEARCH, limit: 1, cursor: byDate.nextCursor })),
+        ),
+      ).toEqual(REFRESH)
+      expect(
+        await refusal(
+          service.list(
+            hrA(),
+            q({ search: SEARCH, limit: 1, sort: 'published', cursor: byRank.nextCursor }),
+          ),
+        ),
+      ).toEqual(REFRESH)
     })
   })
 
@@ -1481,6 +1628,97 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
     })
   })
 
+  describe('sources-17: the salary on a row and the salary filter', () => {
+    const setSalary = (
+      opp: string,
+      min: number | null,
+      max: number | null,
+      currency: string,
+      period: string,
+      monthlyTop: number,
+    ) =>
+      sqlq(
+        `UPDATE job_opportunities SET salary_min = $2, salary_max = $3, salary_currency = $4,
+                salary_period = $5, salary_monthly_top = $6 WHERE id = $1`,
+        [id(opp), min, max, currency, period, monthlyTop],
+      )
+    const listed = async (over: Record<string, unknown>) =>
+      (await service.list(hrA(), q({ search: `${TAG} sal`, ...over }))).items
+        .map((i) => i.opportunityId)
+        .sort()
+    const keys = (...k: string[]) => k.map(id).sort()
+
+    beforeAll(async () => {
+      for (const k of ['salEur', 'salUsd', 'salNone']) {
+        await mkOpp(k)
+        await lead(k, 'senA', 40)
+      }
+      await setSalary('salEur', 4000, 5500, 'EUR', 'MONTH', 5500)
+      await setSalary('salUsd', 120000, null, 'USD', 'YEAR', 10000)
+      await expireGeneration('teamA')
+    })
+
+    it('a stated salary is on the item and the card; no salary is no key at all', async () => {
+      expect((await itemOf(hrA(), 'salEur'))?.salary).toEqual({
+        min: 4000,
+        max: 5500,
+        currency: 'EUR',
+        period: 'MONTH',
+      })
+      expect((await itemOf(hrA(), 'salUsd'))?.salary).toEqual({
+        min: 120000,
+        max: null,
+        currency: 'USD',
+        period: 'YEAR',
+      })
+      expect(Object.keys((await itemOf(hrA(), 'salNone')) ?? {})).not.toContain('salary')
+      expect((await service.card(hrA(), id('salEur'))).salary).toEqual({
+        min: 4000,
+        max: 5500,
+        currency: 'EUR',
+        period: 'MONTH',
+      })
+    })
+
+    it('stated / not stated, a currency, and a same-currency monthly minimum', async () => {
+      expect(await listed({})).toEqual(keys('salEur', 'salUsd', 'salNone'))
+      expect(await listed({ salary: 'STATED' })).toEqual(keys('salEur', 'salUsd'))
+      expect(await listed({ salary: 'NOT_STATED' })).toEqual(keys('salNone'))
+      expect(await listed({ salary: 'STATED,NOT_STATED' })).toEqual(
+        keys('salEur', 'salUsd', 'salNone'),
+      )
+      expect(await listed({ salaryCurrency: 'EUR' })).toEqual(keys('salEur'))
+      const eur = { salary: 'STATED', salaryCurrency: 'EUR' }
+      expect(await listed({ ...eur, salaryMinMonthly: 5500 })).toEqual(keys('salEur'))
+      expect(await listed({ ...eur, salaryMinMonthly: 5501 })).toEqual([])
+      // A yearly figure compares by its monthly equivalent: 120 000 / 12 = 10 000.
+      expect(await listed({ salaryCurrency: 'USD', salaryMinMonthly: 10000 })).toEqual(
+        keys('salUsd'),
+      )
+      expect(await listed({ salaryCurrency: 'USD', salaryMinMonthly: 10001 })).toEqual([])
+    })
+
+    it('a monthly minimum without a currency is refused before the service', () => {
+      expect(() => q({ salaryMinMonthly: 5000 })).toThrow()
+      expect(() => q({ salary: 'NOT_STATED', salaryCurrency: 'EUR' })).toThrow()
+    })
+
+    it('a cursor issued under one salary filter is refused under another', async () => {
+      const page = await service.list(
+        hrA(),
+        q({ search: `${TAG} sal`, limit: 1, salary: 'STATED' }),
+      )
+      const cursor = page.nextCursor as string
+      expect(cursor).toEqual(expect.any(String))
+      const again = (over: Record<string, unknown>) =>
+        service.list(hrA(), q({ search: `${TAG} sal`, limit: 1, cursor, ...over }))
+      expect((await again({ salary: 'STATED' })).items).toHaveLength(1)
+      expect(await refusal(again({ salary: 'NOT_STATED' }))).toEqual(REFRESH)
+      expect(await refusal(again({}))).toEqual(REFRESH)
+      expect(await refusal(again({ salary: 'STATED', salaryCurrency: 'EUR' }))).toEqual(REFRESH)
+    })
+  })
+
   describe('generation retention (CR-M-3)', () => {
     const generationsOf = async (team: string) =>
       (await sqlq(`SELECT id FROM job_queue_generations WHERE team_id = $1`, [id(team)])).rows
@@ -1518,6 +1756,94 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       await sqlq(`DELETE FROM teams WHERE id = $1`, [id('teamIdle')])
       const left = await sqlq(`SELECT 1 FROM teams WHERE id = $1`, [id('teamIdle')])
       expect(left.rows).toEqual([])
+    })
+  })
+
+  describe('vacancy retention under a published page (CR-M-1)', () => {
+    it('a fully populated opportunity is DELETED with every derived row; the same generation reads clean', async () => {
+      await mkOpp('oppRetired', { description: `${TAG} retired body` })
+      await mkOpp('oppNeighbour')
+      for (const opp of ['oppRetired', 'oppNeighbour']) await lead(opp, 'senA')
+      await grant('oppRetired', 'teamA')
+      await dismiss('oppRetired', 'teamB', 'hrB')
+      const retired = id('oppRetired')
+      const { rows: src } = await sqlq(
+        `SELECT source_record_id AS id FROM job_opportunity_sources WHERE opportunity_id = $1`,
+        [retired],
+      )
+      const record = src[0].id as string
+      const { rows: rev } = await sqlq(
+        `INSERT INTO job_source_record_revisions
+           (source_record_id, adapter_version, normalizer_version, content_hash, normalized,
+            original_identity)
+         VALUES ($1, 'v1', 'n1', $2, '{}', '{}') RETURNING id`,
+        [record, createHash('sha256').update(`${TAG} revision`).digest('hex')],
+      )
+      await sqlq(
+        `INSERT INTO job_source_record_heads (source_record_id, latest_revision_id, observed_at, observation_seq)
+         VALUES ($1, $2, now(), 1)`,
+        [record, rev[0].id],
+      )
+      await sqlq(
+        `INSERT INTO job_source_record_inventory_misses
+           (source_record_id, board, config_version, first_miss_run_id, first_miss_at,
+            last_miss_run_id, last_miss_at, last_inventory_size)
+         VALUES ($1, $2, 1, $3, now(), $3, now(), 3)`,
+        [record, `GREENHOUSE_ATS:${TAG}`, randomUUID()],
+      )
+      await sqlq(
+        `INSERT INTO job_opportunity_identity_tokens
+           (namespace_kind, token_key, opportunity_id, source_record_id, rule_version)
+         VALUES ('ATS_JOB_KEY', $1, $2, $3, 'r1')`,
+        [`${TAG}-token`, retired, record],
+      )
+
+      // A page read publishes the team's generation, with an entry for the opportunity.
+      expect(await itemOf(hrA(), 'oppRetired')).toBeDefined()
+      expect(await rankOf('teamA', 'oppRetired')).toBeDefined()
+      const published = await publishedOf('teamA')
+      expect(published).toHaveLength(1)
+
+      await sqlq(
+        `UPDATE job_opportunities SET first_seen_at = now() - interval '61 days' WHERE id = $1`,
+        [retired],
+      )
+      const outcome = await session.databaseService.db.transaction((tx) =>
+        purgeOpportunity(tx, retired),
+      )
+      expect(outcome).toBe('DELETED')
+
+      const left = async (table: string, column: string, value: string) =>
+        (await sqlq(`SELECT 1 FROM ${table} WHERE ${column} = $1`, [value])).rows.length
+      for (const table of [
+        'job_opportunities',
+        'job_opportunity_sources',
+        'job_opportunity_matches',
+        'job_opportunity_team_triage',
+        'job_opportunity_identity_tokens',
+        'job_queue_dismissals',
+        'job_queue_generation_entries',
+      ])
+        expect(
+          await left(table, table === 'job_opportunities' ? 'id' : 'opportunity_id', retired),
+        ).toBe(0)
+      for (const table of [
+        'job_source_record_revisions',
+        'job_source_record_heads',
+        'job_source_record_inventory_misses',
+      ])
+        expect(await left(table, 'source_record_id', record)).toBe(0)
+      expect(await left('job_source_records', 'id', record)).toBe(0)
+
+      // The same published generation, read again: no error, the purged row gone, the rest intact.
+      expect(await publishedOf('teamA')).toEqual(published)
+      const res = await service.list(hrA(), q({ tab: 'NEW' }))
+      expect(res.items.some((i) => i.opportunityId === retired)).toBe(false)
+      expect(res.items.some((i) => i.opportunityId === id('oppNeighbour'))).toBe(true)
+      // The published-date order (#1509's `published_order_key`) reads the same frame.
+      const byDate = await service.list(hrA(), q({ tab: 'NEW', sort: 'published' }))
+      expect(byDate.items.some((i) => i.opportunityId === retired)).toBe(false)
+      expect(byDate.items.some((i) => i.opportunityId === id('oppNeighbour'))).toBe(true)
     })
   })
 })

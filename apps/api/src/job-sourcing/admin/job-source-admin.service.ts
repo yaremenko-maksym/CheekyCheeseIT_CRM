@@ -22,6 +22,7 @@ import type {
   ResetJobSourceFailuresDto,
   SessionUser,
   SetJobSourceEnabledDto,
+  SourcingNotice,
 } from '@crm/shared'
 import { and, desc, eq, gte, inArray, max, sql } from 'drizzle-orm'
 import { apiError } from '../../common/api-error'
@@ -31,6 +32,7 @@ import { DatabaseService } from '../../database/database.service'
 import { jobCollectionRuns, jobSourceHealthEvents, jobSources, users } from '../../database/schema'
 import { type LatestTransition, latestHealthTransitions } from '../health/latest-transitions'
 import { JobRunLedger } from '../ownership/job-run-ledger'
+import { readSourcingNotice } from '../sourcing-notice'
 import { CLAIM_REFUSALS, enableWindowMinutes, nextAttemptAt } from '../ownership/ledger-policy'
 import { JobRunWorker } from '../runtime/job-run-worker'
 import { MAX_CONSECUTIVE_FAILURES } from '../scheduling/due-policy'
@@ -271,6 +273,12 @@ export class JobSourceAdminService {
   // Source-fetch-strategy U7 — the ADMIN source page
   // -------------------------------------------------------------------------
 
+  /** The banner over the health table (ADR 2026-11-03 §H.8). ADMIN only, like the list under it. */
+  async sourcingNotice(actor: SessionUser): Promise<SourcingNotice> {
+    this.assertAdmin(actor)
+    return readSourcingNotice(this.database.db)
+  }
+
   /**
    * Every source with its CURRENT health state (the `to_state` of its latest TRANSITION; null when
    * none recorded), its freshness (when we last ran, and the newest item the provider has published)
@@ -286,6 +294,12 @@ export class JobSourceAdminService {
         enabled: jobSources.enabled,
         manifestId: jobSources.manifestId,
         lastCollectedAt: jobSources.lastCollectedAt,
+        lastAttemptAt: jobSources.lastAttemptAt,
+        lastSuccessAt: jobSources.lastSuccessAt,
+        readiness: jobSources.readiness,
+        readinessReason: jobSources.readinessReason,
+        consecutiveFailures: jobSources.consecutiveFailures,
+        cooldownUntil: jobSources.cooldownUntil,
       })
       .from(jobSources)
       .orderBy(jobSources.type, jobSources.id)
@@ -324,6 +338,12 @@ export class JobSourceAdminService {
         enabled: jobSources.enabled,
         manifestId: jobSources.manifestId,
         lastCollectedAt: jobSources.lastCollectedAt,
+        lastAttemptAt: jobSources.lastAttemptAt,
+        lastSuccessAt: jobSources.lastSuccessAt,
+        readiness: jobSources.readiness,
+        readinessReason: jobSources.readinessReason,
+        consecutiveFailures: jobSources.consecutiveFailures,
+        cooldownUntil: jobSources.cooldownUntil,
       })
       .from(jobSources)
       .where(eq(jobSources.id, sourceId))
@@ -454,6 +474,12 @@ export class JobSourceAdminService {
       enabled: boolean
       manifestId: string | null
       lastCollectedAt: Date | null
+      lastAttemptAt: Date | null
+      lastSuccessAt: Date | null
+      readiness: JobSourceOperationalRowDto['readiness']
+      readinessReason: string | null
+      consecutiveFailures: number
+      cooldownUntil: Date | null
     },
     transition: { toState: string | null; reasonCode: string | null } | undefined,
     newestItem: Date | null,
@@ -466,6 +492,12 @@ export class JobSourceAdminService {
       state: (transition?.toState ?? null) as JobHealthState | null,
       reasonCode: (transition?.reasonCode ?? null) as JobHealthReason | null,
       lastCollectedAt: s.lastCollectedAt?.toISOString() ?? null,
+      lastAttemptAt: s.lastAttemptAt?.toISOString() ?? null,
+      lastSuccessAt: s.lastSuccessAt?.toISOString() ?? null,
+      readiness: s.readiness,
+      readinessReason: s.readinessReason,
+      consecutiveFailures: s.consecutiveFailures,
+      cooldownUntil: s.cooldownUntil?.toISOString() ?? null,
       newestItemPublishedAt: newestItem?.toISOString() ?? null,
       profileSummary: entry ? summarizeProfile(entry.fetchProfile, entry.floorHours) : null,
     }

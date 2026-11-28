@@ -54,97 +54,163 @@ describe('TechStackSection', () => {
   })
 })
 
-// ── SENIOR technology floor (shared `seniorTechStackSchema`) ─────────────────
-const FLOOR_UK = 'Сеньйору потрібно щонайменше 3 різні технології'
+// ── SENIOR technical-roles floor (`SENIOR_MIN_ROLES`) ───────────────────────
+const MIN_ROLES_UK = 'Сеньйору потрібна щонайменше одна технічна роль'
 
 type FloorForm = { submit: () => Promise<void>; setRole: (role: string) => void }
 
 function FloorHarness({
   role = 'SENIOR',
   techStack = [],
+  technicalRoles = [],
   editingUser,
   api,
+  onSubmit,
 }: {
   role?: string
   techStack?: string[]
-  editingUser?: { role: string; techStack: string[] | null }
+  technicalRoles?: string[]
+  editingUser?: { role: string; techStack: string[] | null; technicalRoles: string[] }
   api: Partial<FloorForm>
+  onSubmit?: () => void
 }) {
-  const form = useForm({ defaultValues: { role, techStack } })
+  const form = useForm({
+    defaultValues: { role, techStack, technicalRoles },
+    ...(onSubmit ? { onSubmit } : {}),
+  })
   api.submit = () => form.handleSubmit()
   api.setRole = (r: string) => form.setFieldValue('role', r)
-  return <TechStackSection form={form} editingUser={editingUser} />
+  return (
+    <>
+      <TechStackSection form={form} editingUser={editingUser} />
+      <form.Subscribe selector={(s) => s.values}>
+        {(v) => <output data-testid="values">{JSON.stringify(v)}</output>}
+      </form.Subscribe>
+    </>
+  )
 }
 
-function addTag(tag: string) {
-  const input = screen.getByRole('textbox')
-  fireEvent.change(input, { target: { value: tag } })
-  fireEvent.keyDown(input, { key: 'Enter' })
-}
+const values = () => JSON.parse(screen.getByTestId('values').textContent ?? '{}')
 
-describe('TechStackSection — SENIOR technology floor', () => {
-  it('stays quiet while typing before the first submit', () => {
-    render(<FloorHarness api={{}} techStack={['Zzalpha']} />)
-    addTag('Zzbeta')
-    expect(screen.queryByText(FLOOR_UK)).toBeNull()
+describe('TechStackSection — SENIOR gets technical roles instead of the stack', () => {
+  it('a SENIOR sees RolesSection and no stack input; a JUNIOR sees the stack', () => {
+    render(<FloorHarness api={{}} />)
+    expect(screen.getByTestId('roles-section')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(screen.getByText('Професія')).toBeInTheDocument()
   })
 
-  it('a SENIOR submit with 2 technologies shows the error, tied to the input', async () => {
+  it('switching the role swaps the sections instantly', () => {
     const api: Partial<FloorForm> = {}
-    render(<FloorHarness api={api} techStack={['Zzalpha', 'Zzbeta']} />)
-    await act(() => api.submit!())
-    const error = screen.getByText(FLOOR_UK)
-    expect(screen.getByRole('textbox').getAttribute('aria-describedby')).toBe(error.id)
-    // UX-L-1: announced when it appears (it appears after an explicit submit).
-    expect(screen.getByRole('alert')).toBe(error)
+    render(<FloorHarness api={api} role="JUNIOR" />)
+    expect(screen.queryByTestId('roles-section')).toBeNull()
+    expect(screen.getByRole('textbox')).toBeInTheDocument()
+    act(() => api.setRole!('SENIOR'))
+    expect(screen.getByTestId('roles-section')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).toBeNull()
   })
 
-  it('after a failed submit the error follows each change: stays below 3, clears at 3', async () => {
+  it('stays quiet before the first submit', () => {
+    render(<FloorHarness api={{}} />)
+    expect(screen.queryByText(MIN_ROLES_UK)).toBeNull()
+  })
+
+  it('a SENIOR submit with no roles shows the SENIOR_MIN_ROLES alert, tied to the trigger', async () => {
     const api: Partial<FloorForm> = {}
-    render(<FloorHarness api={api} techStack={['Zzalpha']} />)
+    render(<FloorHarness api={api} />)
     await act(() => api.submit!())
-    expect(screen.getByText(FLOOR_UK)).toBeInTheDocument()
-    act(() => addTag('Zzbeta'))
-    expect(screen.getByText(FLOOR_UK)).toBeInTheDocument()
-    act(() => addTag('Zzgamma'))
-    expect(screen.queryByText(FLOOR_UK)).toBeNull()
+    const error = screen.getByText(MIN_ROLES_UK)
+    expect(error).toHaveAttribute('role', 'alert')
+    expect(screen.getByTestId('roles-section-add-trigger')).toHaveAttribute(
+      'aria-describedby',
+      error.id,
+    )
+  })
+
+  it('after a failed submit the error clears once a role is picked, and the pick lands in the form', async () => {
+    const api: Partial<FloorForm> = {}
+    render(<FloorHarness api={api} />)
+    await act(() => api.submit!())
+    fireEvent.click(screen.getByTestId('roles-section-add-trigger'))
+    fireEvent.click(screen.getByTestId('roles-section-option-QA_ENGINEER'))
+    expect(screen.queryByText(MIN_ROLES_UK)).toBeNull()
+    expect(values().technicalRoles).toEqual(['QA_ENGINEER'])
   })
 
   it('after a failed submit, switching the role away from SENIOR clears the error', async () => {
     const api: Partial<FloorForm> = {}
-    render(<FloorHarness api={api} techStack={['Zzalpha']} />)
+    render(<FloorHarness api={api} />)
     await act(() => api.submit!())
-    expect(screen.getByText(FLOOR_UK)).toBeInTheDocument()
+    expect(screen.getByText(MIN_ROLES_UK)).toBeInTheDocument()
     act(() => api.setRole!('JUNIOR'))
-    expect(screen.queryByText(FLOOR_UK)).toBeNull()
+    expect(screen.queryByText(MIN_ROLES_UK)).toBeNull()
   })
 
-  it('en: a SENIOR submit with 2 technologies shows the English message (SPEC-M-2)', async () => {
+  it('en: the SENIOR_MIN_ROLES message is English', async () => {
     await loadCatalog('en')
     const api: Partial<FloorForm> = {}
-    render(<FloorHarness api={api} techStack={['Zzalpha', 'Zzbeta']} />)
+    render(<FloorHarness api={api} />)
     await act(() => api.submit!())
-    const error = screen.getByText('A senior needs at least 3 different technologies')
-    expect(screen.getByRole('textbox').getAttribute('aria-describedby')).toBe(error.id)
+    expect(screen.getByText('A senior needs at least one technical role')).toBeInTheDocument()
   })
 
-  it('a JUNIOR submit with no technology shows no error', async () => {
+  it('a JUNIOR submit with no technology shows no error (no stack floor)', async () => {
     const api: Partial<FloorForm> = {}
     render(<FloorHarness api={api} role="JUNIOR" />)
     await act(() => api.submit!())
-    expect(screen.queryByText(FLOOR_UK)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('editing a legacy SENIOR: an unchanged 2-technology stack submits with no error (A1)', async () => {
+  it('editing a legacy SENIOR with no roles: an unchanged submit shows no error', async () => {
     const api: Partial<FloorForm> = {}
     render(
       <FloorHarness
         api={api}
-        techStack={['Zzalpha', 'Zzbeta']}
-        editingUser={{ role: 'SENIOR', techStack: ['Zzalpha', 'Zzbeta'] }}
+        editingUser={{ role: 'SENIOR', techStack: ['Zzalpha'], technicalRoles: [] }}
       />,
     )
     await act(() => api.submit!())
-    expect(screen.queryByText(FLOOR_UK)).toBeNull()
+    expect(screen.queryByText(MIN_ROLES_UK)).toBeNull()
+  })
+
+  it('editing a SENIOR who removes the last role is refused', async () => {
+    const api: Partial<FloorForm> = {}
+    render(
+      <FloorHarness
+        api={api}
+        technicalRoles={['QA_ENGINEER']}
+        editingUser={{ role: 'SENIOR', techStack: null, technicalRoles: ['QA_ENGINEER'] }}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('roles-section-remove-QA_ENGINEER'))
+    await act(() => api.submit!())
+    expect(screen.getByText(MIN_ROLES_UK)).toBeInTheDocument()
+  })
+
+  // CR-L: clearing the message is not enough — the refused submit leaves a field-level error in
+  // the form state, and if it survived the role switch the next submit would never run.
+  it('after a failed SENIOR submit, switching to JUNIOR lets the next submit through', async () => {
+    const api: Partial<FloorForm> = {}
+    let submits = 0
+    render(<FloorHarness api={api} onSubmit={() => void submits++} />)
+    await act(() => api.submit!())
+    expect(screen.getByText(MIN_ROLES_UK)).toBeInTheDocument()
+    expect(submits).toBe(0)
+    act(() => api.setRole!('JUNIOR'))
+    await act(() => api.submit!())
+    expect(submits).toBe(1)
+    expect(screen.queryByText(MIN_ROLES_UK)).toBeNull()
+  })
+
+  it('editing a JUNIOR being promoted to SENIOR without roles is refused', async () => {
+    const api: Partial<FloorForm> = {}
+    render(
+      <FloorHarness
+        api={api}
+        editingUser={{ role: 'JUNIOR', techStack: null, technicalRoles: [] }}
+      />,
+    )
+    await act(() => api.submit!())
+    expect(screen.getByText(MIN_ROLES_UK)).toBeInTheDocument()
   })
 })

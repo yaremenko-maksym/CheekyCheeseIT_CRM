@@ -1,5 +1,5 @@
 Casimir Oduya
-casimir.oduya@example.com
+casimir.oduya@example.com | +380 67 000 0007 | Telegram: @ats_fixture_7
 Summary
 Software engineer who ships maintainable backend and frontend code.
 Skills
@@ -18,4 +18,4 @@ BSc Computer Science
 Languages
 English — C1 · German — B1
 Links
-GitHub
+GitHub: github.com/example

@@ -26,6 +26,7 @@
 #
 # Decision tree (after `git push` is detected):
 #   - Not in a git work tree                    -> allow
+#   - Not the session project's repository      -> allow (another repo)
 #   - Branch is main / master / HEAD detached   -> allow (we never push there)
 #   - origin/main unresolvable (offline first)  -> allow (cannot compute diff)
 #   - No changed ts/tsx/js/jsx/json/md/yml files -> allow
@@ -50,6 +51,41 @@ fi
 
 # Must be inside a git work tree to enforce.
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+
+# This gate mirrors THIS repo's CI. The hook fires on every Bash call of a
+# session started here, so a push from another repository is not ours to gate.
+# "Another repository" = a different git common dir (worktrees share one) AND the
+# pushing repo holds none of this repo's identity commits: REPO_ROOT_COMMIT below,
+# plus the parentless commits reachable from the project's HEAD (its root, or its
+# cut-off commits when the project checkout is itself shallow, as the owner's main
+# checkout is). Every full clone or fork of this repo holds REPO_ROOT_COMMIT,
+# however stale and whatever its origin URL. The pushing repo must be non-shallow:
+# a shallow one may simply not have fetched them, so it is never skipped.
+# Skip only on positive proof; anything unresolvable -> enforce.
+REPO_ROOT_COMMIT=6b1537d2ec7aac34be96218e591034459a74cd01 # parentless, 2026-05-16
+common_dir() { # $1 = dir; prints the absolute git common dir, or nothing
+  local d
+  d=$(cd "$1" 2>/dev/null && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
+  [ -n "$d" ] && (cd "$d" 2>/dev/null && pwd -P)
+}
+foreign_to_project() { # $1 = project dir; exit 0 only if the cwd repo is provably another repo
+  local here ours ids id rc
+  here=$(common_dir .)
+  ours=$(common_dir "$1")
+  [ -n "$here" ] && [ -n "$ours" ] && [ "$here" != "$ours" ] || return 1
+  [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "false" ] || return 1
+  ids=$(cd "$1" 2>/dev/null && git rev-list --max-parents=0 HEAD 2>/dev/null) || return 1
+  [ -n "$ids" ] || return 1
+  for id in $REPO_ROOT_COMMIT $ids; do
+    git rev-parse -q --verify "${id}^{commit}" >/dev/null 2>&1
+    rc=$?
+    [ "$rc" -eq 1 ] || return 1 # present (0) or git error (other) -> not proven foreign
+  done
+  return 0
+}
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && foreign_to_project "$CLAUDE_PROJECT_DIR"; then
+  exit 0
+fi
 
 BRANCH=$(git branch --show-current 2>/dev/null || echo "")
 # Detached HEAD or main/master — nothing to format-gate (we never push to main).

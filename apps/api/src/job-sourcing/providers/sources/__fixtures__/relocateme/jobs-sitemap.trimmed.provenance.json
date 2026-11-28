@@ -1,0 +1,12 @@
+{
+  "url": "https://relocate.me/sitemap-jobs.xml",
+  "fetchedAt": "2026-11-24T17:47:39.000Z",
+  "httpStatus": 200,
+  "rawSha256": "da260358cb7dd7e3c0bd817d6de3c0eea6eaa334f775e3a48600912b8b1cb7ac",
+  "fileSha256": "b2dd62a5e111aad6e3ee086201b6652e370097ddff7cda93d7f4937087c8f234",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py sitemap (expat byte offsets, whole url element selection, bytes copied verbatim); never a byte cut",
+  "termsUrl": "https://relocate.me/",
+  "termsCheckedAt": "2026-11-24T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 application/xml; charset=utf-8, 25 job pages in the capture. Kept 3 whole url elements (ids 10310, 10309, 10303) in document order. Terms page not found; privacy policy has no automated-access clause. robots.txt disallows /api/, /admin/ and /user/ only. One plain GET with transport UA CheekyCheeseIT-CRM/1.0; no challenge, no block."
+}

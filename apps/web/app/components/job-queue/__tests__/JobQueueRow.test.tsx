@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { jobSourceTypeSchema, type JobQueueListItemDto, type JobSourceType } from '@crm/shared'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
@@ -66,6 +66,23 @@ describe('JobQueueRow', () => {
     expect(screen.getByTestId('job-queue-row-source')).toHaveAttribute('aria-hidden', 'true')
     await userEvent.click(row)
     expect(onOpen).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111')
+  })
+
+  it.each([
+    ['Ctrl-click', new MouseEvent('click', { bubbles: true, ctrlKey: true })],
+    ['Cmd-click', new MouseEvent('click', { bubbles: true, metaKey: true })],
+    ['Shift-click', new MouseEvent('click', { bubbles: true, shiftKey: true })],
+    ['middle click', new MouseEvent('auxclick', { bubbles: true, button: 1 })],
+  ])('%s asks for the card in a new tab', (_, event) => {
+    const { onOpen, row } = renderRow()
+    fireEvent(row, event)
+    expect(onOpen).toHaveBeenCalledExactlyOnceWith('11111111-1111-4111-8111-111111111111', true)
+  })
+
+  it('a right-button auxclick opens nothing', () => {
+    const { onOpen, row } = renderRow()
+    fireEvent(row, new MouseEvent('auxclick', { bubbles: true, button: 2 }))
+    expect(onOpen).not.toHaveBeenCalled()
   })
 
   describe('seniority and stack chips', () => {
@@ -255,18 +272,18 @@ describe('JobQueueRow', () => {
   it('wraps a non-zero matched count in the counts line', () => {
     renderRow({ matchedSeniorCount: 1 })
     expect(screen.getByTestId('job-queue-row-counts')).toHaveTextContent(
-      /^1 сеньйор вашої команди має збіг стеку$/,
+      /^1 сеньйор ваших команд збігається за стеком$/,
     )
   })
 
   it.each([
-    [1, '1 сеньйор вашої команди має збіг стеку'],
-    [2, '2 сеньйори вашої команди мають збіг стеку'],
-    [5, '5 сеньйорів вашої команди мають збіг стеку'],
-    [11, '11 сеньйорів вашої команди мають збіг стеку'],
-    [21, '21 сеньйор вашої команди має збіг стеку'],
-    [22, '22 сеньйори вашої команди мають збіг стеку'],
-    [25, '25 сеньйорів вашої команди мають збіг стеку'],
+    [1, '1 сеньйор ваших команд збігається за стеком'],
+    [2, '2 сеньйори ваших команд збігаються за стеком'],
+    [5, '5 сеньйорів ваших команд збігаються за стеком'],
+    [11, '11 сеньйорів ваших команд збігаються за стеком'],
+    [21, '21 сеньйор ваших команд збігається за стеком'],
+    [22, '22 сеньйори ваших команд збігаються за стеком'],
+    [25, '25 сеньйорів ваших команд збігаються за стеком'],
   ])('HR: %i matched reads «%s»', (n, text) => {
     renderRow({ matchedSeniorCount: n })
     expect(screen.getByTestId('job-queue-row-matched')).toHaveTextContent(text)
@@ -283,7 +300,7 @@ describe('JobQueueRow', () => {
   ])('ADMIN: %i matched reads the studio-wide «%s»', (n, text) => {
     renderRow({ matchedSeniorCount: n }, { role: 'ADMIN' })
     expect(screen.getByTestId('job-queue-row-matched')).toHaveTextContent(text)
-    expect(screen.getByTestId('job-queue-row-matched')).not.toHaveTextContent('вашої команди')
+    expect(screen.getByTestId('job-queue-row-matched')).not.toHaveTextContent('ваших команд')
   })
 
   it('shows the submitted companion only on the SUBMITTED tab', () => {
@@ -310,7 +327,7 @@ describe('JobQueueRow', () => {
   it('explains a row whose every matching senior stop-listed the company (HR)', () => {
     renderRow({ matchedSeniorCount: 0, stopListedSeniorCount: 2 })
     expect(screen.getByTestId('job-queue-row-stop-listed')).toHaveTextContent(
-      'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа',
+      'Усі сеньйори ваших команд зі збігом внесли компанію до стоп-листа',
     )
   })
 
@@ -318,7 +335,7 @@ describe('JobQueueRow', () => {
     renderRow({ matchedSeniorCount: 0, stopListedSeniorCount: 1 }, { role: 'ADMIN' })
     const line = screen.getByTestId('job-queue-row-stop-listed')
     expect(line).toHaveTextContent('Усі сеньйори зі збігом внесли компанію до стоп-листа')
-    expect(line).not.toHaveTextContent('вашої команди')
+    expect(line).not.toHaveTextContent('ваших команд')
   })
 
   it.each([
@@ -339,7 +356,7 @@ describe('JobQueueRow', () => {
   it('QA-MED-1: all stop-listed in the shape the API sends (TRIAGE) says the stop-list only, not the triage reason', () => {
     renderRow({ eligibility: 'TRIAGE', matchedSeniorCount: 0, stopListedSeniorCount: 2 })
     expect(screen.getByTestId('job-queue-row-stop-listed')).toHaveTextContent(
-      'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа',
+      'Усі сеньйори ваших команд зі збігом внесли компанію до стоп-листа',
     )
     expect(screen.queryByTestId('job-queue-row-triage-reason')).toBeNull()
     expect(screen.queryByText('Роботодавця не вдалося підтвердити')).toBeNull()
@@ -391,6 +408,12 @@ describe('JobQueueRow', () => {
     const { row } = renderRow({ primarySource: null, companyName: null })
     expect(screen.getByTestId('job-queue-row-source-name')).toHaveTextContent(/^Додано вручну$/)
     expect(row).toHaveTextContent('Компанію не вказано')
+  })
+
+  it('says the employer is undisclosed when the source withholds it', () => {
+    const { row } = renderRow({ companyName: null, employerDisclosure: 'WITHHELD_AT_SOURCE' })
+    expect(row).toHaveTextContent('Роботодавця не розкрито джерелом')
+    expect(row).not.toHaveTextContent('Компанію не вказано')
   })
 
   describe('two-column layout structure (§4.3 ≥720px)', () => {
@@ -466,7 +489,6 @@ const EXPECTED_SOURCE_NAME: Record<JobSourceType, string> = {
   JOOBLE_API: 'Jooble',
   JSEARCH_API: 'JSearch',
   THEIRSTACK_API: 'TheirStack',
-  MUSE_API: 'The Muse',
   REED_API: 'Reed',
   DJINNI_RSS: 'Djinni',
   WWR_RSS: 'We Work Remotely',
@@ -478,6 +500,19 @@ const EXPECTED_SOURCE_NAME: Record<JobSourceType, string> = {
   DICE_HTML: 'Dice',
   THEHUB_HTML: 'The Hub',
   WTTJ_HTML: 'Welcome to the Jungle',
+  PYTHONORG_RSS: 'Python.org Jobs',
+  SOLIDJOBS_RSS: 'solid.jobs',
+  BERLINSTARTUPJOBS_RSS: 'Berlin Startup Jobs',
+  HELLOWORLD_RSS: 'HelloWorld.rs',
+  LARAJOBS_RSS: 'LaraJobs',
+  RELOCATEME_HTML: 'Relocate.me',
+  REACTJOBS_HTML: 'ReactJobs',
+  REMOTEIO_HTML: 'Remote.io',
+  REMOTEFIRSTJOBS_HTML: 'Remote First Jobs',
+  JOBSPRESSO_HTML: 'Jobspresso',
+  FOURDAYWEEK_API: '4 Day Week',
+  GERMANTECHJOBS_API: 'GermanTechJobs',
+  JOBTECH_API: 'Arbetsförmedlingen',
 }
 
 describe('sourceLabel', () => {
@@ -485,7 +520,7 @@ describe('sourceLabel', () => {
     expect(Object.keys(EXPECTED_SOURCE_NAME).sort()).toEqual(
       [...jobSourceTypeSchema.options].sort(),
     )
-    expect(jobSourceTypeSchema.options).toHaveLength(31)
+    expect(jobSourceTypeSchema.options).toHaveLength(43)
   })
 
   it.each(Object.entries(EXPECTED_SOURCE_NAME))('%s -> %s', (code, name) => {
@@ -498,4 +533,37 @@ describe('sourceLabel', () => {
       expect(sourceLabel(code)).toBe(code)
     },
   )
+})
+
+describe('JobQueueRow salary (sources-17)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+  const salary = { min: 4000, max: 5500, currency: 'EUR', period: 'MONTH' } as const
+
+  it('en: one line in the meta column, before the counts', async () => {
+    await loadCatalog('en')
+    const { row } = renderRow({ salary, matchedSeniorCount: 2 })
+    const meta = within(row).getByTestId('job-queue-row-meta')
+    const line = within(meta).getByTestId('job-queue-row-salary')
+    expect(line.textContent).toBe('€4,000 – €5,500 / month')
+    expect(meta.textContent).toMatch(/^€4,000 – €5,500 \/ month\S/)
+  })
+
+  it('uk: a single bound reads «до …»', async () => {
+    await loadCatalog('uk')
+    const { row } = renderRow({ salary: { ...salary, min: null } })
+    expect(within(row).getByTestId('job-queue-row-salary').textContent).toMatch(/^до .+ \/ міс$/)
+  })
+
+  it('no salary stated: no line, and no "unknown" text', async () => {
+    await loadCatalog('en')
+    const { row } = renderRow()
+    expect(within(row).queryByTestId('job-queue-row-salary')).toBeNull()
+    expect(row.textContent).not.toMatch(/salary|зарплат/i)
+  })
 })

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { sql } from 'drizzle-orm'
+import { ROLE_CLASSIFIER_VERSION } from '../funnel/role-classifier'
 import { dirtyConsumerOf, enqueueDirty } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
@@ -64,6 +65,24 @@ import {
  *
  * The cron also runs `recoverExpiredDirty` first, so a crashed worker's expired lease becomes
  * PENDING (or FAILED, then retried as above) instead of staying CLAIMED for good.
+ *
+ * ROLES NOT YET KNOWN AT EVALUATION (SPEC-M-1, SR-M-1). Role classification is a second writer on
+ * the opportunity: the AI pass answers minutes or hours after the evaluation that hid the vacancy
+ * from everyone (`ROLE_PENDING` / `ROLE_UNCLEAR` / `ROLE_OUT_OF_SCOPE`), and it writes the roles without bumping the
+ * revision. Its own dirty row is the normal path; when that row dies (5 attempts, FAILED) nothing
+ * else notices, because the stored rows are at the live versions — an opportunity-subject exclusion
+ * writes one EXCLUDED row per roster senior, so `isStale` is false. Two disjuncts close it, both
+ * bounded to OPEN / UNKNOWN:
+ *   - `role_classifier_version` is not the live `ROLE_CLASSIFIER_VERSION` — a classifier bump
+ *     otherwise re-derives nothing at all, since the worker's backfill only runs on a recompute;
+ *   - the stored evaluation hid the vacancy for unknown roles (verdict EXCLUDED, a match row whose
+ *     evidence carries `ROLE_PENDING` / `ROLE_UNCLEAR`) while `role_status` is now known — neither
+ *     PENDING / UNCLEAR nor OUT_OF_SCOPE, which the scope gate set and which stays hidden by design.
+ * Both are self-terminating: the recompute re-derives the roles and rewrites the record, so the
+ * next sweep sees the live version and an evaluation that no longer blames the roles. The lineage
+ * carries a `ROLE:` digest of the live role fingerprint, because the roster and the stored rows are
+ * unchanged by a role write: without it a DONE row from an earlier sweep would suppress the repair.
+ * An opportunity with no match rows at all (empty roster) is already stale by `isStale`.
  *
  * KNOWN GAP: a senior who JOINS the roster is not detected for an opportunity that already has
  * rows for other seniors (no row to mismatch). Detecting it needs the roster-size comparison S5's
@@ -219,18 +238,24 @@ export function isStale(
  * The dirty reason: live roster digest + the stored fingerprint (see IDEMPOTENCE above). With
  * `liveInputs` (the opportunity is unevaluated) it is the `RECONCILE:EVAL:` lineage, keyed also on
  * the live `opportunityInputsVersion`, so a rule or exclusion change starts a new lineage.
+ * With `liveRoles` (the roles moved under a stored evaluation — see ROLES NOT YET KNOWN AT
+ * EVALUATION) it gains a `ROLE:` term on the live role fingerprint, the only part of the key a role
+ * write changes. Both terms are fixed-width digests, so the reason stays well inside the store's
+ * 100-character limit.
  */
 export function reconcileReason(
   live: ReadonlyMap<string, SeniorVersions>,
   matches: readonly StoredMatch[],
   liveInputs: string | null = null,
+  liveRoles: string | null = null,
 ): string {
   const roster = digest([...live].map(([id, v]) => `${id}|${v.profile}|${v.exclusion}`).sort())
   const stored = digest(
     matches.map((m) => `${m.seniorId}|${m.profile}|${m.exclusion}|${m.rule}`).sort(),
   )
   const lineage = liveInputs === null ? '' : `EVAL:${digest(liveInputs)}:`
-  return `RECONCILE:${lineage}${roster}:${stored}`
+  const roles = liveRoles === null ? '' : `ROLE:${digest(liveRoles)}:`
+  return `RECONCILE:${lineage}${roles}${roster}:${stored}`
 }
 
 /**
@@ -269,6 +294,20 @@ export async function reconcileOnce(
                  ((o.evaluated_revision IS DISTINCT FROM o.revision
                    OR o.evaluated_inputs_version IS DISTINCT FROM ${inputs})
                   AND o.availability IN ('OPEN', 'UNKNOWN')) AS unevaluated,
+                 ((o.role_classifier_version IS DISTINCT FROM ${ROLE_CLASSIFIER_VERSION}
+                   OR (o.evaluation_verdict = 'EXCLUDED'
+                       AND o.role_status IS DISTINCT FROM 'PENDING'
+                       AND o.role_status IS DISTINCT FROM 'UNCLEAR'
+                       AND o.role_status IS DISTINCT FROM 'OUT_OF_SCOPE'
+                       AND EXISTS (SELECT 1 FROM job_opportunity_matches r
+                                    WHERE r.opportunity_id = o.id
+                                      -- Silent mode: evidence of an unexpected shape is not an error.
+                                      AND jsonb_path_exists(r.evidence,
+                                            'strict $.reasons[*].code ? (@ == "ROLE_PENDING" || @ == "ROLE_UNCLEAR")',
+                                            '{}', true))))
+                  AND o.availability IN ('OPEN', 'UNKNOWN')) AS role_stale,
+                 COALESCE(o.role_status, '') || '|' || COALESCE(o.role_classifier_version, '')
+                   || '|' || array_to_string(o.technical_roles, ',') AS role_key,
                  COALESCE((SELECT jsonb_agg(jsonb_build_array(m.senior_id, m.senior_profile_version,
                                                               m.exclusion_version, m.rule_version))
                              FROM job_opportunity_matches m WHERE m.opportunity_id = o.id), '[]'::jsonb) AS matches,
@@ -287,9 +326,15 @@ export async function reconcileOnce(
       try {
         const matches = parseMatches(row['matches'])
         const unevaluated = row['unevaluated'] === true
-        if (unevaluated || isStale(matches, live)) {
+        const roleStale = row['role_stale'] === true
+        if (unevaluated || roleStale || isStale(matches, live)) {
           const dirty = parseDirty(row['dirty'])
-          const base = reconcileReason(live, matches, unevaluated ? inputs : null)
+          const base = reconcileReason(
+            live,
+            matches,
+            unevaluated ? inputs : null,
+            roleStale ? String(row['role_key']) : null,
+          )
           verdict = { reason: enqueueReason(dirty, base, now()), gaveUp: hasGivenUp(dirty, base) }
         }
       } catch {

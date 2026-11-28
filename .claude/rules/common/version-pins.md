@@ -58,6 +58,11 @@ comments** — link here.
 - **`@base-ui/react`:** `1.9.0`, EXACT-pinned in `apps/web` (the `Drawer` behind `ui/bottom-sheet.tsx`:
   snap points, swipe dismissal, virtual-keyboard provider). A bump re-runs
   `components/ui/__tests__/responsive-sheet.test.tsx` and a phone check of the sheet.
+- **`motion`:** `^12.43.0` (`apps/web`; replaced the direct `framer-motion` dependency). Import from
+  `motion/react` and render `m.*` under the root `<LazyMotion features={domMax} strict>`; ESLint bans
+  `framer-motion` and the `motion` named export. `motion` depends on `framer-motion` of the same
+  12.x, so that package stays in the lockfile as a transitive dependency. `apps/landing` still uses
+  `framer-motion` directly.
 
 ### Backend
 
@@ -88,6 +93,27 @@ comments** — link here.
   moving api/shared to `node16` is blocked by the dual-package types of `drizzle-orm@0.45.2`.
   **Condition for upgrading to 6:** Drizzle with a single `.d.ts` (no dual CJS/ESM types) OR
   `apps/api` + `packages/shared` moved to `module: node16`.
+
+### Type checking
+
+- **`tsc-rs`:** `0.8.0` EXACT, root devDependency. It runs **only** the `typecheck` script of every
+  package (`tsc-rs --noEmit`). It is an experimental, LLM-written Rust port of TypeScript 7
+  (`pingdotgg/ts-rust`); its output matched `typescript@7.0.2` on this repo. `typescript` `^5.9.3`
+  stays for emit (`nest build`, `@crm/shared` / `@crm/inference` builds), typescript-eslint,
+  Vitest, Stryker and the IDE.
+  - Its postinstall is disabled (`pnpm.neverBuiltDependencies`); the JS launcher still works. Do
+    not remove that entry.
+  - TS 7 removed `moduleResolution: node10`, which the CommonJS emit configs still need under 5.9.
+    So `apps/api`, `packages/shared` and `packages/inference` type-check through
+    `tsconfig.typecheck.json` (`module: preserve`, `moduleResolution: bundler`, `types: ["node"]`).
+    (`module: commonjs` with `bundler` breaks drizzle-orm's dual types.) So an error that only
+    CommonJS emit reports (`import.meta`, TS1343) passes `typecheck`. The TS 5.9 build (`pnpm build`,
+    run in CI before `typecheck`) still fails on it, so CI catches it. Locally, pre-push does not.
+  - Do not add `--fast`: its output can depend on the machine's core count.
+  - Bump only after the same `pnpm typecheck` passes, and a known type error in each package is
+    reported the same as by `tsc` 5.9.
+  - Fallback if it misbehaves: `typescript@7.0.2` installed under an alias (its bin is also `tsc`,
+    so call `node_modules/<alias>/bin/tsc`). It is about 3× slower here, but it is Microsoft's.
 
 ## Forbidden / risky overrides
 

@@ -22,15 +22,19 @@ export const DEFAULT_JOB_COLLECTION_WINDOW_MS = 60 * 60_000
 export const JOB_COLLECTION_WINDOW_CEILING_MS = 2 * 60 * 60_000
 /** Resume verification runs one API process executes at once; the rest wait in FIFO order (436). */
 export const DEFAULT_RESUME_VERIFICATION_MAX_CONCURRENT_RUNS = 3
+export const DEFAULT_TAILORED_RESUME_MAX_CONCURRENT_RUNS = 2
+export const DEFAULT_TAILORED_RESUME_DAILY_TEAM_CAP = 50
 /**
  * Role AI model calls per UTC day when `JOB_ROLE_AI_DAILY_BUDGET` is unset (SR-M-1). The pass shares
- * the worker's hosted own caps with `/extract` and `/resume-write`: the runbook sample's own caps sum
- * to 10 + 500 + 8 = 518 requests a day, one call may cost up to 7 model pairs x 2 (the correction
- * retry) = 14 requests, so 518 / 14 = 37 worst-case calls, and the pass takes half of that: 18.
- * The ceiling `JOB_ROLE_AI_DAILY_BUDGET_CEILING` is the whole worst-case day: 37 calls.
+ * the worker's hosted own caps with `/extract` and `/resume-write`: production's own caps (D5 amended
+ * 2026-11-20: 100 % of each route's `freeLimit`, Cloudflare 50 %) are gemini 20 + groq 1000 +
+ * cloudflare 8 + openrouter 1000 = 2028 requests a day (openrouter at 1000 `requestsPerDay` after the
+ * 2026-11-20 credit purchase), one call may cost up to 7 model pairs x 2 (the correction retry) = 14
+ * requests, so 2028 / 14 = 144 worst-case calls, and the pass takes half of that: 72.
+ * The ceiling `JOB_ROLE_AI_DAILY_BUDGET_CEILING` is the whole worst-case day: 144 calls.
  */
-export const DEFAULT_JOB_ROLE_AI_DAILY_BUDGET = 18
-export const JOB_ROLE_AI_DAILY_BUDGET_CEILING = 37
+export const DEFAULT_JOB_ROLE_AI_DAILY_BUDGET = 72
+export const JOB_ROLE_AI_DAILY_BUDGET_CEILING = 144
 
 /**
  * Shape of a real git commit SHA (short or full). Shared by GIT_COMMIT's
@@ -107,6 +111,15 @@ const optionalCredential = () =>
     (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
     z.string().min(MIN_API_CREDENTIAL_CHARS).optional(),
   )
+
+/**
+ * The vacancy-retention kill switch (SR-M-3, SR-M-6): exactly "true" or "false", any case; unset
+ * means on. Any other value, the empty string included, fails boot, so a typo never reads as on.
+ * The one parse: the env schema and `vacancyRetentionEnabled` (job-sourcing/retention.ts) both use it.
+ */
+export const VACANCY_RETENTION_ENABLED_SCHEMA = z
+  .stringbool({ truthy: ['true'], falsy: ['false'] })
+  .default(true)
 
 const envSchema = z
   .object({
@@ -210,6 +223,15 @@ const envSchema = z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
 
+    // VACANCY_RETENTION_ENABLED: kill switch for vacancy retention (owner 2026-11-25): the daily
+    //   60-day sweep, the removal of a CLOSED/EXPIRED vacancy at detection, the intake skip of a
+    //   posting published over 60 days ago, and the 60-day legacy `job_postings` purge. **Default
+    //   true**; "false" (case-insensitive) turns it off, and then closers write CLOSED/EXPIRED as
+    //   before, intake drops nothing for age and the legacy purge keeps its 90 days. Any value
+    //   but "true"/"false" fails boot (SR-M-6). Read directly from the environment by
+    //   `vacancyRetentionEnabled` (job-sourcing/retention.ts) through the same schema.
+    VACANCY_RETENTION_ENABLED: VACANCY_RETENTION_ENABLED_SCHEMA,
+
     // JOB_ROLE_AI_ENABLED: switch for the bounded AI role-classification pass (senior roles PR 3):
     //   every 10 minutes it sends at most ROLE_AI_PASS_LIMIT PENDING vacancies to the extraction
     //   worker's `/classify-roles` and writes AI / UNCLEAR roles. **Default false**: it ships dark;
@@ -217,10 +239,18 @@ const envSchema = z
     JOB_ROLE_AI_ENABLED: z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
+    // JOB_RELEVANCE_AI_ENABLED: switch for the bounded Jev vacancy-senior relevance pass (queue
+    //   relevance PR1): every 10 minutes it sends at most RELEVANCE_PASS_LIMIT LEAD vacancies to Jev
+    //   (the vacancy body and, per senior, an opaque key, roles and skills) and stores the fits.
+    //   **Default false**: it ships dark; without JEV_API_KEY the pass stops at its first call
+    //   (NOT_CONFIGURED) and writes nothing.
+    JOB_RELEVANCE_AI_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
+      .default(false),
     // JOB_ROLE_AI_DAILY_BUDGET: model calls the role pass makes per UTC day, counted in a
     //   `job_account_meters` row so a restart keeps the count; once spent the pass logs one
     //   ROLE_AI_SKIPPED DAILY_BUDGET line and only applies cached answers until 00:00 UTC.
-    //   Range 1..37 (SR-L-5); blank = default.
+    //   Range 1..144 (SR-L-5); blank = default.
     JOB_ROLE_AI_DAILY_BUDGET: z.preprocess(
       (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
       z.coerce
@@ -437,7 +467,7 @@ const envSchema = z
 
     // Vacancy-sourcing quota providers (r5 Task 3.5). All optional, no default: an absent OR
     // blank key leaves that provider unconfigured, never fails boot and never yields an empty
-    // credential. The Muse needs no key. Each is its OWN credential — never derived from
+    // credential. Each is its OWN credential — never derived from
     // CLOUDFLARE_* (C-21). Read only by `job-sourcing/quota-credentials.ts`, which also hands
     // the value to `CollectionContext.secrets` for redaction.
     JOOBLE_API_KEY: optionalCredential(),
@@ -463,6 +493,23 @@ const envSchema = z
     RESUME_VERIFICATION_MAX_CONCURRENT_RUNS: z.preprocess(
       (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
       z.coerce.number().int().min(1).default(DEFAULT_RESUME_VERIFICATION_MAX_CONCURRENT_RUNS),
+    ),
+
+    // Tailored resumes (tailored-resume D11). TAILORED_RESUME_ENABLED: **default false**, owner
+    //   flips it at go-live; while false every tailored endpoint answers 404 and nothing writes
+    //   `tailored_resumes`. MAX_CONCURRENT_RUNS: runs one API process executes at once, the rest
+    //   wait FIFO. DAILY_TEAM_CAP: generations a team may start per Kyiv day. Both a positive
+    //   integer; blank = default.
+    TAILORED_RESUME_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
+      .default(false),
+    TAILORED_RESUME_MAX_CONCURRENT_RUNS: z.preprocess(
+      (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+      z.coerce.number().int().min(1).default(DEFAULT_TAILORED_RESUME_MAX_CONCURRENT_RUNS),
+    ),
+    TAILORED_RESUME_DAILY_TEAM_CAP: z.preprocess(
+      (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+      z.coerce.number().int().min(1).default(DEFAULT_TAILORED_RESUME_DAILY_TEAM_CAP),
     ),
 
     // task-vacancy-matching §3 — the stack-match score below which a suggestion

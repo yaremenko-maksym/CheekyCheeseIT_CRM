@@ -164,7 +164,8 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
     await mkTeam('teamA', '2020-01-01T00:00:00Z')
     await mkTeam('teamB', '2020-01-02T00:00:00Z')
     await mkTeam('teamGone', '2020-01-03T00:00:00Z')
-    // Older than A, but archived / DROP-type: never a queue scope, never the default.
+    // Older than A. Archived: never a queue scope, never the default. DROP-type: a live scope like
+    // any other (owner decision 2026-11-24), so the oldest live team and hrMulti's default.
     await mkTeam('teamArchived', '2019-01-01T00:00:00Z', 'SENIOR', true)
     await mkTeam('teamDrop', '2019-01-02T00:00:00Z', 'DROP')
 
@@ -454,9 +455,13 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
       )
     })
 
-    it('ADMIN naming an archived or DROP team is NONE', async () => {
+    it('ADMIN naming an archived team is NONE; a live DROP team is its TEAM scope', async () => {
       await expect(resolve('admin', 'ADMIN', 'teamArchived')).resolves.toEqual(NONE_SCOPE)
-      await expect(resolve('admin', 'ADMIN', 'teamDrop')).resolves.toEqual(NONE_SCOPE)
+      expect(await resolve('admin', 'ADMIN', 'teamDrop')).toMatchObject({
+        kind: 'TEAM',
+        teamId: ids['teamDrop'],
+        seniorIds: [],
+      })
     })
 
     it('own HR defaults to their team; seniors exclude archived, left and non-SENIOR members', async () => {
@@ -467,8 +472,11 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
       })
     })
 
-    it('a multi-team HR defaults to the oldest live SENIOR team, and may name another', async () => {
-      expect(await resolve('hrMulti', 'HR')).toMatchObject({ kind: 'TEAM', teamId: ids['teamA'] })
+    it('a multi-team HR defaults to the oldest live team of either type, and may name another', async () => {
+      expect(await resolve('hrMulti', 'HR')).toMatchObject({
+        kind: 'TEAM',
+        teamId: ids['teamDrop'],
+      })
       expect(await resolve('hrMulti', 'HR', 'teamB')).toMatchObject({
         kind: 'TEAM',
         teamId: ids['teamB'],
@@ -708,6 +716,24 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
           await stamp(opportunityInputsVersion(studio))
         }
       })
+      // Senior roles PR 4 (correction 1): the match rule moved to eval.2 with the rf.3 bump, so a row
+      // still stamped with the pre-PR-4 inputs version is NOT forgiven as "the previous format". The
+      // rule string is written by hand: it must not follow the live constants.
+      it('a row stamped with the pre-PR-4 inputs version (eval.1+l1.1+rf.2) is a 404 through its grant', async () => {
+        const opp = 'oppGrant'
+        const stamp = (version: string) =>
+          session.admin.query(
+            `UPDATE job_opportunities SET evaluated_inputs_version = $2 WHERE id = $1`,
+            [ids[opp], version],
+          )
+        try {
+          await stamp(opportunityInputsVersion(studio, 'eval.1+l1.1+rf.2'))
+          await expectNotFound(visible(await resolve('hrA', 'HR'), opp))
+        } finally {
+          await stamp(opportunityInputsVersion(studio))
+        }
+        await expect(visible(await resolve('hrA', 'HR'), opp)).resolves.toBeUndefined()
+      })
     })
 
     describe('Task 6.4c: a triage subscription shows a live, verified, OPEN family match', () => {
@@ -779,6 +805,21 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
         } finally {
           await stamp(opportunityInputsVersion(studio))
         }
+      })
+
+      it('a row stamped with the pre-PR-4 inputs version (eval.1+l1.1+rf.2) is a 404 through its subscription', async () => {
+        const stamp = (version: string) =>
+          session.admin.query(
+            `UPDATE job_opportunities SET evaluated_inputs_version = $2 WHERE id = $1`,
+            [ids['oppSub'], version],
+          )
+        try {
+          await stamp(opportunityInputsVersion(studio, 'eval.1+l1.1+rf.2'))
+          await expectNotFound(visible(await resolve('hrA', 'HR'), 'oppSub'))
+        } finally {
+          await stamp(opportunityInputsVersion(studio))
+        }
+        await expect(visible(await resolve('hrA', 'HR'), 'oppSub')).resolves.toBeUndefined()
       })
 
       it('the real writer persists the family: 404 before, visible after, 404 once it is UNKNOWN', async () => {

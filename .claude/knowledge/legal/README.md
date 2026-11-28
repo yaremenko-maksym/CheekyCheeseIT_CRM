@@ -1,68 +1,71 @@
 # Legal Knowledge Base
 
-Корпус юридической информации для Legal-агента (Юрист). Используется как primary source при ответах на консультации.
+The legal corpus for the Legal agent. It is the primary source when the agent answers a consultation.
 
-## Принципы
+## Principles
 
-1. **Git-versioned.** История изменений видна, можно откатиться.
-2. **Доступна всем агентам.** Coder при работе над finance может посмотреть compliance rules, Reviewer — проверить соответствие в PR. Не private для Legal.
-3. **Citation source.** Каждый файл — потенциальный источник, который Legal цитирует в ответах. Должен быть verifiable (ссылки на авторитетные внешние источники в самом файле).
-4. **Update через PR.** Изменения как любой код — через PR с review. Не правит Legal-агент напрямую (он consumer, не maintainer).
+1. **Git-versioned.** The change history is visible and can be rolled back.
+2. **Open to every agent.** A Coder working on finance can read the compliance rules; a Reviewer can check a PR against them. It is not private to Legal.
+3. **Citation source.** Every file is a source Legal may cite in an answer, so it must be verifiable: it links to authoritative external sources itself.
+4. **Updated through a PR.** Changes go through a PR with review, like code. The Legal agent does not edit this corpus directly: it is a consumer, not the maintainer.
 
-## Структура
+## Structure
 
 ```
 .claude/knowledge/legal/
-  README.md                               # этот файл
-  ua-fop/                                 # Украина — ФОП-режимы, единый налог, валютные операции
-  crypto-usdt/                            # Crypto/USDT — UA закон про віртуальні активи, AML, smart contract
-  gdpr/                                   # GDPR / data privacy — personal data, processor/controller, breach
-  it-contracts/                           # IT-договоры — NDA, services agreement, IP rights, юрисдикция
+  README.md                 # this file
+  domain-lessons.md         # distilled domain conclusions from past consultations (reference, not process lessons)
   cross-cutting/
-    escalation-zones.md                   # Когда Legal обязан эскалировать к human-юристу
-    citation-rules.md                     # Формат цитации в ответах
+    escalation-zones.md     # when Legal must escalate to a human lawyer
+    citation-rules.md       # citation format in answers
 ```
 
-## Текущий статус
+Full consultations live in `.claude/knowledge/legal-consultations/`. Agent process lessons live in
+`.claude/agents/memory/legal/lessons.md`.
 
-**Phase 0** (текущая): только `cross-cutting/` files. Topic folders (ua-fop, crypto-usdt, gdpr, it-contracts) **пустые**. Legal использует WebSearch как primary source + general legal principles. Каждый ответ помечен Confidence: LOW при отсутствии static покрытия.
+## Topic folders
 
-**Phase 1** (будущая, после первых реальных консультаций): User дополнит topic folders по мере накопления вопросов. Не делаем upfront comprehensive seeding — какие topics реально нужны определит practice.
+There are no topic folders yet (planned: `ua-fop/`, `crypto-usdt/`, `gdpr/`, `it-contracts/`). Legal
+uses WebSearch as the primary source plus general legal principles, and marks an answer
+`Confidence: LOW` when no static file covers it. A topic folder is added when real consultations show
+the topic is needed; there is no upfront seeding.
 
-## Как добавлять контент
+## How to add content
 
-Новый topic-файл должен содержать:
+A new topic file must contain:
 
-1. **Заголовок темы** — конкретный (не «ФОП», а «ФОП 3-я группа — лимиты дохода 2026»)
-2. **Authoritative source** — ссылка на zakon.rada.gov.ua / gdpr-info.eu / etc.
-3. **Last verified date** — когда content проверен на актуальность
-4. **Body** — суть + примеры применимости к нашему бизнесу (CRM Cheeky Cheese IT, outsource UA)
-5. **Related** — ссылки на related файлы в `.claude/knowledge/legal/` или `docs/business/`
+1. **Topic title** — specific (not "FOP" but "FOP group 3 — income limit 2026")
+2. **Authoritative source** — a link to zakon.rada.gov.ua / gdpr-info.eu / etc.
+3. **Last verified date** — when the content was last checked
+4. **Body** — the substance plus how it applies to our business (CRM Cheeky Cheese IT, UA outsourcing)
+5. **Related** — links to related files in `.claude/knowledge/legal/` or `docs/business/`
 
-Пример:
+Example (illustrative; the figures and the related file are placeholders):
 
 ```markdown
-# ФОП 3-я группа — лимит дохода
+# FOP group 3 — income limit
 
-**Authoritative source:** [Стаття 291.4 ПКУ](https://zakon.rada.gov.ua/laws/show/2755-17#n4877)
+**Authoritative source:** [Article 291.4 of the Tax Code of Ukraine](https://zakon.rada.gov.ua/laws/show/2755-17#n4877)
 **Last verified:** 2026-05-31
 
-## Краткое
+## Summary
 
-На 2026 год лимит дохода для ФОП 3-я группа — **7M грн** (1167 минимальных зарплат на 1 січня). Превышение требует перехода на общую систему / 4-у группу.
+For 2026 the income limit for FOP group 3 is **UAH 7M** (1167 minimum wages as of 1 January). Exceeding it
+requires moving to the general system / group 4.
 
-## Применимость к нашему бизнесу
+## Applicability to our business
 
-SENIOR работают как ФОП 3-я группа (5% ставка). Превышение лимита возможно при ставке > $5800/месяц год пo year. Контроль — ежемесячно в Finance dashboard.
+SENIORs work as FOP group 3 (5% rate). The limit can be exceeded at a rate above $5800/month over a year.
+Checked monthly in the Finance dashboard.
 
 ## Related
 
-- `.claude/knowledge/legal/ua-fop/fop-currency-ops.md` — валютные операции внутри лимита
-- `docs/business/modules/finance.md` — финансовый flow
+- `.claude/knowledge/legal/ua-fop/fop-currency-ops.md` — currency operations within the limit
+- `docs/business/modules/finance.md` — the finance flow
 ```
 
-## Не делаем
+## Not done here
 
-- Не дублировать законы целиком — давать ссылку на zakon.rada
-- Не публиковать confidential данные (договоры клиентов, internal procedures)
-- Не редактировать через Legal-агента — это maintenance обязанность User/PM
+- Do not copy laws in full — link to zakon.rada.
+- Do not publish confidential data (client contracts, internal procedures).
+- Do not edit through the Legal agent — maintenance belongs to the owner.

@@ -64,7 +64,7 @@ describe('mapping the authentic browse capture', () => {
       'Data-Platform-Architect',
       'Data-Architect',
     ])
-    expect(o?.adapterVersion).toBe('himalayas-1')
+    expect(o?.adapterVersion).toBe('himalayas-2')
   })
 
   it('pubDate is the UPDATE instant (not publication) and expiryDate is EXPIRY; publishedAt stays null', async () => {
@@ -157,6 +157,42 @@ describe('mapping the authentic browse capture', () => {
     const { batch } = await run([body({ jobs: [edited] })])
     const g = GUID('bright-vision-technologies/jobs/data-platform-architect-1149275416')
     expect(byGuid(batch, g)?.identity.identityKey).toBe(byGuid(base.batch, g)?.identity.identityKey)
+  })
+})
+
+describe('salary (sources-17)', () => {
+  it('maps the structured salary of the capture: annual, monthly and hourly', async () => {
+    const { batch } = await run([body(noNext(page1()))])
+    const salary = (slug: string) => byGuid(batch, GUID(slug))?.normalized.salary ?? null
+    expect(salary('bright-vision-technologies/jobs/data-platform-architect-1149275416')).toEqual({
+      min: 100000,
+      max: 175000,
+      currency: 'USD',
+      period: 'YEAR',
+    })
+    expect(salary('assist-world/jobs/sales-patient-coordinator-aesthetics-clinic')).toEqual({
+      min: 800,
+      max: 1100,
+      currency: 'USD',
+      period: 'MONTH',
+    })
+    expect(salary('abc-legal-services/jobs/court-coverage-specialist')).toEqual({
+      min: 20,
+      max: 22,
+      currency: 'USD',
+      period: 'HOUR',
+    })
+    // A period alone, with no currency and no amount, is no salary.
+    expect(salary('veriday/jobs/business-development-agent-commission-only')).toBe(null)
+  })
+
+  it('a currency with no amount, or an amount with no currency, is no salary', async () => {
+    const first = page1().jobs[0]
+    for (const over of [{ minSalary: null, maxSalary: null }, { currency: null }]) {
+      const { batch } = await run([body({ jobs: [{ ...first, ...over }] })])
+      expect(batch.counts.normalized).toBe(1)
+      expect(batch.observations[0]?.normalized.salary ?? null).toBe(null)
+    }
   })
 })
 
@@ -301,7 +337,8 @@ describe('browse pagination: cursor, termination, ceiling', () => {
     const { batch, f } = await run([body(same), body(same), body(same)])
     expect(f.sent).toHaveLength(2)
     expect(batch.outcome).toBe('SUCCEEDED')
-    expect(batch.coverage).toBe('WINDOW')
+    // CR-M-4: a cursor cycle claims no window (it was WINDOW under AC1).
+    expect(batch.coverage).toBe('PARTIAL')
   })
 
   const walk = (n: number) =>

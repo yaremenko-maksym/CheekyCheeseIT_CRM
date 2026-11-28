@@ -1,0 +1,9 @@
+{
+  "//": "Type-check only, run by tsc-rs (third-party Rust port of TypeScript 7, pinned in version-pins.md). TS 7 removed moduleResolution node10, which the TS 5.9 emit config still needs, and module commonjs + bundler breaks drizzle-orm's dual types. Errors only CommonJS emit reports (e.g. import.meta, TS1343) are caught by the TS 5.9 build (pnpm build in CI), not by this config.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "types": ["node"]
+  }
+}

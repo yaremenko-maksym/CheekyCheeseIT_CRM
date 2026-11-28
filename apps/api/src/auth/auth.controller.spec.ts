@@ -731,11 +731,7 @@ describe('AuthController.startInviteAccept — GET /auth/invite/:token (task-use
     // invite branch to THIS round's state (see that test suite below).
     const stateValue = reply._cookies['__Host-oauth_state']?.value
     expect(reply._cookies['__Host-invite_token']?.value).toBe(`${stateValue}:${validToken}`)
-    // COPY-H-3 (copy-review PR #623 round 4): forces Google's account
-    // chooser on the invite round trip specifically.
-    expect(authService.buildGoogleAuthUrl).toHaveBeenCalledWith(stateValue, {
-      promptSelectAccount: true,
-    })
+    expect(authService.buildGoogleAuthUrl).toHaveBeenCalledWith(stateValue)
   })
 
   it('DEV: uses the plain (non-__Host-) cookie names — INVITE_COOKIE_LEGACY / STATE_COOKIE_LEGACY', async () => {

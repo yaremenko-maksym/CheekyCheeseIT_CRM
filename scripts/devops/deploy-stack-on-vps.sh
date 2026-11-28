@@ -2566,6 +2566,23 @@ docker compose \
   < "$SENIOR_RESUMES_RECHECK_NEEDED_FILE"
 echo "==> senior resumes recheck needed applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-24_senior_resumes_header.sql
+# Adds header (HR's overrides of the resume PDF header) to senior_resumes. Every senior-resume read
+# selects this column, so it MUST exist before the container swap below. Needs the recheck-needed
+# file above applied first (same table); additive and re-runnable (ADD COLUMN IF NOT EXISTS).
+# Creates no relation, so it grants nothing. One transaction: the file uses SET LOCAL lock_timeout.
+SENIOR_RESUMES_HEADER_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-24_senior_resumes_header.sql"
+
+if [ ! -f "$SENIOR_RESUMES_HEADER_FILE" ]; then
+  echo "ERROR: DDL file not found at $SENIOR_RESUMES_HEADER_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying senior resumes header (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose   -f docker-compose.prod.yml   -f docker-compose.ghcr.yml   --env-file .env.production   exec -T postgres   psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction   < "$SENIOR_RESUMES_HEADER_FILE"
+echo "==> senior resumes header applied successfully"
+
 # Source: apps/api/drizzle/manual/2026-11-17_technical_roles.sql
 # Adds users.technical_roles and the job_opportunities role columns (technical_roles, role_status,
 # role_classifier_version) plus their GIN index, and creates job_role_classifications (class A).
@@ -2591,6 +2608,244 @@ docker compose \
   psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
   < "$TECHNICAL_ROLES_FILE"
 echo "==> technical roles applied successfully"
+
+# Source: apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql
+# Creates idx_job_opportunities_role_pending, the partial index the role-AI candidate scan reads
+# (WHERE role_status = 'PENDING' ORDER BY last_observed_at DESC, id LIMIT n).
+# MUST follow the technical roles file above: that one adds the job_opportunities.role_status column
+# this index's predicate reads, so applied earlier this file fails with 42703 (undefined_column).
+# Creates an index and no relation, so it needs no position relative to the grants file. It is
+# applied before the container swap because the new image's role-AI pass reads the index; being only
+# an index, a deploy that applied it late would be slow, never wrong. One transaction: the file uses
+# SET LOCAL lock_timeout, which only takes effect inside a transaction — so this file must NOT be
+# moved into the CONCURRENTLY group below, where psql runs without --single-transaction.
+# Re-runnable (IF NOT EXISTS).
+ROLE_PENDING_INDEX_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql"
+
+if [ ! -f "$ROLE_PENDING_INDEX_FILE" ]; then
+  echo "ERROR: DDL file not found at $ROLE_PENDING_INDEX_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying role PENDING index (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$ROLE_PENDING_INDEX_FILE"
+echo "==> role PENDING index applied successfully"
+
+# Source: apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql
+# Widens ONE constraint: ck_job_opportunities_role_status on job_opportunities gains the value
+# 'OUT_OF_SCOPE' for the recompute worker's role-scope gate.
+# MUST follow the technical roles file (adds role_status) and role PENDING index above.
+# Applied before the container swap: applied after it, every gated recompute fails with 23514.
+# One transaction: the file uses SET LOCAL lock_timeout, which only takes effect inside a transaction.
+# Idempotent (DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT in one transaction).
+ROLE_OUT_OF_SCOPE_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql"
+
+if [ ! -f "$ROLE_OUT_OF_SCOPE_FILE" ]; then
+  echo "ERROR: DDL file not found at $ROLE_OUT_OF_SCOPE_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying role status OUT_OF_SCOPE DDL (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$ROLE_OUT_OF_SCOPE_FILE"
+echo "==> role status OUT_OF_SCOPE DDL applied successfully"
+
+# Source: apps/api/drizzle/manual/2026-11-21_job_opportunities_salary.sql
+# Adds the five nullable structured-salary columns on job_opportunities (salary_min, salary_max,
+# salary_currency, salary_period, salary_monthly_top), their three CHECKs and the partial index
+# idx_job_opportunities_salary.
+# Follows the role status OUT_OF_SCOPE file above (file order only, no dependency).
+# MUST precede the container swap: the new API writes these columns on every canonical write
+# (createOpportunity / refreshOpportunity), and against the old table each write fails with 42703.
+# Adds columns, constraints and an index to an existing table; creates no relation, so it needs no
+# position relative to the grants file. One transaction: the file uses SET LOCAL lock_timeout, which
+# takes effect only inside a transaction.
+# Idempotent (ADD COLUMN IF NOT EXISTS, DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT, CREATE INDEX IF
+# NOT EXISTS).
+JOB_OPPORTUNITIES_SALARY_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-21_job_opportunities_salary.sql"
+
+if [ ! -f "$JOB_OPPORTUNITIES_SALARY_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_OPPORTUNITIES_SALARY_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job opportunities salary DDL (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$JOB_OPPORTUNITIES_SALARY_FILE"
+echo "==> job opportunities salary DDL applied successfully"
+
+# Source: apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql
+# Adds the value 'SUBMITTED' to the interview_stage enum, sorted immediately before 'HR_SCREEN'.
+# MUST precede the container swap: the new API's senior-interview-card path (task-sources-07c) writes
+# stage 'SUBMITTED' when HR submits a senior to a vacancy out of the queue, and against an old enum
+# every such write fails with 22P02 (invalid_text_representation).
+# MUST stay its OWN psql invocation, never merged with the interviews job-opportunity file below:
+# Postgres permits `ALTER TYPE ... ADD VALUE` inside a transaction but forbids USING the added value
+# until that transaction has committed, so anything that writes, compares or casts to 'SUBMITTED'
+# must run in a later transaction. The file itself therefore only reads pg_enum in its closing
+# check. One transaction: the file uses SET LOCAL lock_timeout, which takes effect only inside a
+# transaction, and the closing check must be able to roll the ALTER back.
+# Creates no relation, so it needs no position relative to the grants file.
+# Re-runnable (ADD VALUE IF NOT EXISTS). IRREVERSIBLE once applied: Postgres cannot drop an enum
+# value; the value is inert until the new image runs, so leaving it in place is harmless.
+INTERVIEW_STAGE_SUBMITTED_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql"
+if [ ! -f "$INTERVIEW_STAGE_SUBMITTED_FILE" ]; then
+  echo "ERROR: DDL file not found at $INTERVIEW_STAGE_SUBMITTED_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+echo "==> Applying interview stage SUBMITTED (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$INTERVIEW_STAGE_SUBMITTED_FILE"
+echo "==> interview stage SUBMITTED applied successfully"
+
+# Source: apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql
+# Adds the nullable interviews.job_opportunity_id (FK to job_opportunities, ON DELETE SET NULL) and
+# the partial unique index uq_interviews_job_opportunity_senior on (job_opportunity_id, senior_id)
+# WHERE job_opportunity_id IS NOT NULL — the index is the database half of "one interview per
+# opportunity per senior".
+# MUST follow the interview stage enum file above: both halves of the task-sources-07c DDL land in
+# one order, and the enum must exist in a COMMITTED transaction before the new image can write it.
+# MUST precede the container swap: the new API selects interviews.job_opportunity_id, and against
+# the old table every such select fails with 42703 (undefined_column).
+# Adds a column, a constraint and an index to an existing table; creates no relation, so it needs no
+# position relative to the grants file. One transaction: the file uses SET LOCAL lock_timeout, which
+# takes effect only inside a transaction, so this file must NOT be moved into the CONCURRENTLY group
+# below, where psql runs without --single-transaction.
+# Re-runnable (IF NOT EXISTS on the column and the index, a pg_constraint guard on the FK).
+INTERVIEWS_JOB_OPPORTUNITY_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql"
+if [ ! -f "$INTERVIEWS_JOB_OPPORTUNITY_FILE" ]; then
+  echo "ERROR: DDL file not found at $INTERVIEWS_JOB_OPPORTUNITY_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+echo "==> Applying interviews job-opportunity link (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$INTERVIEWS_JOB_OPPORTUNITY_FILE"
+echo "==> interviews job-opportunity link applied successfully"
+
+# Source: apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql
+# Creates tailored_resumes (class A; FKs to job_opportunities, users, senior_resumes). MUST
+# precede the grants file: its grants are unconditional and fail on a missing table.
+# The table is inert until TAILORED_RESUME_ENABLED is true: nothing writes it before that.
+# Also creates user_audit_log_action_created_at_idx (IF NOT EXISTS), the daily cap count index.
+TAILORED_RESUMES_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql"
+
+if [ ! -f "$TAILORED_RESUMES_FILE" ]; then
+  echo "ERROR: DDL file not found at $TAILORED_RESUMES_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying tailored resumes (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$TAILORED_RESUMES_FILE"
+echo "==> tailored resumes applied successfully"
+
+# Source: apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql
+# Creates job_opportunity_relevance (class A; Jev fit grade per vacancy-senior pair). MUST
+# precede the grants file: its grants are unconditional and fail on a missing table.
+# The table is inert until JOB_RELEVANCE_AI_ENABLED is true: only the relevance pass writes it.
+JOB_OPPORTUNITY_RELEVANCE_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql"
+
+if [ ! -f "$JOB_OPPORTUNITY_RELEVANCE_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_OPPORTUNITY_RELEVANCE_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job opportunity relevance (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$JOB_OPPORTUNITY_RELEVANCE_FILE"
+echo "==> job opportunity relevance applied successfully"
+
+# Source: apps/api/drizzle/manual/2026-11-23_remove_muse_api.sql
+# Deletes the MUSE_API source row, its runs and health events (owner A3 2026-11-23, the one
+# sanctioned exception to the append-only health log) and rebuilds job_source_type without
+# MUSE_API. MUST precede the container swap: the new API's shared enum has no MUSE_API and a
+# remaining row would fail to parse. Applied as POSTGRES_USER, the table owner, because it
+# toggles the job_source_health_events row-guard trigger inside the transaction. Creates no
+# relation. Idempotent: a replay finds no source and no label and does nothing.
+REMOVE_MUSE_API_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-23_remove_muse_api.sql"
+
+if [ ! -f "$REMOVE_MUSE_API_FILE" ]; then
+  echo "ERROR: DDL file not found at $REMOVE_MUSE_API_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying remove Muse API (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$REMOVE_MUSE_API_FILE"
+echo "==> remove Muse API applied successfully"
+
+# Source: apps/api/drizzle/manual/2026-11-25_job_queue_entries_published_at.sql
+# Adds published_at (the publication-date snapshot the published sort orders by) to
+# job_queue_generation_entries. The new API writes it on every generation publish and reads it on
+# every queue list, so it MUST exist before the container swap below. Needs the job opportunities
+# store file (creates the table, far above); additive and re-runnable (ADD COLUMN IF NOT EXISTS).
+# Creates no relation, so it grants nothing. One transaction: the file uses SET LOCAL lock_timeout.
+JOB_QUEUE_ENTRIES_PUBLISHED_AT_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-25_job_queue_entries_published_at.sql"
+
+if [ ! -f "$JOB_QUEUE_ENTRIES_PUBLISHED_AT_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_QUEUE_ENTRIES_PUBLISHED_AT_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job queue entries published_at (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$JOB_QUEUE_ENTRIES_PUBLISHED_AT_FILE"
+echo "==> job queue entries published_at applied successfully"
 
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
@@ -3334,6 +3589,51 @@ else
   } | tee -a /opt/crm/.last-ddl-summary.txt
   echo "==> drop_cascade_origin marker SECOND PASS applied successfully"
 fi
+
+# ── job_opportunities role_status distribution (read-only, SR-L-2 of PR #1389) ──
+# WHY THIS IS IN THE DEPLOY LOG: role_status is derived, and bumping
+# ROLE_CLASSIFIER_VERSION (apps/api/src/job-sourcing/funnel/role-classifier.ts)
+# re-derives every row — the recompute worker treats any row whose stored
+# role_classifier_version differs from the constant as stale
+# (apps/api/src/job-sourcing/runtime/recompute-worker.ts, the
+# `role_classifier_version !== ROLE_CLASSIFIER_VERSION` branch). Rows the rules
+# cannot classify land on PENDING until the AI pass gets to them, so the HR queue
+# legitimately shrinks for a while after a bump. Without the distribution in the
+# deploy log, that dip is indistinguishable from opportunities having gone
+# missing, and the only way to tell them apart afterwards is a live query by hand.
+#
+# 100% READ-ONLY: one SELECT, no DDL and no write of any kind. NULL is its own
+# GROUP BY bucket in Postgres, which is the one we most need to see — the
+# technical-roles DDL adds the column NULL for every pre-existing row and
+# deliberately does not backfill (apps/api/drizzle/manual/2026-11-17_technical_
+# roles.sql, "BACKFILL: NOT HERE").
+#
+# PLACED HERE, not in the payment_type verification block ~2,900 lines above:
+# that block runs before the job_opportunities table and its role_status column
+# exist, where this SELECT would be a 42703/42P01 under ON_ERROR_STOP and would
+# fail the deploy outright. It also runs before the container swap, so it could
+# only ever report the PRE-bump distribution. Here the new image is live and has
+# answered a healthy /api/health, so the numbers are the post-deploy state — and
+# it stays BEFORE the final privileges check, which must remain the last database
+# step (CHECK-LAST, enforced by scripts/devops/check-prod-ddl-wiring.py).
+#
+# NON-FATAL (round 4 review, SR-L-1). The script runs under `set -euo pipefail`,
+# so without the `||` tail below an unreachable postgres or a docker hiccup here
+# would abort an already-successful deploy — and everything after this line
+# would be skipped: the final privileges catalog check (the CHECK-LAST gate) and
+# the disk-hygiene image prune added after the 2026-10-04 incident. The visible
+# outcome would be a red deploy job over a green, healthy production stack. The
+# tail is an annotation and NOT a bare `|| true`: the failure stays in the log
+# and on the run page, which is what verification-integrity.md asks for.
+echo "==> job_opportunities role_status distribution (read-only) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+  <<< "SELECT role_status, COUNT(*) FROM job_opportunities GROUP BY role_status ORDER BY role_status NULLS FIRST;" \
+  || echo "::warning::role_status distribution query failed — read-only diagnostic, the deploy continues"
 
 # ── database privileges catalog check, FINAL RUN (r5 Task 1.3c) — LAST database step ──
 # Two files are applied after the first run: the multipart-salary activate file (it must

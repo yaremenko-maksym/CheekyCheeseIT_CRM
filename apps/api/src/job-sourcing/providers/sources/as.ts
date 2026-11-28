@@ -24,6 +24,22 @@ export const optionalString = (max: number) =>
     .nullish()
     .transform((v) => v ?? null)
 
+/** One `<img ...>` tag; `[^<>]*` stops at the next `<`, so many unclosed tags stay linear. */
+const IMG_TAG = /<img\b[^<>]*>/gi
+const DATA_SRC = /\ssrc\s*=\s*["']?\s*data:/i
+
+/**
+ * Drops every `<img>` whose `src` is an inline `data:` URI. Some HTML descriptions embed megabytes
+ * of base64 images around a few K of text (Arbeitnow, DPG Media, 2026-11-23); the image is never
+ * shown (`html-to-markdown` renders no `data:` target) and only pushes the text past its bound.
+ */
+export const stripDataUriImages = (html: string): string =>
+  html.replace(IMG_TAG, (tag) => (DATA_SRC.test(tag) ? '' : tag))
+
+/** `optionalString` for an HTML field: inline `data:` images are stripped BEFORE the bound applies. */
+export const optionalHtmlString = (max: number) =>
+  z.preprocess((v) => (typeof v === 'string' ? stripDataUriImages(v) : v), optionalString(max))
+
 export const urlString = () => z.string().max(MAX_LINK_CHARS)
 
 export const optionalUrlString = () => optionalString(MAX_LINK_CHARS)
@@ -41,6 +57,26 @@ export const optionalBoundedNumber = (min: number, max: number) =>
  * unreachable bound whose test could not fail for the reason it names.
  */
 export const positiveSafeInt = () => z.number().int().min(1)
+
+/**
+ * Salary fields (sources-17) are the one exception to "refuse past the bound": a malformed salary
+ * becomes `null` and the posting goes on without one, because a salary is an optional fact, never a
+ * reason to isolate a posting. `normalizeSalary` (the observation builder) judges what is kept.
+ */
+export const salaryAmount = () =>
+  z
+    .number()
+    .nullish()
+    .catch(null)
+    .transform((v) => v ?? null)
+
+export const salaryWord = () =>
+  z
+    .string()
+    .max(50)
+    .nullish()
+    .catch(null)
+    .transform((v) => v ?? null)
 
 /** A date as the wire carries it; the date policy decides what it means. */
 export const dateRaw = () =>

@@ -29,7 +29,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { useQuery } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { Archive, Shield } from 'lucide-react'
 import { z } from 'zod'
 import { Trans, useLingui } from '@lingui/react/macro'
@@ -274,7 +274,7 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
         {/* Tri-state status filter — ADMIN-only (UT finding 2026-06-14).
             Non-admin roles only ever see active docs; toggle hidden for them. */}
         {isAdmin && (
-          <motion.div
+          <m.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.28, delay: 0.05 }}
@@ -291,7 +291,7 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
               className="w-fit"
               testId="documents-status-tabs"
             />
-          </motion.div>
+          </m.div>
         )}
 
         {/* Unified toolbar — canonical Card pattern matching /projects */}
