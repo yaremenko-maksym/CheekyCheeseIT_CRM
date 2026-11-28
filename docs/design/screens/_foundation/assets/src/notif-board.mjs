@@ -231,7 +231,7 @@ const CARDS = {
   Офер: [['МП', 'Марія Петренко', 'QA · «Альфа»', 'до 18.11']],
 }
 
-// Fine pointer: hover or focus reveals a 32 px button. Coarse pointer: always visible, 44 px hit area (foundation §13).
+// Fine pointer: hover or focus reveals a 32 px button; its slot is reserved at rest (R6-11), so a card never grows on hover. Coarse pointer: always visible, 44 px hit area (foundation §13).
 const stageBtn = (show, touch = false) =>
   touch
     ? `<span class="iconbtn" role="button" aria-label="Змінити етап" style="position:absolute;top:0;right:0;width:44px;height:44px;color:var(--muted-fg)"><span style="width:32px;height:32px;border-radius:8px;display:grid;place-items:center;background:var(--raised)">${icon('arrow-right-left', { size: 15 })}</span></span>`
@@ -249,7 +249,7 @@ function card([ini, name, sub, at], { state = '', touch = false } = {}) {
     lifted:
       ';background:var(--raised);box-shadow:0 18px 40px oklch(0 0 0 / 0.55);border-color:var(--input-border)',
   }[state]
-  return `<div role="listitem" tabindex="0" aria-roledescription="картка" style="${base}${look}"><span class="row" style="width:28px;height:28px;border-radius:14px;justify-content:center;flex:none;background:var(--yellow-subtle);color:var(--primary);font-size:11px;font-weight:600">${ini}</span><div class="grow col" style="gap:2px;min-width:0${btn ? `;padding-right:${touch ? 34 : 30}px` : ''}"><div style="font-size:14px;font-weight:600;overflow-wrap:anywhere">${name}</div><div class="t-foot muted" style="font-size:12px;overflow-wrap:anywhere">${sub.replaceAll(' · ', '\u00A0·\u00A0')}</div><div class="t-foot muted num" style="font-size:12px;white-space:nowrap">${at}</div></div>${stageBtn(btn, touch)}</div>`
+  return `<div role="listitem" tabindex="0" aria-roledescription="картка" style="${base}${look}"><span class="row" style="width:28px;height:28px;border-radius:14px;justify-content:center;flex:none;background:var(--yellow-subtle);color:var(--primary);font-size:11px;font-weight:600">${ini}</span><div class="grow col" style="gap:2px;min-width:0;padding-right:${touch ? 34 : 30}px"><div style="font-size:14px;font-weight:600;overflow-wrap:anywhere">${name}</div><div class="t-foot muted" style="font-size:12px;overflow-wrap:anywhere">${sub.replaceAll(' · ', '\u00A0·\u00A0')}</div><div class="t-foot muted num" style="font-size:12px;white-space:nowrap">${at}</div></div>${stageBtn(btn, touch)}</div>`
 }
 
 function column([title, n], { target = false, states = {}, extra = '', touch = false } = {}) {

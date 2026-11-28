@@ -7,6 +7,7 @@
 //                   and the same {placeholders}.
 // r6 (R5-18, R5-28): `two ways` — one string drawn with two texts that differ only by a trailing «…», «.» or «:»;
 //   `dangling` — a rendered line that ends on «·» (per frame, from the text's Range rects).
+// r7 (R6-13): `dangling` also flags a user title whose «·» starts a line, and «з» / «о» split from their value.
 // Usage: node strings.mjs <shell|primitives|all> [frame-name-filter]   (same env as measure.mjs)
 // Reads the uk and en columns of the §12 Strings table, renders each frame, collects every visible text block
 // (drawn OS chrome and [data-note] captions exempt), splits it on « · », drops pure numbers / amounts / times /
@@ -18,6 +19,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { FIXTURE, NOTE } from './strings-fixtures.mjs'
+import { USER_TITLES } from './base.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href)
@@ -180,7 +182,9 @@ function blocks() {
 }
 
 // r6 (R5-28): a rendered line that ends on «·» (the separator binds to the next item, primitives-v2 §12.0).
-function dangling() {
+// r7 (R6-13): a user title (TITLES) is the reverse case: its «·» must never START a line; and «з» / «о» never end a
+// line before their value («з | 9.11»).
+function dangling(TITLES) {
   const OS = '.status,.kbd,.kbar,.homebar,[data-note],[aria-hidden="true"]'
   const out = []
   const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
@@ -188,7 +192,32 @@ function dangling() {
     const el = n.parentElement
     if (!el || el.closest(OS) || /^(STYLE|SCRIPT)$/.test(el.tagName)) continue
     const t = n.textContent
+    const norm = t.replace(/\u00a0/g, ' ').trim()
+    const title = TITLES.includes(norm)
+    const rectAt = (i) => {
+      const r = document.createRange()
+      r.setStart(n, i)
+      r.setEnd(n, i + 1)
+      return r.getBoundingClientRect()
+    }
+    for (const m of t.matchAll(/(?:^|[\s(«])([зоЗО])[ \u00a0](?=\d)/g)) {
+      const i = m.index + m[0].length - 2
+      const a = rectAt(i)
+      const b = rectAt(i + 2)
+      if (a.width && b.width && b.top > a.top + a.height / 2)
+        out.push(`${t.slice(Math.max(0, i - 20), i + 1).replace(/\s+/g, ' ')} | ${t.slice(i + 2, i + 8)}`)
+    }
     for (let i = t.indexOf('·'); i !== -1; i = t.indexOf('·', i + 1)) {
+      if (title) {
+        const k = t.slice(0, i).search(/[^\s\u00a0]+[\s\u00a0]*$/)
+        if (k !== -1) {
+          const a = rectAt(k)
+          const b = rectAt(i)
+          if (a.width && b.width && b.top > a.top + a.height / 2)
+            out.push(`title starts a line with «·»: ${norm}`)
+        }
+        continue
+      }
       const j = t.slice(i + 1).search(/[^\s\u00a0]/)
       if (j === -1) continue
       const r = document.createRange()
@@ -223,7 +252,7 @@ let nTokens = 0
 for (const f of frames) {
   const page = await browser.newPage({ viewport: { width: f.w, height: f.h } })
   await page.setContent(f.html, { waitUntil: 'networkidle' })
-  const dl = await page.evaluate(dangling)
+  const dl = await page.evaluate(dangling, USER_TITLES)
   if (dl.length) dangles.set(f.name, dl)
   for (const b of await page.evaluate(blocks)) {
     nBlocks++

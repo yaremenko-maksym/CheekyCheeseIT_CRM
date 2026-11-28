@@ -195,13 +195,17 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   («Видалено 2 сповіщення · Скасувати»), one timer restarted by each delete, and «Скасувати» restores every
   row of the batch (`notifications-undo-batch-375`). The pending ids form a set that every poll merge
   subtracts, so a poll never brings a row back before its delayed delete is sent. A different undoable
-  action (a board move, a transaction delete) does not wait: it commits the pending batch at once (its
-  delete is sent) and takes the toast slot.
+  action (a board move, a transaction delete) takes the toast slot but **does not commit the batch (R6-08)**:
+  each delete keeps its own 5 s deadline and is sent when that deadline passes, and its id stays in the pending
+  set, excluded from every poll merge, until that delete settles (2xx, or a failure that restores the row with
+  the failed-read alert). A later action never shortens a deadline; the displaced toast's undo is replaced by
+  the new action's, as one toast slot allows.
   **A failed read (R5-07).** Mark read and «Прочитати все» are optimistic too; if the request fails, the dots and
   the count come back and one `role="alert"` announces «Не вдалося позначити сповіщення як прочитані».
 - **Open the target:** a row is a link to its target (deep link). The panel closes, the target page is
   pushed, and back returns to the page the bell was opened on, never to the panel. A target the viewer
-  can no longer see opens that page's own not-found state. **A row with no target (R3-24, R5-10)** (a system notice) is not a link: while unread it is a `<button>` («Позначити як прочитане: …») that marks it read in place, navigates nowhere and has no chevron; once read it is plain text (not focusable), and focus moves to the next row (the previous one at the end). The panel stays open. Drafts and markers are untouched (foundation §11, row «Open a notification»). With a dirty form open, the row's navigation first runs the dirty-close confirm (foundation §11, row «Navigate away with a dirty form»).
+  can no longer see opens that page's own not-found state. **A row with no target (R3-24, R5-10)** (a system notice) is not a link: while unread it is a `<button>` («Позначити як прочитане: …») that marks it read in place, navigates nowhere and has no chevron; once read it is plain text (not focusable), and **focus moves to the nearest actionable row (R6-09)**: the next
+  focusable row, else the previous one, else the panel heading (`tabindex="-1"`); never to plain text or nowhere. The panel stays open. Drafts and markers are untouched (foundation §11, row «Open a notification»). With a dirty form open, the row's navigation first runs the dirty-close confirm (foundation §11, row «Navigate away with a dirty form»).
 - **A11y:** sheet and popover are `role="dialog"` «Сповіщення». Keyboard focus moves to the first row (no ring on touch). The phone sheet is modal (focus trap; Esc or the close button returns focus to the bell). The ≥ 640 popover is non-modal: no trap; Tab past its last control closes it and focus moves on in page order; Esc closes it and returns focus to the bell. A notification that arrives
   while the panel is open is announced once, politely («1 нове сповіщення»), and never moves focus or the rows (the «1 нове · Показати» chip above).
 
@@ -245,7 +249,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   Wave 0 measures the real row heights.
 - **Panes:** one pane at 640–899 (the list takes the full width; the detail pushes; no selected-row
   highlight); list + detail side by side only from **≥ 900** (`tablet-two-pane-1000`: rail 80, list
-  400, detail 520 at 1000, the selected row carries the one selection cue, `--raised` + a 2 px `--primary` bar + `aria-current`, primitives-v2 §12.0). Touch heights (inputs 48, buttons 44): density follows `(pointer: coarse)`,
+  **440** (R6-12: at 400 a title beside the amount and «…» wrapped and lost its distinguishing word), detail 480 at 1000, the selected row carries the one selection cue, `--raised` + a 2 px `--primary` bar + `aria-current`, primitives-v2 §12.0). Touch heights (inputs 48, buttons 44): density follows `(pointer: coarse)`,
   not width.
 - **The detail pane at ≥ 900 is the pushed detail page body**, not a second layout: the same
   component renders both (`primitives-v2/detail-txn-375` and the right pane of
@@ -322,12 +326,14 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   «Клавіатурні скорочення» (no key hints) that opens the shortcut sheet, and the sheet keeps every binding
   with its key caps, for a hardware keyboard (`desktop-cmdk-touch-1180`, `desktop-shortcuts-touch-1180`).
 
-### Shortcut sheet (`?`)
+### Shortcut sheet (⌘/ or `?`)
 
 - 880 px dialog «Клавіатурні скорочення», three columns: Загальні · Перехід · Списки. Top: a switch «Односимвольні скорочення»
   (single-key shortcuts on/off), stored on the device (SC 2.1.4). With it off, only modifier shortcuts work,
-  **except `?` (R5-11)**: it stays bound outside text fields so the sheet that turns the others back on is always
-  one key away; under a coarse pointer the palette footer button reaches it too.
+  **`?` included (R6-07, WCAG 2.1.4 covers punctuation keys)**: the sheet that turns them back on stays one chord
+  away on **⌘/ / Ctrl+/**, which the switch never turns off, and has a visible entry: the palette footer reads
+  «⌘ / усі скорочення» under a fine pointer and is the 44 px button «Клавіатурні скорочення» under a coarse one
+  (both reached by ⌘K); the sheet's row lists «⌘ / Ctrl» «/» або «?».
   «Списки» lists `M` «Змінити етап картки» (a focused board card, primitives-v2 §3).
 - **One registry (F0-26).** Every shortcut lives in one table that the sheet, the tooltips, the palette rows and the key handler all read; a key is bound once per scope. **Role-aware (R4-06):** the «Перехід» chords, the G-chord handler and the
   sidebar read ONE role-filtered destination list (`allowed(role)`), so a chord to a destination the role
@@ -338,6 +344,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   | ------ | ------------------------------------ | ------------------------------------------------------- | -------------------------------- |
   | Global | ⌘K / Ctrl+K                          | Палітра команд                                          | no                               |
   | Global | `/`                                  | Пошук на сторінці                                       | yes                              |
+  | Global | ⌘/ / Ctrl+/                          | Клавіатурні скорочення                                  | no                               |
   | Global | `?`                                  | Клавіатурні скорочення                                  | yes                              |
   | Global | Esc                                  | Закрити панель або діалог                               | no                               |
   | Global | `[`                                  | Згорнути бічну панель                                   | yes                              |
@@ -431,7 +438,7 @@ What each shipped shell piece becomes in v2. «Keep» = the component stays, res
 | `state-impersonation-375.png`                |   375 | Impersonation banner                                                                                                                                    |
 | `tablet-rail-768.png`                        |   768 | Rail with every destination, one pane                                                                                                                   |
 | `tablet-rail-more-768.png`                   |   768 | 768 × 700 window: overflow «Ще» popover                                                                                                                 |
-| `tablet-two-pane-1000.png`                   |  1000 | ≥ 900: rail 80 · list 400 · detail 520 (detail body)                                                                                                    |
+| `tablet-two-pane-1000.png`                   |  1000 | ≥ 900: rail 80 · list 440 · detail 480 (detail body)                                                                                                    |
 | `desktop-sidebar-1024.png`                   |  1024 | Sidebar + header + dense table                                                                                                                          |
 | `desktop-sidebar-collapsed-1024.png`         |  1024 | Collapsed rail with tooltip                                                                                                                             |
 | `desktop-sidebar-1440.png`                   |  1440 | Wide: extra column, selected-row bar                                                                                                                    |
@@ -446,14 +453,14 @@ What each shipped shell piece becomes in v2. «Keep» = the component stays, res
 | `notifications-1440.png`                     |  1440 | Notifications popover under the bell (no scrim)                                                                                                         |
 | `notifications-loading-375.png`              |   375 | Notifications, loading: real header, count line, four skeleton rows (F0-34)                                                                             |
 | `notifications-undo-375.png`                 |   375 | Notification deleted: the row left at once, undo toast «Сповіщення видалено · Скасувати» inside the sheet above the pinned link, 5 s timer (D-3, R3-17) |
-| `notifications-undo-batch-375.png`           |   375 | R5-05: two deletes inside one window coalesce: one toast «Видалено 2 сповіщення · Скасувати», one timer; Undo restores both rows |
-| `notifications-short-1024.png`               |  1024 | Short viewport (1024 × 560, R5-13): the popover is bounded by the viewport under its bell; only the list scrolls |
+| `notifications-undo-batch-375.png`           |   375 | R5-05: two deletes inside one window coalesce: one toast «Видалено 2 сповіщення · Скасувати», one timer; Undo restores both rows                        |
+| `notifications-short-1024.png`               |  1024 | Short viewport (1024 × 560, R5-13): the popover is bounded by the viewport under its bell; only the list scrolls                                        |
 | `notifications-undo-768.png`                 |   768 | Notification deleted on the touch tablet: the undo toast sits inside the popover above the pinned link (R3-17), the bell count drops by one (D-3)       |
 | `more-sheet-admin-end-320.png`               |   320 | More sheet scrolled to the end at 320 × 568: every destination and «Вийти з акаунта» reachable (R4-01)                                                  |
 | `more-sheet-admin-end-375.png`               |   375 | More sheet scrolled to the end: sign-out above the home indicator (R4-01)                                                                               |
 | `tablet-rail-more-short-768.png`             |   768 | Rail «Ще» at 768 × 600: bounded to the safe viewport, rows scroll under a fixed header (R4-04)                                                          |
 | `desktop-cmdk-touch-1180.png`                |  1180 | Cmd+K under a coarse pointer: 44 px options, 16 px text (R4-05)                                                                                         |
-| `desktop-cmdk-keyboard-1180.png`             |  1180 | Cmd+K with the on-screen keyboard (R5-12): bounded by the visual viewport, footer button above the keyboard |
+| `desktop-cmdk-keyboard-1180.png`             |  1180 | Cmd+K with the on-screen keyboard (R5-12): bounded by the visual viewport, footer button above the keyboard                                             |
 | `desktop-shortcuts-touch-1180.png`           |  1180 | Shortcut sheet under a coarse pointer: 52 × 44 switch hit box (R4-05)                                                                                   |
 | `desktop-shortcuts-senior-teamless-1440.png` |  1440 | Shortcut sheet of a teamless SENIOR: «Перехід» lists only the role's destinations (R4-06)                                                               |
 | `notifications-undo-closed-375.png`          |   375 | Panel closed inside the 5 s window: the undo toast moved to the shell slot (R4-09)                                                                      |

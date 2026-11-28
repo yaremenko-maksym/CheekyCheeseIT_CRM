@@ -83,7 +83,7 @@ function morePanel(role, h, end = false) {
 // R2-02: the ONE Фінанси list pane of a tablet: header, search, chips, then a body. A loaded list, a skeleton, an
 // empty or error state, a footer and a banner frame all pass through it, so nothing moves between them.
 export const txnPane = (body, chipList = ['Усі', 'Витрати', 'Доходи', 'Проєкт ▾']) =>
-  `<section aria-label="Транзакції" class="col" style="width:400px;flex:none;border-right:1px solid var(--border)">
+  `<section aria-label="Транзакції" class="col" style="width:440px;flex:none;border-right:1px solid var(--border)">
   <div class="row" style="height:56px;padding:0 8px 0 16px;flex:none"><div class="grow t-title">Фінанси</div><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
   <div style="flex:1;min-height:0;overflow:hidden">${searchField('Пошук транзакцій')}${chips(chipList)}${body}</div></section>`
 // Every row at ≥ 640 carries the «…» slot, the selected row of a two-pane list included (R2-30). `selected` is the

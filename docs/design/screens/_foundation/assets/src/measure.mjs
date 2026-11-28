@@ -282,17 +282,35 @@ function probe(coarse) {
     const top = cb.top
     const bot = Math.min(cb.bottom, cb.top + 160)
     const runs = []
+    // A run hidden by an ancestor's clip (a line clamp, a scroller) is not painted: clip by every ancestor box.
+    const clipOf = (el) => {
+      let c = { l: cb.left, r: cb.right, t: top, b: bot }
+      for (let a = el; a && a !== ct; a = a.parentElement) {
+        const o = getComputedStyle(a)
+        if (/hidden|clip|auto|scroll/.test(o.overflowX + o.overflowY)) {
+          const r = a.getBoundingClientRect()
+          c = {
+            l: Math.max(c.l, r.left),
+            r: Math.min(c.r, r.right),
+            t: Math.max(c.t, r.top),
+            b: Math.min(c.b, r.bottom),
+          }
+        }
+      }
+      return c
+    }
     const tw = document.createTreeWalker(ct, NodeFilter.SHOW_TEXT)
     for (let n = tw.nextNode(); n; n = tw.nextNode()) {
       const el = n.parentElement
       if (!n.textContent.trim() || !el || el.closest(OS) || !vis(el)) continue
       const rg = document.createRange()
       rg.selectNodeContents(n)
+      const c = clipOf(el)
       for (const r of rg.getClientRects()) {
-        const y0 = Math.max(r.top, top)
-        const y1 = Math.min(r.bottom, bot)
-        const x0 = Math.max(r.left, cb.left)
-        const x1 = Math.min(r.right, cb.right)
+        const y0 = Math.max(r.top, c.t)
+        const y1 = Math.min(r.bottom, c.b)
+        const x0 = Math.max(r.left, c.l)
+        const x1 = Math.min(r.right, c.r)
         if (y1 - y0 > 2 && x1 - x0 > 2) runs.push({ el, x0, x1, y0, y1 })
       }
     }

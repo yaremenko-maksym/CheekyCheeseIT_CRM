@@ -201,7 +201,18 @@ export function page(body, { width, extraCss = '' } = {}) {
 }
 // R5-28 (primitives-v2 §12.0, supersedes R3-14): «·» binds to the item AFTER it — a normal space before, a NBSP
 // after — so a wrapped meta line never ends on a dangling «·»; strings.mjs `dangling` asserts it per frame.
-const sepNbsp = (html) => html.replace(/[ \u00a0]·[ \u00a0]/g, ' ·\u00a0')
+// r7 (R6-13): that forward binding is for COMPOSED meta lines only. A user title keeps its «·» at the line end
+// (NBSP before, normal space after), so a title never starts a line with «·». And «з» / «о» bind to the value
+// after them («з 9.11», «о 14:33»). shortcut: the titles that carry «·» are the fixture list below; product code
+// marks the title element instead.
+export const USER_TITLES = ['Зарплата · Розробник 4', 'Обладнання · ноутбук']
+const sepNbsp = (html) =>
+  USER_TITLES.reduce(
+    (h, t) => h.replaceAll(t.replace(' · ', ' ·\u00a0'), t.replace(' · ', '\u00a0· ')),
+    html
+      .replace(/[ \u00a0]·[ \u00a0]/g, ' ·\u00a0')
+      .replace(/(^|[\s>(«])([зоЗО]) (?=\d)/g, '$1$2\u00a0'),
+  )
 
 /** iPhone chrome: notch phone (375+) or iPhone SE 1st gen (320, no notch, no home indicator). */
 export function phone({ w = 375, h = 812, inner, overlay = '' }) {

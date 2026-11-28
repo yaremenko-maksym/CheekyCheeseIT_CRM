@@ -201,6 +201,12 @@ function allFrames() {
     M('drafts-four-collapsed-375', 375, 812, draftsFourCollapsed(375, 812)),
     M('quick-add-drafts-375', 375, 812, quickAddDrafts(375, 812, chartMobile(375, 812))),
     M(
+      'quick-add-drafts-three-375',
+      375,
+      812,
+      quickAddDrafts(375, 812, chartMobile(375, 812), [DRAFT.failed2, DRAFT.unknown, DRAFT.armed]),
+    ),
+    M(
       'quick-add-drafts-three-320',
       320,
       568,

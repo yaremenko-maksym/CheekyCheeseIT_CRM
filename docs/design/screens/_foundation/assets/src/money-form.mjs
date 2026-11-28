@@ -933,7 +933,7 @@ const needsAttention = (drafts) =>
   drafts.filter((d) => d.kind === 'failed' || d.kind === 'unknown').length
 
 /** Any «+» menu shows at most 2 draft rows (unresolved first). */
-const menuDraftRows = (drafts) => byRank(drafts).slice(0, 2).map(draftRow).join('')
+const menuDraftRows = (drafts, max = 2) => byRank(drafts).slice(0, max).map(draftRow).join('')
 /**
  * The «Чернетки» header; from 3 drafts it gains a trailing text button «Усі чернетки (N)» (opens Фінанси at the
  * pinned rows). Its 44 px hit area comes from padding cancelled by a negative margin, so it adds no height.
@@ -954,10 +954,13 @@ const menuDraftHead = (drafts) => {
  * On Фінанси the FAB opens a new form directly. `base`: the tab screen behind the sheet.
  */
 export function quickAddDrafts(w, h, base, drafts = [DRAFT.failed2, DRAFT.unknown], { end = false } = {}) {
-  const rows = menuDraftRows(drafts)
+  // R6-10: from 3 drafts the phone sheet shows ONE draft row (the highest rank) + «Усі чернетки (N)», so the
+  // new-action entries stay above the fold even at 320.
+  const n = drafts.length > 2 ? 1 : 2
+  const rows = menuDraftRows(drafts, n)
   const acts = `<div class="group" role="group" aria-label="Дії" style="margin:8px 0 16px">${quickAddRows('ADMIN')}</div>`
   const body = `${menuDraftHead(drafts)}${rows}${acts}`
-  const listH = 52 + 26 + 2 * 72 + 8 + 4 * 64 + safeBottom(w) + 24
+  const listH = 52 + 26 + n * 72 + 8 + 4 * 64 + safeBottom(w) + 24
   // R5-02: the body scrolls when the content is taller than the space under the status bar (320 × 568), and its
   // scrollport ends above the bottom safe area; measure.mjs `reach` checks every row of every sheet.
   const overlay = sheet({
