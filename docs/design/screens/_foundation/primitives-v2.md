@@ -846,7 +846,7 @@ One container on every class: a `role="alertdialog"` with `aria-modal="true"`, n
 
 ### Forms (F0-22)
 
-Columns follow the **container**, not the viewport (R1-07): one column below 560 px of container width (every side panel and every sheet; `sheet-panel-768`, `sheet-panel-1024` and `sheet-panel-1440` draw «Сума» and «Тип» stacked), two columns from 560 px (a full-page form, `formfield-768`, whose caption says the same), and columns of 360 px where the container holds three (`formfield-1440`).
+Columns follow the **container**, not the viewport (R1-07): one column below 560 px of container width (every side panel and every sheet; `sheet-panel-768`, `sheet-panel-1024` and `sheet-panel-1440` draw the canonical money form of §4 in one column, R3-03), two columns from 560 px (a full-page form, `formfield-768`, whose caption says the same), and columns of 360 px where the container holds three (`formfield-1440`).
 
 ### Lists, detail and selection (F0-24, F0-32)
 
