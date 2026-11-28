@@ -1,5 +1,5 @@
-// Council r6: generator asserts. frames() runs them, so render, measure, contrast and strings all refuse a frame
-// that breaks a money-safety rule before anything is drawn.
+// Council r6: generator asserts. frames() runs them, so render, measure and strings all refuse a frame that
+// breaks a money-safety rule before anything is drawn (contrast.mjs reads tokens only and never calls frames()).
 //
 // close-weight (R5-01, foundation §11): «Є в списку — закрити чернетку» is the filled primary only when the frame
 // draws a «збіг» row. With «схожа» rows only (or none) both exits of the unknown-outcome chooser stay neutral.

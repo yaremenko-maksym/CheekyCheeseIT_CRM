@@ -44,7 +44,8 @@ export const ratio = (fg, bg) => {
   return Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100
 }
 
-// [what, fg, bg, floor]. Floors: 4.5 text, 3 non-text (SC 1.4.11). `known` rows document a value, not a gate.
+// [what, fg, bg, floor, known, expect]. Floors: 4.5 text, 3 non-text (SC 1.4.11). `known` rows skip the floor;
+// `expect` (self-check rows) fails the run when the ratio drifts more than 0.01 from it.
 const PAIRS = [
   [
     'self-check: white on --destructive (foundation: 3.57-3.58, the F0-01 defect)',
@@ -52,12 +53,15 @@ const PAIRS = [
     'var(--destructive)',
     0,
     'known',
+    3.58,
   ],
   [
     'self-check: --destructive text on --card (foundation: 5.67)',
     'var(--destructive)',
     'var(--card)',
     4.5,
+    undefined,
+    5.67,
   ],
   [
     'white label on --destructive-solid (swipe tile, dialog «Видалити», FAB and dock-button draft count)',
@@ -124,18 +128,20 @@ const PAIRS = [
   ],
 ]
 
-const rows = PAIRS.map(([what, fg, bg, floor, known]) => ({
+const rows = PAIRS.map(([what, fg, bg, floor, known, expect]) => ({
   what,
   ratio: ratio(fg, bg),
   floor,
   known,
+  expect,
 }))
 let low = 0
 for (const r of rows) {
-  const bad = !r.known && r.ratio < r.floor
+  const drift = r.expect !== undefined && Math.abs(r.ratio - r.expect) > 0.01
+  const bad = (!r.known && r.ratio < r.floor) || drift
   if (bad) low++
   console.log(
-    `${bad ? 'LOW ' : 'ok  '} ${r.ratio.toFixed(2)}:1  ${r.floor ? `(>= ${r.floor})` : '(info)'}  ${r.what}`,
+    `${bad ? 'LOW ' : 'ok  '} ${r.ratio.toFixed(2)}:1  ${r.floor ? `(>= ${r.floor})` : '(info)'}${r.expect !== undefined ? ` (expect ${r.expect})` : ''}  ${r.what}`,
   )
 }
 console.log(`contrast: ${rows.length} pairs, ${low} under floor`)

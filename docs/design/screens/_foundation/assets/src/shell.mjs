@@ -1,5 +1,6 @@
 // Shell v2 frames: role tab bars, More sheet, quick-add, states, tablet rail, desktop sidebar, Cmd+K, `?`.
 import { page } from './base.mjs'
+import { assertFrames } from './asserts.mjs'
 import { tabScreen, financeBody, interviewsBody } from './mobile.mjs'
 import {
   moreSheet,
@@ -271,5 +272,5 @@ export function frames() {
     D('tablet-rail-hr-768', 768, 1024, railHrTablet(768, 1024)),
     D('desktop-cmdk-empty-1440', 1440, 900, cmdkEmpty(1440, 900)),
   )
-  return out
+  return assertFrames(out)
 }

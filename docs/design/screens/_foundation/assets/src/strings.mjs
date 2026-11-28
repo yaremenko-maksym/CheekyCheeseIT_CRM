@@ -19,11 +19,24 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
 import { FIXTURE, NOTE } from './strings-fixtures.mjs'
 import { USER_TITLES } from './base.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href)
+const PW =
+  process.env.PLAYWRIGHT_MODULE ??
+  join(
+    dirname(
+      createRequire(
+        createRequire(join(here, '../../../../../../apps/e2e/package.json')).resolve(
+          '@playwright/test/package.json',
+        ),
+      ).resolve('playwright/package.json'),
+    ),
+    'index.mjs',
+  )
+const { chromium } = await import(pathToFileURL(PW).href)
 const [set, filter] = process.argv.slice(2)
 const sets = set === 'all' ? ['shell', 'primitives'] : [set]
 const mods = await Promise.all(sets.map((x) => import(pathToFileURL(join(here, `${x}.mjs`)).href)))
@@ -262,7 +275,13 @@ for (const f of frames) {
   const labels = await page.evaluate(() =>
     [...document.querySelectorAll('[aria-label]')]
       .filter((e) => !e.closest('.status,.kbd,.kbar,.homebar,[data-note],[aria-hidden="true"]'))
-      .map((e) => e.getAttribute('aria-label').replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g, ' ').trim())
+      .map((e) =>
+        e
+          .getAttribute('aria-label')
+          .replace(/[\u00a0\u202f]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim(),
+      )
       .filter(Boolean),
   )
   for (const t of labels) {

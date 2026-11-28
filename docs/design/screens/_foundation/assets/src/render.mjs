@@ -35,6 +35,10 @@ mkdirSync(outDir, { recursive: true })
 mkdirSync(htmlDir, { recursive: true })
 
 const frames = mod.frames().filter((f) => !filter || f.name.includes(filter))
+if (!frames.length) {
+  console.error(`no frames match ${set}${filter ? ` / ${filter}` : ''}`)
+  process.exit(1)
+}
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH }) // unset = the bundled browser
 let n = 0
 for (const f of frames) {

@@ -150,7 +150,12 @@ function probe(coarse) {
       const r = el.getBoundingClientRect()
       const sc = scs.filter((e) => e.contains(el)).pop()
       const b = sc ? sc.getBoundingClientRect() : shb
-      if (r.top < b.top - 1 || r.bottom > b.bottom + 1 || r.bottom > band + 1 || r.top < shb.top - 1)
+      if (
+        r.top < b.top - 1 ||
+        r.bottom > b.bottom + 1 ||
+        r.bottom > band + 1 ||
+        r.top < shb.top - 1
+      )
         out.reach.push(
           `sheet ${name(el)} not above the fold at the initial detent (${Math.round(r.top)}–${Math.round(r.bottom)}, box ${Math.round(b.top)}–${Math.round(b.bottom)}, safe-area top ${Math.round(band)})`,
         )
@@ -381,10 +386,15 @@ function probe(coarse) {
         // extended box, so two extensions that overlap between separated visuals are caught; each pair reports once.
         const ox = o.getAttribute('data-hit') === '44'
         if (ox && ext.indexOf(o) < ext.indexOf(el)) continue
-        const b = ox ? boxOf(o) : (({ left: l, right: r, top: t, bottom: bb }) => ({ l, r, t, b: bb }))(o.getBoundingClientRect())
+        const b = ox
+          ? boxOf(o)
+          : (({ left: l, right: r, top: t, bottom: bb }) => ({ l, r, t, b: bb }))(
+              o.getBoundingClientRect(),
+            )
         const w = Math.min(e.r, b.r) - Math.max(e.l, b.l)
         const hh = Math.min(e.b, b.b) - Math.max(e.t, b.t)
-        if (w > 1 && hh > 1) out.hit.push(`${name(el)} hit box overlaps ${name(o)}${ox ? ' hit box' : ''}`)
+        if (w > 1 && hh > 1)
+          out.hit.push(`${name(el)} hit box overlaps ${name(o)}${ox ? ' hit box' : ''}`)
       }
     }
   }
@@ -420,7 +430,9 @@ function probe(coarse) {
   // the FAB in the frame as drawn. Text wholly below the tab bar's top edge is below the fold, not cut.
   {
     const tab = document.querySelector('nav.tabbar')?.getBoundingClientRect()
-    const fab = [...document.querySelectorAll('.fab')].filter((e) => vis(e)).map((e) => e.getBoundingClientRect())
+    const fab = [...document.querySelectorAll('.fab')]
+      .filter((e) => vis(e))
+      .map((e) => e.getBoundingClientRect())
     for (const t of document.querySelectorAll('svg[role=img] text, [data-legend] > span')) {
       if (t.closest(OS) || !vis(t) || !t.textContent.trim()) continue
       const r = t.getBoundingClientRect()
@@ -447,6 +459,10 @@ function probe(coarse) {
 }
 
 const frames = mod.frames().filter((f) => !filter || f.name.includes(filter))
+if (!frames.length) {
+  console.error(`no frames match ${set}${filter ? ` / ${filter}` : ''}`)
+  process.exit(1)
+}
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH })
 const totals = {
   overflow: 0,
@@ -476,7 +492,10 @@ for (const f of frames) {
   examinedAll += r.examined
   delete r.examined
   const lines = Object.entries(r).flatMap(([k, v]) => v.map((x) => `  ${k.padEnd(8)} ${x}`))
-  for (const [k, v] of Object.entries(r)) totals[k] += v.length
+  for (const [k, v] of Object.entries(r)) {
+    if (!(k in totals)) throw new Error(`measure: unknown check "${k}" (add it to totals)`)
+    totals[k] += v.length
+  }
   if (lines.length) console.log(`${f.name}${coarse ? ' (coarse)' : ''}\n${lines.join('\n')}`)
   await page.close()
 }
