@@ -7,6 +7,7 @@ import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { ShareSlider } from '@/components/ui/share-slider'
 import { translateZodCode } from '@/lib/axios-utils'
 import { Field, Section } from '../section'
+import { NEW_SENIOR_SHARE_PERCENT } from './form-defaults'
 
 // TanStack Form render props require many generics — same suppression as
 // ContactsSection (the form instance is owned by UserDialog).
@@ -43,7 +44,7 @@ export function FinanceSection({ form, isCreate, editingUser }: FinanceSectionPr
               }}
             >
               {(field) => {
-                const val = field.state.value ?? 26
+                const val = field.state.value ?? (isCreate ? NEW_SENIOR_SHARE_PERCENT : 26)
                 const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
                 return (
                   <Field label={t`Частка сеньйора (%)`} error={err} required={isCreate}>

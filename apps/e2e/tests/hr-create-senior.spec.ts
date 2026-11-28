@@ -50,7 +50,7 @@ test.describe('HR create senior dialog', () => {
       email: 'new.senior@cheekycheese.dev',
       displayName: 'Іван Іваненко',
       role: 'SENIOR',
-      seniorSharePercent: 26,
+      seniorSharePercent: 40,
       technicalRoles: [...SENIOR_ROLES],
     })
     // HR never sends requisites or a legal name.
