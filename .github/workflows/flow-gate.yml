@@ -65,6 +65,62 @@ permissions:
   issues: read
 
 jobs:
+  # The `Owner Verdict` required check (owner requirement 2026-11-28; .github/CODEOWNERS.md).
+  # Independent of `gate` on purpose: a required job SKIPPED because a needed job failed reads as
+  # passing. Same rules as `gate`: base-branch copy, main checked out sparse with no credentials,
+  # the PR read through the REST API as data — its files are fetched as text, parsed by the
+  # TypeScript compiler and never executed. Re-run together with `gate` by flow-gate-recheck.yml
+  # on every review, so a fresh `Owner Verdict:` review turns it green on the re-run.
+  # Kept ABOVE `gate`: a backtracking regex in flow-gate.test.mjs hangs if lines follow gate's Evaluate.
+  owner_verdict:
+    name: Owner Verdict
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout main (gate logic + CODEOWNERS + tsconfig aliases — never the PR's code)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/devops/
+            /.github/CODEOWNERS
+            /tsconfig.base.json
+            /apps/*/tsconfig.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Pinned to the repo's own version AND its pnpm-lock.yaml integrity; packed outside the
+      # checkout, never installed (no lifecycle scripts). The scanner exits 2 (red) if it cannot load it.
+      - name: Install the TypeScript parser
+        env:
+          TS_DIR: ${{ runner.temp }}/ts
+        run: bash scripts/devops/install-owner-gate-ts.sh
+
+      # Files, PR (head, author, changed_files), reviews (body, commit_id) and the head-sha text of
+      # the unowned code files the scanner names — all counted in the log. A content fetch that
+      # fails is recorded as unavailable, which the scanner reads as a trigger, never as clean.
+      - name: Fetch PR data (REST API, read-only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          D: ${{ runner.temp }}/owner-verdict
+        run: bash scripts/devops/owner-verdict-fetch.sh
+
+      - name: Evaluate
+        env:
+          D: ${{ runner.temp }}/owner-verdict
+          OWNER: yaremenko-maksym
+        run: |
+          node scripts/devops/check-owner-approval.mjs --codeowners .github/CODEOWNERS \
+            --zones scripts/devops/owner-verdict-zones.json --tsconfig-root . \
+            --pr "$D/pr.json" --files "$D/files.json" --contents "$D/contents.json" \
+            --owner "$OWNER" --summary "$GITHUB_STEP_SUMMARY"
+
   gate:
     name: Flow Gate
     runs-on: ubuntu-latest
@@ -185,58 +241,3 @@ jobs:
         env:
           IN: ${{ runner.temp }}/flow-gate/pr-data.json
         run: node scripts/architect/flow-gate.mjs --input "$IN" --summary "$GITHUB_STEP_SUMMARY"
-
-  # The `Owner Verdict` required check (owner requirement 2026-11-28; .github/CODEOWNERS.md).
-  # Independent of `gate` on purpose: a required job SKIPPED because a needed job failed reads as
-  # passing. Same rules as `gate`: base-branch copy, main checked out sparse with no credentials,
-  # the PR read through the REST API as data — its files are fetched as text, parsed by the
-  # TypeScript compiler and never executed. Re-run together with `gate` by flow-gate-recheck.yml
-  # on every review, so a fresh `Owner Verdict:` review turns it green on the re-run.
-  owner_verdict:
-    name: Owner Verdict
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout main (gate logic + CODEOWNERS + tsconfig aliases — never the PR's code)
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          persist-credentials: false
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /scripts/devops/
-            /.github/CODEOWNERS
-            /tsconfig.base.json
-            /apps/*/tsconfig.json
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      # Pinned to the repo's own version AND its pnpm-lock.yaml integrity; packed outside the
-      # checkout, never installed (no lifecycle scripts). The scanner exits 2 (red) if it cannot load it.
-      - name: Install the TypeScript parser
-        env:
-          TS_DIR: ${{ runner.temp }}/ts
-        run: bash scripts/devops/install-owner-gate-ts.sh
-
-      # Files, PR (head, author, changed_files), reviews (body, commit_id) and the head-sha text of
-      # the unowned code files the scanner names — all counted in the log. A content fetch that
-      # fails is recorded as unavailable, which the scanner reads as a trigger, never as clean.
-      - name: Fetch PR data (REST API, read-only)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          D: ${{ runner.temp }}/owner-verdict
-        run: bash scripts/devops/owner-verdict-fetch.sh
-
-      - name: Evaluate
-        env:
-          D: ${{ runner.temp }}/owner-verdict
-          OWNER: yaremenko-maksym
-        run: |
-          node scripts/devops/check-owner-approval.mjs --codeowners .github/CODEOWNERS \
-            --zones scripts/devops/owner-verdict-zones.json --tsconfig-root . \
-            --pr "$D/pr.json" --files "$D/files.json" --contents "$D/contents.json" \
-            --owner "$OWNER" --summary "$GITHUB_STEP_SUMMARY"
