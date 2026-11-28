@@ -23,7 +23,7 @@
  * 'serial' })` so a half-finished cleanup can't bleed into the next case.
  *
  * Cleanup: each scenario restores the senior's seniorSharePercent to the seed
- * default (26) and cascade-archives the drop.
+ * default (40) and cascade-archives the drop.
  */
 
 import { test, expect } from './fixtures'
@@ -53,7 +53,7 @@ function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 }
 
-const SEED_DEFAULT_SHARE = 26
+const SEED_DEFAULT_SHARE = 40
 
 test.describe.configure({ mode: 'serial' })
 

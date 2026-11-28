@@ -200,7 +200,7 @@ test.describe.serial('/pending — AC4: senior-share approval actions', () => {
       // Best-effort restore — leaves the seed account at a known percent for
       // the next run rather than at whatever this test proposed.
       await loginViaApi(page, SEED_ADMIN_EMAIL)
-      await patchUserSharePercentViaAPI(page, seniorA.id, { seniorSharePercent: 26 })
+      await patchUserSharePercentViaAPI(page, seniorA.id, { seniorSharePercent: 40 })
       await loginViaApi(page, SEED_EMAILS.seniorA)
       await page.request
         .post(`${REAL_API}/users/${seniorA.id}/senior-share/approve`)

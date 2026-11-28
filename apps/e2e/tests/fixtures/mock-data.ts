@@ -41,7 +41,7 @@ export const USERS = {
     // Senior roles PR 5: the API always sends this array; a SENIOR is described by it, not by the stack.
     technicalRoles: ['BACKEND_ENGINEER', 'FRONTEND_ENGINEER'] as const,
     paymentMethod: 'USDT_ERC20' as const,
-    seniorSharePercent: 26,
+    seniorSharePercent: 40,
     monthlySalary: null,
     salaryCurrency: 'USD' as const,
     locale: 'uk' as const,
@@ -149,7 +149,7 @@ export const USERS = {
     // Senior roles PR 5: the API always sends this array; a SENIOR is described by it, not by the stack.
     technicalRoles: ['BACKEND_ENGINEER', 'FRONTEND_ENGINEER'] as const,
     paymentMethod: 'USDT_ERC20' as const,
-    seniorSharePercent: 26,
+    seniorSharePercent: 40,
     monthlySalary: null,
     salaryCurrency: 'USD' as const,
     locale: 'uk' as const,
@@ -172,7 +172,7 @@ export const USERS = {
     // Senior roles PR 5: the API always sends this array; a SENIOR is described by it, not by the stack.
     technicalRoles: ['BACKEND_ENGINEER', 'FRONTEND_ENGINEER'] as const,
     paymentMethod: 'USDT_ERC20' as const,
-    seniorSharePercent: 26,
+    seniorSharePercent: 40,
     monthlySalary: null,
     salaryCurrency: 'USD' as const,
     locale: 'uk' as const,

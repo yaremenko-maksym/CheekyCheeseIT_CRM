@@ -85,7 +85,7 @@ test.describe('Drop confirm-payout — manual confirmation happy path (AC2)', ()
       await onboardDropViaAPI(page, { dropId, dropEmail })
       await ensureCompanyWalletViaAPI(page)
 
-      // 2) Drop-project routed through the DROP with the canonical 26%
+      // 2) Drop-project routed through the DROP with the default 40%
       //    SENIOR share. AC2 doesn't care about the distribution math —
       //    it only needs a PAYOUT row in PENDING_PAYMENT.
       const { projectId } = await createDropProjectViaAPI(page, {
