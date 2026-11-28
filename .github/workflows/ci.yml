@@ -1047,6 +1047,8 @@ jobs:
     # 292-500 s for the others. The three hash shards EXCLUDE it, so the 4 legs cover the original file set exactly
     # (288 = 96 + 96 + 95 + 1, checked with vitest's own sequencer). All legs sit in this one matrix, so the
     # `integration` aggregator below still gates the ledger spec. A new concurrency spec belongs in the same leg.
+    # The CLI `--exclude` is ignored once the integration vitest config defines `test.projects`; adding projects
+    # there means moving this exclude into each project, or the ledger spec runs twice.
     # Runs DB-backed *.integration.spec.ts against a real Postgres instance.
     # Separated from the unit-test `quality` job so unit tests stay fast and
     # DB-free, while integration specs get migrate + seed + fixture data.
