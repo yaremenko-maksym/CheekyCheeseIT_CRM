@@ -754,8 +754,8 @@ describe('ResponsiveSheet content lives in the presentation tree', () => {
   )
 
   // `dismissible={false}` guards accidental exits; an explicit Cancel is intent.
-  it.each(PRESENTATIONS)(
-    'ResponsiveSheetClose closes a not-dismissible sheet and runs its own onClick ($presentation)',
+  it.each([...PRESENTATIONS, { cls: 'tablet', side: 'right', presentation: 'side' } as const])(
+    'ResponsiveSheetClose closes a not-dismissible sheet and runs its own onClick ($cls, $presentation)',
     async (c) => {
       deviceClass = c.cls
       const onOpenChange = vi.fn()

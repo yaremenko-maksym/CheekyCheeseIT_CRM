@@ -55,7 +55,10 @@ export interface ResponsiveSheetProps {
  * does not refetch.
  *
  * `dismissible={false}`: Escape, an outside press, swipe-down, Android back and the built-in close
- * controls do not reach `onOpenChange` on any class; `ResponsiveSheetClose` still does.
+ * controls do not reach `onOpenChange` on any class; `ResponsiveSheetClose` still does. On mobile
+ * this holds for every Android back press, including a later one the browser does not let the page
+ * cancel: Base UI closes on that one regardless, so the bottom sheet remounts its root to stay open
+ * (content state not held above the sheet is lost, as on a breakpoint swap).
  *
  * Never open a mobile (bottom) sheet from inside a Radix modal dialog: it reads the global
  * `pointer-events: none` that dialog puts on <body> as a nested layer, so every outside press is

@@ -16,12 +16,15 @@ export type SheetDetents = readonly ['content'] | readonly [HeightDetent, ...Hei
 const SNAP_POINT: Record<HeightDetent, number> = { half: 0.5, full: 1 }
 
 // An open Radix layer: a modal one (Select, DropdownMenu) sets `pointer-events: none` on <body>;
-// every popper (Popover, Select in popper mode, menus) renders this wrapper. The body style is
+// every popper (Popover, Select in popper mode, menus) renders this wrapper. A tooltip renders it
+// too but is not a layer to close first, so a wrapper holding one does not count. The body style is
 // global, so a bottom sheet must never be opened from inside a Radix modal dialog.
 function radixLayerOpen(): boolean {
   return (
     document.body.style.pointerEvents === 'none' ||
-    document.querySelector('[data-radix-popper-content-wrapper]') !== null
+    Array.from(document.querySelectorAll('[data-radix-popper-content-wrapper]')).some(
+      (wrapper) => wrapper.querySelector('[role="tooltip"]') === null,
+    )
   )
 }
 
@@ -75,6 +78,8 @@ export function BottomSheet({
     // Stryker disable next-line ConditionalExpression: a reset on close too differs only during the exit animation (the detent jumps while sliding out), which happy-dom cannot render
     if (open) setSnapPoint(snapPoints?.[0])
   }
+  // Bumped to remount the root after a back press Base UI closes on regardless (see below).
+  const [rootKey, setRootKey] = React.useState(0)
   // Radix closes its layer on pointerdown, before Base UI reads the click as an outside press, so
   // whether a layer was open is recorded when the gesture starts.
   // Stryker disable next-line BooleanLiteral: every outside press starts with a pointerdown, which overwrites the initial value first
@@ -94,13 +99,17 @@ export function BottomSheet({
 
   return (
     <Drawer.Root
+      key={rootKey}
       open={open}
       onOpenChange={(next, details) => {
         if (details.reason === 'close-watcher') {
           // Only one back press per user activation can be refused; on a later one Base UI's
-          // `cancel()` is a no-op and it closes, so the caller must follow.
+          // `cancel()` is a no-op, it closes internally and drops its watcher. A dismissible sheet
+          // follows. A not-dismissible one stays open: the remount restores Base UI's open state
+          // and arms a fresh watcher, so the next back press is refused too.
           if (!details.event.cancelable) {
-            onOpenChange(next)
+            if (dismissible) onOpenChange(next)
+            else setRootKey((key) => key + 1)
             return
           }
           // Radix layers do not hear Android back: hand it to the top one as an Escape.
