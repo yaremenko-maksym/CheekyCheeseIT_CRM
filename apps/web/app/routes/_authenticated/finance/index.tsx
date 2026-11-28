@@ -46,7 +46,7 @@ import { CompanySharePayoutStrip } from './components/CompanySharePayoutStrip'
  * Deep-link search params for /finance.
  *
  * `status` — optional pre-selected transaction-status filter (e.g. the
- * AccountantDashboard CTA navigates with `?status=PENDING`). Validated against
+ * a deep link may carry `?status=PENDING`). Validated against
  * the known transaction statuses; anything unexpected is dropped (returns
  * undefined) so a malformed URL never poisons the filter UI.
  */
@@ -82,7 +82,7 @@ function FinancePage() {
   const locale = useLocale()
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'ACCOUNTANT', 'HR', 'DROP', 'JUNIOR'])
   const { user } = useAuth()
-  // Deep-link status filter (?status=PENDING) — from the AccountantDashboard CTA.
+  // Deep-link status filter (?status=PENDING).
   // useSearch is hook-order-safe (called before the early returns below).
   const { status: deepLinkStatus } = Route.useSearch()
   const role = user?.role ?? ''

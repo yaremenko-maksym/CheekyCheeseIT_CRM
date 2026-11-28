@@ -14,7 +14,7 @@ import type { SessionUser } from '@crm/shared'
 
 export type Role = SessionUser['role']
 
-const ALL_ROLES: readonly Role[] = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
+const ALL_ROLES: readonly Role[] = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP']
 
 /**
  * Роли, видящие nav-пункт «Дашборд» (ведёт на корень `/`).
@@ -23,7 +23,7 @@ const ALL_ROLES: readonly Role[] = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTA
  * а вот пункт меню скрыт для JUNIOR (у них свой хаб «Мой проект»). Набор повторяет
  * роли удалённого роута `/dashboard`. Источник истины для NAV_ITEMS «Дашборд».
  */
-export const DASHBOARD_NAV_ROLES: readonly Role[] = ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'DROP']
+export const DASHBOARD_NAV_ROLES: readonly Role[] = ['ADMIN', 'SENIOR', 'HR', 'DROP']
 
 /**
  * Карта: префикс CRM-роута → роли, которым доступен этот раздел.
@@ -45,7 +45,7 @@ const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: readonly Role[] }> = 
   { prefix: '/routing', roles: ['DROP'] },
 
   // Дашборд консолидирован на корень `/` (index.tsx): он рендерит роль-зависимый
-  // контент (DROP → платёжный хаб, ACCOUNTANT → финхаб, HR → рекрутинг-хаб, ADMIN/
+  // контент (DROP → платёжный хаб, HR → рекрутинг-хаб, ADMIN/
   // SENIOR → дженерик). `/` НЕ заводится записью в карте намеренно: корень — это
   // fail-open служебный путь (как /login), доступен ВСЕМ аутентифицированным
   // ролям включая DROP (AC5). JUNIOR на `/` редиректится index.tsx → /project.
@@ -55,26 +55,24 @@ const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: readonly Role[] }> = 
 
   // Пользователи — только ADMIN.
   { prefix: '/users', roles: ['ADMIN'] },
-  // Статистика — ADMIN (всё) + ACCOUNTANT (только экономическая часть; секции
-  // балансов сотрудников и плейсхолдеры HR/Команда/Проекты гейтятся ADMIN-only
-  // внутри stats.tsx — route-access лишь открывает раздел бухгалтеру).
-  { prefix: '/stats', roles: ['ADMIN', 'ACCOUNTANT'] },
+  // Статистика — только ADMIN.
+  { prefix: '/stats', roles: ['ADMIN'] },
 
-  // Команда — ADMIN/SENIOR/HR/ACCOUNTANT/DROP (DROP видит свою команду).
-  { prefix: '/team', roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
+  // Команда — ADMIN/SENIOR/HR/DROP (DROP видит свою команду).
+  { prefix: '/team', roles: ['ADMIN', 'SENIOR', 'HR', 'DROP'] },
 
   // Проекты (список + деталь $projectId) — без JUNIOR/DROP.
-  { prefix: '/projects', roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'] },
+  { prefix: '/projects', roles: ['ADMIN', 'SENIOR', 'HR'] },
 
   // Собеседования — ADMIN/SENIOR/HR.
   { prefix: '/interviews', roles: ['ADMIN', 'SENIOR', 'HR'] },
 
   // Финансы — все роли. (Счёт компании теперь карточка на этой странице для
-  // ADMIN/ACCOUNTANT, отдельного роута нет — Phase 8 v2.)
-  { prefix: '/finance', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
+  // ADMIN, отдельного роута нет — Phase 8 v2.)
+  { prefix: '/finance', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP'] },
 
   // Документы — все роли включая DROP (DROP видит свою страницу документов, не профиль-таб).
-  { prefix: '/documents', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
+  { prefix: '/documents', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP'] },
 
   // Вакансии (task-crm-vacancies-ui) — публичный канал найма новых SENIOR'ов,
   // управляют ADMIN/HR (backend RolesGuard уже гейтит /api/vacancies так же).
@@ -98,14 +96,14 @@ const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: readonly Role[] }> = 
   { prefix: '/onboarding', roles: ALL_ROLES },
 
   // «Ждут решения» (task-pending-screen, позиция 7c) — доступен всем ролям:
-  // у каждой есть хотя бы контракт на подпись (JUNIOR/HR/ACCOUNTANT), проект
+  // у каждой есть хотя бы контракт на подпись (JUNIOR/HR), проект
   // или доля (SENIOR/DROP), либо раздел «Ждут решения других» (ADMIN).
   { prefix: '/pending', roles: ALL_ROLES },
 ]
 
 /**
  * Дом роли — куда редиректим, если роль попала на запрещённый роут.
- * JUNIOR → хаб «Мой проект»; все остальные роли (вкл. DROP/ACCOUNTANT/HR) → корень
+ * JUNIOR → хаб «Мой проект»; все остальные роли (вкл. DROP/HR) → корень
  * `/`, который рендерит роль-зависимый дашборд (консолидация роутинга).
  */
 export function resolveRoleHome(role: Role): string {

@@ -17,7 +17,6 @@ import { SettleSeniorPayoutDialog } from './finance/components/dialogs/SettleSen
 import { PaySalaryDialog } from './finance/components/dialogs/PaySalaryDialog'
 import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
 import { DropDashboard } from './routing/components/DropDashboard'
-import { AccountantDashboard } from './routing/components/AccountantDashboard'
 import { HRDashboard } from './routing/components/HRDashboard'
 import { SeniorDashboard } from './routing/components/SeniorDashboard'
 
@@ -25,7 +24,6 @@ import { SeniorDashboard } from './routing/components/SeniorDashboard'
  * `/` — корневая страница авторизованной CRM. Единая точка входа,
  * рендерит роль-зависимый дашборд (консолидация: бывший /dashboard удалён):
  *   - DROP        → DropDashboard (платёжный хаб)
- *   - ACCOUNTANT  → AccountantDashboard (финансовый хаб + KPI валидации)
  *   - HR          → HRDashboard (рекрутинг хаб + KPI собеседований)
  *   - SENIOR      → SeniorDashboard (рабочий хаб: мои проекты + доход + выплаты)
  *   - JUNIOR      → редирект на собственный хаб /project
@@ -83,12 +81,6 @@ function CrmDashboard() {
   // DROP role: платёжный хаб вместо общего дашборда.
   if (user?.role === 'DROP') {
     return <DropDashboard />
-  }
-
-  // ACCOUNTANT role: финансовый хаб-дашборд с KPI валидации (ACCOUNTANT Sprint 1).
-  // Данные KPI отдаёт GET /api/finance/accountant-summary (RBAC ACCOUNTANT+ADMIN).
-  if (user?.role === 'ACCOUNTANT') {
-    return <AccountantDashboard />
   }
 
   // HR role: рекрутинг хаб-дашборд с KPI собеседований + статусом зарплаты.

@@ -181,7 +181,7 @@ export function TransactionsTable({
   role: string
   rates: ExchangeRates | undefined
   /**
-   * Deep-link initial status filter (e.g. AccountantDashboard CTA →
+   * Deep-link initial status filter (e.g. a link →
    * `?status=PENDING`). When omitted, the filter starts at 'all'. The user can
    * still change/clear it freely afterwards — it only seeds the initial value.
    */
@@ -263,7 +263,7 @@ export function TransactionsTable({
   )
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
-  // Seed from the deep-link `?status=` param (AccountantDashboard CTA). Falls
+  // Seed from the deep-link `?status=` param. Falls
   // back to 'all'. Only the initial value — user changes/clears it freely after.
   const [statusFilter, setStatusFilter] = useState(initialStatus ?? 'all')
   const [sortKey, setSortKey] = useState<TxSort>('date')

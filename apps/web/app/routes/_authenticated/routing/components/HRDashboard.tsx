@@ -10,7 +10,7 @@ import { useHrSummary } from '@/hooks/use-hr-summary'
  * HRDashboard — рекрутинг хаб-дашборд для роли HR (и ADMIN, который видит ту же
  * рекрутинг-область).
  *
- * Визуально консистентен с DropDashboard / AccountantDashboard: stagger-grid
+ * Визуально консистентен с DropDashboard: stagger-grid
  * карточек, переиспользует KpiCard-примитив из finance/components/KpiCards. KPI:
  * открытые собеседования, нанято за месяц, активные проекты (HR-scoped count).
  *
