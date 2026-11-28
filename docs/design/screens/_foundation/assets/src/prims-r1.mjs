@@ -31,8 +31,10 @@ import { interviewTable } from './prims-wide.mjs'
 const POP =
   'background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:14px;box-shadow:0 24px 64px oklch(0 0 0 / 0.6)'
 // R3-11: one scrim value for every overlay, the `--scrim` token.
-const SCRIM = () =>
-  `<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>`
+const SCRIM = (z = 60) =>
+  `<div class="scrim-layer" style="position:absolute;inset:0;background:var(--scrim);z-index:${z}"></div>`
+// R4-02: an alertdialog's scrim sits above every panel (modal panels are z 65); measure.mjs `scrim` asserts it.
+const ALERT_SCRIM = () => SCRIM(75)
 const bell = (s = 22) =>
   `<span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: s })}<i class="dot"></i></span>`
 const paneHead = (t) =>
@@ -279,7 +281,7 @@ export const stateErrorDesktop = (w, h) => deskState(w, h, errorBlock())
 
 /** Desktop session expiry: a centred alertdialog over the open panel; «Не зараз» has the initial focus. */
 export function sessionExpiredDesktop(w, h) {
-  const dlg = `${SCRIM()}<div role="alertdialog" aria-modal="true" aria-labelledby="sx-t" aria-describedby="sx-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:80;padding:20px 20px 16px;${POP}">
+  const dlg = `${ALERT_SCRIM()}<div role="alertdialog" aria-modal="true" aria-labelledby="sx-t" aria-describedby="sx-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:80;padding:20px 20px 16px;${POP}">
   <div id="sx-t" class="t-head">Сесія завершилася. Увійдіть знову, щоб продовжити.</div>
   <div id="sx-d" class="t-foot muted" style="margin-top:8px;font-size:14px;line-height:20px">Введене у формі «Нова співбесіда» збережеться на цьому пристрої й повернеться після входу.</div>
   <div class="row" style="justify-content:flex-end;gap:8px;margin-top:18px"><span class="btn secondary" style="height:36px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Не зараз</span><span class="btn primary" style="height:36px">Увійти знову</span></div></div>`
@@ -449,7 +451,7 @@ export const accountMenuDesktop = (w, h) =>
 function pageKillDialog(phase, touch) {
   const k = KILL[phase]
   const bh = touch ? 44 : 36
-  return `${SCRIM()}<div role="alertdialog" aria-modal="true" aria-labelledby="pk-t" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:80;padding:20px 20px 16px;${POP}">
+  return `${ALERT_SCRIM()}<div role="alertdialog" aria-modal="true" aria-labelledby="pk-t" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:80;padding:20px 20px 16px;${POP}">
   <div id="pk-t" class="t-sub" style="font-weight:600;font-size:${touch ? 17 : 15}px;line-height:${touch ? 24 : 21}px">${k.text}</div>
   <div class="row" style="justify-content:flex-end;gap:8px;margin-top:18px"><span class="btn secondary" role="button" style="height:${bh}px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">${k.answer}</span><span class="btn primary" role="button" style="height:${bh}px">${k.action}</span></div></div>`
 }
@@ -458,7 +460,7 @@ export const pageKillDesktop = (w, h) => desktop({ w, h, overlay: pageKillDialog
 
 /** R1-08: the session alert on a tablet: the same centred alertdialog over the open form panel, 44 px buttons, «Не зараз» focused. */
 export function sessionExpiredTablet(w, h) {
-  const dlg = `${SCRIM()}<div role="alertdialog" aria-modal="true" aria-labelledby="sx-t" aria-describedby="sx-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:80;padding:22px 24px 18px;${POP}">
+  const dlg = `${ALERT_SCRIM()}<div role="alertdialog" aria-modal="true" aria-labelledby="sx-t" aria-describedby="sx-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:80;padding:22px 24px 18px;${POP}">
   <div id="sx-t" class="t-head">Сесія завершилася. Увійдіть знову, щоб продовжити.</div>
   <div id="sx-d" class="t-foot muted" style="margin-top:8px;font-size:15px;line-height:21px">Введене у формі «Нова співбесіда» збережеться на цьому пристрої й повернеться після входу.</div>
   <div class="row" style="justify-content:flex-end;gap:8px;margin-top:20px"><span class="btn secondary" style="height:44px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Не зараз</span><span class="btn primary" style="height:44px">Увійти знову</span></div></div>`

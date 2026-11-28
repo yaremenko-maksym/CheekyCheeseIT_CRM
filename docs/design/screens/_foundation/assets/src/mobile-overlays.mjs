@@ -15,21 +15,25 @@ import {
 
 const safeTop = (w) => (w <= 320 ? 20 : 54)
 
-function sheet({ w, h, top, title, lead = '', trail = '', body, footer = '' }) {
+function sheet({ w, h, top, title, lead = '', trail = '', body, footer = '', scroll = '' }) {
   return `<div class="scrim"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="${title}" style="${top == null ? 'max-height:calc(100% - 62px)' : `top:${top}px`}">
   <div class="grabber" aria-hidden="true"></div>
   <div class="sheethead"><div class="a">${lead}</div><div class="t">${title}</div><div class="a r">${trail}</div></div>
-  <div style="flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain">${body}</div>${footer}</div>`
+  <div ${scroll} style="flex:1;min-height:0;overflow:${scroll ? 'hidden auto' : 'hidden'};${scroll ? `scroll-padding-bottom:${safeBottom(w) + 16}px;` : ''}overscroll-behavior:contain">${body}</div>${footer}</div>`
 }
+// R4-01: a drawn «scrolled to the end» state; render and measure both run it before they look.
+const SCROLL_END = `<script>document.querySelectorAll('[data-scroll-end]').forEach((e) => (e.scrollTop = e.scrollHeight))</script>`
 
 const closeBtn = `<span class="iconbtn" aria-label="Закрити" style="width:44px;height:44px;margin-left:auto"><span style="width:30px;height:30px;border-radius:15px;background:var(--secondary);display:grid;place-items:center;color:var(--muted-fg)">${icon('x', { size: 16, stroke: 2.4 })}</span></span>`
 
 function navRow(d, { badge = 0 } = {}) {
-  return `<div class="lrow" style="--inset:60px"><div class="lead" style="width:32px;height:32px;border-radius:9px">${icon(DEST[d].icon, { size: 18 })}</div>
+  return `<div class="lrow" data-dest="${d}" style="--inset:60px"><div class="lead" style="width:32px;height:32px;border-radius:9px">${icon(DEST[d].icon, { size: 18 })}</div>
   <div class="grow t-body trunc">${DEST[d].label}</div>${badge ? `<span class="pill y num" style="font-weight:700">${badge}</span>` : ''}${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`
 }
 
-export function moreSheet(role, w, h) {
+// R4-01: the body is its own vertical scroller with the bottom safe area as padding, so every permitted
+// destination and «Вийти з акаунта» reach the thumb at 320 × 568; measure.mjs `reach` asserts it per frame.
+export function moreSheet(role, w, h, { end = false } = {}) {
   const items = moreItems(role)
   const groups = GROUPS.map((g) => ({
     ...g,
@@ -44,8 +48,18 @@ export function moreSheet(role, w, h) {
     )
     .join(
       '',
-    )}<div class="group" style="margin-top:24px"><div class="lrow"><div class="lead" style="width:32px;height:32px;border-radius:9px;color:var(--destructive)">${icon('log-out', { size: 18 })}</div><div class="grow t-body" style="color:var(--destructive)">Вийти з акаунта</div></div></div>`
-  const overlay = sheet({ w, h, top: safeTop(w) + 10, title: 'Ще', trail: closeBtn, body })
+    )}<div class="group" style="margin:24px 0 ${safeBottom(w) + 16}px"><div class="lrow" data-dest="sign-out"><div class="lead" style="width:32px;height:32px;border-radius:9px;color:var(--destructive)">${icon('log-out', { size: 18 })}</div><div class="grow t-body" style="color:var(--destructive)">Вийти з акаунта</div></div></div>`
+  const want = items.length + 1 // every permitted destination (moreItems) + sign-out, not what the groups kept
+  const overlay =
+    sheet({
+      w,
+      h,
+      top: safeTop(w) + 10,
+      title: 'Ще',
+      trail: closeBtn,
+      body,
+      scroll: `data-reach="${want}"${end ? ' data-scroll-end' : ''}`,
+    }) + (end ? SCROLL_END : '')
   return tabScreen({
     w,
     h,

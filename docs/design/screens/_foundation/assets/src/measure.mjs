@@ -16,6 +16,10 @@
 //   clipy    — text cut vertically by overflow:hidden without a line clamp.
 //   target+  — r3 (R2-28): a span / div that looks like a control (rounded, bordered or filled, one of a row of same-class siblings) is a target too
 //   input    — under a coarse pointer, an input / textarea / input-looking control with text under 16 px
+//   reach    — r5 (R4-01): a list drawn `[data-reach="N"]` must hold N `[data-dest]` rows, and every row must be
+//              scrollable fully into view: inside its scroller's box, inside the viewport, above the home indicator.
+//   scrim    — r5 (R4-02): every `[role=alertdialog]` has a scrim (its previous sibling) and nothing but the dialog
+//              paints above that scrim inside the scrim's box (a 16 px point grid, OS chrome exempt).
 // Coarse = the frame draws a touch device (`.touch`, every phone and tablet frame) or its name is in COARSE.
 // Exempt: drawn OS chrome (`.status`, `.kbd`, `.kbar`, `.homebar`: iOS's own, not ours), `[aria-hidden="true"]`
 // subtrees, annotation captions (`[data-note]`), and elements that declare an extended hit area
@@ -73,6 +77,44 @@ function probe(coarse) {
     fab: [],
     target: [],
     input: [],
+    reach: [],
+    scrim: [],
+  }
+  for (const sc of document.querySelectorAll('[data-reach]')) {
+    const rows = [...sc.querySelectorAll('[data-dest]')]
+    const want = Number(sc.getAttribute('data-reach'))
+    if (rows.length !== want) out.reach.push(`${rows.length} of ${want} destinations drawn`)
+    const cs = getComputedStyle(sc)
+    const scrolls = /auto|scroll/.test(cs.overflowY)
+    const home = document.querySelector('.homebar')
+    const floor = Math.min(innerHeight, home ? home.getBoundingClientRect().top : innerHeight)
+    const keep = sc.scrollTop
+    for (const el of rows) {
+      if (scrolls) el.scrollIntoView({ block: 'nearest' })
+      const r = el.getBoundingClientRect()
+      const b = sc.getBoundingClientRect()
+      if (r.top < b.top - 1 || r.bottom > b.bottom + 1 || r.bottom > floor + 1 || r.top < 0)
+        out.reach.push(`"${el.getAttribute('data-dest')}" unreachable (${Math.round(r.top)}–${Math.round(r.bottom)}, box ${Math.round(b.top)}–${Math.round(b.bottom)}, floor ${Math.round(floor)})`)
+    }
+    sc.scrollTop = keep
+  }
+  for (const dlg of document.querySelectorAll('[role="alertdialog"]')) {
+    const sc = dlg.previousElementSibling
+    const sr = sc && sc.getBoundingClientRect()
+    if (!sc || sr.width < innerWidth * 0.5) {
+      out.scrim.push('alertdialog without a scrim sibling')
+      continue
+    }
+    let bad = 0
+    let first = ''
+    for (let y = Math.max(0, sr.top) + 8; y < Math.min(innerHeight, sr.bottom); y += 16)
+      for (let x = Math.max(0, sr.left) + 8; x < Math.min(innerWidth, sr.right); x += 16) {
+        const hit = document.elementFromPoint(x, y)
+        if (!hit || hit === sc || sc.contains(hit) || dlg.contains(hit) || hit.closest(OS)) continue
+        bad++
+        first ||= `${name(hit)} at ${Math.round(x)},${Math.round(y)}`
+      }
+    if (bad) out.scrim.push(`${bad} points above the alert scrim, first ${first}`)
   }
   let examined = 0
   const se = document.scrollingElement
@@ -177,7 +219,7 @@ function probe(coarse) {
 
 const frames = mod.frames().filter((f) => !filter || f.name.includes(filter))
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH })
-const totals = { overflow: 0, clip: 0, clipy: 0, pct: 0, never: 0, fab: 0, target: 0, input: 0 }
+const totals = { overflow: 0, clip: 0, clipy: 0, pct: 0, never: 0, fab: 0, target: 0, input: 0, reach: 0, scrim: 0 }
 let examinedAll = 0
 for (const f of frames) {
   const page = await browser.newPage({ viewport: { width: f.w, height: f.h } })

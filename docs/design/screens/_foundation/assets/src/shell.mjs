@@ -75,6 +75,8 @@ export function frames() {
     out.push(M('more-sheet-admin-375', 375, 812, moreSheet('ADMIN', 375, 812)))
     out.push(M('more-sheet-junior-375', 375, 812, moreSheet('JUNIOR', 375, 812)))
     out.push(M('more-sheet-admin-320', 320, 568, moreSheet('ADMIN', 320, 568)))
+    out.push(M('more-sheet-admin-end-320', 320, 568, moreSheet('ADMIN', 320, 568, { end: true })))
+    out.push(M('more-sheet-admin-end-375', 375, 812, moreSheet('ADMIN', 375, 812, { end: true })))
     out.push(M('quick-add-admin-375', 375, 812, quickAddSheet('ADMIN', 375, 812)))
     out.push(M('quick-add-hr-320', 320, 568, quickAddSheet('HR', 320, 568)))
     // Save during upload: an active button that says what a tap does; the armed state freezes the payload.
