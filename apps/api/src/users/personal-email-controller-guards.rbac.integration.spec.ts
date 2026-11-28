@@ -108,9 +108,26 @@ const ALL: Persona[] = [ADMIN, SENIOR, JUNIOR, HR, DROP]
 // SR-M-17's explicit list — every role that must NOT reach either handler.
 const NON_ADMIN: Persona[] = [SENIOR, JUNIOR, HR, DROP]
 
-const ROLE_ROWS = new Map<string, { role: Role; archivedAt: Date | null }>(
-  ALL.map((p) => [p.id, { role: p.role, archivedAt: null }]),
-)
+// PR 1b ROLE-SET: a token signed as SENIOR whose DB row holds a role outside the
+// five (a retired one included). `JwtAuthGuard` re-hydrates the role from the row,
+// so the controller body sees `role: 'X'`.
+const UNKNOWN: Persona = {
+  id: 'fec90000-0000-4000-aa00-000000000007',
+  email: 'pecg-unknown@test.spec',
+  role: 'SENIOR',
+}
+
+const ROLE_ROWS = new Map<string, { role: Role | 'X'; archivedAt: Date | null }>([
+  ...ALL.map((p): [string, { role: Role; archivedAt: null }] => [
+    p.id,
+    { role: p.role, archivedAt: null },
+  ]),
+  [UNKNOWN.id, { role: 'X', archivedAt: null }],
+])
+
+// `GET /users`: ADMIN reads the directory including admins, HR the one without.
+const LIST_WITH_ADMIN = [{ id: 'list-including-admin' }]
+const LIST_WITHOUT_ADMIN = [{ id: 'list-without-admin' }]
 
 // `JwtAuthGuard` re-hydrates role/archived status from `UsersService.findById`
 // (AC2, jwt.guard.ts) — this is the ONLY method of `UsersService` it needs.
@@ -131,6 +148,8 @@ interface InviteeResult {
 let inviteeResult: InviteeResult | null = null
 const usersServiceStub = {
   findById: (id: string) => Promise.resolve(ROLE_ROWS.get(id)),
+  findAllIncludingAdmin: () => Promise.resolve(LIST_WITH_ADMIN),
+  findAll: () => Promise.resolve(LIST_WITHOUT_ADMIN),
   resendPersonalEmailInvite: () =>
     inviteeResult
       ? Promise.resolve(inviteeResult)
@@ -271,6 +290,34 @@ describe("UsersController personal-email routes — real @Roles('ADMIN') RBAC in
   const resendUrl = `/api/users/${TARGET_ID}/personal-email/resend-invite`
   const changeUrl = `/api/users/${TARGET_ID}/personal-email`
   const changePayload = { personalEmail: 'new-address@test.spec' }
+
+  // PR 1b ROLE-SET: `GET /users` has no @Roles; its role check is the controller
+  // body (ADMIN / HR only). Real Fastify + real guards + real controller.
+  describe('GET /users — role set of the directory listing (controller-body check)', () => {
+    async function list(user: Persona) {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/users',
+        cookies: { jwt: tokenFor(user) },
+      })
+      return { status: res.statusCode, body: res.statusCode === 200 ? res.json() : null }
+    }
+
+    it('ADMIN → 200, the directory including admins', async () => {
+      expect(await list(ADMIN)).toEqual({ status: 200, body: LIST_WITH_ADMIN })
+    })
+    it('HR → 200, the directory without admins', async () => {
+      expect(await list(HR)).toEqual({ status: 200, body: LIST_WITHOUT_ADMIN })
+    })
+    for (const persona of [SENIOR, JUNIOR, DROP]) {
+      it(`${persona.role} → 403`, async () => {
+        expect((await list(persona)).status).toBe(403)
+      })
+    }
+    it('a role outside the five (DB row role X) → 403', async () => {
+      expect((await list(UNKNOWN)).status).toBe(403)
+    })
+  })
 
   describe("POST /users/:id/personal-email/resend-invite — @Roles('ADMIN') guard", () => {
     for (const persona of NON_ADMIN) {
