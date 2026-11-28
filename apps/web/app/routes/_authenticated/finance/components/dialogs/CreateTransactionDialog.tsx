@@ -90,7 +90,7 @@ export function CreateTransactionDialog({
   // ADMIN partner.
   // task-admin-income-unified: the former separate `USDT_INCOME` type is gone
   // (see the DialogTxType comment) — ADMIN_INCOME is now the only admin-income
-  // entry for both ADMIN; the USDT route inside it is further
+  // entry for ADMIN; the USDT route inside it is further
   // gated to ADMIN-only by `isSelectedProjectUsdt`'s project pool below
   // (declareUsdtProjectIncome stays ADMIN-only server-side, unchanged).
   const availableTypes: DialogTxType[] = isAdmin

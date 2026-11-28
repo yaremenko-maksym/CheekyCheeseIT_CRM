@@ -173,8 +173,8 @@ export function ProjectEffectiveTeamCard({
     effective?.juniors ?? project.members.filter((m) => m.role === 'JUNIOR' && m.leftAt === null)
   const juniors = viewerRole === 'SENIOR' ? [] : rawJuniors
 
-  // ut-30: flat list — single «Эффективный состав» heading; role-specific
-  // section headings («СИНЬОР», «HR (N)», «БУХГАЛТЕРЫ (N)», «ДЖУНЫ (N)») removed.
+  // ut-30: flat list — single effective team heading; role-specific
+  // section headings (Senior, HR, Juniors) removed.
   // Each row keeps its role badge for visual differentiation.
   // task-admin-as-senior: profileNavigable=false for admin-senior when viewer lacks
   // profile access — renders plain text instead of a navigable link.
