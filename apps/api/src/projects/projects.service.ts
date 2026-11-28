@@ -37,7 +37,6 @@ import { assertLogoDocument } from './project-logo.util'
 import {
   assertFinanceFieldsAllowed,
   buildProjectUpdateData,
-  isFinanceOnlyPatch,
   resolveActiveDropId,
 } from './project-update-data.util'
 import { UsersService } from '../users/users.service'
@@ -146,9 +145,7 @@ export class ProjectsService {
     // Д1: a DRAFT/REJECTED project is dropped from the list UNLESS the viewer
     // is ADMIN or was invited to approve it (senior/drop, current OR any past
     // generation — see `ApprovalsService.isApprover`'s own doc for why "ever
-    // asked" is correct here). Runs BEFORE the per-role filters below so
-    // ACCOUNTANT — who otherwise sees every ACTIVE project unconditionally —
-    // does not also see drafts it was never asked about.
+    // asked" is correct here). Runs BEFORE the per-role filters below.
     if (currentUser.role !== 'ADMIN') {
       const invitedProjectIds = await this.approvals.listSubjectIdsForApprover(
         ProjectsService.APPROVAL_SUBJECT_TYPE,
@@ -202,8 +199,10 @@ export class ProjectsService {
     } else if (currentUser.role === 'DROP') {
       // Drop role - phase 1: DROP sees only drop-projects they own.
       filtered = filtered.filter((p) => p.dropId === currentUser.id && p.archivedAt === null)
+    } else if (currentUser.role !== 'ADMIN') {
+      // Allowlist: ADMIN sees all; a role outside the five above (a retired one included) sees none.
+      filtered = []
     }
-    // ADMIN see all
 
     // task-team-senior-share-override. Batch-load team overrides for every
     // senior referenced by the filtered set so `mapProject` resolves the
@@ -480,14 +479,10 @@ export class ProjectsService {
   async update(id: string, data: UpdateProjectDto, currentUser: SessionUser) {
     // Field-scoped RBAC (senior/drop override incl. explicit null, paymentType):
     // ADMIN only. HR keeps full edit access to every other field.
-    // Checked BEFORE the role narrow so ACCOUNTANT-only finance patches pass.
     const role = currentUser.role
     assertFinanceFieldsAllowed(data, role)
 
-    // ACCOUNTANT may patch only when EVERY field touched is finance-scoped.
-    const hasOnlyOverride = isFinanceOnlyPatch(data)
-
-    if (role !== 'ADMIN' && role !== 'HR' && !(role === 'ACCOUNTANT' && hasOnlyOverride)) {
+    if (role !== 'ADMIN' && role !== 'HR') {
       throw new ForbiddenException()
     }
 
@@ -504,8 +499,7 @@ export class ProjectsService {
     // there was nothing draft-shaped to hide. Fix-round 1 (CR-M-1, SPEC-M-2)
     // started returning rejectionReason and the two ApprovalPending booleans
     // from its response WITHOUT adding this gate, so HR — who
-    // findOne already 404s on any non-ACTIVE project, per assertAccess's own
-    // "INCLUDING ACCOUNTANT" comment below — could PATCH a field they are
+    // findOne already 404s on any non-ACTIVE project (see assertAccess) — could PATCH a field they are
     // allowed to touch (e.g. `name`) on a REJECTED project and get the full
     // rejection reason back in the response, despite never being able to
     // GET that project at all. Same gate, same place in the call order,
@@ -515,11 +509,7 @@ export class ProjectsService {
     await this.assertAccess(project, currentUser)
 
     // HR cross-team scoping: HR may only update projects for seniors in their own teams.
-    // ACCOUNTANT doing a hasOnlyOverride patch is exempted (their patch is finance-scoped,
-    // not team-scoped — the field-level RBAC check above already ran).
-    if (!(role === 'ACCOUNTANT' && hasOnlyOverride)) {
-      await this.access.assertHrCanManageProject(project, currentUser)
-    }
+    await this.access.assertHrCanManageProject(project, currentUser)
 
     // Drop role - phase 2: validate updated `dropId` (when present). Same
     // contract as create: `null` → clear, uuid → set to existing DROP user.

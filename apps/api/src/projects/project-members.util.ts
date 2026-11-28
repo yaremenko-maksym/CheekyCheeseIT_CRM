@@ -23,7 +23,7 @@ export function assertCanAddMember(user: { archivedAt: Date | null; role: string
   if (user.archivedAt) {
     throw apiError('ARCHIVED_USER_CANNOT_JOIN_PROJECT', HttpStatus.BAD_REQUEST)
   }
-  if (user.role !== 'JUNIOR' && user.role !== 'HR' && user.role !== 'ACCOUNTANT') {
+  if (user.role !== 'JUNIOR' && user.role !== 'HR') {
     throw apiError('PROJECT_MEMBER_ROLE_RESTRICTED', HttpStatus.BAD_REQUEST)
   }
 }
@@ -41,7 +41,7 @@ export function assertCanRemoveMember(
   userToRemove: { role: string } | undefined,
   members: readonly MemberRowSlice[],
 ): void {
-  if (userToRemove?.role === 'HR' || userToRemove?.role === 'ACCOUNTANT') {
+  if (userToRemove?.role === 'HR') {
     const activeOfRole = members.filter(
       (m) => m.leftAt === null && m.user?.role === userToRemove.role,
     )

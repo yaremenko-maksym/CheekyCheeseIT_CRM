@@ -170,8 +170,8 @@ export class ProjectInterviewSeedService {
       // TWO filters, because a dismissed teammate could arrive here by two
       // different routes:
       //
-      //   • `isNull(leftAt)` — `UsersService.archive` closes an HR's /
-      //     ACCOUNTANT's team memberships by stamping `leftAt`, and this query
+      //   • `isNull(leftAt)` — `UsersService.archive` closes an HR's team
+      //     memberships by stamping `leftAt`, and this query
       //     did not look at it. A dismissed HR whose membership had been
       //     closed months ago was still returned here and handed a fresh
       //     ACTIVE row on a brand-new project.
@@ -199,7 +199,7 @@ export class ProjectInterviewSeedService {
         ).user
         if (!u) continue
         if (u.archivedAt) continue
-        if (u.role !== 'HR' && u.role !== 'ACCOUNTANT') continue
+        if (u.role !== 'HR') continue
         if (addedUserIds.has(u.id)) continue
         addedUserIds.add(u.id)
         await conn.insert(projectMembers).values({

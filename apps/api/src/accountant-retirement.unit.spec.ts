@@ -20,6 +20,9 @@ import { TeamReconcileService } from './users/team-reconcile.service'
 import { makeTransactionsService } from './finance/__test-helpers__/make-transactions-service'
 import { buildVisibilityClause } from './documents/document-visibility.util'
 import { assertCanUpload } from './documents/document-upload-rbac.util'
+import { assertCanAddMember } from './projects/project-members.util'
+import { buildEffectiveTeam } from './projects/project-team.util'
+import type { ProjectWithRelations } from './projects/project-map.util'
 
 const dialect = new PgDialect()
 const LEGACY: Role = 'ACCOUNTANT'
@@ -185,5 +188,27 @@ describe('Master addendum — TransactionsService.findAll is an allowlist', () =
 
   it.each(['ACCOUNTANT', 'UNKNOWN_ROLE'])('a %s session gets []', async (role) => {
     expect(await svc.findAll(session(role))).toEqual([])
+  })
+})
+
+describe('AC 3 — projects: no seat, no team slot', () => {
+  it('a legacy ACCOUNTANT cannot be added to a project', () => {
+    expect(() => assertCanAddMember({ archivedAt: null, role: LEGACY })).toThrow(HttpException)
+  })
+
+  it('a legacy ACCOUNTANT team row fills neither hrs nor accountants', () => {
+    const project = { senior: null, drop: null, members: [] } as unknown as ProjectWithRelations
+    const legacyRow = {
+      id: 'tm-acc',
+      userId: 'acc-legacy',
+      displayName: 'Legacy',
+      email: 'acc@x.test',
+      avatarUrl: null,
+      avatarDocumentId: null,
+      role: LEGACY,
+    }
+    const team = buildEffectiveTeam(project, 'ADMIN', [legacyRow])
+    expect(team.hrs).toEqual([])
+    expect(team.accountants).toEqual([])
   })
 })

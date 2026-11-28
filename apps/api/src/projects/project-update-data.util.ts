@@ -49,22 +49,6 @@ export async function resolveActiveDropId(
 }
 
 /**
- * Fields an ACCOUNTANT is allowed to patch on their own: the ones the
- * field-level RBAC above already gates to ADMIN.
- */
-const FINANCE_SCOPED_FIELDS = [
-  'seniorSharePercentOverride',
-  'dropSharePercentOverride',
-  'paymentType',
-]
-
-/** True when every key of the patch is finance-scoped (and the patch is non-empty). */
-export function isFinanceOnlyPatch(data: UpdateProjectDto): boolean {
-  const dataKeys = Object.keys(data)
-  return dataKeys.length > 0 && dataKeys.every((k) => FINANCE_SCOPED_FIELDS.includes(k))
-}
-
-/**
  * Builds the column patch for `ProjectsService.update`. Pure: the logo FK
  * validation and drop resolution happen in the caller BEFORE this runs.
  * `seniorSharePercentOverride` is deliberately NOT written here (it goes

@@ -68,14 +68,13 @@ export class ProjectAccessService {
     // Д1: a DRAFT or REJECTED project exists, for access purposes, ONLY for
     // ADMIN and the invited approvers (senior + drop, per the `approvals`
     // rows this.approvals.propose created in the SAME transaction as the
-    // insert — see `create()`). Every other role — INCLUDING ACCOUNTANT,
-    // whose branch below grants unconditional access to an ACTIVE project —
+    // insert — see `create()`). Every other role
     // gets 404, not 403: a 403 would let a caller distinguish "not mine" from
     // "doesn't exist" from "not yet confirmed" by probing a known id
     // (existence-oracle, same reasoning `transaction-visibility.util.ts`'s
     // `assertTransactionVisible` documents for the identical choice).
     // MUST run BEFORE the ADMIN early-return below, since that
-    // return is unconditional and would otherwise leak drafts to ACCOUNTANT.
+    // return is unconditional.
     if (project.status !== 'ACTIVE') {
       if (currentUser.role === 'ADMIN') return
       const invited = await this.approvals.isApprover(

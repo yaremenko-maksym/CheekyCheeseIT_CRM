@@ -126,7 +126,6 @@ describe('buildEffectiveTeam — hrs / accountants', () => {
   it('splits team rows by role, ignoring other roles', () => {
     const rows = [
       row('h1', 'HR'),
-      row('a1', 'ACCOUNTANT'),
       row('s1', 'SENIOR'),
       row('h2', 'HR', { avatarUrl: null, avatarDocumentId: null }),
     ]
@@ -151,17 +150,7 @@ describe('buildEffectiveTeam — hrs / accountants', () => {
         role: 'HR',
       },
     ])
-    expect(t.accountants).toEqual([
-      {
-        id: 'tm-a1',
-        userId: 'u-a1',
-        displayName: 'N a1',
-        email: 'a1@x.test',
-        avatarUrl: 'a.png',
-        avatarDocumentId: 'a-doc',
-        role: 'ACCOUNTANT',
-      },
-    ])
+    expect(t.accountants).toEqual([])
   })
 
   it('no rows -> empty arrays', () => {

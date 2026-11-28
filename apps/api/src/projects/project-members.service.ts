@@ -148,7 +148,7 @@ export class ProjectMembersService {
     })
     if (!activeMember) throw apiError('ACTIVE_MEMBER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
-    // Prevent removing last HR or last ACCOUNTANT from project
+    // Prevent removing the last HR from the project
     const userToRemove = await this.db.db.query.users.findFirst({ where: eq(users.id, userId) })
     assertCanRemoveMember(userToRemove, projectForScope.members)
 

@@ -184,7 +184,7 @@ export class ProjectReadService {
     // The query stays here; the pure assembly + masking is `buildEffectiveTeam`.
     const teamRows: EffectiveTeamRow[] = project.senior
       ? await this.loadSeniorTeamRows(project.senior.id)
-      : // Stryker disable next-line ArrayDeclaration: equivalent mutant — a stray element is never a row with role 'HR'/'ACCOUNTANT', so buildEffectiveTeam's role filters discard it and hrs/accountants stay empty either way.
+      : // Stryker disable next-line ArrayDeclaration: equivalent mutant — a stray element is never a row with role 'HR', so buildEffectiveTeam's role filter discards it and hrs stays empty either way.
         []
     return buildEffectiveTeam(project, viewerRole, teamRows)
   }
@@ -250,9 +250,8 @@ export class ProjectReadService {
     // live), so it resolves this rather than trusting which action got it here.
     //
     // But only for a viewer who may SEE it: the mapper masks the field for every
-    // role except ADMIN and the affected SENIOR, so resolving it for an
-    // ACCOUNTANT — who reaches this method through `cancelSeniorShareChange` —
-    // would be a round-trip whose result is thrown away one line later. `findOne`
+    // role except ADMIN and the affected SENIOR, so resolving it for any
+    // other viewer would be a round-trip whose result is thrown away one line later. `findOne`
     // applies this exact gate; the two response paths must agree about who may
     // even ask.
     const pendingSeniorShare = canSeePendingSeniorShare(currentUser.role)

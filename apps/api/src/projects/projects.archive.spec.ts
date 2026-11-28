@@ -576,14 +576,6 @@ describe('ProjectsService.findOne — effectiveTeam dynamism', () => {
         avatar: null,
         archivedAt: null,
       },
-      {
-        id: 'acc-1',
-        role: 'ACCOUNTANT',
-        displayName: 'Acc',
-        email: 'a@x.com',
-        avatar: null,
-        archivedAt: null,
-      },
     )
     store.teamMembers.push(
       // Senior was already added
@@ -595,7 +587,6 @@ describe('ProjectsService.findOne — effectiveTeam dynamism', () => {
         joinedAt: new Date(),
       },
       { id: 'tm-new', teamId: 'team-1', userId: 'hr-new', leftAt: null, joinedAt: new Date() },
-      { id: 'tm-acc', teamId: 'team-1', userId: 'acc-1', leftAt: null, joinedAt: new Date() },
     )
 
     // Reset findOne stub so we test the real impl.
@@ -630,11 +621,6 @@ describe('ProjectsService.findOne — effectiveTeam dynamism', () => {
       ),
     ).toEqual(['hr-new'])
     expect(
-      (
-        result as { effectiveTeam: { accountants: Array<{ userId: string }> } }
-      ).effectiveTeam.accountants.map((a) => a.userId),
-    ).toEqual(['acc-1'])
-    expect(
       (result as { effectiveTeam: { senior: { id: string } | null } }).effectiveTeam.senior?.id,
     ).toBe('senior-1')
   })
@@ -642,7 +628,7 @@ describe('ProjectsService.findOne — effectiveTeam dynamism', () => {
 
 // ---------------------------------------------------------------------------
 // findAll — per-role RBAC matrix for active vs archived views.
-// Round 5 design: ADMIN + ACCOUNTANT see everything, HR sees their seniors'
+// Round 5 design: ADMIN sees everything, HR sees their seniors'
 // projects, SENIOR sees own, JUNIOR sees projects they were a member of.
 // Same matrix applies to active and archived sub-views — the only difference
 // is the `archivedAt IS NULL` vs `IS NOT NULL` filter applied to the result.
@@ -657,14 +643,6 @@ describe('ProjectsService.findAll — RBAC matrix', () => {
         role: 'ADMIN',
         displayName: 'Admin',
         email: 'a@x.com',
-        avatar: null,
-        archivedAt: null,
-      },
-      {
-        id: 'acc-1',
-        role: 'ACCOUNTANT',
-        displayName: 'Acc',
-        email: 'ac@x.com',
         avatar: null,
         archivedAt: null,
       },
@@ -811,13 +789,15 @@ describe('ProjectsService.findAll — RBAC matrix', () => {
     expect(result.map((p) => p.id).sort()).toEqual(['p-s1-active', 'p-s2-active'])
   })
 
-  it('ACCOUNTANT sees all archived projects', async () => {
+  it('a role outside the allowlist sees no projects (no fall-through to ADMIN)', async () => {
     const store = emptyStore()
     seedMultiProject(store)
     const { service } = buildService(store)
     vi.restoreAllMocks()
-    const result = await service.findAll(sessionFor('acc-1', 'ACCOUNTANT'), { archived: true })
-    expect(result.map((p) => p.id)).toEqual(['p-s1-archived'])
+    const result = await service.findAll(sessionFor('x-1', 'X' as SessionUser['role']), {
+      archived: 'all',
+    })
+    expect(result).toEqual([])
   })
 
   it('SENIOR sees only own projects (active)', async () => {

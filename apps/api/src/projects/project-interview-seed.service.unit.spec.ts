@@ -137,7 +137,7 @@ describe('ProjectInterviewSeedService', () => {
     expect(findManyArgs).toHaveLength(0)
   })
 
-  it('seats only active HR/ACCOUNTANT teammates, once each, of the senior team ids', async () => {
+  it('seats only active HR teammates, once each, of the senior team ids', async () => {
     const { seed, seated, findManyArgs } = makeSeed({
       memberships: [{ teamId: 'team-1' }, { teamId: 'team-2' }],
       teammates: [
@@ -146,16 +146,12 @@ describe('ProjectInterviewSeedService', () => {
         { user: { id: 'u-junior', role: 'JUNIOR', archivedAt: null } },
         { user: { id: 'u-hr', role: 'HR', archivedAt: null } },
         { user: { id: 'u-hr', role: 'HR', archivedAt: null } },
-        { user: { id: 'u-acc', role: 'ACCOUNTANT', archivedAt: null } },
       ],
     })
 
     await seed.createFromInterview(interview, ACTOR)
 
-    expect(seated).toEqual([
-      { projectId: 'p-1', userId: 'u-hr' },
-      { projectId: 'p-1', userId: 'u-acc' },
-    ])
+    expect(seated).toEqual([{ projectId: 'p-1', userId: 'u-hr' }])
     const teammatesWhere = compileWhere((findManyArgs[1] as { where?: unknown }).where)
     expect(teammatesWhere.params).toEqual(expect.arrayContaining(['team-1', 'team-2']))
   })
