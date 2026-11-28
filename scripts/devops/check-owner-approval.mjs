@@ -268,25 +268,6 @@ const LOADER_PROPS = new Set([...LOADER_IDS, 'getBuiltinModule'])
 // (fs/promises) follow their root.
 export const E2E_BUILTINS = Object.freeze(['fs', 'path', 'url', 'os', 'crypto'])
 const REFLECT_LOADERS = new Set(['get', 'apply', 'construct'])
-// Names that are never a local receiver for a non-literal key, even if the file declares one
-// somewhere (bindings are collected file-wide, not scoped): the JS / Node globals of the running
-// runtime plus the browser globals Node lacks.
-export const WELL_KNOWN_GLOBALS = new Set([
-  ...Object.getOwnPropertyNames(globalThis),
-  'document',
-  'navigator',
-  'location',
-  'history',
-  'localStorage',
-  'sessionStorage',
-  'indexedDB',
-  'caches',
-  'customElements',
-  'opener',
-  'parent',
-  'top',
-  'frames',
-])
 
 export function builtinVerdict(filename, spec) {
   if (!spec.startsWith('node:') && !isBuiltin(spec)) return null
@@ -418,113 +399,6 @@ export function scanCode(filename, content, aliases) {
       GLOBAL_PROPS.has(n.argumentExpression.text)
     )
   }
-  const rootOf = (n) => {
-    for (;;) {
-      n = unwrap(n)
-      if (
-        T.isPropertyAccessExpression(n) ||
-        T.isElementAccessExpression(n) ||
-        T.isCallExpression(n) ||
-        T.isTaggedTemplateExpression(n)
-      )
-        n = T.isTaggedTemplateExpression(n) ? n.tag : n.expression
-      else return n
-    }
-  }
-  // Addendum 7c (measured: the blanket "every non-literal key triggers" rule hit 227 of 1058 open
-  // code files on main, over the 150 limit, so locality stays, fail closed PER BINDING). A non-literal
-  // element access is a trigger unless its receiver is provably local: every source's root (the
-  // start of its member / call chain) is a name of which EVERY binding in the file is a plain
-  // `const|let|var name = <init>` whose init sources are all object literals without a spread,
-  // array literals, or `new C(...)` of a class declared in this file. Any other binding of that name
-  // anywhere in the file — a parameter, an import, a function / class / enum name, a for-of / for-in
-  // / catch variable (no initializer), a destructured name, an assignment or a destructuring
-  // assignment — makes it non-local. So does `const c = p` / `const c = s[k]` (an alias). Bindings
-  // are collected file-wide, not per scope: a shadowing declaration only ever makes a name LESS local.
-  const localClasses = new Set()
-  const bindings = new Map() // name -> [ok: boolean]
-  const bindAs = (name, ok) => {
-    if (!bindings.has(name)) bindings.set(name, [])
-    bindings.get(name).push(ok)
-  }
-  const goodInit = (init) =>
-    sources(init).every((s) => {
-      s = unwrap(s)
-      if (T.isObjectLiteralExpression(s)) return !s.properties.some(T.isSpreadAssignment)
-      if (T.isArrayLiteralExpression(s)) return true
-      return (
-        T.isNewExpression(s) && T.isIdentifier(s.expression) && localClasses.has(s.expression.text)
-      )
-    })
-  // Every identifier an assignment target (`a = …`, `[a, b] = …`, `({ a } = …)`) writes.
-  const targets = (n) => {
-    n = unwrap(n)
-    if (T.isIdentifier(n)) return [n.text]
-    if (T.isArrayLiteralExpression(n)) return n.elements.flatMap(targets)
-    if (T.isSpreadElement(n) || T.isSpreadAssignment(n)) return targets(n.expression)
-    if (T.isObjectLiteralExpression(n)) return n.properties.flatMap(targets)
-    if (T.isShorthandPropertyAssignment(n)) return [n.name.text]
-    if (T.isPropertyAssignment(n)) return targets(n.initializer)
-    if (T.isBinaryExpression(n) && n.operatorToken.kind === SK.EqualsToken) return targets(n.left)
-    return []
-  }
-  const classesOf = (node) => {
-    if (T.isClassDeclaration(node) && node.name) localClasses.add(node.name.text)
-    T.forEachChild(node, classesOf)
-  }
-  classesOf(sf)
-  const collect = (node) => {
-    const name = node.name
-    if (name && T.isIdentifier(name)) {
-      if (T.isVariableDeclaration(node))
-        bindAs(name.text, Boolean(node.initializer) && goodInit(node.initializer))
-      else if (
-        T.isParameter(node) ||
-        T.isBindingElement(node) ||
-        T.isFunctionDeclaration(node) ||
-        T.isFunctionExpression(node) ||
-        T.isClassDeclaration(node) ||
-        T.isClassExpression(node) ||
-        T.isEnumDeclaration(node) ||
-        T.isModuleDeclaration(node) ||
-        T.isImportClause(node) ||
-        T.isNamespaceImport(node) ||
-        T.isImportSpecifier(node) ||
-        T.isImportEqualsDeclaration(node)
-      )
-        bindAs(name.text, false)
-    }
-    if (T.isBinaryExpression(node) && isAssignOp(node.operatorToken.kind)) {
-      for (const t of targets(node.left)) bindAs(t, false)
-      // `o.f = p` / `o[k] = p`: what the object holds is no longer only what its literal showed.
-      const l = unwrap(node.left)
-      if (T.isPropertyAccessExpression(l) || T.isElementAccessExpression(l)) {
-        const r = rootOf(l)
-        if (T.isIdentifier(r)) bindAs(r.text, false)
-      }
-    }
-    // `for (x of xs)` / `for (x in o)` with an existing name: a write the file does not show.
-    if (
-      (T.isForOfStatement(node) || T.isForInStatement(node)) &&
-      !T.isVariableDeclarationList(node.initializer)
-    )
-      for (const t of targets(node.initializer)) bindAs(t, false)
-    T.forEachChild(node, collect)
-  }
-  collect(sf)
-  const isLocalName = (text) =>
-    bindings.get(text)?.every(Boolean) === true &&
-    !GLOBAL_OBJECTS.has(text) &&
-    !WELL_KNOWN_GLOBALS.has(text)
-  // `this`, a literal, `new X()`, an array / object literal as a ROOT are not local:
-  // `''[k]` / `({})[k]` reach `constructor`.
-  const isLocalReceiver = (n) =>
-    sources(n).every((src) => {
-      const r = rootOf(src)
-      if (T.isIdentifier(r)) return isLocalName(r.text)
-      if (sources(r).length > 1) return isLocalReceiver(r) // `(x ?? window).a[k]`
-      return false
-    })
   if (sf.parseDiagnostics?.length)
     out.push({
       kind: 'unparseable',
@@ -532,11 +406,6 @@ export function scanCode(filename, content, aliases) {
       detail: `${sf.parseDiagnostics.length} syntax error(s)`,
     })
 
-  // An element access whose key is neither a string nor a numeric literal.
-  const computedKey = (n) =>
-    T.isElementAccessExpression(n) &&
-    !literal(n.argumentExpression) &&
-    !T.isNumericLiteral(unwrap(n.argumentExpression))
   const visit = (node) => {
     if ((T.isImportDeclaration(node) || T.isExportDeclaration(node)) && node.moduleSpecifier) {
       if (literal(node.moduleSpecifier)) spec(node, node.moduleSpecifier.text)
@@ -601,15 +470,11 @@ export function scanCode(filename, content, aliases) {
         push('loader-alias', node, `${obj.getText(sf)}['${key}']`)
       } else if (key !== null && GLOBAL_PROPS.has(key) && passedAsValue(node)) {
         push('loader-alias', node, `\`${node.getText(sf)}\` (global object) passed as a value`)
-      } else if (key === null && !numeric && computedKey(unwrap(obj))) {
-        // Addendum 7b: `x[k][k]` reaches `constructor.constructor` whatever `x` is — fail closed.
-        push('loader-alias', node, `${obj.getText(sf)}[<non-literal>] (computed-key chain)`)
-      } else if (key === null && !numeric && !isLocalReceiver(obj)) {
-        push(
-          'loader-alias',
-          node,
-          `${obj.getText(sf)}[<non-literal>] (receiver not provably local)`,
-        )
+      } else if (key === null && !numeric) {
+        // Addendum 7d: any non-literal, non-numeric key triggers, whatever the receiver. Receiver
+        // locality is not provable statically (members of locals, a computed key earlier in the
+        // chain, mutation through a property or a call argument all reach `constructor`).
+        push('loader-alias', node, `${obj.getText(sf)}[<non-literal>] (non-literal computed key)`)
       }
     }
     T.forEachChild(node, visit)

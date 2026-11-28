@@ -75,7 +75,9 @@ jobs:
         with:
           ref: main
           persist-credentials: false
-          sparse-checkout: scripts/architect
+          sparse-checkout: |
+            scripts/architect
+            scripts/devops
 
       - uses: actions/setup-node@v4
         with:
@@ -105,9 +107,9 @@ jobs:
             --jq '.[] | {filename, previous_filename, status}' | jq -s . >"$D/files.json"
           # `commit_id` is the commit the review was submitted against — the whole basis of the
           # freshness check. A PR comment has no equivalent field, so it keeps only `created_at`.
-          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" \
-            --jq '.[] | {author: .user.login, association: .author_association, state: .state, body: (.body // ""), at: .submitted_at, commit_id: .commit_id}' \
-            | jq -s . >"$D/reviews.json"
+          # Reviews through GraphQL (SR-M-4): an edited review is never positive Verdict /
+          # Security Review / Spec Review evidence; a short page set fails the step.
+          bash scripts/devops/flow-gate-reviews.sh >"$D/reviews.json"
           gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
             --jq '.[] | {author: .user.login, association: .author_association, body: (.body // ""), at: .created_at}' \
             | jq -s . >"$D/comments.json"

@@ -258,51 +258,65 @@ case_red gwrap2 apps/web/app/lib/gw2.ts modified "const x = null; const k = 'pro
 case_red gwrap3 apps/web/app/lib/gw3.ts modified "const c = true, o = {}, k = 'process'; const p = (c ? self : o)[k]" \
   "computed global member" "(c ? self : o)[k] -> refused"
 case_red gfree apps/web/app/lib/gf.ts modified "const k = 'x'; const v = someGlobal[k]" \
-  "someGlobal[<non-literal>] (receiver not provably local)" "a free name with a non-literal key -> refused"
+  "someGlobal[<non-literal>] (non-literal computed key)" "a free name with a non-literal key -> refused"
 case_red gfree2 apps/web/app/lib/gf2.ts modified "const o = {}, k = 'x'; const v = (o || other).a[k]" \
-  "receiver not provably local" "(local || free).a[k] -> refused"
+  "non-literal computed key" "(local || free).a[k] -> refused"
 src glocal "import { rows } from './rows'
-class Box {}
-export function pick(i: number, key: string) {
+export function pick(key: string) {
   const map = new Map<string, number>()
   const byId: Record<string, number> = { a: 1 }
-  const list = [1, 2]
-  const box = new Box()
-  return [rows[0], (rows ?? [])[1], rows[0][1], byId[key], list[key], box[key], map.get(key)]
+  return [rows[0], (rows ?? [])[1], rows[0][1], byId['a'], byId.a, map.get(key)]
 }"
 mk glocal apps/web/app/components/gl.tsx modified
-assert_green "non-literal keys on object / array literal or local-class locals, numeric keys anywhere are NOT triggers" \
+assert_green "numeric and string-literal keys anywhere are NOT triggers" \
   --contains "[not-required]" -- run glocal
-# Addendum 7c: a name is local only if EVERY binding of it is a declaration from a literal / local new.
+# Addendum 7d: the blanket rule. Every bypass of the locality logic named in 7b / 7c / 7d triggers.
+case_red bl1 apps/web/app/lib/bl1.ts modified "const k = 'x'; const o = {}; export const v = o.toString[k]" \
+  "non-literal computed key" "o.toString[k] (member of a local) -> refused"
+case_red bl2 apps/web/app/lib/bl2.ts modified "const k = 'x'; const a = [1]; export const v = a.map[k]" \
+  "non-literal computed key" "a.map[k] -> refused"
+case_red bl3 apps/web/app/lib/bl3.ts modified "const k = 'x'; export const v = ({ f() {} }).f[k]" \
+  "non-literal computed key" "({f(){}}).f[k] -> refused"
+case_red bl4 apps/web/app/lib/bl4.ts modified "class Box { m() {} } const k = 'x'; export const v = new Box().m[k]" \
+  "non-literal computed key" "new Box().m[k] -> refused"
+case_red bl5 apps/web/app/lib/bl5.ts modified "const k = 'x'; const a = {}; export const v = a[k].call[k]" \
+  "non-literal computed key" "a[k].call[k] (computed key earlier in the chain) -> refused"
+case_red bl6 apps/web/app/lib/bl6.ts modified "const k = 'x'; const o = {}; export const v = o[k].bind(o)[k]" \
+  "non-literal computed key" "o[k].bind()[k] -> refused"
+case_red bl7 apps/web/app/lib/bl7.ts modified "const k = 'x'; const o: any = {}; Object.assign(o, { f: p }); export const v = o[k]" \
+  "non-literal computed key" "a local mutated through a call argument -> refused"
+case_red bl8 apps/web/app/lib/bl8.ts modified "const k = 'x'; class Box {} const b = new Box(); export const v = b[k]" \
+  "non-literal computed key" "a local-class instance with a non-literal key -> refused"
+# Addendum 7c bypasses (aliases).
 case_red alias1 apps/web/app/lib/al1.ts modified "const k = 'x'; export function f(p: any) { const c = p; return c[k] }" \
-  "c[<non-literal>] (receiver not provably local)" "const c = p (alias of a parameter) -> refused"
+  "c[<non-literal>] (non-literal computed key)" "const c = p (alias of a parameter) -> refused"
 case_red alias2 apps/web/app/lib/al2.ts modified "const k = 'x'; const c = {}; export function g(c: any) { return 1 }
-export const v = c[k]" "receiver not provably local" "the same name also bound as a parameter -> refused"
+export const v = c[k]" "non-literal computed key" "the same name also bound as a parameter -> refused"
 case_red alias3 apps/web/app/lib/al3.ts modified "const k = 'con' + 'structor'; const s = ''; const c = s[k]; c[k]('1')()" \
-  "c[<non-literal>] (receiver not provably local)" "const c = s[k]; c[k]() (chain via alias) -> refused"
+  "c[<non-literal>] (non-literal computed key)" "const c = s[k]; c[k]() (chain via alias) -> refused"
 case_red alias4 apps/web/app/lib/al4.ts modified "const k = 'x'; const o = {}; o.f = p; export const v = o[k]" \
-  "receiver not provably local" "a property written after the literal -> refused"
+  "non-literal computed key" "a property written after the literal -> refused"
 case_red alias5 apps/web/app/lib/al5.ts modified "const k = 'x'; const o = { ...w }; export const v = o[k]" \
-  "receiver not provably local" "an object literal with a spread -> refused"
+  "non-literal computed key" "an object literal with a spread -> refused"
 case_red imp1 apps/web/app/lib/im1.ts modified "import { rows } from './rows'
-export const pick = (i: number) => rows[i]" "receiver not provably local" "an import is not local -> refused"
+export const pick = (i: number) => rows[i]" "non-literal computed key" "an import is not local -> refused"
 # Addendum 7b: a computed-key chain triggers whatever the receiver; a parameter / loop / catch
 # binding is never local.
 case_red chain1 apps/web/app/lib/ch1.ts modified "const k = 'con' + 'structor'; function f(o: any) { o[k][k]('1')() }" \
-  "(computed-key chain)" "function f(o) { o[k][k]() } -> refused"
+  "(non-literal computed key)" "function f(o) { o[k][k]() } -> refused"
 case_red chain2 apps/web/app/lib/ch2.ts modified "const k = 'con' + 'structor'; for (const s of ['']) s[k][k]('1')()" \
-  "(computed-key chain)" "for (const s of ['']) s[k][k]() -> refused"
+  "(non-literal computed key)" "for (const s of ['']) s[k][k]() -> refused"
 case_red chain3 apps/web/app/lib/ch3.ts modified "const k = 'con' + 'structor'; const s = String(); s[k][k]('1')()" \
-  "(computed-key chain)" "const s = String(); s[k][k]() -> refused"
+  "(non-literal computed key)" "const s = String(); s[k][k]() -> refused"
 case_red chain4 apps/web/app/lib/ch4.ts modified "import { rows } from './rows'
 export const cell = (i: number, j: number) => rows[i][j]" \
-  "(computed-key chain)" "rows[i][j] with non-literal keys -> refused (fail closed)"
+  "(non-literal computed key)" "rows[i][j] with non-literal keys -> refused (fail closed)"
 case_red param1 apps/web/app/lib/pa1.ts modified "export const pick = (props: { m: Record<string, number> }, key: string) => props.m[key]" \
-  "receiver not provably local" "a parameter receiver is not local -> refused"
+  "non-literal computed key" "a parameter receiver is not local -> refused"
 case_red catch1 apps/web/app/lib/ca1.ts modified "const k = 'x'; try { f() } catch (e) { e[k] }" \
-  "receiver not provably local" "a catch binding is not local -> refused"
+  "non-literal computed key" "a catch binding is not local -> refused"
 case_red forin1 apps/web/app/lib/fi1.ts modified "const k = 'x'; for (const a in obj) a[k]" \
-  "receiver not provably local" "a for-in binding is not local -> refused"
+  "non-literal computed key" "a for-in binding is not local -> refused"
 src galiasok "const top = 10
 const parent = getParent()
 const h = window.location.href
@@ -520,33 +534,31 @@ case_red lassign2 apps/web/app/lib/la2.ts modified "let x; const k = 'process'; 
 case_red lassign3 apps/web/app/lib/la3.ts modified "let x; x ||= self" "\`self\` passed as a value" \
   "x ||= self -> refused"
 case_red litroot1 apps/web/app/lib/lr1.ts modified "const k = 'constructor'; const F = ({})[k][k]" \
-  "receiver not provably local" "({})[k] -> refused"
+  "non-literal computed key" "({})[k] -> refused"
 case_red litroot2 apps/web/app/lib/lr2.ts modified "const k = 'constructor'; const F = ''[k][k]" \
-  "receiver not provably local" "''[k] -> refused"
+  "non-literal computed key" "''[k] -> refused"
 case_red litroot3 apps/web/app/lib/lr3.ts modified "class A { f(k: string) { return this[k] } }" \
-  "receiver not provably local" "this[k] -> refused"
+  "non-literal computed key" "this[k] -> refused"
 case_red litroot4 apps/web/app/lib/lr4.ts modified "const k = 'x'; const v = new Map()[k]" \
-  "receiver not provably local" "new X()[k] -> refused"
+  "non-literal computed key" "new X()[k] -> refused"
 # SR-M-3: a name bound to a literal / new / this / function is the literal itself.
 case_red litname1 apps/web/app/lib/ln1.ts modified "const o = {}; const k = 'con' + 'structor'; o[k][k]('1')()" \
-  "(computed-key chain)" "const o = {}; o[k][k] -> refused (chain rule)"
+  "(non-literal computed key)" "const o = {}; o[k][k] -> refused (chain rule)"
 case_red litname2 apps/web/app/lib/ln2.ts modified "const s = ''; const k = 'con' + 'structor'; s[k][k]('1')()" \
-  "receiver not provably local" "const s = ''; s[k][k] -> refused"
+  "non-literal computed key" "const s = ''; s[k][k] -> refused"
 case_red litname3 apps/web/app/lib/ln3.ts modified "const a = []; const b = a; const k = 'con' + 'structor'; b[k][k]('1')()" \
-  "receiver not provably local" "a name bound to a literal-bound name -> refused"
+  "non-literal computed key" "a name bound to a literal-bound name -> refused"
 case_red litname4 apps/web/app/lib/ln4.ts modified "function f() {} const k = 'con' + 'structor'; f[k][k]('1')()" \
-  "receiver not provably local" "a function declaration's name -> refused"
+  "non-literal computed key" "a function declaration's name -> refused"
 case_red litname5 apps/web/app/lib/ln5.ts modified "let o; o = new Map(); const k = 'x'; o[k]" \
-  "receiver not provably local" "a name assigned new X() -> refused"
+  "non-literal computed key" "a name assigned new X() -> refused"
 case_red litname6 apps/web/app/lib/ln6.ts modified "const { a } = { a: '' }; const k = 'x'; a[k]" \
-  "receiver not provably local" "a destructured name from a literal -> refused"
+  "non-literal computed key" "a destructured name from a literal -> refused"
 case_red wkg1 apps/web/app/lib/wk1.ts modified "function f(Object: any) { return 1 }
-const k = 'x'; const v = Object[k]" "receiver not provably local" \
+const k = 'x'; const v = Object[k]" "non-literal computed key" \
   "Object declared somewhere in the file is still not local -> refused"
 case_red wkg2 apps/web/app/lib/wk2.ts modified "const document = 1; const k = 'x'; const v = document[k]" \
-  "receiver not provably local" "a browser global name (document) is never local -> refused"
-assert_green "WELL_KNOWN_GLOBALS holds Object, Reflect, Math and document" --contains "true true true true" \
-  -- env S="$SUBJECT" node --input-type=module -e "const { WELL_KNOWN_GLOBALS: w } = await import(process.env.S); console.log(['Object','Reflect','Math','document'].map((n) => w.has(n)).join(' '))"
+  "non-literal computed key" "a browser global name (document) is never local -> refused"
 
 # Decide (CR-M-2): unreadable pr.json, the awaiting-pm-review label.
 printf '[{"filename":"apps/web/app/x.ts"}]\n' >"$DD/files.json"
@@ -603,6 +615,48 @@ assert_red "Fetch: GraphQL pages short of totalCount -> refused" --contains "do 
 assert_red "Fetch: a non-numeric PR_NUMBER -> refused" --contains "PR_NUMBER is not a number" -- fetch 7x
 printf '{"total":0,"nodes":[]}\n' >"$FX/graphql"
 assert_red "Fetch: a head sha that is not 40-hex -> refused" --contains "no head sha" -- fetch 7 abc
+
+# Flow Gate reviews (SR-M-4): GraphQL, and an edited review is never positive evidence.
+FGR="$GUARD_DIR/flow-gate-reviews.sh"
+FG_MJS="$REPO/scripts/architect/flow-gate.mjs"
+fgr_node() { # <author> <body> <edited>
+  node -e 'const [a, b, e] = process.argv.slice(1); console.log(JSON.stringify({ author: { login: a }, authorAssociation: "OWNER", state: "COMMENTED", body: b, submittedAt: "2026-11-28T00:00:00Z", commit: { oid: "'"$HEAD"'" }, lastEditedAt: e === "true" ? "2026-11-28T01:00:00Z" : null, includesCreatedEdit: false, userContentEdits: { totalCount: 0 } }))' "$1" "$2" "$3"
+}
+cat >"$T/stub-fgr-gh" <<'STUB'
+#!/usr/bin/env bash
+# Applies the caller's own --jq filter to the fixture page, as gh does.
+while [ $# -gt 0 ]; do [ "$1" = --jq ] && { jq -c "$2" "$FX/fgr"; exit; }; shift; done
+exit 1
+STUB
+chmod +x "$T/stub-fgr-gh"
+fgr_fixture() { # <totalCount> <node-json>...
+  local total="$1"
+  shift
+  printf '{"data":{"repository":{"pullRequest":{"reviews":{"totalCount":%s,"nodes":[%s]}}}}}\n' \
+    "$total" "$(IFS=,; echo "$*")" >"$FX/fgr"
+}
+fgr_run() { env REPO=acme/crm PR_NUMBER=7 GH_BIN="$T/stub-fgr-gh" FX="$FX" bash "$FGR"; }
+fgr_marks() { # reviews.json on stdin -> "<review> <security> <spec> <copy>" per review
+  node --input-type=module -e '
+    import { readFileSync } from "node:fs"
+    const { parseMarker } = await import(process.argv[1])
+    for (const r of JSON.parse(readFileSync(0, "utf8")))
+      console.log(["review", "security", "spec", "copy"].map((k) => parseMarker(r.body, k) ?? "none").join(" "))' "$FG_MJS"
+}
+fgr_pipe() { fgr_run | fgr_marks; }
+fgr_fixture 3 "$(fgr_node rev1 $'Verdict: APPROVE\nSecurity Review: APPROVE\nSpec Review: PASS\nCopy Review: PASS' true)" \
+  "$(fgr_node rev2 $'Verdict: BLOCK\nSpec Review: ISSUES' true)" \
+  "$(fgr_node rev3 $'Verdict: APPROVE\nSecurity Review: APPROVE' false)"
+assert_green "SR-M-4: the Flow Gate review fetch keeps the REST shape" \
+  --contains '"association":"OWNER"' --contains '"at":"2026-11-28T00:00:00Z"' --contains "\"commit_id\":\"$HEAD\"" \
+  --not-contains '"edited"' -- fgr_run
+assert_green "SR-M-4: edited APPROVE/PASS -> no positive Verdict / Security / Spec, Copy kept; edited BLOCK stays negative; unedited untouched" \
+  --contains $'none none none pos\nneg none neg none\npos pos none none' -- fgr_pipe
+fgr_fixture 2 "$(fgr_node rev1 'Verdict: APPROVE' false)"
+assert_red "SR-M-4: GraphQL pages short of totalCount -> refused" --contains "do not add up" -- fgr_run
+assert_green "SR-M-4: flow-gate.yml reads reviews through flow-gate-reviews.sh, not REST" \
+  --contains "bash scripts/devops/flow-gate-reviews.sh" --not-contains "pulls/\$PR_NUMBER/reviews" \
+  -- cat "$REPO/.github/workflows/flow-gate.yml"
 
 # Evaluate (CR-M-1 + SR-M-2): the same script runs in Decide and again right before the merge.
 EVAL_SH="$GUARD_DIR/owner-verdict-evaluate.sh"

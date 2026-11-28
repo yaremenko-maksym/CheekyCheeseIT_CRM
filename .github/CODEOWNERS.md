@@ -49,17 +49,21 @@ file's full head content, fetched through the REST API as text and never execute
 - any loader other than a literal ESM import: `require`, `module`, `process`, `exports`, `createRequire`,
   `eval`, `Function`, `.constructor(...)`, `Reflect.get/apply/construct`, `import.meta.glob`, a computed member of a
   global object, or a global object passed as a value (also through `=` / `??=` / `||=` / `&&=`).
-- a non-literal, non-numeric key (`x[k]`) on a receiver that is not a name declared in the file: `this`, a literal
-  (`''[k]`, `({})[k]` reach `constructor`), `new X()`, a free name, or a well-known global (`Object`, `Reflect`,
-  `document`, … even when the file declares that name somewhere).
+- any computed access whose key is neither a string nor a numeric literal (`x[k]`), whatever `x` is. Receiver
+  locality is not provable statically: members of locals (`o.toString[k]`), a computed key earlier in the chain
+  (`a[k].call[k]`), aliases and mutation through a property or a call argument all reach `constructor`.
+  Decision (addendum 7d, measured 2026-11-28 on the 1058 open-zone code files of main): this blanket rule triggers
+  on 227 files (the receiver-locality rule it replaces: 181, with three rounds of bypasses), under the 300 limit.
+  Re-measure with `findingsForFile` over `fetchPlan(git ls-files)` before changing it.
 - a Node built-in in browser code. `apps/e2e` may import only `fs`, `path`, `url`, `os`, `crypto`.
 - a new `*.controller.*` file or an `@Controller(...)` decorator.
 - a rename or copy out of an owned path.
 - a file that does not parse, or whose content could not be fetched.
 - a file type that is neither inert nor code: `.html`, `.mdx`, `.vue`, unknown extensions.
 
-A trigger is not an accusation. It means "the owner looks". On main today about 6% of the open-zone code files carry
-a trigger, mostly E2E helpers using `process` / `node:*` and design tooling. Editing one of them needs a verdict.
+A trigger is not an accusation. It means "the owner looks". On main (2026-11-28) 227 of 1058 open-zone code files
+(about 21%) carry a trigger: E2E helpers using `process` / `node:*`, design tooling, and code indexing with a
+non-literal key (`record[key]`, `rows[i]`). Editing one of them needs a verdict.
 
 **The verdict.** Only a **PR review** by the owner counts (state Comment or Approve, not an issue comment, not
 Dismissed):

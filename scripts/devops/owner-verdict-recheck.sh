@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GH_BIN="${GH_BIN:-gh}"
 
 bash "$SCRIPT_DIR/owner-verdict-fetch.sh"
-final=$(GITHUB_OUTPUT= bash "$SCRIPT_DIR/owner-verdict-evaluate.sh")
+final=$(GITHUB_OUTPUT='' bash "$SCRIPT_DIR/owner-verdict-evaluate.sh")
 printf '%s\n' "$final"
 if ! printf '%s\n' "$final" | grep -qx 'go=true'; then
   echo "::error::the verdict re-read right before the merge is not a go — not merging."
