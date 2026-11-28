@@ -231,7 +231,11 @@ function peopleDesk({ top = '', ...o }) {
     active: '/interviews',
     crumb: ['Робота', 'Співбесіди'],
     cta: 'Нова співбесіда',
-    content: `${top}${deskToolbar({ touch: o.touch, ph: 'Пошук співбесід', count: '', filters: ['Етап', 'Дата'] })}<div class="grow" style="min-height:0;overflow:hidden;margin:0 -16px">${peopleList({ menu: true, fine: !o.touch, hover: o.hover ?? -1 })}</div>`,
+    // R4-12: a fine pointer at >= 1024 gets the one 40 px table template (as every other >= 1024 list frame);
+    // the coarse iPad-landscape frame keeps the 64 px touch list.
+    content: o.touch
+      ? `${top}${deskToolbar({ touch: o.touch, ph: 'Пошук співбесід', count: '', filters: ['Етап', 'Дата'] })}<div class="grow" style="min-height:0;overflow:hidden;margin:0 -16px">${peopleList({ menu: true, fine: !o.touch, hover: o.hover ?? -1 })}</div>`
+      : `${top}${interviewTable({ omit: '' })}`,
   })
 }
 export const bannerStackDesktop = (w, h) =>
@@ -442,7 +446,8 @@ export const accountMenuTablet = (w, h) =>
   tablet({
     w,
     h,
-    overlay: `${SCRIM()}${accountMenu({ place: 'left:96px;bottom:36px', rowH: 44 })}`,
+    // R4-13: a menu at >= 640 is non-modal: no scrim; an outside press closes it (primitives-v2 §12 Modality).
+    overlay: `${accountMenu({ place: 'left:96px;bottom:36px', rowH: 44 })}`,
   })
 export const accountMenuDesktop = (w, h) =>
   desktop({ w, h, overlay: accountMenu({ place: 'left:10px;bottom:70px', rowH: 36 }) })

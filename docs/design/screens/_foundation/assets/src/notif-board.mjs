@@ -247,8 +247,9 @@ function column([title, n], { target = false, states = {}, extra = '', touch = f
   const ring = target
     ? 'background:var(--yellow-subtle);outline:2px dashed var(--primary);outline-offset:-2px'
     : 'background:var(--surface)'
-  // Touch tablet (F0-38): fixed 200 px, so three columns fit whole at 768 and the fourth peeks under the fade, never a cut count badge.
-  const size = touch ? 'flex:0 0 200px;width:200px' : 'flex:1 1 0;min-width:180px;max-width:280px'
+  // Touch tablet 640–899 (R4-14, was 200 px in F0-38): fixed 290 px, two columns whole and the third peeks under
+  // the fade, so a name stays on one line and the meta never breaks after «·»; never a cut count badge.
+  const size = touch ? 'flex:0 0 290px;width:290px' : 'flex:1 1 0;min-width:180px;max-width:280px'
   return `<section aria-label="${title}, ${n}" style="${size};display:flex;flex-direction:column;gap:8px;padding:8px;border-radius:12px;${ring}"><div class="row" style="justify-content:space-between;gap:6px;height:28px;padding:0 4px;min-width:0"><span class="trunc" style="font-size:13px;font-weight:600">${title}</span><span class="pill num" style="height:20px;flex:none">${n}</span></div><div role="list" class="col" style="gap:8px">${cards}${extra}</div></section>`
 }
 
