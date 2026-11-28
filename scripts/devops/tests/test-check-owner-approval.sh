@@ -703,11 +703,11 @@ fgr_fixture 3 "$(fgr_node rev1 $'Verdict: APPROVE\nSecurity Review: APPROVE\nSpe
 assert_green "SR-M-4: the Flow Gate review fetch keeps the REST shape" \
   --contains '"association":"OWNER"' --contains '"at":"2026-11-28T00:00:00Z"' --contains "\"commit_id\":\"$HEAD\"" \
   --not-contains '"edited"' -- fgr_run
-assert_green "SR-M-4 + SR-M-7: edited APPROVE/PASS -> NEGATIVE Verdict / Security / Spec, Copy kept; edited BLOCK stays negative; absent kinds stay absent; unedited untouched" \
-  --contains $'neg neg neg pos\nneg none neg none\npos pos none none' -- fgr_pipe
+assert_green "SR-M-4 + SR-M-7: edited review counts as NEGATIVE for Verdict / Security / Spec, Copy kept; unedited untouched" \
+  --contains $'neg neg neg pos\nneg neg neg none\npos pos none none' -- fgr_pipe
 fgr_fixture 1 "$(fgr_node rev1 $'Copy Review: PASS\nnotes only' true)"
-assert_green "SR-M-7: an edited review with no strict-kind marker is unchanged for every kind" \
-  --contains 'none none none pos' -- fgr_pipe
+assert_green "SR-M-7: an edited review with no strict marker is negative for strict kinds" \
+  --contains 'neg neg neg pos' -- fgr_pipe
 fgr_standing() { # reviews.json on stdin -> the standing Security Review state
   FG_MJS="$FG_MJS" node --input-type=module -e '
     import { readFileSync } from "node:fs"
@@ -719,6 +719,11 @@ fgr_fixture 2 "$(fgr_node rev1 'Security Review: APPROVE' false 2026-11-28T10:00
   "$(fgr_node rev1 'Security Review: APPROVE' true 2026-11-28T11:00:00Z)"
 assert_green "SR-M-7: unedited APPROVE, then an edited BLOCK-to-APPROVE -> standing negative (the old APPROVE does not resurface)" \
   --contains 'standing=neg' -- fgr_standing_pipe
+fgr_fixture 3 "$(fgr_node rev1 'Security Review: APPROVE' false 2026-11-28T10:00:00Z)" \
+  "$(fgr_node rev1 'Security Review: APPROVE' true 2026-11-28T11:00:00Z)" \
+  "$(fgr_node rev1 'Security Review: APPROVE' false 2026-11-28T12:00:00Z)"
+assert_green "SR-M-7: later unedited APPROVE on the head restores positive" \
+  --contains 'standing=pos' -- fgr_standing_pipe
 fgr_fixture 2 "$(fgr_node rev1 'Verdict: APPROVE' false)"
 assert_red "SR-M-4: GraphQL pages short of totalCount -> refused" --contains "do not add up" -- fgr_run
 assert_green "SR-M-4: flow-gate.yml reads reviews through flow-gate-reviews.sh, not REST" \

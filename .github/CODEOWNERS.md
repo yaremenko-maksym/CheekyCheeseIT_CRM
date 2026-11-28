@@ -87,7 +87,7 @@ Commit: <full 40-hex head sha>
 - A newer `Owner Verdict: BLOCK` turns it red. A later APPROVE turns it green again.
 - Owner reviews without the marker change nothing.
 - An owner review **edited** after it was posted (any editor, any body) resets the verdict: nothing approves until
-  a newer, unedited verdict review follows. A write collaborator may be able to edit a review body while its author
+  a newer, unedited verdict review follows. Edited reviews never count as approval; post a new review. A write collaborator may be able to edit a review body while its author
   and `commit_id` stay fixed, so an edit is never trusted. Reviews are read through GraphQL for the edit flag.
 - A **dismissed** APPROVE does not count; a dismissed BLOCK still blocks.
 
