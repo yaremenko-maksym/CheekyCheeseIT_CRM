@@ -21,7 +21,8 @@ export function closeWeight(html) {
   while (i !== -1) {
     const open = html.lastIndexOf('class="btn', i)
     const cls = html.slice(open, html.indexOf('"', open + 7) + 1)
-    if (/\bprimary\b/.test(cls) && !html.includes(MATCH)) bad.push(`filled «${CLOSE}» without a «збіг» row`)
+    if (/\bprimary\b/.test(cls) && !html.includes(MATCH))
+      bad.push(`filled «${CLOSE}» without a «збіг» row`)
     i = html.indexOf(CLOSE, i + CLOSE.length)
   }
   const cr = html.indexOf('aria-labelledby="cr-t"')

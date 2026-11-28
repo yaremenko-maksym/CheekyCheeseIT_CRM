@@ -519,18 +519,18 @@ instant, sheet 280 ms up / 150 ms down, side panel 280 ms in / 150 ms out, dialo
 
 ## 8. Frames (all PNG under `assets/primitives-v2/`)
 
-142 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
+148 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
 PNG is ≤ 400 KB.
 
 | Frame                                     | Viewport (CSS px) | PNG (px)    |  KB | Round             |
 | ----------------------------------------- | ----------------- | ----------- | --: | ----------------- |
 | `sheet-medium-375`                        | 375 × 812         | 750 × 1624  |  42 | re-rendered (r2)  |
 | `sheet-medium-320`                        | 320 × 568         | 640 × 1136  |  27 | re-rendered (r2)  |
-| `sheet-large-375`                         | 375 × 812         | 750 × 1624  |  34 | re-rendered (r6)  |
+| `sheet-large-375`                         | 375 × 812         | 750 × 1624  |  34 | re-rendered (r7)  |
 | `sheet-confirm-375`                       | 375 × 812         | 750 × 1624  |  53 | re-rendered (r6)  |
 | `listrow-variants-375`                    | 375 × 812         | 750 × 1624  |  43 | re-rendered (r6)  |
-| `listrow-swipe-375`                       | 375 × 812         | 750 × 1624  |  43 | re-rendered (r6)  |
-| `listrow-sticky-320`                      | 320 × 568         | 640 × 1136  |  50 | re-rendered (r6)  |
+| `listrow-swipe-375`                       | 375 × 812         | 750 × 1624  |  43 | re-rendered (r7)  |
+| `listrow-sticky-320`                      | 320 × 568         | 640 × 1136  |  50 | re-rendered (r7)  |
 | `listrow-empty-error-375`                 | 375 × 812         | 750 × 1624  |  47 | re-rendered (r2)  |
 | `listrow-768`                             | 768 × 640 (full)  | 1536 × 1288 |  62 | re-rendered (r2)  |
 | `listrow-1440`                            | 1440 × 420 (full) | 1440 × 420  |  24 |                   |
@@ -538,7 +538,7 @@ PNG is ≤ 400 KB.
 | `form-states-375`                         | 375 × 812         | 750 × 1624  |  36 | re-rendered (r6)  |
 | `form-add-user-375`                       | 375 × 812         | 750 × 1624  |  24 | re-rendered (r6)  |
 | `detail-txn-375`                          | 375 × 812         | 750 × 1624  |  41 |                   |
-| `detail-txn-scrolled-320`                 | 320 × 568         | 640 × 1136  |  30 | new (r6)          |
+| `detail-txn-scrolled-320`                 | 320 × 568         | 640 × 1136  |  33 | re-rendered (r7)  |
 | `detail-txn-receipt-375`                  | 375 × 812         | 750 × 1624  |  35 |                   |
 | `detail-person-375`                       | 375 × 812         | 750 × 1624  |  28 |                   |
 | `formfield-768`                           | 768 × 500 (full)  | 1536 × 1000 |  41 | re-rendered (r2)  |
@@ -549,8 +549,8 @@ PNG is ≤ 400 KB.
 | `form-receipt-usdt-empty-375`             | 375 × 812         | 750 × 1624  |  35 |                   |
 | `form-receipt-usdt-file-375`              | 375 × 812         | 750 × 1624  |  37 | re-rendered (r2)  |
 | `picker-sheet-375`                        | 375 × 812         | 750 × 1624  |  41 | re-rendered (r6)  |
-| `form-longtext-375`                       | 375 × 667         | 750 × 1334  |  48 | re-rendered (r6)  |
-| `form-keyboard-375`                       | 375 × 812         | 750 × 1624  |  35 | re-rendered (r6)  |
+| `form-longtext-375`                       | 375 × 667         | 750 × 1334  |  48 | re-rendered (r7)  |
+| `form-keyboard-375`                       | 375 × 812         | 750 × 1624  |  35 | re-rendered (r7)  |
 | `sheet-panel-768`                         | 768 × 1024        | 768 × 1024  |  48 | re-rendered (r2)  |
 | `save-error-offline-768`                  | 768 × 1024        | 768 × 1024  |  50 | re-rendered (r6)  |
 | `save-error-definite-1024`                | 1024 × 768        | 1024 × 768  |  51 | new (r5)          |
@@ -564,50 +564,50 @@ PNG is ≤ 400 KB.
 | `save-failure-definite-375`               | 375 × 812         | 750 × 1624  |  38 | re-rendered (R12) |
 | `save-failure-unknown-375`                | 375 × 812         | 750 × 1624  |  45 |                   |
 | `save-failure-unknown-list-375`           | 375 × 812         | 750 × 1624  |  54 | re-rendered (r2)  |
-| `save-failure-unknown-match-375`          | 375 × 812         | 750 × 1624  |  60 | re-rendered (r6)  |
+| `save-failure-unknown-match-375`          | 375 × 812         | 750 × 1624  |  60 | re-rendered (r7)  |
 | `save-failure-unknown-empty-375`          | 375 × 812         | 750 × 1624  |  40 | re-rendered (r2)  |
 | `save-failure-unknown-refetch-failed-375` | 375 × 812         | 750 × 1624  |  33 | re-rendered (r2)  |
 | `form-receipt-failed-375`                 | 375 × 812         | 750 × 1624  |  38 |                   |
 | `save-failure-offline-375`                | 375 × 812         | 750 × 1624  |  39 |                   |
 | `upload-pill-armed-375`                   | 375 × 812         | 750 × 1624  |  61 | re-rendered (r6)  |
-| `upload-pill-saved-375`                   | 375 × 812         | 750 × 1624  |  60 | re-rendered (r6)  |
-| `upload-pill-failed-375`                  | 375 × 812         | 750 × 1624  |  62 | re-rendered (r6)  |
-| `upload-pill-multi-375`                   | 375 × 812         | 750 × 1624  |  62 | re-rendered (r6)  |
-| `upload-pill-inflight-375`                | 375 × 812         | 750 × 1624  |  61 | re-rendered (r6)  |
+| `upload-pill-saved-375`                   | 375 × 812         | 750 × 1624  |  60 | re-rendered (r7)  |
+| `upload-pill-failed-375`                  | 375 × 812         | 750 × 1624  |  61 | re-rendered (r7)  |
+| `upload-pill-multi-375`                   | 375 × 812         | 750 × 1624  |  62 | re-rendered (r7)  |
+| `upload-pill-inflight-375`                | 375 × 812         | 750 × 1624  |  61 | re-rendered (r7)  |
 | `upload-pill-unknown-375`                 | 375 × 812         | 750 × 1624  |  60 | re-rendered (r6)  |
-| `upload-pill-saved-over-failed-375`       | 375 × 812         | 750 × 1624  |  60 | re-rendered (r6)  |
+| `upload-pill-saved-over-failed-375`       | 375 × 812         | 750 × 1624  |  60 | re-rendered (r7)  |
 | `upload-pill-saved-over-armed-375`        | 375 × 812         | 750 × 1624  |  61 | new (r6)          |
-| `drafts-two-375`                          | 375 × 812         | 750 × 1624  |  60 | re-rendered (r6)  |
+| `drafts-two-375`                          | 375 × 812         | 750 × 1624  |  60 | re-rendered (r7)  |
 | `drafts-two-unresolved-375`               | 375 × 812         | 750 × 1624  |  58 | re-rendered (r6)  |
-| `drafts-four-collapsed-375`               | 375 × 812         | 750 × 1624  |  55 | re-rendered (r6)  |
+| `drafts-four-collapsed-375`               | 375 × 812         | 750 × 1624  |  55 | re-rendered (r7)  |
 | `quick-add-drafts-375`                    | 375 × 812         | 750 × 1624  |  48 | re-rendered (r6)  |
-| `quick-add-drafts-three-320`              | 320 × 568         | 640 × 1136  |  34 | re-rendered (r6)  |
-| `quick-add-drafts-three-end-320`          | 320 × 568         | 640 × 1136  |  34 | new (r6)          |
-| `pill-scrolled-375`                       | 375 × 812         | 750 × 1624  |  64 | new (r6)          |
-| `toast-pill-stack-375`                    | 375 × 812         | 750 × 1624  |  61 | re-rendered (r6)  |
+| `quick-add-drafts-three-320`              | 320 × 568         | 640 × 1136  |  33 | re-rendered (r7)  |
+| `quick-add-drafts-three-end-320`          | 320 × 568         | 640 × 1136  |  31 | re-rendered (r7)  |
+| `pill-scrolled-375`                       | 375 × 812         | 750 × 1624  |  63 | re-rendered (r7)  |
+| `toast-pill-stack-375`                    | 375 × 812         | 750 × 1624  |  62 | re-rendered (r7)  |
 | `state-page-kill-375`                     | 375 × 812         | 750 × 1624  |  52 | re-rendered (r6)  |
 | `alert-pagekill-sent-375`                 | 375 × 812         | 750 × 1624  |  54 | re-rendered (r6)  |
 | `check-sheet-boot-375`                    | 375 × 812         | 750 × 1624  |  53 | re-rendered (r6)  |
 | `alert-pagekill-failed-375`               | 375 × 812         | 750 × 1624  |  52 | re-rendered (r6)  |
 | `save-failure-unknown-similar-375`        | 375 × 812         | 750 × 1624  |  56 | re-rendered (r6)  |
-| `confirm-recreate-375`                    | 375 × 812         | 750 × 1624  |  60 | re-rendered (r6)  |
-| `alert-session-expired-375`               | 375 × 812         | 750 × 1624  |  47 | re-rendered (r2)  |
+| `confirm-recreate-375`                    | 375 × 812         | 750 × 1624  |  60 | re-rendered (r7)  |
+| `alert-session-expired-375`               | 375 × 812         | 750 × 1624  |  47 | re-rendered (r7)  |
 | `form-restored-375`                       | 375 × 812         | 750 × 1624  |  39 | re-rendered (r6)  |
 | `signout-confirm-375`                     | 375 × 812         | 750 × 1624  |  33 | re-rendered (r6)  |
 | `signout-confirm-768`                     | 768 × 1024        | 768 × 1024  |  50 | re-rendered (r6)  |
-| `signout-confirm-1440`                    | 1440 × 900        | 1440 × 900  |  68 | re-rendered (r6)  |
-| `upload-pill-saved-over-failed-768`       | 768 × 1024        | 768 × 1024  |  52 | new (r6)          |
+| `signout-confirm-1440`                    | 1440 × 900        | 1440 × 900  |  66 | re-rendered (r7)  |
+| `upload-pill-saved-over-failed-768`       | 768 × 1024        | 768 × 1024  |  48 | re-rendered (r7)  |
 | `confirm-discard-draft-375`               | 375 × 812         | 750 × 1624  |  43 | re-rendered (r6)  |
-| `listrow-draft-375`                       | 375 × 812         | 750 × 1624  |  56 | re-rendered (r6)  |
+| `listrow-draft-375`                       | 375 × 812         | 750 × 1624  |  57 | re-rendered (r7)  |
 | `upload-states-375`                       | 375 × 812         | 750 × 1624  |  66 | re-rendered (r6)  |
 | `upload-pill-768`                         | 768 × 1024        | 768 × 1024  |  47 | re-rendered (r2)  |
 | `upload-pill-1440`                        | 1440 × 900        | 1440 × 900  |  64 | re-rendered (r2)  |
-| `drafts-desktop-1440`                     | 1440 × 900        | 1440 × 900  |  64 | re-rendered (r6)  |
-| `drafts-chooser-1440`                     | 1440 × 900        | 1440 × 900  |  39 | re-rendered (r6)  |
-| `drafts-chooser-768`                      | 768 × 1024        | 768 × 1024  |  35 | re-rendered (r6)  |
+| `drafts-desktop-1440`                     | 1440 × 900        | 1440 × 900  |  64 | re-rendered (r7)  |
+| `drafts-chooser-1440`                     | 1440 × 900        | 1440 × 900  |  39 | re-rendered (r7)  |
+| `drafts-chooser-768`                      | 768 × 1024        | 768 × 1024  |  35 | re-rendered (r7)  |
 | `check-dialog-1024`                       | 1024 × 768        | 1024 × 768  |  58 | re-rendered (r2)  |
-| `skeleton-mobile-375`                     | 375 × 812         | 750 × 1624  |  28 | re-rendered (r6)  |
-| `skeleton-768`                            | 768 × 1024        | 768 × 1024  |  27 | re-rendered (r6)  |
+| `skeleton-mobile-375`                     | 375 × 812         | 750 × 1624  |  27 | re-rendered (r7)  |
+| `skeleton-768`                            | 768 × 1024        | 768 × 1024  |  27 | re-rendered (r7)  |
 | `skeleton-1440`                           | 1440 × 900        | 1440 × 900  |  41 | re-rendered (r2)  |
 | `board-1440`                              | 1440 × 900        | 1440 × 900  |  52 | re-rendered (r6)  |
 | `board-768`                               | 768 × 1024        | 768 × 1024  |  33 | re-rendered (r6)  |
@@ -617,17 +617,17 @@ PNG is ≤ 400 KB.
 | `skeleton-table-desktop`                  | 960 × 420 (full)  | 1920 × 904  |  25 |                   |
 | `list-footer-375`                         | 375 × 600 (full)  | 750 × 1290  |  46 | re-rendered (r2)  |
 | `list-footer-320`                         | 320 × 600 (full)  | 640 × 1290  |  44 | re-rendered (r2)  |
-| `search-paged-375`                        | 375 × 812         | 750 × 1624  |  37 | re-rendered (r6)  |
-| `chart-mobile-375`                        | 375 × 812         | 750 × 1624  |  36 | re-rendered (r6)  |
-| `chart-mobile-scrolled-375`               | 375 × 812         | 750 × 1624  |  28 | re-rendered (r6)  |
-| `chart-mobile-tapped-375`                 | 375 × 812         | 750 × 1624  |  38 | re-rendered (r6)  |
-| `chart-mobile-320`                        | 320 × 568         | 640 × 1136  |  36 | re-rendered (r6)  |
+| `search-paged-375`                        | 375 × 812         | 750 × 1624  |  37 | re-rendered (r7)  |
+| `chart-mobile-375`                        | 375 × 812         | 750 × 1624  |  38 | re-rendered (r7)  |
+| `chart-mobile-scrolled-375`               | 375 × 812         | 750 × 1624  |  29 | re-rendered (r7)  |
+| `chart-mobile-tapped-375`                 | 375 × 812         | 750 × 1624  |  41 | re-rendered (r7)  |
+| `chart-mobile-320`                        | 320 × 568         | 640 × 1136  |  34 | re-rendered (r7)  |
 | `chart-desktop`                           | 1200 × 420 (full) | 2400 × 1042 |  64 | re-rendered (r6)  |
 | `ptr-pulling-375`                         | 375 × 480         | 750 × 960   |  26 | re-rendered (r2)  |
 | `ptr-armed-375`                           | 375 × 480         | 750 × 960   |  27 | re-rendered (r2)  |
 | `ptr-refreshing-375`                      | 375 × 480         | 750 × 960   |  26 | re-rendered (r2)  |
 | `ptr-done-375`                            | 375 × 480         | 750 × 960   |  30 | re-rendered (r2)  |
-| `transition-storyboard`                   | 900 × 1200 (full) | 900 × 3902  | 151 | re-rendered (r6)  |
+| `transition-storyboard`                   | 900 × 1200 (full) | 900 × 3902  | 148 | re-rendered (r7)  |
 | `sheet-panel-1920`                        | 1920 × 1080       | 1920 × 1080 |  78 | re-rendered (r2)  |
 | `sheet-confirm-dialog-768`                | 768 × 1024        | 768 × 1024  |  45 | re-rendered (r2)  |
 | `sheet-dirty-close-375`                   | 375 × 812         | 750 × 1624  |  38 | re-rendered (r6)  |
@@ -635,7 +635,7 @@ PNG is ≤ 400 KB.
 | `picker-combobox-1440`                    | 1440 × 900        | 1440 × 900  |  41 | re-rendered (r6)  |
 | `datepicker-sheet-375`                    | 375 × 812         | 750 × 1624  |  35 | re-rendered (r2)  |
 | `datepicker-popover-768`                  | 768 × 1024        | 768 × 1024  |  39 | re-rendered (r6)  |
-| `datepicker-popover-1440`                 | 1440 × 900        | 1440 × 900  |  48 | re-rendered (r2)  |
+| `datepicker-popover-1440`                 | 1440 × 900        | 1440 × 900  |  48 | re-rendered (r7)  |
 | `datepicker-popover-touch-1180`           | 1180 × 820        | 1180 × 820  |  43 | re-rendered (r6)  |
 | `banner-stack-375`                        | 375 × 812         | 750 × 1624  |  57 | re-rendered (r2)  |
 | `banner-stack-768`                        | 768 × 1024        | 768 × 1024  |  34 | re-rendered (r6)  |
@@ -646,12 +646,12 @@ PNG is ≤ 400 KB.
 | `state-error-1440`                        | 1440 × 900        | 1440 × 900  |  30 | re-rendered (r2)  |
 | `page-kill-768`                           | 768 × 1024        | 768 × 1024  |  46 | new (r3)          |
 | `page-kill-1440`                          | 1440 × 900        | 1440 × 900  |  66 | new (r3)          |
-| `alert-session-expired-1440`              | 1440 × 900        | 1440 × 900  |  48 | re-rendered (r6)  |
+| `alert-session-expired-1440`              | 1440 × 900        | 1440 × 900  |  48 | re-rendered (r7)  |
 | `state-empty-readonly-375`                | 375 × 812         | 750 × 1624  |  28 | re-rendered (r2)  |
 | `formfield-error-320`                     | 320 × 568         | 640 × 1136  |  20 | re-rendered (r6)  |
 | `toast-undo-320`                          | 320 × 568         | 640 × 1136  |  41 | re-rendered (r2)  |
-| `chart-768`                               | 768 × 1024        | 768 × 1024  |  25 | re-rendered (r2)  |
-| `list-footer-768`                         | 768 × 1024        | 768 × 1024  |  40 | re-rendered (r2)  |
+| `chart-768`                               | 768 × 1024        | 768 × 1024  |  29 | re-rendered (r7)  |
+| `list-footer-768`                         | 768 × 1024        | 768 × 1024  |  40 | re-rendered (r7)  |
 | `list-footer-1440`                        | 1440 × 900        | 1440 × 900  |  64 | re-rendered (r2)  |
 | `row-menu-768`                            | 768 × 1024        | 768 × 1024  |  46 | re-rendered (r2)  |
 | `row-menu-1440`                           | 1440 × 900        | 1440 × 900  |  63 | new (r2)          |
@@ -660,12 +660,18 @@ PNG is ≤ 400 KB.
 | `save-failure-unknown-768`                | 768 × 1024        | 768 × 1024  |  52 | new (r2)          |
 | `check-dialog-768`                        | 768 × 1024        | 768 × 1024  |  51 | new (r2)          |
 | `alert-session-expired-768`               | 768 × 1024        | 768 × 1024  |  36 | new (r2)          |
-| `unresolved-draft-768`                    | 768 × 1024        | 768 × 1024  |  49 | new (r2)          |
-| `detail-readonly-1000`                    | 1000 × 800        | 1000 × 800  |  32 | re-rendered (r2)  |
-| `confirm-recreate-768`                    | 768 × 1024        | 768 × 1024  |  53 | re-rendered (r6)  |
-| `confirm-recreate-1440`                   | 1440 × 900        | 1440 × 900  |  66 | re-rendered (r6)  |
+| `unresolved-draft-768`                    | 768 × 1024        | 768 × 1024  |  50 | re-rendered (r7)  |
+| `detail-readonly-1000`                    | 1000 × 800        | 1000 × 800  |  32 | re-rendered (r7)  |
+| `confirm-recreate-768`                    | 768 × 1024        | 768 × 1024  |  53 | re-rendered (r7)  |
+| `confirm-recreate-1440`                   | 1440 × 900        | 1440 × 900  |  64 | re-rendered (r7)  |
 | `timefield-375`                           | 375 × 812         | 750 × 1624  |  18 | new (r4)          |
 | `search-paged-states-375`                 | 375 × 812         | 750 × 1624  |  25 | new (r4)          |
+| `upload-pill-saved-queue-375`             | 375 × 812         | 750 × 1624  |  61 | new (r7)          |
+| `upload-pill-saved-queue-768`             | 768 × 1024        | 768 × 1024  |  48 | new (r7)          |
+| `form-restored-clear-375`                 | 375 × 812         | 750 × 1624  |  41 | new (r7)          |
+| `chart-mobile-tapped-320`                 | 320 × 568         | 640 × 1136  |  37 | new (r7)          |
+| `chart-tapped-768`                        | 768 × 1024        | 768 × 1024  |  30 | new (r7)          |
+| `quick-add-drafts-three-375`              | 375 × 812         | 750 × 1624  |  46 | new (r7)          |
 
 Contact sheets: `_contact-sheet.png` (phones), `_contact-sheet-wide.png` (768 / 1024 / 1440 and boards),
 `_contact-sheet-detail.png` (`chart-desktop` and `transition-storyboard` at native size).
