@@ -210,7 +210,7 @@ describe('ArchiveConfirmDialog — renderImpactText: team (SENIOR default vs DRO
     expect(text).toContain('впливає. Активний сеньйор')
     // MUT-1 (fix-round 2): the `</Trans>{' '}<Trans>` boundary itself,
     // right after block1's closing ").").
-    expect(text).toContain('). 1 HR у команді залишається активним учасником')
+    expect(text).toContain('). 1 HR у команді зберігає активний статус')
     expect(text).toContain('на архівацію це не впливає')
   })
 

@@ -86,7 +86,7 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
           {namesSuffix}). Вхід у CRM для цього акаунта буде закрито.
         </Trans>{' '}
         <Trans>
-          У команді {impact.hrAccountantsOnTeam ?? 0} HR, на її проєктах —{' '}
+          У команді {impact.hrAccountantsOnTeam ?? 0} HR, на проєктах —{' '}
           <Plural
             value={impact.juniorsAffected ?? 0}
             one="# джуніор"
