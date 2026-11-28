@@ -271,17 +271,18 @@ export function tabScreen({
   moreBadge = 3,
   showFab = true,
   scrolled = false,
+  search = !NO_SEARCH.has(active),
 }) {
   // Scrolled past the large title: it collapses into the inline 44 px bar (title centred, hairline below).
   const dockOn = createDock(role, active, w, h)
   // A modal layer (scrim, alert dialog, dialog) takes the dock out, as it does the FAB (shell-v2 §2): no yellow band peeks between the sheet groups. The list keeps its padding, so nothing shifts.
   const dock = /class="scrim"|role="(alert)?dialog"/.test(overlay) ? '' : dockOn
   const bar = scrolled
-    ? topBar({ title, search: !NO_SEARCH.has(active) }).replace(
+    ? topBar({ title, search }).replace(
         '<div class="topbar">',
         '<div class="topbar" style="border-bottom:1px solid var(--separator)">',
       )
-    : topBar({ search: !NO_SEARCH.has(active) })
+    : topBar({ search })
   // Tab-root lists end with tab bar + FAB clearance (FAB 56 + 16), so «+» never covers a value; money lists have no FAB (R1-04).
   // Banners sit in the slot under the top bar (F0-15), above the large title.
   // R6-04: a scroll offset moves the title and everything under it as ONE scrollport, clipped by .content, so the outgoing

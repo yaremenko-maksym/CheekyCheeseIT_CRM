@@ -136,7 +136,10 @@ export function detailTxn(w, h) {
  */
 export function detailTxnScrolled(w, h) {
   const body = detailTxnBody()
-  const inner = `${detailTop()}<div class="content" style="padding:0 16px 24px">${body.slice(body.indexOf('<div class="group">'))}</div>`
+  // R6-24: once the amount and summary scroll out, a compact identity line under the bar keeps the record named
+  // (title ellipsised, the signed amount never), so both actions stay in the bar.
+  const id = `<div class="row t-foot" style="flex:none;height:32px;padding:0 16px;gap:8px;border-bottom:1px solid var(--separator)"><span class="grow trunc muted">Оренда офісу</span><span class="num" style="white-space:nowrap;font-weight:600">−1 200,00 USD</span></div>`
+  const inner = `${detailTop()}${id}<div class="content" style="padding:0 16px 24px">${body.slice(body.indexOf('<div class="group">'))}</div>`
   return phone({ w, h, inner })
 }
 
@@ -209,7 +212,7 @@ export function formLongText(w, h) {
   const chips = `<div role="group" aria-label="Вставити змінну" class="row" style="gap:8px;margin:0 -16px;padding:0 16px;height:44px;white-space:nowrap"><div class="row grow" style="gap:8px;overflow:hidden;min-width:0">${chip('Клієнт', 'client_name')}${chip('Виконавець', 'contractor_name')}${chip('Ставка', 'rate_usd')}${chip('Дата початку', 'start_date')}</div>${all}</div>`
   const bar = submitBar({ w, kbdH: TEXT_H, inner: chips })
   const save = `<button type="button" class="btn sm ghost" style="height:44px;color:var(--primary);font-size:17px;font-weight:600;padding:0 8px">Зберегти</button>`
-  const inner = `${topBar({ back: true, title: 'Шаблон договору', bell: false, search: false, trailing: save, side: 104 })}<div class="content col" style="padding:0 16px ${TEXT_H + 61}px;justify-content:flex-end;scroll-padding-bottom:61px">${editor}</div>${bar}${textKeyboard()}`
+  const inner = `${topBar({ back: true, title: 'Шаблон договору', bell: false, search: false, trailing: save, side: 104 })}<div class="content col" style="padding:0 16px ${TEXT_H + 61}px;justify-content:flex-end;scroll-padding-bottom:61px">${editor}</div>${bar}${textKeyboard('enter')}`
   return phone({ w, h, inner })
 }
 

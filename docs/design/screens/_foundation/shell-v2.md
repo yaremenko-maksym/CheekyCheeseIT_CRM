@@ -72,7 +72,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   a second search (`listrow-sticky-320`, `ptr-pulling-375`). **Where search lives when scrolled (R5-26, the
   one rule):** the inline field scrolls with the list on every class (phone and tablet list pane); scrolled,
   the way back is the bar's magnifier on a phone, and on a tablet a 44 px magnifier that appears in the
-  pane header left of the bell once the field has scrolled out; both «scroll to top + focus the field». A screen without an inline search (Статистика, Дашборд) draws no magnifier
+  pane header left of the bell once the field has scrolled out; both **focus the search in place (R6-26)**: the field drops in under the bar over the list, the list keeps its scroll position, and the list is replaced by results only once a query is typed; Esc or «Скасувати» puts the field back and leaves the position as it was. A screen without an inline search (Статистика, Дашборд) draws no magnifier
   (`chart-mobile-375`).
 - Pushed screen: 44 px bar, back chevron (44 × 44 `<button>`, `aria-label="Назад"`) + a 17/22 title
   **centred on the bar, not on the space left over** (iOS): the title is absolutely positioned and
@@ -81,7 +81,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   it collides. The product measures the trailing slot (one `ResizeObserver`) rather than hard-coding
   the inset. **The inline title needs at least 120 px between the insets (R5-04);** when the slot leaves
   less (every phone with «Редагувати» + «Інші дії»: 320 − 2 × 168 = −16, 375 → 39), the bar stays
-  title-less on scroll and keeps both actions (`detail-txn-scrolled-320`); no action moves into a menu. A detail page has no title at rest (`primitives-v2.md` detail page).
+  title-less on scroll and keeps both actions, and a 32 px identity line under the bar names the record (title, ellipsised, then the signed amount, never cut; R6-24) once its amount and summary have scrolled out (`detail-txn-scrolled-320`); no action moves into a menu. A detail page has no title at rest (`primitives-v2.md` detail page).
 
 ### Quick-add FAB
 
@@ -315,7 +315,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   **На цій сторінці** (search over the loaded rows only).
 - **Filter (F0-26):** only matching rows stay; a group with no match is dropped; the match is bold. With
   no match at all the list shows one line and the way out, never a blank box: «Нічого не знайдено за
-  «{query}»» / «Палітра шукає дії, розділи й рядки, завантажені на цій сторінці.» (`desktop-cmdk-empty-1440`).
+  «{query}»» / «Палітра шукає дії, розділи й рядки, завантажені на цій сторінці.» (`desktop-cmdk-empty-1440`). **A typed query has a clear button (R6-25)** in the query row («Очистити запит», an icon button; focus stays in the field, so the next query is typed at once).
 - **No cross-entity server search** (spec §4.5b). Each row shows its shortcut keys. Footer shows ↑↓ / ↵ / Esc.
 - **Sizing (R5-13).** The palette is bounded by the visual viewport minus its top offset (and 16 px): the
   query row and the footer stay, only the results body scrolls (`desktop-cmdk-keyboard-1180`); the
@@ -324,7 +324,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   with 16 px text, and the shortcut sheet's switch keeps its 44 × 26 track inside a 52 × 44 hit box; the
   query is 16 px at every pointer. Option rows show no key caps; the footer is one focusable 44 px button
   «Клавіатурні скорочення» (no key hints) that opens the shortcut sheet, and the sheet keeps every binding
-  with its key caps, for a hardware keyboard (`desktop-cmdk-touch-1180`, `desktop-shortcuts-touch-1180`).
+  with its key caps, for a hardware keyboard (`desktop-cmdk-touch-1180`, `desktop-shortcuts-touch-1180`). **A coarse pointer also gets a named 44 px «Закрити»** at the end of the query row (R6-27; `desktop-cmdk-keyboard-1180`): scrim and Escape are not the only exits on a touch screen.
 
 ### Shortcut sheet (⌘/ or `?`)
 

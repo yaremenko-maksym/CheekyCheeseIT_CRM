@@ -241,7 +241,16 @@ export function cmdk({ compact = false, empty = false, coarse = false, kbd = 0 }
     ? `<div class="row" style="flex:none;height:56px;padding:0 6px;border-top:1px solid var(--border)"><button type="button" class="btn ghost" aria-haspopup="dialog" style="height:44px;padding:0 12px;font-size:15px;color:var(--muted-fg)">${icon('keyboard', { size: 18 })}Клавіатурні скорочення</button></div>`
     : `<div class="row" style="flex:none;gap:16px;height:40px;padding:0 18px;border-top:1px solid var(--border);font-size:12px;color:var(--muted-fg)"><span class="row" style="gap:5px"><span class="kbdkey">↑</span><span class="kbdkey">↓</span>вибір</span><span class="row" style="gap:5px"><span class="kbdkey">↵</span>виконати</span><span class="row" style="gap:5px"><span class="kbdkey">Esc</span>закрити</span><span class="grow"></span><span class="row" style="gap:5px"><span class="kbdkey">⌘</span><span class="kbdkey">/</span>усі скорочення</span></div>`
   return `${SCRIM}<div role="dialog" aria-modal="true" aria-label="Палітра команд" style="position:absolute;left:50%;top:${top}px;transform:translateX(-50%);width:${compact ? 560 : 640}px;max-height:calc(100% - ${top + kbd + 16}px);display:flex;flex-direction:column;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);overflow:hidden">
-  <div class="row" style="flex:none;gap:10px;height:54px;padding:0 18px;border-bottom:1px solid var(--border)"><span class="muted">${icon('search', { size: 18 })}</span><span role="combobox" aria-expanded="true" style="font-size:16px">${q}<span class="caret" style="height:18px"></span></span><span class="grow"></span><span class="pill" style="height:24px">Фінанси</span></div>
+  <div class="row" style="flex:none;gap:10px;height:54px;padding:0 18px;border-bottom:1px solid var(--border)"><span class="muted">${icon('search', { size: 18 })}</span><span role="combobox" aria-expanded="true" style="font-size:16px">${q}<span class="caret" style="height:18px"></span></span><span class="grow"></span>${
+    // R6-25: a typed query has a clear button; focus stays in the field. R6-27: a coarse pointer gets a named 44 px close.
+    empty || coarse
+      ? `<button type="button" class="iconbtn" aria-label="Очистити запит" style="width:${coarse ? 44 : 32}px;height:${coarse ? 44 : 32}px;color:var(--muted-fg)">${icon('circle-x', { size: 18 })}</button>`
+      : ''
+  }<span class="pill" style="height:24px">Фінанси</span>${
+    coarse
+      ? '<button type="button" class="btn ghost" style="height:44px;padding:0 10px;margin-right:-10px;font-size:15px">Закрити</button>'
+      : ''
+  }</div>
   <div role="listbox" aria-label="Результати" style="flex:1;min-height:0;overflow:hidden auto;overscroll-behavior:contain;padding:4px 0 8px">${list}</div>
   ${foot}</div>${kbd ? padKeyboard(kbd) : ''}`
 }

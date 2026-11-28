@@ -66,9 +66,27 @@ const RING = `<svg width="26" height="26" viewBox="0 0 36 36" aria-hidden="true"
 // only without a money draft), in the one floating corner. R5-34: the pill body is one button; a ✕ (saved only)
 // is its sibling, never nested.
 const PILL = {
-  armed: () => [RING, `Збережеться −${NB(AMOUNT)} USD`, '62% · Відкрити чернетку', 'oklch(0.42 0.09 85)', `Збережеться −${AMOUNT} USD після завантаження чека, 62%. Відкрити чернетку`],
-  failed: () => [`<span style="color:var(--destructive);display:grid">${icon('circle-alert', { size: 22 })}</span>`, `Не збережено −${NB(AMOUNT)} USD`, `${SENT_AT} · Відкрити`, 'oklch(0.42 0.12 22)', `Не збережено −${AMOUNT} USD, о ${SENT_AT}. Відкрити`],
-  saved: () => [`<span style="color:var(--positive);display:grid">${icon('circle-check', { size: 22 })}</span>`, `Збережено −${NB(SAVED_OTHER)} USD`, 'Відкрити', 'oklch(0.4 0.08 150)', `Збережено −${SAVED_OTHER} USD. Відкрити`],
+  armed: () => [
+    RING,
+    `Збережеться −${NB(AMOUNT)} USD`,
+    '62% · Відкрити чернетку',
+    'oklch(0.42 0.09 85)',
+    `Збережеться −${AMOUNT} USD після завантаження чека, 62%. Відкрити чернетку`,
+  ],
+  failed: () => [
+    `<span style="color:var(--destructive);display:grid">${icon('circle-alert', { size: 22 })}</span>`,
+    `Не збережено −${NB(AMOUNT)} USD`,
+    `${SENT_AT} · Відкрити`,
+    'oklch(0.42 0.12 22)',
+    `Не збережено −${AMOUNT} USD, о ${SENT_AT}. Відкрити`,
+  ],
+  saved: () => [
+    `<span style="color:var(--positive);display:grid">${icon('circle-check', { size: 22 })}</span>`,
+    `Збережено −${NB(SAVED_OTHER)} USD`,
+    'Відкрити',
+    'oklch(0.4 0.08 150)',
+    `Збережено −${SAVED_OTHER} USD. Відкрити`,
+  ],
 }
 export const widePill = (kind, touch, bottom = 24, more = 0) => {
   const [ic, a, b, edge, label] = PILL[kind]()
@@ -79,15 +97,18 @@ export const widePill = (kind, touch, bottom = 24, more = 0) => {
     : ''
   const x =
     kind === 'saved'
-      ? q + `<button type="button" class="iconbtn" aria-label="Закрити" style="flex:none;width:${touch ? 44 : 32}px;height:${touch ? 44 : 32}px;color:var(--muted-fg)">${icon('x', { size: 16 })}</button>`
+      ? q +
+        `<button type="button" class="iconbtn" aria-label="Закрити" style="flex:none;width:${touch ? 44 : 32}px;height:${touch ? 44 : 32}px;color:var(--muted-fg)">${icon('x', { size: 16 })}</button>`
       : ''
-  return `<div class="row" style="position:absolute;right:24px;bottom:${bottom}px;z-index:50;width:320px;min-height:${hgt}px;gap:4px;padding:0 6px 0 0;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid ${edge};box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><div role="button" aria-label="${label}" class="row grow" style="gap:10px;min-width:0;min-height:${hgt}px;padding:0 6px 0 12px">${ic}<span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:13px;font-weight:600;white-space:nowrap">${a}</span><span class="t-cap muted num" style="white-space:nowrap">${b}</span></span></div>${x}</div>`
+  return `<div data-float class="row" style="position:absolute;right:24px;bottom:${bottom}px;z-index:50;width:320px;min-height:${hgt}px;gap:4px;padding:0 6px 0 0;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid ${edge};box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><div role="button" aria-label="${label}" class="row grow" style="gap:10px;min-width:0;min-height:${hgt}px;padding:0 6px 0 12px">${ic}<span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:13px;font-weight:600;white-space:nowrap">${a}</span><span class="t-cap muted num" style="white-space:nowrap">${b}</span></span></div>${x}</div>`
 }
 const DOT_I =
   '<i aria-hidden="true" style="position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--bg)"></i>'
 const deskRow = `<tr><td colspan="7" style="padding:0;max-width:none;background:var(--raised);box-shadow:inset 2px 0 0 var(--primary)"><div class="row" style="gap:10px;height:40px;padding:0 12px"><span style="color:var(--primary);display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">−${NB(AMOUNT)} USD</span><span class="grow muted" style="white-space:nowrap;overflow:hidden">Збережеться після завантаження чека · Витрата</span></div></td></tr>`
 export const signOutConfirmDesktop = (w, h) =>
   desktop({ w, h, overlay: widePill('armed', false) + box() })
+    // R6-20: the scroller pads by the pill + 24 + 24, so as drawn the pill covers no row.
+    .replace('padding:20px 24px 24px;', 'padding:20px 24px 92px;')
     .replace('<tbody>', `<tbody>${deskRow}`)
     .replace(
       '<span class="btn primary" style="height:36px',
@@ -103,16 +124,37 @@ export const signOutConfirmTablet = (w, h) =>
     .replace(/style="width:52px;height:52px;/, 'style="position:relative;width:52px;height:52px;')
     .replace(/(style="position:relative;width:52px[^>]*><svg[\s\S]*?<\/svg>)/, `$1${DOT_I}`)
 
+// R6-20: at >= 640 the list's scrollport ends above the floating corner stack (its height + 24), so as drawn no row,
+// «…» or amount sits under a pill; the rows scroll up into view (measure.mjs `float`).
+export const clearStack = (html, px) =>
+  html.replace(
+    'aria-label="Транзакції" class="col" style="',
+    `aria-label="Транзакції" class="col" style="overflow:hidden;padding-bottom:${px}px;`,
+  )
 /** R6-02: two unacknowledged successes + a failed draft at >= 640: the newest saved pill carries «Ще 1». */
 export const savedQueueTablet = (w, h) =>
-  tablet({ w, h, overlay: widePill('failed', true) + widePill('saved', true, 24 + 52 + 8, 1) }).replace(
-    '<div class="sechead"><span class="t-over">Сьогодні</span></div>',
-    `${pinnedRows([DRAFT.failed])}<div class="sechead"><span class="t-over">Сьогодні</span></div>`,
+  clearStack(
+    tablet({
+      w,
+      h,
+      overlay: widePill('failed', true) + widePill('saved', true, 24 + 52 + 8, 1),
+    }).replace(
+      '<div class="sechead"><span class="t-over">Сьогодні</span></div>',
+      `${pinnedRows([DRAFT.failed])}<div class="sechead"><span class="t-over">Сьогодні</span></div>`,
+    ),
+    24 + 52 + 8 + 52 + 24,
   )
 /** R5-08: a create success while a failed draft owns the corner at >= 640: the saved pill stacks 8 px above, with
  * its own amount (another transaction); the failed pill keeps the slot (precedence), its row stays pinned. */
 export const savedOverFailedTablet = (w, h) =>
-  tablet({ w, h, overlay: widePill('failed', true) + widePill('saved', true, 24 + 52 + 8) }).replace(
-    '<div class="sechead"><span class="t-over">Сьогодні</span></div>',
-    `${pinnedRows([DRAFT.failed])}<div class="sechead"><span class="t-over">Сьогодні</span></div>`,
+  clearStack(
+    tablet({
+      w,
+      h,
+      overlay: widePill('failed', true) + widePill('saved', true, 24 + 52 + 8),
+    }).replace(
+      '<div class="sechead"><span class="t-over">Сьогодні</span></div>',
+      `${pinnedRows([DRAFT.failed])}<div class="sechead"><span class="t-over">Сьогодні</span></div>`,
+    ),
+    24 + 52 + 8 + 52 + 24,
   )

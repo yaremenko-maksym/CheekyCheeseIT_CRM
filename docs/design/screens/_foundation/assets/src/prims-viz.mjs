@@ -78,10 +78,7 @@ export const saveErrorOfflineTablet = (w, h) =>
       touch: true,
       primary: 'Повторити збереження',
       extra: {
-        alert: errAlert(
-          'Зміни не збережено',
-          'Немає з’єднання. Зміни залишились у формі.',
-        ),
+        alert: errAlert('Зміни не збережено', 'Немає з’єднання. Зміни залишились у формі.'),
       },
     }),
   })
@@ -130,9 +127,10 @@ function chooserMenu({ drafts, pos, itemH, coarse = false, role = '' }) {
   ${coarse ? '' : '<div aria-hidden="true" class="t-cap muted" style="padding:8px 16px;border-top:1px solid var(--border)">↑ ↓ чернетки · Esc закрити</div>'}</div>`
 }
 
+// R6-19: one pill anatomy at >= 640 (as `widePill`): the whole pill is the button, «Відкрити» is accent text on line 2.
 /** Desktop with one unknown draft: the pill bottom-right, a pinned row in the 40 px table, the header dot. */
 export function draftsDesktop(w, h, { chooser = false } = {}) {
-  const pill = `<div role="button" aria-label="Результат невідомий: −${AMOUNT} USD, надіслано о\u00a0${SENT_AT}. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num" style="white-space:nowrap">−${AMOUNT} USD · ${SENT_AT}</span></span>${OPEN}</div>`
+  const pill = `<div data-float role="button" aria-label="Результат невідомий: −${AMOUNT} USD, надіслано о\u00a0${SENT_AT}. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap num" style="white-space:nowrap"><span class="muted">−${AMOUNT} USD · ${SENT_AT} · </span><span style="color:var(--primary);font-weight:600">Відкрити</span></span></span></div>`
   // R4-08, R5-21: the pinned draft row keeps the table's column grid: the date in «Дата», the state and send time in
   // «Опис» with a tonal «Відкрити» text
   // button, the type in «Тип», the amount in «Сума», and the fine-pointer «…» in the action slot (its menu:
@@ -202,9 +200,11 @@ const COUNT = (n) =>
 
 /** «Перевірити список» at ≥ 640: a centred 560 px dialog over the side panel, which stays mounted. */
 // `touch`: 400 px panel, 44 px controls, no key hints (tablet); otherwise the 420 px panel and 36 px controls.
-function checkPanel(touch) {
+// R6-14: the panel width follows the one rule (§2 Side panel, R4-25): 400 at 640–1023, 420 at 1024–1439, 480 at ≥ 1440.
+const panelW = (vw) => (vw < 1024 ? 400 : vw < 1440 ? 420 : 480)
+function checkPanel(touch, vw = touch ? 768 : 1024) {
   return `<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>
-  <aside role="dialog" aria-modal="true" aria-labelledby="dp-t" style="position:absolute;top:0;right:0;bottom:0;width:${touch ? 400 : 420}px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);display:flex;flex-direction:column">
+  <aside role="dialog" aria-modal="true" aria-labelledby="dp-t" style="position:absolute;top:0;right:0;bottom:0;width:${panelW(vw)}px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);display:flex;flex-direction:column">
   <div class="row" style="height:56px;flex:none;padding:0 12px 0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="height:${touch ? 44 : 36}px;font-size:15px;font-weight:400;padding:0 12px">Згорнути</button><div id="dp-t" class="grow t-head" style="text-align:center">Нова транзакція</div><span style="width:96px"></span></div>
   <div class="grow" style="min-height:0;overflow:hidden">${moneyBody({
     receipt: 'done',
@@ -233,7 +233,8 @@ function checkBox(touch) {
   <div class="group" style="margin:0 20px">${rows}</div>
   <div class="row" style="gap:8px;justify-content:flex-end;padding:14px 20px;margin-top:14px;border-top:1px solid var(--border)"><button type="button" class="btn sm secondary" style="height:${bh}px;font-size:14px">${icon('plus', { size: 16 })}Немає — створити ще раз</button><button type="button" class="btn sm primary" style="height:${bh}px;font-size:14px">${icon('check', { size: 16 })}Є в списку — закрити чернетку</button></div></div>`
 }
-export const checkDialog = (w, h) => desktop({ w, h, overlay: checkPanel(false) + checkBox(false) })
+export const checkDialog = (w, h) =>
+  desktop({ w, h, overlay: checkPanel(false, w) + checkBox(false) })
 /** R1-08: the same two layers on a tablet (640–1023): panel 400 px + a centred dialog, 44 px controls, no key hints. */
 export const checkDialogTablet = (w, h) =>
   tablet({ w, h, overlay: checkPanel(true) + checkBox(true) })
@@ -253,12 +254,12 @@ function recreateBox(touch) {
 export const confirmRecreateTablet = (w, h) =>
   tablet({ w, h, overlay: checkPanel(true) + recreateBox(true) })
 export const confirmRecreateDesktop = (w, h) =>
-  desktop({ w, h, overlay: checkPanel(false) + recreateBox(false) })
+  desktop({ w, h, overlay: checkPanel(false, w) + recreateBox(false) })
 /** R1-08: an unknown result on a tablet: the locked panel with the alert and «Перевірити список» as the one primary. */
 export const saveFailureTablet = (w, h) => tablet({ w, h, overlay: checkPanel(true) })
 /** R1-08: an unresolved draft on a tablet: the pill bottom-right and the pinned row at the top of the list; the rail «+» carries the dot. */
 export function unresolvedDraftTablet(w, h) {
-  const pill = `<div role="button" aria-label="Результат невідомий: −${AMOUNT} USD, надіслано о\u00a0${SENT_AT}. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:340px;min-height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num" style="white-space:nowrap">−${AMOUNT} USD · ${SENT_AT}</span></span>${OPEN}</div>`
+  const pill = `<div data-float role="button" aria-label="Результат невідомий: −${AMOUNT} USD, надіслано о\u00a0${SENT_AT}. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:340px;min-height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap num" style="white-space:nowrap"><span class="muted">−${AMOUNT} USD · ${SENT_AT} · </span><span style="color:var(--primary);font-weight:600">Відкрити</span></span></span></div>`
   return tablet({ w, h, overlay: pill })
     .replace(
       '<div class="sechead"><span class="t-over">Сьогодні</span></div>',
@@ -390,7 +391,8 @@ export function skeletonMobile(w, h) {
   const kpi = `<div style="padding:12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="sk" style="height:11px;width:60%"></div><div class="sk" style="height:24px;width:80%;margin-top:12px"></div><div class="sk" style="height:10px;width:40%;margin-top:10px"></div></div>`
   const chart = `<div style="margin:16px;padding:14px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="sk" style="height:12px;width:45%"></div><div class="row" style="align-items:flex-end;gap:10px;height:120px;margin-top:16px">${[60, 85, 40, 95, 70, 55].map((p) => `<div class="sk grow" style="height:${p}%;border-radius:4px"></div>`).join('')}</div></div>`
   const body = `<div role="status" aria-label="Завантаження дашборда" style="display:contents"><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:4px 16px 0">${kpi.repeat(4)}</div>${chart}${skeletonList(2)}</div>`
-  return tabScreen({ w, h, role: 'ADMIN', active: 'more', title: 'Дашборд', body })
+  // R6-22: Дашборд has no page search (NO_SEARCH), reached through «Ще» or not.
+  return tabScreen({ w, h, role: 'ADMIN', active: 'more', title: 'Дашборд', body, search: false })
 }
 
 export function skeletonTable() {

@@ -27,6 +27,10 @@
 //   hit      — r7 (R6-29): a `data-hit="44"` control is measured by its extended hit box (44 × 44 around its centre,
 //              or its own box when larger): that box must stay inside the viewport and must not overlap another
 //              control's box (the extension is real only where nothing else claims the same point).
+//   panel    — r7 (R6-14): a full-height side panel (`aside[role=dialog]`) at the right edge is 400 px at 640–1023,
+//              420 at 1024–1439 and 480 at ≥ 1440 (primitives-v2 §2 Side panel).
+//   float    — r7 (R6-20): at >= 640 no interactive control (a row, its «…», a button) is painted under the floating
+//              corner stack (`[data-float]`: the money pill, the saved pill) in the frame as drawn.
 //   scrim    — r5 (R4-02): every `[role=alertdialog]` has a scrim (its previous sibling) and nothing but the dialog
 //              paints above that scrim inside the scrim's box (a 16 px point grid, OS chrome exempt).
 // Coarse = the frame draws a touch device (`.touch`, every phone and tablet frame) or its name is in COARSE.
@@ -93,6 +97,8 @@ function probe(coarse) {
     home: [],
     band: [],
     hit: [],
+    panel: [],
+    float: [],
   }
   for (const sc of document.querySelectorAll('[data-reach]')) {
     const rows = [...sc.querySelectorAll('[data-dest]')]
@@ -119,7 +125,8 @@ function probe(coarse) {
   // viewport and above the bottom safe area. A sheet that cuts its last row without a scroller fails here.
   const dev = document.querySelector('.device[data-safe-bottom]')
   const devBox = dev ? dev.getBoundingClientRect() : { bottom: innerHeight }
-  const band = Math.min(innerHeight, devBox.bottom) - Number(dev?.getAttribute('data-safe-bottom') || 0)
+  const band =
+    Math.min(innerHeight, devBox.bottom) - Number(dev?.getAttribute('data-safe-bottom') || 0)
   const CTL =
     'button,a,[role=button],[role=option],[role=menuitem],[role=switch],[role=radio],[role=checkbox],[role=link],.lrow'
   for (const sh of document.querySelectorAll('.sheet')) {
@@ -130,7 +137,8 @@ function probe(coarse) {
     )
     const keep = scs.map((e) => e.scrollTop)
     for (const el of sh.querySelectorAll(CTL)) {
-      if (el.closest(OS) || !vis(el) || (el.parentElement && el.parentElement.closest(CTL))) continue
+      if (el.closest(OS) || !vis(el) || (el.parentElement && el.parentElement.closest(CTL)))
+        continue
       // the nearest scroller that holds the control (a keyboard-open form scrolls its own body)
       const sc = scs.filter((e) => e.contains(el)).pop()
       if (sc) el.scrollIntoView({ block: 'nearest' })
@@ -157,7 +165,9 @@ function probe(coarse) {
         const c = hit && !hit.closest(OS) && hit.closest(CTL + ',[data-dest],.srow,.chip,.fab')
         if (c && !hits.has(c)) {
           hits.add(c)
-          out.home.push(`${name(c)} painted in the home-indicator band (${Math.round(band)}–${Math.round(devBox.bottom)})`)
+          out.home.push(
+            `${name(c)} painted in the home-indicator band (${Math.round(band)}–${Math.round(devBox.bottom)})`,
+          )
         }
       }
   }
@@ -355,6 +365,43 @@ function probe(coarse) {
       }
     }
   }
+  // r7 (R6-20): at >= 640 nothing interactive sits under the floating corner stack (`[data-float]`) as drawn.
+  if (innerWidth >= 640) {
+    const fl = [...document.querySelectorAll('[data-float]')].filter((e) => vis(e))
+    const CT = 'button,a,[role=button],[role=menuitem],[role=link],.lrow,tbody tr,.iconbtn,.btn'
+    for (const f of fl) {
+      const fr = f.getBoundingClientRect()
+      for (const c of document.querySelectorAll(CT)) {
+        if (f.contains(c) || c.contains(f) || c.closest('[data-float]') || c.closest(OS) || !vis(c))
+          continue
+        // the painted part only: clip by every ancestor that clips (a scroller, a card with overflow hidden)
+        const b0 = c.getBoundingClientRect()
+        const r = { left: b0.left, right: b0.right, top: b0.top, bottom: b0.bottom }
+        for (let a = c.parentElement; a; a = a.parentElement) {
+          const o = getComputedStyle(a)
+          if (!/hidden|clip|auto|scroll/.test(o.overflowX + o.overflowY)) continue
+          const q = a.getBoundingClientRect()
+          r.left = Math.max(r.left, q.left)
+          r.right = Math.min(r.right, q.right)
+          r.top = Math.max(r.top, q.top)
+          r.bottom = Math.min(r.bottom, q.bottom)
+        }
+        const w = Math.min(fr.right, r.right) - Math.max(fr.left, r.left)
+        const hh = Math.min(fr.bottom, r.bottom) - Math.max(fr.top, r.top)
+        if (w > 2 && hh > 2 && !c.closest('[role=dialog],[role=alertdialog]'))
+          out.float.push(`${name(c)} under ${name(f)}`)
+      }
+    }
+  }
+  // r7 (R6-14): a full-height side panel anchored to the right edge has the width of its class (§2 Side panel).
+  for (const el of document.querySelectorAll('aside[role=dialog],[role=dialog][data-panel]')) {
+    if (el.closest(OS) || !vis(el)) continue
+    const r = el.getBoundingClientRect()
+    if (Math.abs(r.right - innerWidth) > 1 || r.height < innerHeight * 0.8) continue
+    const want = innerWidth < 1024 ? 400 : innerWidth < 1440 ? 420 : 480
+    if (Math.round(r.width) !== want)
+      out.panel.push(`${name(el)} ${Math.round(r.width)} px, want ${want}`)
+  }
   out.examined = examined
   return out
 }
@@ -375,6 +422,8 @@ const totals = {
   home: 0,
   band: 0,
   hit: 0,
+  panel: 0,
+  float: 0,
 }
 let examinedAll = 0
 for (const f of frames) {

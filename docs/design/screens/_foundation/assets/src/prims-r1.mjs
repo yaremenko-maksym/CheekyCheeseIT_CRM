@@ -23,7 +23,16 @@ import {
 } from './mobile-overlays.mjs'
 import { desktop, cmdk, deskToolbar, accountMenu, deskTable, ROWS } from './desktop.mjs'
 import { tablet, txnPane, txnGroups } from './tablet.mjs'
-import { listFooter, netBars, legend, usd, NET_K, PART_K, partnerBars, valueSlot } from './prims-viz.mjs'
+import {
+  listFooter,
+  netBars,
+  legend,
+  usd,
+  NET_K,
+  PART_K,
+  partnerBars,
+  valueSlot,
+} from './prims-viz.mjs'
 import { detailTxnBody } from './prims-mobile.mjs'
 import { actionConfirm, KILL } from './money-form.mjs'
 import { interviewTable } from './prims-wide.mjs'
@@ -150,8 +159,8 @@ function formPanel(width, { modal, fine, inert = false }) {
   })
   const body = `<div class="col" style="gap:16px;padding:16px 20px">${field({ label: 'Ім’я та прізвище', value: 'Богдан Ткач', id: 'nm' })}${field({ label: 'Етап', value: 'HR-скринінг', suffix: `<span class="muted" style="display:grid">${icon('chevron-down', { size: 18 })}</span>`, id: 'st', tag: 'button' })}${dateField}${field({ label: 'Час', value: '11:00', id: 'tm', attrs: TIME_ATTRS })}</div>`
   const btnH = fine ? 36 : 44
-  const head = `<div class="row" style="height:56px;padding:0 8px 0 20px;border-bottom:1px solid var(--border);flex:none"><div id="fp-t" class="grow t-head">Нова співбесіда</div><button type="button" class="iconbtn" aria-label="Закрити" style="width:44px;height:44px">${icon('x', { size: 20 })}</button></div>`
-  const foot = `<div class="row" style="gap:8px;justify-content:flex-end;padding:12px 20px;border-top:1px solid var(--border);margin-top:auto"><span class="btn secondary" style="height:${btnH}px">Скасувати</span><span class="btn primary" style="height:${btnH}px">Зберегти</span></div>`
+  const head = `<div class="row" style="height:56px;padding:0 8px 0 20px;border-bottom:1px solid var(--border);flex:none"><div id="fp-t" class="grow t-head">Нова співбесіда</div>${fine ? '<span class="kbdkey" style="margin-right:6px">Esc</span>' : ''}<button type="button" class="iconbtn" aria-label="Закрити" style="width:44px;height:44px">${icon('x', { size: 20 })}</button></div>`
+  const foot = `<div class="row" style="gap:8px;justify-content:flex-end;padding:12px 20px;border-top:1px solid var(--border);margin-top:auto"><span class="btn secondary" style="height:${btnH}px">Скасувати</span><span class="btn primary" style="height:${btnH}px">Зберегти${fine ? '<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">⌘↵</span>' : ''}</span></div>`
   const box = `${head}<div class="col grow" style="min-height:0">${body}${foot}</div>`
   return modal
     ? `${SCRIM()}<div role="dialog" aria-modal="true" aria-labelledby="fp-t" class="col" style="position:absolute;top:0;right:0;bottom:0;width:${width}px;z-index:65;background:var(--popover);border-left:1px solid var(--border)">${box}</div>`

@@ -205,7 +205,9 @@ function dangling(TITLES) {
       const a = rectAt(i)
       const b = rectAt(i + 2)
       if (a.width && b.width && b.top > a.top + a.height / 2)
-        out.push(`${t.slice(Math.max(0, i - 20), i + 1).replace(/\s+/g, ' ')} | ${t.slice(i + 2, i + 8)}`)
+        out.push(
+          `${t.slice(Math.max(0, i - 20), i + 1).replace(/\s+/g, ' ')} | ${t.slice(i + 2, i + 8)}`,
+        )
     }
     for (let i = t.indexOf('·'); i !== -1; i = t.indexOf('·', i + 1)) {
       if (title) {
@@ -287,7 +289,10 @@ for (const r of unpaired) console.log(`unpaired ${r[0]}  uk «${r[1]}»  en «${
 for (const r of dupId) console.log(`dup id   ${r[0]}`)
 const twoWays = [...variants.values()].filter((v) => v.size > 1)
 for (const v of twoWays) console.log(`two ways «${[...v].join('» / «')}»`)
-for (const [fr, l] of dangles) console.log(`dangling ${fr}: «${l.slice(0, 2).join('» «')}»${l.length > 2 ? ` +${l.length - 2}` : ''}`)
+for (const [fr, l] of dangles)
+  console.log(
+    `dangling ${fr}: «${l.slice(0, 2).join('» «')}»${l.length > 2 ? ` +${l.length - 2}` : ''}`,
+  )
 // table -> frame: only meaningful over every frame of both sets.
 const full = set === 'all' && !filter
 const interaction = rows.filter((r) => r[3] === 'interaction')
@@ -308,7 +313,7 @@ console.log(
     `  frame -> table: missing ${missing.size} · drawn without en ${noEnDrawn.size}\n` +
     `  table -> frame: ${full ? `rows with an undrawn token ${unused.length} · interaction-only rows ${interaction.length}` : 'n/a (run with set all, no filter)'}\n` +
     `  uk <-> en: rows without en ${emptyEn.length} · unpaired rows ${unpaired.length} · duplicate ids ${dupId.length}\n` +
-    `  drawn: one string two ways ${twoWays.length} · frames with a line ending on «·» ${dangles.size}`,
+    `  drawn: one string two ways ${twoWays.length} · frames with a dangling «·» or «з / о» ${dangles.size}`,
 )
 process.exitCode =
   missing.size ||

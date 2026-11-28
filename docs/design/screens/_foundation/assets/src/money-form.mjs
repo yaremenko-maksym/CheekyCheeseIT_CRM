@@ -217,7 +217,10 @@ export function decimalPad() {
 }
 export const DECIMAL_H = 44 + 4 * 46 + 4 * 8 + 30 + 8
 
-export function textKeyboard() {
+// R6-15: the drawn return key comes from the focused field's `enterkeyhint`: «Далі» (next), «Готово» on the last field
+// (done), and the return glyph in a textarea (enter), never «Далі» there.
+const RETURN = { next: 'Далі', done: 'Готово', enter: icon('corner-down-left', { size: 20 }) }
+export function textKeyboard(hint = 'next') {
   const key = (k) =>
     `<span style="flex:1;height:42px;border-radius:6px;background:oklch(0.36 0 0);display:grid;place-items:center;font-size:20px;color:#fff">${k}</span>`
   const row = (keys) =>
@@ -226,7 +229,7 @@ export function textKeyboard() {
     `<span style="width:${wd}px;height:42px;border-radius:6px;background:oklch(0.28 0 0);display:grid;place-items:center;color:#fff;font-size:15px">${t}</span>`
   return `<div class="kbd" aria-hidden="true" style="padding:0 3px;gap:11px">${systemBar('margin:0 -3px')}
   ${row('йцукенгшщзх')}${row('фівапролджє')}<div style="display:flex;gap:5px">${mod(icon('arrow-big-up', { size: 20 }))}<div class="grow">${row('ячсмитьбю')}</div>${mod(icon('delete', { size: 20 }))}</div>
-  <div style="display:flex;gap:5px">${mod('123', 88)}<span class="grow" style="height:42px;border-radius:6px;background:oklch(0.36 0 0);display:grid;place-items:center;color:#fff;font-size:15px">пробіл</span>${mod('Далі', 88)}</div><div style="height:34px"></div></div>`
+  <div style="display:flex;gap:5px">${mod('123', 88)}<span class="grow" style="height:42px;border-radius:6px;background:oklch(0.36 0 0);display:grid;place-items:center;color:#fff;font-size:15px">пробіл</span>${mod(RETURN[hint], 88)}</div><div style="height:34px"></div></div>`
 }
 // R5-16: six children, five 11 px gaps — the bar sits exactly on the keyboard's top edge, never under it.
 export const TEXT_H = 44 + 4 * 42 + 5 * 11 + 34
@@ -270,7 +273,12 @@ export function moneyForm({
     project,
   })
   const bar = submitBar({ w, kbdH, inner: footer })
-  const kbd = keyboard === 'decimal' ? decimalPad() : keyboard === 'text' ? textKeyboard() : ''
+  const kbd =
+    keyboard === 'decimal'
+      ? decimalPad()
+      : keyboard === 'text'
+        ? textKeyboard(focus === 'note' ? 'done' : 'next')
+        : ''
   if (variant === 'page') {
     const inner = `${topBar({ back: true, title, bell: false, search: false })}<div class="content">${body}</div>${bar}${kbd}`
     return phone({ w, h, inner, overlay: over })
@@ -695,7 +703,7 @@ export function savedQueuePill(w, h) {
 
 /** Toast + pill: the pill keeps the base slot, at most one toast stacks 8 px above it. */
 export function toastPillStack(w, h) {
-  const toast = `<div class="toast" role="status" style="left:12px;right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16 + PILL_H + 8}px;min-height:52px"><span style="color:var(--positive)">${icon('circle-check', { size: 18 })}</span><span class="grow">Транзакцію «Оренда офісу» оновлено</span></div>`
+  const toast = `<div class="toast" role="status" style="left:12px;right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16 + PILL_H + 8}px;min-height:52px"><span style="color:var(--positive)">${icon('circle-check', { size: 18 })}</span><span class="grow">Транзакцію «Оренда офісу» оновлено</span><span class="btn ghost" role="button" style="color:var(--primary);height:44px;padding:0 10px;font-size:15px">Відкрити</span></div>`
   // R2-15: the armed pill always has its pinned row (foundation §11).
   return financeTab(w, h, `${moneyPill(w, 'armed')}${toast}`, pinDrafts([DRAFT.armed2]))
 }
@@ -790,7 +798,7 @@ export const sessionExpired = (w, h) =>
     actionConfirm(w, {
       id: 'se',
       title: 'Сесія завершилася. Увійдіть знову, щоб продовжити.',
-      desc: `<span style="display:block">Дані форми та вибраний чек збережуться на цьому пристрої й повернуться після входу.</span><span style="display:block;margin-top:4px">Чернетка −${NB(AMOUNT)} USD, надіслана о\u00a0${SENT_AT}: після входу перевірте список, перш ніж створювати її знову.</span>`,
+      desc: `<span style="display:block">Дані форми та вибраний чек збережуться на цьому пристрої й повернуться після входу.</span><span style="display:block;margin-top:4px">Інша чернетка −${NB(AMOUNT)} USD, надіслана о\u00a0${SENT_AT}: після входу перевірте список, перш ніж створювати її знову.</span>`,
       action: 'Увійти знову',
       cancel: 'Не зараз',
       ink: 'var(--primary)',
@@ -953,7 +961,13 @@ const menuDraftHead = (drafts) => {
  * «Чернетки» section sits on top. A draft never hides other actions.
  * On Фінанси the FAB opens a new form directly. `base`: the tab screen behind the sheet.
  */
-export function quickAddDrafts(w, h, base, drafts = [DRAFT.failed2, DRAFT.unknown], { end = false } = {}) {
+export function quickAddDrafts(
+  w,
+  h,
+  base,
+  drafts = [DRAFT.failed2, DRAFT.unknown],
+  { end = false } = {},
+) {
   // R6-10: from 3 drafts the phone sheet shows ONE draft row (the highest rank) + «Усі чернетки (N)», so the
   // new-action entries stay above the fold even at 320.
   const n = drafts.length > 2 ? 1 : 2
