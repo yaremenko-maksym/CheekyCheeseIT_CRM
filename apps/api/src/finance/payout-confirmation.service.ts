@@ -56,7 +56,7 @@ export class PayoutConfirmationService {
     // AC4: idempotency. The action is only valid on PENDING rows — a second
     // click after a successful validate would otherwise create a duplicate
     // PAYOUT row. We throw rather than silently no-op so the UI can show
-    // a clear error to the ACCOUNTANT (vs. pretending it worked twice).
+    // a clear error to the ADMIN (vs. pretending it worked twice).
     if (tx.status !== 'PENDING')
       throw apiError('FINANCE_TRANSACTION_NOT_PENDING', HttpStatus.BAD_REQUEST)
 

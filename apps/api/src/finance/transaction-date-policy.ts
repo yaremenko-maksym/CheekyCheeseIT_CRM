@@ -114,7 +114,7 @@ type ActorRole = SessionUser['role']
  * is capped by default rather than silently exempt (the denylist-vs-allowlist
  * trap this repo has already paid for once in junior project masking).
  */
-const BACKDATE_EXEMPT_ROLES: ReadonlySet<ActorRole> = new Set<ActorRole>(['ADMIN', 'ACCOUNTANT'])
+const BACKDATE_EXEMPT_ROLES: ReadonlySet<ActorRole> = new Set<ActorRole>(['ADMIN'])
 
 /**
  * Does this row record something that ALREADY happened, or something planned?

@@ -43,7 +43,7 @@ export class UsersAccessService {
     // Drop role - phase 1: DROP also has a share (drop_share_percent default 5).
     const targetIsShareRole =
       target.role === 'SENIOR' || target.role === 'ADMIN' || target.role === 'DROP'
-    // HR and ACCOUNTANT have soft-skill tech stacks ("Рекрутинг", "Account Support", "1С") —
+    // HR have soft-skill tech stacks ("Рекрутинг", "Account Support", "1С") —
     // visible like dev stacks.
     const targetHasTechStack = true
 
@@ -83,7 +83,7 @@ export class UsersAccessService {
       // share change is a narrower surface than the ACTIVE share itself —
       // task file: "ожидающее значение — только ADMIN и сам синьор". ADMIN
       // proposed it (or is about to act on it), so ADMIN sees it for any
-      // non-self target; ACCOUNTANT/HR see the ACTIVE `share` value (payroll
+      // non-self target; HR see the ACTIVE `share` value (payroll
       // need-to-know) but must NOT learn a change is even proposed — see
       // `fields.sharePending` staying unset (false) in their own branches
       // below, and `buildProfileView`'s use of this flag instead of `share`.
@@ -201,7 +201,7 @@ export class UsersAccessService {
     } else if (isHr) {
       if (await this.isHrInTargetTeam(viewer.id, target)) {
         // task-hr-rbac-teammate-access §2: differentiate the HR tab surface by
-        // target role. ACCOUNTANT / HR teammates are NOT senior/project subjects,
+        // target role. HR teammates are NOT senior/project subjects,
         // so they only expose overview + team (a lightweight teammate card) — never
         // 'projects' or 'interviews' (those are senior/project surfaces). SENIOR /
         // JUNIOR behaviour is unchanged (overview/projects/team [+interviews for
@@ -222,12 +222,12 @@ export class UsersAccessService {
         // Real contacts — HR sees contacts (email/phone/telegram), including for an
         // ACCOUNTANT / HR teammate.
         fields.realContacts = true
-        // HR can view/edit their SENIOR's or DROP's legend. ACCOUNTANT / HR targets
+        // HR can view/edit their SENIOR's or DROP's legend. HR targets
         // are not legend subjects, so this stays false for them (targetIsLegendSubject).
         fields.legend = targetIsLegendSubject
         // task-junior-ut-round2 §6: HR (sharing the target junior's team) sees +
         // edits that junior's project credentials in their profile. JUNIOR only —
-        // false for ACCOUNTANT / HR / SENIOR targets.
+        // false for HR / SENIOR targets.
         fields.projectCredentials = target.role === 'JUNIOR'
         fields.editCredentials = target.role === 'JUNIOR'
         // Financial / requisites / PII flags (salary, share, requisites, fopPii,
@@ -239,16 +239,16 @@ export class UsersAccessService {
     } else if (isSenior) {
       // SENIOR cannot view JUNIOR profiles (identity hidden per RBAC rule #1).
       // SENIOR can view profiles of other non-JUNIOR members of their own projects —
-      // but only when the target is also a project_member (HR/ACCOUNTANT in that project).
+      // but only when the target is also a project_member (HR in that project).
       // task-junior-ux-1-backend §6: SENIOR must NOT see other SENIOR/DROP profiles —
       // only JUNIOR members of their own projects are accessible (and those are blocked
       // above). In practice this means SENIOR→non-JUNIOR always gets zero tabs.
       // The isSeniorViewingOwnProjectMember helper is now restricted to JUNIOR-role
       // targets only, so SENIOR→SENIOR and SENIOR→DROP are blocked at the role check.
       if (target.role !== 'JUNIOR') {
-        // SENIOR cannot view another SENIOR, DROP, HR, ADMIN, or ACCOUNTANT profile
+        // SENIOR cannot view another SENIOR, DROP, HR, ADMIN, profile
         // via the project-member path. Zero tabs — 403 at route level.
-        // (Future: a separate "team-mate" path for HR/ACCOUNTANT could be added,
+        // (Future: a separate "team-mate" path for HR could be added,
         //  but is explicitly out of scope per task-junior-ux-1-backend §2 side-fix.)
       }
       // target.role === 'JUNIOR': intentionally fall through with no tabs (403 at route level).
@@ -280,7 +280,7 @@ export class UsersAccessService {
     // partially reverts finding B1 from #202. DROP self-view (overview+requisites,
     // Finding A) is unchanged — handled in the isSelf branch above.
     //
-    // Other JUNIOR viewing non-SENIOR/non-DROP, ACCOUNTANT, DROP viewing ANY other
+    // Other JUNIOR viewing non-SENIOR/non-DROP, DROP viewing ANY other
     // user: no tabs → 403.
 
     // task-resume-base §4: surface the 'resume' tab only on a SENIOR card (the
@@ -307,7 +307,7 @@ export class UsersAccessService {
 
   private async isHrInTargetTeam(hrId: string, target: User): Promise<boolean> {
     // Shared-team membership path: the target is visible to HR when both are
-    // active members of at least one common team. Covers SENIOR, the ACCOUNTANT /
+    // active members of at least one common team. Covers SENIOR, the
     // HR teammate-access path (task-hr-rbac-teammate-access §1) and DROP (owner
     // decision 2026-11-19: the HR of a drop-team opens its drop's profile). ADMIN is
     // never opened to HR via this branch. self is handled earlier by the isSelf

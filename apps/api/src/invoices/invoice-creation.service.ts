@@ -242,7 +242,7 @@ export class InvoiceCreationService {
     // the most precise stamp.
     const txDate = payoutTx.txDate
     // ADMIN doesn't sign contracts (see signed_contracts CHECK constraint).
-    // Counterparty is JUNIOR/HR/ACCOUNTANT/SENIOR/DROP in practice; defensive null for ADMIN.
+    // Counterparty is JUNIOR/HR/SENIOR/DROP in practice; defensive null for ADMIN.
     const contractNumber =
       counterpartyRow.role === 'ADMIN'
         ? null
@@ -334,7 +334,7 @@ export class InvoiceCreationService {
   /**
    * Trigger 2: SALARY → invoice. Called from `TransactionsService` whenever
    * a SALARY row transitions to PAID (either via createSalary with
-   * status=PAID, or via paySalary). The receiver (JUNIOR / HR / ACCOUNTANT)
+   * status=PAID, or via paySalary). The receiver (JUNIOR / HR)
    * is the counterparty.
    */
   async autoCreateForSalary(transactionId: string): Promise<void> {

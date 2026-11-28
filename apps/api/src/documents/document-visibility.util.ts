@@ -18,7 +18,7 @@ import { getHrSeniorIds, getTeammateIds } from './document-scope.util'
  *
  * Visibility (from pm-brief.md "RBAC матрица для GET", team-scoping per
  * task-file-storage-hardening §1 / owner decision 2026-08-01, corrected
- * per security-review round 1 (HIGH-1) and round 2 (ACCOUNTANT, owner
+ * per security-review round 1 (HIGH-1) and round 2 (owner
  * decision 2026-08-03) — see `docs/business/modules/documents.md` for the
  * authoritative matrix):
  *   ADMIN: any category, any ownerId
@@ -194,7 +194,7 @@ export async function buildVisibilityClause(
       // DROP can see their own uploaded CONTRACT documents (RESUME/SCAN/CONTRACT allowed per spec).
       visibleClauses.push(and(eq(documents.category, 'CONTRACT'), eq(documents.ownerId, actor.id))!)
     }
-    // JUNIOR/ACCOUNTANT see no contracts
+    // JUNIOR see no contracts
   }
 
   if (!category || category === 'RECEIPT') {

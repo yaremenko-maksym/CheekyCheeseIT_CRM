@@ -57,7 +57,7 @@ export class ProjectMembersService {
     // `leftAt` tracks PROJECT membership; `archivedAt` tracks EMPLOYMENT, and
     // the accrual question belongs to the second one.
     //
-    // Refused for every role, not just JUNIOR: HR/ACCOUNTANT memberships do
+    // Refused for every role, not just JUNIOR: HR memberships do
     // not drive the cron (their salary is role-based and that query already
     // filters `archivedAt`), but putting a dismissed person back on a live
     // project is not something this endpoint should be able to express at all.

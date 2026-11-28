@@ -37,7 +37,7 @@ export class UserArchiveService {
    * Soft-archive a user with role-specific cascade:
    *  - SENIOR: paired with their team — archives team + active projects + sets leftAt
    *    for HR/Acc team_members (but NOT for senior's own team_member row).
-   *  - HR/ACCOUNTANT: sets leftAt for their team memberships.
+   *  - HR: sets leftAt for their team memberships.
    *  - JUNIOR: sets leftAt for their project memberships (and any team_members).
    *  - ADMIN: just the user row.
    * Audit log entries written to user_audit_log + team_audit_log + project_audit_log.
@@ -82,11 +82,11 @@ export class UserArchiveService {
         //
         // task-archive-pending-modal (AC7/AC9, owner decision 2026-08-19):
         // archiving the team/projects here must NOT touch anyone ELSE's
-        // membership — HR/ACCOUNTANT on the team, JUNIOR on the projects stay
+        // membership — HR on the team, JUNIOR on the projects stay
         // exactly as they were. `archivedAt` on a TEAM/PROJECT is not the same
         // thing as `archivedAt` on a PERSON: the salary cron
         // (`TransactionsService.createMonthlySalaries`) decides whether to
-        // accrue a JUNIOR/HR/ACCOUNTANT their next PENDING salary by reading
+        // accrue a JUNIOR/HR their next PENDING salary by reading
         // ONLY their own `users.archivedAt` — never `projects.archivedAt` or
         // `teams.archivedAt` — so leaving `leftAt` untouched here is exactly
         // what keeps their pay flowing, not an oversight. An earlier revision
@@ -348,7 +348,7 @@ export class UserArchiveService {
       }
       // Projects intentionally stay archived (admin re-unarchives them
       // separately, with cascade if needed — see ProjectsService.unarchive).
-      // HR/ACCOUNTANT team_members.leftAt was never touched by archive() in
+      // HR team_members.leftAt was never touched by archive() in
       // the first place (task-archive-pending-modal AC9) — nothing to restore.
     }
   }

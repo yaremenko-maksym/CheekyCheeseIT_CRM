@@ -15,7 +15,7 @@ import { apiError } from '../common/api-error'
  *     SENIOR — ownerId == self only
  *     others — forbidden
  *   RECEIPT:
- *     ADMIN/ACCOUNTANT — any ownerId
+ *     ADMIN — any ownerId
  *     SENIOR — ownerId == self only
  *     HR / JUNIOR — forbidden
  *   AVATAR:
@@ -23,7 +23,7 @@ import { apiError } from '../common/api-error'
  *     anyone else — ownerId == self only
  *   LOGO:
  *     ADMIN/HR/SENIOR — allowed (projectId scope is enforced elsewhere)
- *     JUNIOR/ACCOUNTANT — forbidden
+ *     JUNIOR — forbidden
  */
 export function assertCanUpload(
   role: Role,
@@ -52,7 +52,7 @@ export function assertCanUpload(
       if (role === 'DROP' && isSelf) return
       throw apiError('DOCUMENT_UPLOAD_CONTRACT_RESTRICTED', HttpStatus.FORBIDDEN)
     case 'RECEIPT':
-      if (role === 'ADMIN' || role === 'ACCOUNTANT') return
+      if (role === 'ADMIN') return
       if (role === 'SENIOR') {
         if (isSelf) return
         // A senior CAN upload receipts, just not for someone else — the

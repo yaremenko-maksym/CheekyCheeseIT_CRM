@@ -8,7 +8,7 @@ import { projects, users } from '../database/schema'
 
 /**
  * Field-scoped RBAC shared by create() and update(): the senior / drop share
- * overrides and `paymentType` may only be sent by ADMIN or ACCOUNTANT (an
+ * overrides and `paymentType` may only be sent by ADMIN (an
  * explicit `null` counts as "sent"). Checked BEFORE the role gate of the
  * caller so an HR caller gets the more specific 403.
  */
@@ -19,7 +19,7 @@ export function assertFinanceFieldsAllowed(
   >,
   role: SessionUser['role'],
 ): void {
-  if (role === 'ADMIN' || role === 'ACCOUNTANT') return
+  if (role === 'ADMIN') return
   if (data.seniorSharePercentOverride !== undefined) {
     throw apiError('SENIOR_SHARE_OVERRIDE_FORBIDDEN', HttpStatus.FORBIDDEN)
   }
@@ -50,7 +50,7 @@ export async function resolveActiveDropId(
 
 /**
  * Fields an ACCOUNTANT is allowed to patch on their own: the ones the
- * field-level RBAC above already gates to ADMIN/ACCOUNTANT.
+ * field-level RBAC above already gates to ADMIN.
  */
 const FINANCE_SCOPED_FIELDS = [
   'seniorSharePercentOverride',

@@ -138,7 +138,7 @@ export function projectProfileUser(
     // wire value (`null`) — a viewer with real access (e.g. an ADMIN
     // looking at a user who simply never got a personal address) could
     // not be told apart, over the API, from a viewer who is masked from
-    // seeing it at all (e.g. ACCOUNTANT, or HR outside their own team).
+    // seeing it at all (e.g. or HR outside their own team).
     // `personalEmail`/`personalEmailCanLogin` being `null` is ONLY
     // meaningful "not set" once THIS is `true` — a consumer must check it
     // FIRST. Mirrors `permissions.fields.personalContact` exactly (it IS

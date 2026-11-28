@@ -132,7 +132,7 @@ export class TransactionTrashService {
   // ── Admin Restore ─────────────────────────────────────────────────────────
   //
   // task-soft-delete-and-money-audit. Reverses `adminDeleteTransaction` —
-  // ADMIN only (ACCOUNTANT can SEE a deleted row via the `includeDeleted`
+  // ADMIN only (ADMIN can SEE a deleted row via the `includeDeleted`
   // list toggle / a direct `findOne`, but cannot restore it). Reason is
   // mandatory for the same audit-trail reason as delete.
 
@@ -194,7 +194,7 @@ export class TransactionTrashService {
   // ATTACH/REPLACE/ONCHAIN_* entry landed in the table, but nothing in the API
   // ever read it back. "Мы пишем то, что нельзя посмотреть." ADMIN-only (the
   // journal can name any user in the system as `actorId`, including under
-  // impersonation — not a surface for ACCOUNTANT). A full audit-log UI page is
+  // impersonation). A full audit-log UI page is
   // out of scope for a security fix; this is the read endpoint that makes the
   // journal inspectable at all (e.g. via a REST client / a future admin panel).
 

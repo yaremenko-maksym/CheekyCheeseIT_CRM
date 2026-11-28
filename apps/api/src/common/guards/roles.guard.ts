@@ -12,7 +12,7 @@ import { apiError } from '../api-error'
 
 /**
  * backlog item 133 — decided (not left to default): a rejected caller used to
- * get `Доступ только для ролей: ADMIN, ACCOUNTANT`, handing an
+ * get `Доступ только для ролей: ADMIN`, handing an
  * unauthenticated-for-this-route caller the EXACT allow-list for a route it
  * just proved it cannot use. Genericized on purpose everywhere this guard is
  * used (single call site — this is the ONLY place the message is built, so

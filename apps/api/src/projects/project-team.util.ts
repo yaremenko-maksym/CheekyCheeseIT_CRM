@@ -29,9 +29,9 @@ export function buildEffectiveTeam(
 ): EffectiveTeam {
   // task-admin-as-senior: when the project's senior is an ADMIN user,
   // non-privileged viewers (SENIOR/HR/DROP) must not receive PII (email)
-  // or a navigable profile link. ADMIN/ACCOUNTANT see everything as-is.
+  // or a navigable profile link. ADMIN see everything as-is.
   const isAdminSeniorProject = project.senior?.role === 'ADMIN'
-  const isPrivilegedViewerForSenior = viewerRole === 'ADMIN' || viewerRole === 'ACCOUNTANT'
+  const isPrivilegedViewerForSenior = viewerRole === 'ADMIN'
   const maskAdminSenior = isAdminSeniorProject && !isPrivilegedViewerForSenior
 
   const senior = project.senior

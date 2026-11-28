@@ -97,7 +97,7 @@ export class UsersController {
     // anything else (including missing) = active only. Boolean kept for legacy
     // E2E + clients still expecting only `true`/absent.
     const archived: boolean | 'all' = archivedParam === 'all' ? 'all' : archivedParam === 'true'
-    return currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
+    return currentUser.role === 'ADMIN'
       ? this.usersService.findAllIncludingAdmin({ archived })
       : this.usersService.findAll({ archived })
   }
@@ -357,18 +357,18 @@ export class UsersController {
   }
 
   @Get(':id/transactions')
-  @Roles('ADMIN', 'ACCOUNTANT')
+  @Roles('ADMIN')
   async getUserTransactions(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() currentUser: SessionUser,
   ) {
     // Defense-in-depth: also assert role explicitly here so removing/reordering
     // guards or decorators cannot accidentally expose this endpoint.
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    if (currentUser.role !== 'ADMIN') {
       throw new ForbiddenException()
     }
     if (!this.transactionsService) return []
-    // ADMIN and ACCOUNTANT both see all transactions in TransactionsService.findAll,
+    // ADMIN both see all transactions in TransactionsService.findAll,
     // so we pass the real viewer — no role spoofing.
     return this.transactionsService.findAll(currentUser, { seniorId: id })
   }

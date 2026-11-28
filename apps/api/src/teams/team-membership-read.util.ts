@@ -53,10 +53,10 @@ export async function isActiveMemberOfTeam(
  * EXACT team **that was held as SENIOR**, not just any past row —
  * `team_members` carries no per-row role snapshot, so a plain
  * `leftAt IS NOT NULL` check (round-3 v1 of this method) cannot tell a
- * former SENIOR apart from a former HR/ACCOUNTANT/DROP member of the SAME
+ * former SENIOR apart from a former HR/DROP member of the SAME
  * team who was later promoted to SENIOR (role change is ADMIN-only, but
  * routine `TeamsController.addMember`/`removeMember` calls make HR/
- * ACCOUNTANT/DROP membership rows trivial to create and remove — far
+ * DROP membership rows trivial to create and remove — far
  * easier than the two SENIOR-only detach paths below).
  *
  * MED-1 (security-review round 3, follow-up to #436) — v1 tried to verify
@@ -71,7 +71,7 @@ export async function isActiveMemberOfTeam(
  * currently-active drop-team — true only because that method always also
  * archives the team in the same call, and nothing in this codebase
  * un-archives a drop-team today. A future "unarchive drop-team" feature
- * would have silently reopened the exact HR/ACCOUNTANT/DROP→SENIOR
+ * would have silently reopened the exact HR/DROP→SENIOR
  * promotion chain this method exists to close, with no test or docblock
  * flagging the dependency.
  *

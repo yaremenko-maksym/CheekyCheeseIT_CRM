@@ -112,7 +112,7 @@ export function mapTx(tx: TxWithRelations, viewer: SessionUser) {
     // RBAC identity-masking (follow-up to createdBy masking, security review
     // PR #385; same class as counterparty masking, PR #384). `validatedBy` is
     // the audit UUID of the validator — validation is ADMIN-only
-    // (`PATCH /transactions/:id/validate` is @Roles('ADMIN','ACCOUNTANT')), so
+    // (`PATCH /transactions/:id/validate` is @Roles('ADMIN')), so
     // a non-privileged viewer is NEVER the validator and the raw admin UUID
     // would otherwise leak on their own VALIDATED rows (e.g. a SENIOR seeing
     // which admin approved their SENIOR_INCOME). Disclose the real id ONLY to

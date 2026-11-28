@@ -416,7 +416,7 @@ export const transactions = pgTable(
     // task-onchain-payment-integrity. On-chain SENDER of that transfer
     // (ERC-20 `topics[1]`, tx-level `from` as fallback), lowercase. Same
     // OBSERVED-NOT-ENFORCED contract as `payout_requests.tx_from_address` —
-    // recorded for ADMIN/ACCOUNTANT audit, never a credit gate (exchange
+    // recorded for ADMIN audit, never a credit gate (exchange
     // withdrawals legitimately show the exchange's wallet). NULL wherever no
     // on-chain sender was resolved.
     txFromAddress: varchar('tx_from_address', { length: 42 }),
@@ -503,7 +503,7 @@ export const transactions = pgTable(
      * together at restore time (`restoreTransaction`, ADMIN-only).
      *
      * Visibility (owner requirement, 27.07): a deleted row is visible ONLY to
-     * ADMIN/ACCOUNTANT, and even then hidden from the default list — see the
+     * ADMIN, and even then hidden from the default list — see the
      * `TransactionsService.findAll` `includeDeleted` toggle. Every other role
      * gets a 404 (never 403) both in the list and on a direct `GET
      * /transactions/:id` — a 403 would leak that the row exists.

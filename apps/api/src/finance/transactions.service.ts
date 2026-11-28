@@ -402,8 +402,11 @@ export class TransactionsService {
           tx.type !== 'PAYOUT_ADMIN' &&
           tx.type !== 'PAYOUT_CONFIRMED',
       )
+    } else if (currentUser.role !== 'ADMIN') {
+      // Allowlist, not fall-through: ADMIN sees all; a role without a branch
+      // above (the retired until the enum drops it) sees nothing.
+      result = []
     }
-    // ADMIN see all
 
     // Apply optional filters
     if (filters?.type) result = result.filter((tx) => tx.type === filters.type)
@@ -655,10 +658,6 @@ export class TransactionsService {
 
   getSummary(currentUser: SessionUser) {
     return this.summaryService.getSummary(currentUser)
-  }
-
-  getAccountantSummary(currentUser: SessionUser) {
-    return this.summaryService.getAccountantSummary(currentUser)
   }
 
   getSeniorSummary(currentUser: SessionUser): Promise<SeniorSummaryDto> {

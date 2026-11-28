@@ -55,9 +55,7 @@ export class TransactionEntryService {
     },
     currentUser: SessionUser,
   ) {
-    // task-accountant-create-transaction. ACCOUNTANT has create-parity with
-    // ADMIN for company expenses (business doc finance.md: «ACCOUNTANT — …,
-    // расходы, …»). senderId = currentUser.id records who booked the expense.
+    // ADMIN only. senderId = currentUser.id records who booked the expense.
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
     // task-receipts-backend (review round 1, MED-2): defense-in-depth mandatory-
@@ -150,13 +148,11 @@ export class TransactionEntryService {
     },
     currentUser: SessionUser,
   ) {
-    // task-accountant-create-transaction. ACCOUNTANT has create-parity with
-    // ADMIN for salaries (business doc finance.md: «ACCOUNTANT — …, выплаты»).
-    // task-salary-no-admin-receiver (security-MED #222): ADMIN cannot receive
+    // ADMIN only. task-salary-no-admin-receiver (security-MED #222): ADMIN cannot receive
     // SALARY — their income comes via admin shares (ADMIN_INCOME / PAYOUT). The
-    // allow-list covers every salaried role: JUNIOR, HR, ACCOUNTANT (salaried
+    // allow-list covers every salaried role: JUNIOR, HR (salaried
     // employees), SENIOR and DROP (project-based contractors who may also
-    // receive a flat salary). Self-pay for ACCOUNTANT remains allowed.
+    // receive a flat salary).
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
     if (!data.idempotencyKey) {
@@ -375,36 +371,14 @@ export class TransactionEntryService {
     },
     currentUser: SessionUser,
   ) {
-    // task-accountant-create-transaction. ACCOUNTANT has create-parity with
-    // ADMIN for partner transfers. BOTH transfer parties must be ADMIN — the
-    // accountant is NEVER a party. So:
-    //   - ADMIN caller: sender defaults to self (as before).
-    //   - ACCOUNTANT caller: senderId is REQUIRED and must resolve to an ADMIN
-    //     (no implicit self-as-sender, which would book a non-ADMIN sender).
+    // ADMIN only; BOTH transfer parties are ADMIN.
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
-    const isAdminCaller = currentUser.role === 'ADMIN'
-
-    if (!isAdminCaller && !data.senderId) {
-      throw apiError('FINANCE_TRANSFER_SENDER_ID_REQUIRED', HttpStatus.BAD_REQUEST)
-    }
-
     // BIZ-06: ADMIN callers ALWAYS send from themselves — they cannot debit a
-    // partner by supplying senderId=partnerB.id. Only ACCOUNTANT recorders may
-    // specify an explicit senderId (to book a transfer that already happened
-    // between two admin partners). Ignoring the supplied senderId for ADMIN
-    // callers is intentional and matches the "ADMIN transfers from self" contract.
-    const effectiveSenderId = isAdminCaller ? currentUser.id : (data.senderId ?? currentUser.id)
-
-    // Validate the sender is an ADMIN for ACCOUNTANT-caller bookings (effectiveSenderId
-    // is always currentUser.id for ADMIN callers, so no round-trip needed there).
-    if (!isAdminCaller) {
-      const sender = await this.db.db.query.users.findFirst({
-        where: eq(users.id, effectiveSenderId),
-      })
-      if (!sender || sender.role !== 'ADMIN')
-        throw apiError('FINANCE_TRANSFER_SENDER_MUST_BE_ADMIN', HttpStatus.BAD_REQUEST)
-    }
+    // partner by supplying senderId=partnerB.id. The supplied senderId is
+    // ignored on purpose (the "ADMIN transfers from self" contract); the retired
+    // recorder role's explicit-senderId booking was deleted, not folded.
+    const effectiveSenderId = currentUser.id
 
     const receiver = await this.db.db.query.users.findFirst({
       where: eq(users.id, data.receiverId),

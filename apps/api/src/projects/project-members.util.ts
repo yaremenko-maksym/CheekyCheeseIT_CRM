@@ -36,7 +36,7 @@ export function assertNoActiveJunior(members: readonly MemberRowSlice[]): void {
   }
 }
 
-/** The last active HR / ACCOUNTANT of a project cannot be removed. */
+/** The last active HR of a project cannot be removed. */
 export function assertCanRemoveMember(
   userToRemove: { role: string } | undefined,
   members: readonly MemberRowSlice[],

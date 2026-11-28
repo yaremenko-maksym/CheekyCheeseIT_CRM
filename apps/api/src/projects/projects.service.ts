@@ -203,7 +203,7 @@ export class ProjectsService {
       // Drop role - phase 1: DROP sees only drop-projects they own.
       filtered = filtered.filter((p) => p.dropId === currentUser.id && p.archivedAt === null)
     }
-    // ADMIN, ACCOUNTANT see all
+    // ADMIN see all
 
     // task-team-senior-share-override. Batch-load team overrides for every
     // senior referenced by the filtered set so `mapProject` resolves the
@@ -275,7 +275,7 @@ export class ProjectsService {
   }
 
   async create(data: CreateProjectDto, currentUser: SessionUser) {
-    // Field-scoped RBAC (senior/drop override, paymentType: ADMIN/ACCOUNTANT only)
+    // Field-scoped RBAC (senior/drop override, paymentType: ADMIN only)
     // runs BEFORE the create-role check so an HR caller sending a finance field
     // still gets the more-specific 403.
     const role = currentUser.role
@@ -479,7 +479,7 @@ export class ProjectsService {
 
   async update(id: string, data: UpdateProjectDto, currentUser: SessionUser) {
     // Field-scoped RBAC (senior/drop override incl. explicit null, paymentType):
-    // ADMIN/ACCOUNTANT only. HR keeps full edit access to every other field.
+    // ADMIN only. HR keeps full edit access to every other field.
     // Checked BEFORE the role narrow so ACCOUNTANT-only finance patches pass.
     const role = currentUser.role
     assertFinanceFieldsAllowed(data, role)
@@ -503,7 +503,7 @@ export class ProjectsService {
     // asserted DRAFT/REJECTED visibility because at the time it was written
     // there was nothing draft-shaped to hide. Fix-round 1 (CR-M-1, SPEC-M-2)
     // started returning rejectionReason and the two ApprovalPending booleans
-    // from its response WITHOUT adding this gate, so HR/ACCOUNTANT — who
+    // from its response WITHOUT adding this gate, so HR — who
     // findOne already 404s on any non-ACTIVE project, per assertAccess's own
     // "INCLUDING ACCOUNTANT" comment below — could PATCH a field they are
     // allowed to touch (e.g. `name`) on a REJECTED project and get the full
@@ -560,7 +560,7 @@ export class ProjectsService {
     // resolve when position 5 is scoped.
 
     // Round-3 implicit-null detection (PR #39 round 2): UI больше не имеет
-    // toggle/«Сбросить» — слайдер всегда виден. Когда ADMIN/ACCOUNTANT
+    // toggle/«Сбросить» — слайдер всегда виден. Когда ADMIN
     // ставит значение === эффективному дефолту синьера, мы интерпретируем
     // это как сброс переопределения (пишем `null`). Иначе — пишем число.
     // Это касается и `projects.seniorSharePercentOverride`, и mirror в
@@ -681,7 +681,7 @@ export class ProjectsService {
     //
     // task-648-fix-round-3 (SR-L-4): gated by role, exactly like `findOne` and
     // `loadForResponse` already were. `mapProject` below masks the field for
-    // every role except ADMIN and the affected SENIOR, and ACCOUNTANT is an
+    // every role except ADMIN and the affected SENIOR, is an
     // admitted caller of this method (the propose-gate names them) — so this
     // was the third response path asking `approvals` a question whose answer
     // it then threw away, the one SR-bm-3 missed in round 2.
@@ -694,7 +694,7 @@ export class ProjectsService {
         )
       : null
     // Pass currentUser.role so mapProject can apply SENIOR dropName masking
-    // (defense-in-depth: callers of update are ADMIN/HR/ACCOUNTANT whose role
+    // (defense-in-depth: callers of update are ADMIN/HR whose role
     // never triggers the mask, but the contract is explicit and mirrors findOne/findAll).
     return this.mapProject(
       updated,

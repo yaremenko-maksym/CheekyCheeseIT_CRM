@@ -472,7 +472,7 @@ export class CompanyAccountService {
   }
 
   /**
-   * GET /api/company-account/deposits/:id/status — owner | ADMIN | ACCOUNTANT.
+   * GET /api/company-account/deposits/:id/status — owner | ADMIN.
    *
    * If the deposit is still PENDING, re-query Etherscan and refresh
    * confirmations; when it now meets the threshold (and recipient matches) flip

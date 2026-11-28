@@ -499,7 +499,7 @@ export class SalaryPaymentService {
    *   user-facing creation entry point in this file (createSalary etc.).
    */
   async createMonthlySalaries(month: string, actor?: SessionUser) {
-    // Create PENDING salary for HR and ACCOUNTANT
+    // Create PENDING salary for HR
     const hrAccountantReceivers = await this.salaryService.resolveHrAccountantSalaryReceivers()
 
     // Resolve WHO creates these rows (`createdBy`).
@@ -617,7 +617,7 @@ export class SalaryPaymentService {
     }
     if (hrAccountantFailures.length > 0) {
       this.logger.error(
-        `createMonthlySalaries: ${hrAccountantFailures.length} HR/ACCOUNTANT salary(ies) failed for month=${month}. Failed employee ids: ${hrAccountantFailures.join(', ')}`,
+        `createMonthlySalaries: ${hrAccountantFailures.length} HR salary(ies) failed for month=${month}. Failed employee ids: ${hrAccountantFailures.join(', ')}`,
       )
     }
 

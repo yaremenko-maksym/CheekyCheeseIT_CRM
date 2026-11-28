@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common'
-import { and, asc, eq, inArray, isNotNull, isNull, notExists, or } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, isNull, notExists } from 'drizzle-orm'
 // QueryBuilder assembles SQL without a client — used by
 // `salaryReceiverNotArchivedFilter` to build a correlated sub-select that some
 // OTHER statement executes. See that method for why it must not go through `db`.
@@ -150,12 +150,12 @@ export class SalaryService {
   // the only writer.
 
   /**
-   * HR / ACCOUNTANT eligible for this month's salary — unconditional on
+   * HR eligible for this month's salary — unconditional on
    * `monthlySalary` being set, same as the cron always was.
    *
    * task-finance-fix-wave1 (E-1): the `archivedAt` term is NOT decoration —
    * without it a DISMISSED employee kept being paid. `UsersService.archive`
-   * does exactly one thing for these two roles beyond stamping `archivedAt`:
+   * does exactly one thing for this role beyond stamping `archivedAt`:
    * it sets `leftAt` on their `team_members` rows. It does NOT zero
    * `monthlySalary` and does NOT change the role — so a role-only SELECT went
    * on matching them forever, the `if (!emp.monthlySalary) continue` guard
@@ -176,19 +176,19 @@ export class SalaryService {
       id: string
       email: string
       displayName: string
-      role: 'HR' | 'ACCOUNTANT'
+      role: 'HR'
       monthlySalary: string
     }>
   > {
     const employees = await this.db.db.query.users.findMany({
-      where: and(or(eq(users.role, 'HR'), eq(users.role, 'ACCOUNTANT')), isNull(users.archivedAt)),
+      where: and(eq(users.role, 'HR'), isNull(users.archivedAt)),
     })
 
     const receivers: Array<{
       id: string
       email: string
       displayName: string
-      role: 'HR' | 'ACCOUNTANT'
+      role: 'HR'
       monthlySalary: string
     }> = []
     for (const emp of employees) {
@@ -197,7 +197,7 @@ export class SalaryService {
         id: emp.id,
         email: emp.email,
         displayName: emp.displayName,
-        role: emp.role as 'HR' | 'ACCOUNTANT',
+        role: 'HR',
         monthlySalary: emp.monthlySalary,
       })
     }
@@ -225,7 +225,7 @@ export class SalaryService {
    * interchangeable, and the salary decision belongs to the second one.
    *
    * The archival term sits in the LOOP here, not in the query as it does for
-   * HR/ACCOUNTANT, for a mechanical reason: this query selects
+   * HR, for a mechanical reason: this query selects
    * `project_members` and reaches the person through a `with: { user }`
    * relation, and Drizzle's relational API cannot filter parent rows by a
    * related table's column. The loop below is already where every USER-level

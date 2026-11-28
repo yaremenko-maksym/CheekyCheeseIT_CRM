@@ -306,7 +306,7 @@ export class BalanceService {
    * only PAID transaction rows where the user is the REAL money recipient,
    * mapped per the user's role:
    *
-   *   - JUNIOR / HR / ACCOUNTANT → SALARY rows (status=PAID, receiverId=user).
+   *   - JUNIOR / HR → SALARY rows (status=PAID, receiverId=user).
    *     Salary is the only channel the company pays these roles.
    *   - SENIOR → PAID SENIOR_INCOME only (the share the senior earned through
    *     the platform; recipient = receiverId ?? senderId for legacy rows).
@@ -333,7 +333,7 @@ export class BalanceService {
     currency: BalanceCurrency = 'USD',
   ): Promise<{
     userId: string
-    role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
+    role: SessionUser['role']
     totalEarned: number
     currency: BalanceCurrency
     breakdown: Record<string, number>
@@ -353,7 +353,7 @@ export class BalanceService {
     // Only money that has actually moved counts — PAID is the single gate.
     const paidTxs = allTxs.filter((tx) => tx.status === 'PAID')
 
-    const role = target.role as 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
+    const role = target.role as SessionUser['role']
     // C-4 (AC9/AC10): accumulate in scaled integers (breakdownScaled), convert
     // to float only once at read time — same technique as every other reader
     // in this file after the C-4 fix, and as getSummary/computeDropAggregate
@@ -370,7 +370,7 @@ export class BalanceService {
       const recipient = tx.recipientId ?? tx.receiverId
       const converted = convertToBase(amt, tx.currency as BalanceCurrency, currency, rates)
 
-      if (role === 'JUNIOR' || role === 'HR' || role === 'ACCOUNTANT') {
+      if (role === 'JUNIOR' || role === 'HR') {
         // Company pays these roles only via SALARY.
         if (tx.type === 'SALARY' && tx.receiverId === targetUserId) add('salary', converted)
       } else if (role === 'SENIOR') {

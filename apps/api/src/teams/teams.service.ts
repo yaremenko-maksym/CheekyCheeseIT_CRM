@@ -142,7 +142,7 @@ export class TeamsService {
       filtered = allTeams.filter((t) =>
         t.members.some((m) => m.userId === currentUser.id && m.leftAt === null),
       )
-    } else if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    } else if (currentUser.role !== 'ADMIN') {
       // SENIOR/JUNIOR: show teams where they are a static member
       // For JUNIORs derived from projects, also include teams where their senior is
       // HIGH-1: `leftAt === null` — a soft-deleted (removed) static membership
@@ -246,7 +246,7 @@ export class TeamsService {
     // direct financial impact. Mirrors the project-level override guard in
     // ProjectsService (~:610-618). HR may update name/notes/telegram but
     // CANNOT change the financial override.
-    if (overrideChanged && currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    if (overrideChanged && currentUser.role !== 'ADMIN') {
       throw apiError('TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
@@ -521,7 +521,7 @@ export class TeamsService {
       }
     }
 
-    // AC9: HR/ACCOUNTANT team_members are NOT detached any more — see the
+    // AC9: HR team_members are NOT detached any more — see the
     // docblock above. (SENIOR was already detached above — pre-existing,
     // unrelated rotation mechanic.)
 

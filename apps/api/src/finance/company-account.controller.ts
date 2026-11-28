@@ -38,11 +38,11 @@ import { CompanyAccountService } from './company-account.service'
  * APP_GUARD) so authentication is already covered.
  *
  * Route → allowed roles:
- *   GET    /company-account              ADMIN | ACCOUNTANT
+ *   GET    /company-account              ADMIN
  *   PATCH  /company-account/wallet       ADMIN
  *   PATCH  /company-account/requisites   ADMIN
  *   POST   /company-account/deposits     SENIOR | DROP
- *   GET    /company-account/deposits/:id/status   SENIOR | DROP | ADMIN | ACCOUNTANT (owner|priv — service)
+ *   GET    /company-account/deposits/:id/status   SENIOR | DROP | ADMIN (owner|priv — service)
  *   POST   /company-account/dividends    ADMIN
  */
 @Controller('company-account')

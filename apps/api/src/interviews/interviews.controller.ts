@@ -38,7 +38,7 @@ import { InterviewsService } from './interviews.service'
  * (HR own-team only, SENIOR own-board only, IDOR guards) — that stays in the
  * service. The guard closes a previously-uncovered gap where ACCOUNTANT could
  * read any board via GET /interviews?seniorId=<uuid> (front-only gating; the
- * sidebar hid the link but the API let ACCOUNTANT/JUNIOR through with a valid
+ * sidebar hid the link but the API let JUNIOR through with a valid
  * seniorId). `assertNotDrop` is kept as a second, message-specific DROP barrier
  * even though the guard already rejects DROP — see its docblock.
  *

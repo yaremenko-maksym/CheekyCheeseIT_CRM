@@ -33,7 +33,7 @@ export class ProjectAccessService {
    * Enforces HR cross-team scoping on write paths.
    *
    * HR can only manage projects whose senior or drop belongs to one of HR's own teams.
-   * ADMIN and ACCOUNTANT are unrestricted (no-op for them).
+   * ADMIN are unrestricted (no-op for them).
    * This helper is the single enforcement point for this class of RBAC check
    * (OWASP A01: Broken Access Control — cross-team IDOR).
    *
@@ -74,7 +74,7 @@ export class ProjectAccessService {
     // "doesn't exist" from "not yet confirmed" by probing a known id
     // (existence-oracle, same reasoning `transaction-visibility.util.ts`'s
     // `assertTransactionVisible` documents for the identical choice).
-    // MUST run BEFORE the ADMIN/ACCOUNTANT early-return below, since that
+    // MUST run BEFORE the ADMIN early-return below, since that
     // return is unconditional and would otherwise leak drafts to ACCOUNTANT.
     if (project.status !== 'ACTIVE') {
       if (currentUser.role === 'ADMIN') return
@@ -86,7 +86,7 @@ export class ProjectAccessService {
       if (invited) return
       throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
-    if (currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT') return
+    if (currentUser.role === 'ADMIN') return
     if (currentUser.role === 'SENIOR' && project.seniorId === currentUser.id) return
     if (currentUser.role === 'HR' && (await this.hrCoversProject(currentUser.id, project))) return
     if (

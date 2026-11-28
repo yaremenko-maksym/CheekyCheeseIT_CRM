@@ -158,7 +158,7 @@ export class ContractTemplatesController {
    * wizard show a personalised preview before the user signs.
    *
    * Auth: ADMIN or HR only (SEC-12). ADMIN manages templates; HR manages
-   * onboarding flows. Other roles (JUNIOR / SENIOR / ACCOUNTANT / DROP) do
+   * onboarding flows. Other roles (JUNIOR / SENIOR / DROP) do
    * not need access to raw template markdown — they use the signed PDF path.
    *
    * No throttle: read-only, cheap query, no side-effects.
