@@ -110,6 +110,7 @@ export function BottomSheet({
     ownWatcher.current?.destroy()
     ownWatcher.current = null
   }
+  // Stryker disable next-line ObjectLiteral: the layout effect below overwrites it before any back can reach the listener
   const latest = React.useRef({ dismissible, onOpenChange })
   React.useLayoutEffect(() => {
     latest.current = { dismissible, onOpenChange }
@@ -119,15 +120,15 @@ export function BottomSheet({
   // A back that asked the caller to close consumed its watcher. If the caller keeps the sheet open,
   // the next render re-arms one, so that back is still caught instead of leaving the page.
   const backClosePending = React.useRef(false)
-  const [, setBackCloseCheck] = React.useState(0)
+  const [, forceRender] = React.useState({})
   const closeOnBack = (): void => {
     backClosePending.current = true
-    setBackCloseCheck((n) => n + 1)
+    forceRender({})
     latest.current.onOpenChange(false)
   }
   const armOwnWatcher = (): void => {
-    const Ctor = (window as Window & { CloseWatcher?: new () => Watcher }).CloseWatcher
-    if (!Ctor) return
+    // Only reached after a close-watcher back, which Base UI reports only when it exists.
+    const Ctor = (window as Window & { CloseWatcher: new () => Watcher }).CloseWatcher
     // Stryker disable next-line all: defensive; every caller arms after the previous watcher is gone (destroyed by Base UI's branch, or by the browser right after a non-cancelable cancel)
     destroyOwnWatcher()
     const watcher = new Ctor()

@@ -334,8 +334,12 @@ describe('BottomSheet Android back (fake CloseWatcher; happy-dom has none)', () 
   it('closing or unmounting the sheet removes its own watcher', async () => {
     const view = render(<Controlled open />)
     await screen.findByRole('dialog')
+    // Only Base UI's watcher on open: the sheet arms its own only after a back.
+    expect(watchers).toHaveLength(1)
+    const baseUi = watchers.at(-1)
     back(false)
     expect(watchers).toHaveLength(1)
+    expect(watchers.at(-1)).not.toBe(baseUi)
 
     view.rerender(<Controlled open={false} />)
     expect(watchers).toHaveLength(0)
@@ -346,6 +350,29 @@ describe('BottomSheet Android back (fake CloseWatcher; happy-dom has none)', () 
     expect(watchers).toHaveLength(1)
     view.unmount()
     expect(watchers).toHaveLength(0)
+  })
+
+  it('a sheet closed by back and opened again has exactly one watcher', async () => {
+    const onOpenChange = vi.fn()
+    const sheet = (open: boolean) => (
+      <I18nTestProvider>
+        <BottomSheet open={open} onOpenChange={onOpenChange} title="T">
+          <input aria-label="Amount" />
+        </BottomSheet>
+      </I18nTestProvider>
+    )
+    const view = render(sheet(true))
+    await screen.findByRole('dialog')
+    back(true)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    view.rerender(sheet(false))
+    await expectClosedWithNoWatcher()
+
+    view.rerender(sheet(true))
+    await screen.findByRole('dialog')
+    view.rerender(sheet(true))
+
+    expect(watchers).toHaveLength(1)
   })
 
   // After a nested sheet closes, Base UI arms the outer watcher again next to the sheet's own one.
@@ -509,6 +536,23 @@ describe('BottomSheet Android back (fake CloseWatcher; happy-dom has none)', () 
 
     expect(event.defaultPrevented).toBe(true)
     expect(layerEscape).toHaveBeenCalledTimes(1)
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it('a popper wrapper with no content yet counts as a layer', async () => {
+    const onOpenChange = await renderSheet()
+    const wrapper = document.createElement('div')
+    wrapper.setAttribute('data-radix-popper-content-wrapper', '')
+    document.body.append(wrapper)
+    // Stands in for the Radix layer, which marks the forwarded Escape handled.
+    const layerEscape = vi.fn((e: KeyboardEvent) => e.preventDefault())
+    document.addEventListener('keydown', layerEscape, true)
+    onTestFinished(() => {
+      wrapper.remove()
+      document.removeEventListener('keydown', layerEscape, true)
+    })
+
+    expect(back(true).defaultPrevented).toBe(true)
     expect(onOpenChange).not.toHaveBeenCalled()
   })
 
