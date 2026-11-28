@@ -249,6 +249,26 @@ case_red galias6 apps/web/app/lib/ga6.ts modified "const r = cfg['require']" "cf
   "a literal element access named require -> refused"
 case_red galias7 apps/web/app/lib/ga7.ts modified "use(a.parent)" "\`a.parent\` (global object) passed as a value" \
   "f(a.parent) -> refused (trade-off: tree nodes named parent are flagged too)"
+# Item 6: isGlobalExpr sees through , / ?? / || / && / ?: ; a non-literal key on a receiver that is
+# not provably local is a trigger.
+case_red gwrap1 apps/web/app/lib/gw1.ts modified "const k = 'process'; const p = (0, globalThis)[k]" \
+  "computed global member" "(0, globalThis)[k] -> refused"
+case_red gwrap2 apps/web/app/lib/gw2.ts modified "const x = null; const k = 'process'; const p = (x ?? window)[k]" \
+  "computed global member" "(x ?? window)[k] -> refused"
+case_red gwrap3 apps/web/app/lib/gw3.ts modified "const c = true, o = {}, k = 'process'; const p = (c ? self : o)[k]" \
+  "computed global member" "(c ? self : o)[k] -> refused"
+case_red gfree apps/web/app/lib/gf.ts modified "const k = 'x'; const v = someGlobal[k]" \
+  "someGlobal[<non-literal>] (receiver not provably local)" "a free name with a non-literal key -> refused"
+case_red gfree2 apps/web/app/lib/gf2.ts modified "const o = {}, k = 'x'; const v = (o || other).a[k]" \
+  "receiver not provably local" "(local || free).a[k] -> refused"
+src glocal "import { rows } from './rows'
+export function pick(items: string[], i: number, props: { m: Record<string, number> }, key: string) {
+  const map = new Map<string, number>()
+  return [items[i], props.m[key], rows[i], this?.[key], [1, 2][i], map.get(key)]
+}"
+mk glocal apps/web/app/components/gl.tsx modified
+assert_green "non-literal keys on parameters / imports / literals are NOT triggers" \
+  --contains "[not-required]" -- run glocal
 src galiasok "const top = 10
 const parent = getParent()
 const h = window.location.href

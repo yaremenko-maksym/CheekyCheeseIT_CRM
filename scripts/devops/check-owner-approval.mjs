@@ -355,8 +355,7 @@ export function scanCode(filename, content, aliases) {
       T.isExportAssignment(p)
     )
   }
-  // `window`, `a.self`, `x['top']`, through parentheses / casts.
-  const isGlobalExpr = (n) => {
+  const unwrap = (n) => {
     while (
       T.isParenthesizedExpression(n) ||
       T.isAsExpression(n) ||
@@ -365,6 +364,20 @@ export function scanCode(filename, content, aliases) {
       T.isSatisfiesExpression(n)
     )
       n = n.expression
+    return n
+  }
+  // The expressions a value may come from: both sides of `,` / `??` / `||` / `&&`, both branches
+  // of `?:` (the same wrappers passedAsValue sees through).
+  const sources = (n) => {
+    n = unwrap(n)
+    if (T.isBinaryExpression(n) && WRAP_OPS.includes(n.operatorToken.kind))
+      return [...sources(n.left), ...sources(n.right)]
+    if (T.isConditionalExpression(n)) return [...sources(n.whenTrue), ...sources(n.whenFalse)]
+    return [n]
+  }
+  // `window`, `a.self`, `x['top']`, `(0, globalThis)`, `(x ?? window)`, `(c ? self : o)`.
+  const isGlobalExpr = (n) => sources(n).some(isGlobalLeaf)
+  const isGlobalLeaf = (n) => {
     if (T.isIdentifier(n)) return GLOBAL_OBJECTS.has(n.text)
     if (T.isPropertyAccessExpression(n)) return GLOBAL_PROPS.has(n.name.text)
     return (
@@ -373,6 +386,55 @@ export function scanCode(filename, content, aliases) {
       GLOBAL_PROPS.has(n.argumentExpression.text)
     )
   }
+  // Master addendum 5 item 6: a non-literal element access is a trigger unless its receiver is
+  // provably a local object — every source's root (the start of its member / call chain) is
+  // `this`, a literal, or a name declared in this file. A free name (`Math[k]`, `top[k]`) is not.
+  // shortcut: declarations are collected file-wide, not per scope — a name declared anywhere in
+  // the file counts as local; upgrade to a scope walk if a shadowing bypass is ever shown.
+  const declared = new Set(['arguments', 'undefined'])
+  const collect = (node) => {
+    const name = node.name
+    if (
+      name &&
+      T.isIdentifier(name) &&
+      (T.isVariableDeclaration(node) ||
+        T.isParameter(node) ||
+        T.isBindingElement(node) ||
+        T.isFunctionDeclaration(node) ||
+        T.isFunctionExpression(node) ||
+        T.isClassDeclaration(node) ||
+        T.isClassExpression(node) ||
+        T.isEnumDeclaration(node) ||
+        T.isModuleDeclaration(node) ||
+        T.isImportClause(node) ||
+        T.isNamespaceImport(node) ||
+        T.isImportSpecifier(node) ||
+        T.isImportEqualsDeclaration(node))
+    )
+      declared.add(name.text)
+    T.forEachChild(node, collect)
+  }
+  collect(sf)
+  const rootOf = (n) => {
+    for (;;) {
+      n = unwrap(n)
+      if (
+        T.isPropertyAccessExpression(n) ||
+        T.isElementAccessExpression(n) ||
+        T.isCallExpression(n) ||
+        T.isTaggedTemplateExpression(n)
+      )
+        n = T.isTaggedTemplateExpression(n) ? n.tag : n.expression
+      else return n
+    }
+  }
+  const isLocalReceiver = (n) =>
+    sources(n).every((src) => {
+      const r = rootOf(src)
+      if (T.isIdentifier(r)) return declared.has(r.text) && !GLOBAL_OBJECTS.has(r.text)
+      if (sources(r).length > 1) return isLocalReceiver(r) // `(x ?? window).a[k]`
+      return true // `this`, a literal, `new X()`, an array / object literal
+    })
   if (sf.parseDiagnostics?.length)
     out.push({
       kind: 'unparseable',
@@ -442,6 +504,12 @@ export function scanCode(filename, content, aliases) {
         push('loader-alias', node, `${obj.getText(sf)}['${key}']`)
       } else if (key !== null && GLOBAL_PROPS.has(key) && passedAsValue(node)) {
         push('loader-alias', node, `\`${node.getText(sf)}\` (global object) passed as a value`)
+      } else if (key === null && !isLocalReceiver(obj)) {
+        push(
+          'loader-alias',
+          node,
+          `${obj.getText(sf)}[<non-literal>] (receiver not provably local)`,
+        )
       }
     }
     T.forEachChild(node, visit)
