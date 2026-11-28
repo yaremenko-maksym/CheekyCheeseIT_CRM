@@ -1,6 +1,6 @@
 // Primitives v2, part 2: ResponsiveSheet on tablet/desktop, toasts, upload indicator, skeletons,
 // chart theme, pull-to-refresh, page-transition storyboard.
-import { fileName, icon, phone, safeBottom, segmented } from './base.mjs'
+import { icon, phone, safeBottom, segmented } from './base.mjs'
 // R5-30: the delta names the comparison in full (wrap allowed) and shows on every class (primitives-v2 §6).
 const DELTA = '▲ 12% до попереднього періоду'
 import {
@@ -370,7 +370,7 @@ const ring = (pct, size = 36) => {
 export function uploadStates(w, h) {
   const thumb = `<div style="width:44px;height:52px;border-radius:8px;background:linear-gradient(160deg,oklch(0.86 0 0),oklch(0.7 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px;flex:none"></div>`
   const row = (title, sub, trail, subStyle = '') =>
-    `<div class="lrow two" style="--inset:72px">${thumb}<div class="grow col" style="gap:2px;min-width:0">${/\.\w{3,4}$/.test(title) ? fileName(title, 't-body', 'font-weight:500') : `<div class="t-body clamp2" style="font-weight:500">${title}</div>`}<div class="t-foot num" style="overflow-wrap:anywhere;${subStyle || 'color:var(--muted-fg)'}">${sub}</div></div>${trail}</div>`
+    `<div class="lrow two" style="--inset:72px">${thumb}<div class="grow col" style="gap:2px;min-width:0">${/\.\w{3,4}$/.test(title) ? `<div class="t-body" data-file title="${title}" style="font-weight:500;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${title}</div>` /* R5-31: a name wraps to two lines before it middle-ellipsizes */ : `<div class="t-body clamp2" style="font-weight:500">${title}</div>`}<div class="t-foot num" style="overflow-wrap:anywhere;${subStyle || 'color:var(--muted-fg)'}">${sub}</div></div>${trail}</div>`
   const inner = `${topBar({ back: true, title: 'Чеки', bell: false, search: false })}<div class="content">
   <div class="sechead"><span class="t-over">Стани завантаження</span></div><div class="group">
   ${row('receipt-office.jpg', 'Завантаження · 62% · 0,9 з 1,4 МБ', `<span class="row" style="gap:6px">${ring(62)}<span class="iconbtn" aria-label="Скасувати завантаження">${icon('x', { size: 18 })}</span></span>`)}

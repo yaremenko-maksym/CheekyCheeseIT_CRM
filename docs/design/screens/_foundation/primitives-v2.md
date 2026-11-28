@@ -509,148 +509,153 @@ instant, sheet 280 ms up / 150 ms down, side panel 280 ms in / 150 ms out, dialo
 
 ## 8. Frames (all PNG under `assets/primitives-v2/`)
 
-133 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
+142 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
 PNG is ≤ 400 KB.
 
 | Frame                                     | Viewport (CSS px) | PNG (px)    |  KB | Round             |
 | ----------------------------------------- | ----------------- | ----------- | --: | ----------------- |
 | `sheet-medium-375`                        | 375 × 812         | 750 × 1624  |  42 | re-rendered (r2)  |
 | `sheet-medium-320`                        | 320 × 568         | 640 × 1136  |  27 | re-rendered (r2)  |
-| `sheet-large-375`                         | 375 × 812         | 750 × 1624  |  34 | re-rendered (r2)  |
-| `sheet-confirm-375`                       | 375 × 812         | 750 × 1624  |  50 | re-rendered (r2)  |
-| `listrow-variants-375`                    | 375 × 812         | 750 × 1624  |  44 | re-rendered (r2)  |
-| `listrow-swipe-375`                       | 375 × 812         | 750 × 1624  |  43 | re-rendered (r2)  |
-| `listrow-sticky-320`                      | 320 × 568         | 640 × 1136  |  50 | re-rendered (r2)  |
+| `sheet-large-375`                         | 375 × 812         | 750 × 1624  |  34 | re-rendered (r6)  |
+| `sheet-confirm-375`                       | 375 × 812         | 750 × 1624  |  53 | re-rendered (r6)  |
+| `listrow-variants-375`                    | 375 × 812         | 750 × 1624  |  43 | re-rendered (r6)  |
+| `listrow-swipe-375`                       | 375 × 812         | 750 × 1624  |  43 | re-rendered (r6)  |
+| `listrow-sticky-320`                      | 320 × 568         | 640 × 1136  |  50 | re-rendered (r6)  |
 | `listrow-empty-error-375`                 | 375 × 812         | 750 × 1624  |  47 | re-rendered (r2)  |
-| `listrow-768`                             | 768 × 644         | 1536 × 1288 |  62 | re-rendered (r2)  |
-| `listrow-1440`                            | 1440 × 420        | 1440 × 420  |  24 |                   |
+| `listrow-768`                             | 768 × 640 (full)  | 1536 × 1288 |  62 | re-rendered (r2)  |
+| `listrow-1440`                            | 1440 × 420 (full) | 1440 × 420  |  24 |                   |
 | `section-header-375`                      | 375 × 812         | 750 × 1624  |  41 | re-rendered (r2)  |
-| `form-states-375`                         | 375 × 812         | 750 × 1624  |  35 | re-rendered (r2)  |
-| `form-add-user-375`                       | 375 × 812         | 750 × 1624  |  24 |                   |
+| `form-states-375`                         | 375 × 812         | 750 × 1624  |  36 | re-rendered (r6)  |
+| `form-add-user-375`                       | 375 × 812         | 750 × 1624  |  24 | re-rendered (r6)  |
 | `detail-txn-375`                          | 375 × 812         | 750 × 1624  |  41 |                   |
+| `detail-txn-scrolled-320`                 | 320 × 568         | 640 × 1136  |  30 | new (r6)          |
 | `detail-txn-receipt-375`                  | 375 × 812         | 750 × 1624  |  35 |                   |
 | `detail-person-375`                       | 375 × 812         | 750 × 1624  |  28 |                   |
-| `formfield-768`                           | 768 × 500         | 1536 × 1000 |  41 | re-rendered (r2)  |
-| `formfield-1440`                          | 1440 × 360        | 1440 × 360  |  16 | re-rendered (r2)  |
+| `formfield-768`                           | 768 × 500 (full)  | 1536 × 1000 |  41 | re-rendered (r2)  |
+| `formfield-1440`                          | 1440 × 360 (full) | 1440 × 360  |  16 | re-rendered (r2)  |
 | `form-money-375`                          | 375 × 812         | 750 × 1624  |  29 | re-rendered (r2)  |
 | `form-receipt-link-375`                   | 375 × 812         | 750 × 1624  |  33 |                   |
 | `form-receipt-usdt-375`                   | 375 × 812         | 750 × 1624  |  35 |                   |
 | `form-receipt-usdt-empty-375`             | 375 × 812         | 750 × 1624  |  35 |                   |
 | `form-receipt-usdt-file-375`              | 375 × 812         | 750 × 1624  |  37 | re-rendered (r2)  |
-| `picker-sheet-375`                        | 375 × 812         | 750 × 1624  |  41 | re-rendered (R12) |
-| `form-longtext-375`                       | 375 × 667         | 750 × 1334  |  48 |                   |
-| `form-keyboard-375`                       | 375 × 812         | 750 × 1624  |  35 |                   |
+| `picker-sheet-375`                        | 375 × 812         | 750 × 1624  |  41 | re-rendered (r6)  |
+| `form-longtext-375`                       | 375 × 667         | 750 × 1334  |  48 | re-rendered (r6)  |
+| `form-keyboard-375`                       | 375 × 812         | 750 × 1624  |  35 | re-rendered (r6)  |
 | `sheet-panel-768`                         | 768 × 1024        | 768 × 1024  |  48 | re-rendered (r2)  |
+| `save-error-offline-768`                  | 768 × 1024        | 768 × 1024  |  50 | re-rendered (r6)  |
+| `save-error-definite-1024`                | 1024 × 768        | 1024 × 768  |  51 | new (r5)          |
 | `sheet-panel-1024`                        | 1024 × 768        | 1024 × 768  |  49 | re-rendered (r2)  |
 | `sheet-panel-1440`                        | 1440 × 900        | 1440 × 900  |  72 | re-rendered (r2)  |
 | `sheet-confirm-dialog-1024`               | 1024 × 768        | 1024 × 768  |  54 | re-rendered (r2)  |
-| `listrow-table-desktop`                   | 960 × 300         | 1920 × 600  |  33 |                   |
+| `listrow-table-desktop`                   | 960 × 300 (full)  | 1920 × 600  |  33 |                   |
 | `toast-undo-375`                          | 375 × 812         | 750 × 1624  |  56 | re-rendered (r2)  |
 | `toast-undo-768`                          | 768 × 1024        | 768 × 1024  |  30 | re-rendered (r2)  |
 | `toast-undo-1440`                         | 1440 × 900        | 1440 × 900  |  35 | re-rendered (r2)  |
 | `save-failure-definite-375`               | 375 × 812         | 750 × 1624  |  38 | re-rendered (R12) |
 | `save-failure-unknown-375`                | 375 × 812         | 750 × 1624  |  45 |                   |
 | `save-failure-unknown-list-375`           | 375 × 812         | 750 × 1624  |  54 | re-rendered (r2)  |
-| `save-failure-unknown-match-375`          | 375 × 812         | 750 × 1624  |  60 | re-rendered (r2)  |
+| `save-failure-unknown-match-375`          | 375 × 812         | 750 × 1624  |  60 | re-rendered (r6)  |
 | `save-failure-unknown-empty-375`          | 375 × 812         | 750 × 1624  |  40 | re-rendered (r2)  |
 | `save-failure-unknown-refetch-failed-375` | 375 × 812         | 750 × 1624  |  33 | re-rendered (r2)  |
 | `form-receipt-failed-375`                 | 375 × 812         | 750 × 1624  |  38 |                   |
 | `save-failure-offline-375`                | 375 × 812         | 750 × 1624  |  39 |                   |
-| `upload-pill-armed-375`                   | 375 × 812         | 750 × 1624  |  61 | re-rendered (r2)  |
-| `upload-pill-saved-375`                   | 375 × 812         | 750 × 1624  |  60 | re-rendered (r2)  |
-| `upload-pill-failed-375`                  | 375 × 812         | 750 × 1624  |  61 | re-rendered (r2)  |
-| `upload-pill-multi-375`                   | 375 × 812         | 750 × 1624  |  62 | re-rendered (r2)  |
-| `upload-pill-inflight-375`                | 375 × 812         | 750 × 1624  |  61 | re-rendered (r2)  |
-| `upload-pill-unknown-375`                 | 375 × 812         | 750 × 1624  |  60 | re-rendered (r2)  |
-| `drafts-two-375`                          | 375 × 812         | 750 × 1624  |  59 | re-rendered (r2)  |
-| `drafts-two-unresolved-375`               | 375 × 812         | 750 × 1624  |  58 | re-rendered (r2)  |
-| `drafts-four-collapsed-375`               | 375 × 812         | 750 × 1624  |  55 | re-rendered (r2)  |
-| `quick-add-drafts-375`                    | 375 × 812         | 750 × 1624  |  49 | re-rendered (r2)  |
-| `quick-add-drafts-three-320`              | 320 × 568         | 640 × 1136  |  36 | re-rendered (r2)  |
-| `toast-pill-stack-375`                    | 375 × 812         | 750 × 1624  |  61 | re-rendered (r2)  |
-| `state-page-kill-375`                     | 375 × 812         | 750 × 1624  |  52 | re-rendered (r2)  |
-| `alert-pagekill-sent-375`                 | 375 × 812         | 750 × 1624  |  54 | re-rendered (r2)  |
-| `check-sheet-boot-375`                    | 375 × 812         | 750 × 1624  |  53 | re-rendered (r2)  |
-| `alert-pagekill-failed-375`               | 375 × 812         | 750 × 1624  |  52 | re-rendered (r2)  |
-| `save-failure-unknown-similar-375`        | 375 × 812         | 750 × 1624  |  55 | re-rendered (r2)  |
-| `confirm-recreate-375`                    | 375 × 812         | 750 × 1624  |  60 | re-rendered (r2)  |
+| `upload-pill-armed-375`                   | 375 × 812         | 750 × 1624  |  61 | re-rendered (r6)  |
+| `upload-pill-saved-375`                   | 375 × 812         | 750 × 1624  |  60 | re-rendered (r6)  |
+| `upload-pill-failed-375`                  | 375 × 812         | 750 × 1624  |  62 | re-rendered (r6)  |
+| `upload-pill-multi-375`                   | 375 × 812         | 750 × 1624  |  62 | re-rendered (r6)  |
+| `upload-pill-inflight-375`                | 375 × 812         | 750 × 1624  |  61 | re-rendered (r6)  |
+| `upload-pill-unknown-375`                 | 375 × 812         | 750 × 1624  |  60 | re-rendered (r6)  |
+| `upload-pill-saved-over-failed-375`       | 375 × 812         | 750 × 1624  |  60 | re-rendered (r6)  |
+| `upload-pill-saved-over-armed-375`        | 375 × 812         | 750 × 1624  |  61 | new (r6)          |
+| `drafts-two-375`                          | 375 × 812         | 750 × 1624  |  60 | re-rendered (r6)  |
+| `drafts-two-unresolved-375`               | 375 × 812         | 750 × 1624  |  58 | re-rendered (r6)  |
+| `drafts-four-collapsed-375`               | 375 × 812         | 750 × 1624  |  55 | re-rendered (r6)  |
+| `quick-add-drafts-375`                    | 375 × 812         | 750 × 1624  |  48 | re-rendered (r6)  |
+| `quick-add-drafts-three-320`              | 320 × 568         | 640 × 1136  |  34 | re-rendered (r6)  |
+| `quick-add-drafts-three-end-320`          | 320 × 568         | 640 × 1136  |  34 | new (r6)          |
+| `pill-scrolled-375`                       | 375 × 812         | 750 × 1624  |  64 | new (r6)          |
+| `toast-pill-stack-375`                    | 375 × 812         | 750 × 1624  |  61 | re-rendered (r6)  |
+| `state-page-kill-375`                     | 375 × 812         | 750 × 1624  |  52 | re-rendered (r6)  |
+| `alert-pagekill-sent-375`                 | 375 × 812         | 750 × 1624  |  54 | re-rendered (r6)  |
+| `check-sheet-boot-375`                    | 375 × 812         | 750 × 1624  |  53 | re-rendered (r6)  |
+| `alert-pagekill-failed-375`               | 375 × 812         | 750 × 1624  |  52 | re-rendered (r6)  |
+| `save-failure-unknown-similar-375`        | 375 × 812         | 750 × 1624  |  56 | re-rendered (r6)  |
+| `confirm-recreate-375`                    | 375 × 812         | 750 × 1624  |  60 | re-rendered (r6)  |
 | `alert-session-expired-375`               | 375 × 812         | 750 × 1624  |  47 | re-rendered (r2)  |
-| `confirm-discard-draft-375`               | 375 × 812         | 750 × 1624  |  43 | re-rendered (r2)  |
-| `listrow-draft-375`                       | 375 × 812         | 750 × 1624  |  56 | re-rendered (r2)  |
-| `upload-states-375`                       | 375 × 812         | 750 × 1624  |  64 |                   |
+| `form-restored-375`                       | 375 × 812         | 750 × 1624  |  39 | re-rendered (r6)  |
+| `signout-confirm-375`                     | 375 × 812         | 750 × 1624  |  33 | re-rendered (r6)  |
+| `signout-confirm-768`                     | 768 × 1024        | 768 × 1024  |  50 | re-rendered (r6)  |
+| `signout-confirm-1440`                    | 1440 × 900        | 1440 × 900  |  68 | re-rendered (r6)  |
+| `upload-pill-saved-over-failed-768`       | 768 × 1024        | 768 × 1024  |  52 | new (r6)          |
+| `confirm-discard-draft-375`               | 375 × 812         | 750 × 1624  |  43 | re-rendered (r6)  |
+| `listrow-draft-375`                       | 375 × 812         | 750 × 1624  |  56 | re-rendered (r6)  |
+| `upload-states-375`                       | 375 × 812         | 750 × 1624  |  66 | re-rendered (r6)  |
 | `upload-pill-768`                         | 768 × 1024        | 768 × 1024  |  47 | re-rendered (r2)  |
 | `upload-pill-1440`                        | 1440 × 900        | 1440 × 900  |  64 | re-rendered (r2)  |
-| `drafts-desktop-1440`                     | 1440 × 900        | 1440 × 900  |  64 | re-rendered (r2)  |
-| `drafts-chooser-1440`                     | 1440 × 900        | 1440 × 900  |  38 | re-rendered (r2)  |
-| `drafts-chooser-768`                      | 768 × 1024        | 768 × 1024  |  35 | re-rendered (r2)  |
+| `drafts-desktop-1440`                     | 1440 × 900        | 1440 × 900  |  64 | re-rendered (r6)  |
+| `drafts-chooser-1440`                     | 1440 × 900        | 1440 × 900  |  39 | re-rendered (r6)  |
+| `drafts-chooser-768`                      | 768 × 1024        | 768 × 1024  |  35 | re-rendered (r6)  |
 | `check-dialog-1024`                       | 1024 × 768        | 1024 × 768  |  58 | re-rendered (r2)  |
-| `skeleton-mobile-375`                     | 375 × 812         | 750 × 1624  |  28 | re-rendered (r2)  |
-| `skeleton-768`                            | 768 × 1024        | 768 × 1024  |  27 | re-rendered (r2)  |
+| `skeleton-mobile-375`                     | 375 × 812         | 750 × 1624  |  28 | re-rendered (r6)  |
+| `skeleton-768`                            | 768 × 1024        | 768 × 1024  |  27 | re-rendered (r6)  |
 | `skeleton-1440`                           | 1440 × 900        | 1440 × 900  |  41 | re-rendered (r2)  |
-| `board-1440`                              | 1440 × 900        | 1440 × 900  |  53 | re-rendered (r2)  |
-| `board-768`                               | 768 × 1024        | 768 × 1024  |  33 | re-rendered (r2)  |
+| `board-1440`                              | 1440 × 900        | 1440 × 900  |  52 | re-rendered (r6)  |
+| `board-768`                               | 768 × 1024        | 768 × 1024  |  33 | re-rendered (r6)  |
 | `board-stage-sheet-375`                   | 375 × 812         | 750 × 1624  |  25 |                   |
 | `board-undo-375`                          | 375 × 812         | 750 × 1624  |  53 | re-rendered (r2)  |
 | `board-hire-confirm-375`                  | 375 × 812         | 750 × 1624  |  45 | new (R12)         |
-| `skeleton-table-desktop`                  | 960 × 452         | 1920 × 904  |  25 |                   |
-| `list-footer-375`                         | 375 × 645         | 750 × 1290  |  46 | re-rendered (r2)  |
-| `list-footer-320`                         | 320 × 645         | 640 × 1290  |  44 | re-rendered (r2)  |
-| `search-paged-375`                        | 375 × 812         | 750 × 1624  |  36 | re-rendered (r2)  |
-| `chart-mobile-375`                        | 375 × 812         | 750 × 1624  |  39 | re-rendered (r2)  |
-| `chart-mobile-scrolled-375`               | 375 × 812         | 750 × 1624  |  29 | re-rendered (r2)  |
-| `chart-mobile-320`                        | 320 × 568         | 640 × 1136  |  31 | re-rendered (r2)  |
-| `chart-desktop`                           | 1200 × 517        | 2400 × 1034 |  62 | re-rendered (r2)  |
-| `transition-storyboard`                   | 900 × 3902        | 900 × 3902  | 150 | re-rendered (r2)  |
-| `ptr-armed-375`                           | 375 × 480         | 750 × 960   |  27 | re-rendered (r2)  |
-| `ptr-done-375`                            | 375 × 480         | 750 × 960   |  30 | re-rendered (r2)  |
+| `skeleton-table-desktop`                  | 960 × 420 (full)  | 1920 × 904  |  25 |                   |
+| `list-footer-375`                         | 375 × 600 (full)  | 750 × 1290  |  46 | re-rendered (r2)  |
+| `list-footer-320`                         | 320 × 600 (full)  | 640 × 1290  |  44 | re-rendered (r2)  |
+| `search-paged-375`                        | 375 × 812         | 750 × 1624  |  37 | re-rendered (r6)  |
+| `chart-mobile-375`                        | 375 × 812         | 750 × 1624  |  36 | re-rendered (r6)  |
+| `chart-mobile-scrolled-375`               | 375 × 812         | 750 × 1624  |  28 | re-rendered (r6)  |
+| `chart-mobile-tapped-375`                 | 375 × 812         | 750 × 1624  |  38 | re-rendered (r6)  |
+| `chart-mobile-320`                        | 320 × 568         | 640 × 1136  |  36 | re-rendered (r6)  |
+| `chart-desktop`                           | 1200 × 420 (full) | 2400 × 1042 |  64 | re-rendered (r6)  |
 | `ptr-pulling-375`                         | 375 × 480         | 750 × 960   |  26 | re-rendered (r2)  |
+| `ptr-armed-375`                           | 375 × 480         | 750 × 960   |  27 | re-rendered (r2)  |
 | `ptr-refreshing-375`                      | 375 × 480         | 750 × 960   |  26 | re-rendered (r2)  |
+| `ptr-done-375`                            | 375 × 480         | 750 × 960   |  30 | re-rendered (r2)  |
+| `transition-storyboard`                   | 900 × 1200 (full) | 900 × 3902  | 151 | re-rendered (r6)  |
 | `sheet-panel-1920`                        | 1920 × 1080       | 1920 × 1080 |  78 | re-rendered (r2)  |
 | `sheet-confirm-dialog-768`                | 768 × 1024        | 768 × 1024  |  45 | re-rendered (r2)  |
-| `sheet-dirty-close-375`                   | 375 × 812         | 750 × 1624  |  36 | new (council r1)  |
+| `sheet-dirty-close-375`                   | 375 × 812         | 750 × 1624  |  38 | re-rendered (r6)  |
 | `picker-popover-768`                      | 768 × 1024        | 768 × 1024  |  49 | re-rendered (r2)  |
-| `picker-combobox-1440`                    | 1440 × 900        | 1440 × 900  |  41 | re-rendered (r2)  |
+| `picker-combobox-1440`                    | 1440 × 900        | 1440 × 900  |  41 | re-rendered (r6)  |
 | `datepicker-sheet-375`                    | 375 × 812         | 750 × 1624  |  35 | re-rendered (r2)  |
-| `datepicker-popover-768`                  | 768 × 1024        | 768 × 1024  |  39 | re-rendered (r2)  |
+| `datepicker-popover-768`                  | 768 × 1024        | 768 × 1024  |  39 | re-rendered (r6)  |
 | `datepicker-popover-1440`                 | 1440 × 900        | 1440 × 900  |  48 | re-rendered (r2)  |
+| `datepicker-popover-touch-1180`           | 1180 × 820        | 1180 × 820  |  43 | re-rendered (r6)  |
 | `banner-stack-375`                        | 375 × 812         | 750 × 1624  |  57 | re-rendered (r2)  |
-| `banner-stack-768`                        | 768 × 1024        | 768 × 1024  |  34 | re-rendered (r2)  |
-| `banner-stack-1440`                       | 1440 × 900        | 1440 × 900  |  38 | re-rendered (r2)  |
+| `banner-stack-768`                        | 768 × 1024        | 768 × 1024  |  34 | re-rendered (r6)  |
+| `banner-stack-1440`                       | 1440 × 900        | 1440 × 900  |  38 | re-rendered (r6)  |
 | `state-empty-768`                         | 768 × 1024        | 768 × 1024  |  21 | re-rendered (r2)  |
 | `state-error-768`                         | 768 × 1024        | 768 × 1024  |  22 | re-rendered (r2)  |
 | `state-empty-1440`                        | 1440 × 900        | 1440 × 900  |  29 | re-rendered (r2)  |
 | `state-error-1440`                        | 1440 × 900        | 1440 × 900  |  30 | re-rendered (r2)  |
-| `alert-session-expired-1440`              | 1440 × 900        | 1440 × 900  |  47 | re-rendered (r2)  |
+| `page-kill-768`                           | 768 × 1024        | 768 × 1024  |  46 | new (r3)          |
+| `page-kill-1440`                          | 1440 × 900        | 1440 × 900  |  66 | new (r3)          |
+| `alert-session-expired-1440`              | 1440 × 900        | 1440 × 900  |  48 | re-rendered (r6)  |
 | `state-empty-readonly-375`                | 375 × 812         | 750 × 1624  |  28 | re-rendered (r2)  |
-| `formfield-error-320`                     | 320 × 568         | 640 × 1136  |  19 | new (council r1)  |
+| `formfield-error-320`                     | 320 × 568         | 640 × 1136  |  20 | re-rendered (r6)  |
 | `toast-undo-320`                          | 320 × 568         | 640 × 1136  |  41 | re-rendered (r2)  |
 | `chart-768`                               | 768 × 1024        | 768 × 1024  |  25 | re-rendered (r2)  |
 | `list-footer-768`                         | 768 × 1024        | 768 × 1024  |  40 | re-rendered (r2)  |
 | `list-footer-1440`                        | 1440 × 900        | 1440 × 900  |  64 | re-rendered (r2)  |
 | `row-menu-768`                            | 768 × 1024        | 768 × 1024  |  46 | re-rendered (r2)  |
-| `detail-readonly-1000`                    | 1000 × 800        | 1000 × 800  |  32 | re-rendered (r2)  |
-| `account-menu-1440`                       | 1440 × 900        | 1440 × 900  |  64 | new (r2)          |
-| `account-menu-768`                        | 768 × 1024        | 768 × 1024  |  48 | new (r2)          |
-| `alert-session-expired-768`               | 768 × 1024        | 768 × 1024  |  36 | new (r2)          |
-| `check-dialog-768`                        | 768 × 1024        | 768 × 1024  |  51 | new (r2)          |
-| `datepicker-popover-touch-1180`           | 1180 × 820        | 1180 × 820  |  43 | new (r2)          |
 | `row-menu-1440`                           | 1440 × 900        | 1440 × 900  |  63 | new (r2)          |
+| `account-menu-768`                        | 768 × 1024        | 768 × 1024  |  48 | new (r2)          |
+| `account-menu-1440`                       | 1440 × 900        | 1440 × 900  |  64 | new (r2)          |
 | `save-failure-unknown-768`                | 768 × 1024        | 768 × 1024  |  52 | new (r2)          |
+| `check-dialog-768`                        | 768 × 1024        | 768 × 1024  |  51 | new (r2)          |
+| `alert-session-expired-768`               | 768 × 1024        | 768 × 1024  |  36 | new (r2)          |
 | `unresolved-draft-768`                    | 768 × 1024        | 768 × 1024  |  49 | new (r2)          |
-| `form-restored-375`                       | 375 × 812         | 750 × 1624  |  39 | new (r3)          |
-| `page-kill-1440`                          | 1440 × 900        | 1440 × 900  |  66 | new (r3)          |
-| `page-kill-768`                           | 768 × 1024        | 768 × 1024  |  46 | new (r3)          |
-| `signout-confirm-1440`                    | 1440 × 900        | 1440 × 900  |  67 | new (r3)          |
-| `signout-confirm-375`                     | 375 × 812         | 750 × 1624  |  36 | new (r3)          |
-| `signout-confirm-768`                     | 768 × 1024        | 768 × 1024  |  49 | new (r3)          |
-| `confirm-recreate-768`                    | 768 × 1024        | 768 × 1024  |  53 | new (r4)          |
-| `confirm-recreate-1440`                   | 1440 × 900        | 1440 × 900  |  66 | new (r4)          |
+| `detail-readonly-1000`                    | 1000 × 800        | 1000 × 800  |  32 | re-rendered (r2)  |
+| `confirm-recreate-768`                    | 768 × 1024        | 768 × 1024  |  53 | re-rendered (r6)  |
+| `confirm-recreate-1440`                   | 1440 × 900        | 1440 × 900  |  66 | re-rendered (r6)  |
 | `timefield-375`                           | 375 × 812         | 750 × 1624  |  18 | new (r4)          |
 | `search-paged-states-375`                 | 375 × 812         | 750 × 1624  |  25 | new (r4)          |
-| `chart-mobile-tapped-375`                 | 375 × 812         | 750 × 1624  |  39 | new (r5)          |
-| `save-error-definite-1024`                | 1024 × 768        | 1024 × 768  |  51 | new (r5)          |
-| `save-error-offline-768`                  | 768 × 1024        | 768 × 1024  |  50 | new (r5)          |
-| `upload-pill-saved-over-failed-375`       | 375 × 812         | 750 × 1624  |  60 | new (r5)          |
 
 Contact sheets: `_contact-sheet.png` (phones), `_contact-sheet-wide.png` (768 / 1024 / 1440 and boards),
 `_contact-sheet-detail.png` (`chart-desktop` and `transition-storyboard` at native size).
@@ -908,7 +913,7 @@ Columns follow the **container**, not the viewport (R1-07): one column below 560
 - **Pill format (R1-02):** line 1 is the state with the signed amount, nowrap; line 2 the detail. Armed «Збережеться −1 250,50 USD» / «62% · Відкрити чернетку»; saved «Збережено −…» / «Відкрити»; in flight «Зберігаємо −… USD…» / «Відкрити»; failed «Не збережено −…» / «14:32 · Відкрити»; unknown «Результат невідомий» / «−… USD · 14:32 · Відкрити»; several armed «Збережеться 2 транзакції» / «Після завантаження чеків · Відкрити»; two or more unresolved «2 потребують перевірки» / «Відкрити» (§5 holds the sentences).
 - **Pinned row:** the signed amount alone on line 1 (nowrap); line 2 is `status · send time · type`, which wraps under the meta rule and never truncates its time; one tonal 44 px «Відкрити»; no icon tile on the phone. The leading bar and tint are `--destructive` (failed), `--warning` (unknown), muted (armed, in flight). Up to three rows; from four drafts, two rows and «Ще N чернеток · Показати». An armed row has no send time: «Збережеться після завантаження чека · Витрата».
 - **Draft count on the create button (R2-11):** the count is the drafts that need attention (failed and unknown); armed and in-flight ones do not count. It rides on the dock button on a Фінанси phone and on the «+» elsewhere. One draws the plain red dot, two or more an 18 px numeric badge (`drafts-two-unresolved-375`, `drafts-four-collapsed-375`).
-- **Create entry (D-8):** on a Фінанси phone the one create entry is the docked 48 px «Нова транзакція» primary button in its 64 px strip above the tab bar, in the bottom third of the screen (thumb zone); there is no top-bar «+» and no FAB there, and the list ends with strip + 16 of padding, so no amount is ever covered (`drafts-two-unresolved-375`, `listrow-draft-375`, `ptr-pulling-375`). The button carries the red dot with the count from two; its accessible name is «Нова транзакція», or with n drafts that need attention «Нова транзакція, {n} чернетка потребує уваги» (uk one: 1, 21, 31…), «…, {n} чернетки потребують уваги» (few: 2–4, 22–24…), «…, {n} чернеток потребують уваги» (many: 0, 5–20, 25–30…), a Lingui `plural` with the `uk` one / few / many forms and the `en` one / other forms. Tablet and desktop keep the rail «+» and the «Нова транзакція» header button. The other tabs keep their FAB and the quick-add «+». «+» never blocks (foundation §11).
+- **Create entry (D-8):** on a Фінанси phone the one create entry is the docked 48 px «Нова транзакція» primary button in its 64 px strip above the tab bar (under a 600 px viewport 44 px in a 52 px strip, R5-27), in the bottom third of the screen (thumb zone); there is no top-bar «+» and no FAB there, and the list ends with strip + 16 of padding, so no amount is ever covered (`drafts-two-unresolved-375`, `listrow-draft-375`, `ptr-pulling-375`). The button carries the red dot with the count from two; its accessible name is «Нова транзакція», or with n drafts that need attention «Нова транзакція, {n} чернетка потребує уваги» (uk one: 1, 21, 31…), «…, {n} чернетки потребують уваги» (few: 2–4, 22–24…), «…, {n} чернеток потребують уваги» (many: 0, 5–20, 25–30…), a Lingui `plural` with the `uk` one / few / many forms and the `en` one / other forms. Tablet and desktop keep the rail «+» and the «Нова транзакція» header button. The other tabs keep their FAB and the quick-add «+». «+» never blocks (foundation §11).
 - **Confirm titles name the signed amount:** «Створити −1 250,50 USD ще раз?», «Закрити чернетку −… USD?», «Видалити чернетку −… USD?».
 
 ### Desktop table (F0-37)
@@ -1036,8 +1041,10 @@ stands in quotes or before a colon («Видалити транзакцію «О
 | `receipt-and-upload-r4.1`      | Receipt and upload (r4)            | Камера, фото або файл · Файл · Посилання · Посилання на чек · Посилання на транзакцію в блокчейн-експлорері · Для USDT потрібне посилання на транзакцію в експлорері · Чек для USDT — лише посилання на транзакцію · Замінити · Замінити посиланням · Видалити чек · Інший файл · Чек додано · Завантаження · завантаження · Завантажити · Стискаємо фото… · Зв’язок перервано на {pct} · Не вдалося завантажити: файл більший за 10 МБ · Чек не завантажився: з’єднання перервалося · чек {pct} · {n} чеки · Поки є активні завантаження, над панеллю вкладок видно один компактний рядок. Навігація не блокується. · Зведіть або розведіть пальці, щоб змінити масштаб · торкніться, щоб збільшити                                                                                                                                                                                                                                                                                                                                                                                                                                       | Camera, photo or file · File · Link · Receipt link · Link to the transaction in a blockchain explorer · USDT needs a link to the transaction in an explorer · A USDT receipt is a transaction link only · Replace · Replace with a link · Remove receipt · Another file · Receipt added · Uploading · uploading · Upload · Compressing the photo… · Connection lost at {pct} · Couldn't upload: the file is over 10 MB · The receipt didn't upload: the connection dropped · receipt {pct} · {n} receipts · While uploads run, one compact row sits above the tab bar. Navigation is never blocked. · Pinch to zoom · tap to zoom                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |             |
 | `money-save-and-drafts-r4.1`   | Money save and drafts (r4)         | Збережено {amount} · Не збережено {amount} · Зберігаємо {amount}… · Збережеться після завантаження чека · Транзакцію не надіслано · Немає з’єднання. Нічого не збережено; сума й чек залишились у формі. · Невідомо, чи транзакцію збережено · Відповідь не надійшла. Форма й чек залишились. Перевірте список: якщо транзакції там немає, її можна створити ще раз. · Повторити збереження · Перевірити список · Надіслано о {time} · надіслано {time} · Видалити чернетку · Закрити чернетку · Ще {n} чернетки · Усі чернетки ({n}) · Чернетки · Сума, поля й чек зникнуть. Цю дію не можна скасувати. · Чернетка {amount}, надіслана о {time}: після входу перевірте список, перш ніж створювати її знову.                                                                                                                                                                                                                                                                                                                                                                                                                              | Saved {amount} · Not saved {amount} · Saving {amount}… · Saves once the receipt uploads · The transaction wasn't sent · No connection. Nothing was saved; the amount and the receipt stay in the form. · Not known whether the transaction was saved · No response came. The form and the receipt are kept. Check the list: if the transaction isn't there, you can create it again. · Retry the save · Check the list · Sent at {time} · sent {time} · Delete draft · Close draft · {n} more drafts · All drafts ({n}) · Drafts · The amount, the fields and the receipt will be gone. This can't be undone. · Draft {amount}, sent at {time}: after signing in, check the list before you create it again.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |             |
 | `check-sheet-r4.1`             | Check sheet (r4)                   | Нові записи · Шукаємо: {amount} · Транзакція {amount} о {time} · Лише ваші записи з {time} · Оновити · Оновлено о {time} · Оновлено о {time}. Знайдено збіг · Оновлено о {time}. Знайдено схожу · Оновлено о {time}. Тепер можна створити ще раз · Збігів немає · Нових записів з {time} немає · Не вдалося оновити список · Схоже, це ваша транзакція: {amount}, створена о {time}. Перевірте її, перш ніж створювати ще раз. · У списку є схожа о {time}. Буде створено одну нову транзакцію: витрата, сьогодні, без проєкту. · У списку є схожа о {time}: та сама сума, інший опис. Перевірте її, перш ніж створювати ще раз. · У списку її не знайдено · Є в списку — закрити чернетку · Немає — створити ще раз · Сервер міг зберегти транзакцію із запізненням. Список оновиться о {time} · Сервер міг зберегти транзакцію із запізненням. Через хвилину після помилки список оновиться сам, і тоді її можна буде створити ще раз. · Список не оновився. Створити транзакцію ще раз можна лише після того, як він оновиться. · Список оновлено через хвилину після помилки. Якщо транзакції в ньому немає, її можна створити ще раз. | New records · Looking for: {amount} · Transaction {amount} at {time} · Only your records since {time} · Refresh · Updated at {time} · Updated at {time}. Match found · Updated at {time}. Similar one found · Updated at {time}. You can create it again now · No matches · No new records since {time} · Couldn't refresh the list · This looks like your transaction: {amount}, created at {time}. Check it before you create it again. · The list has a similar one at {time}. One new transaction will be created: expense, today, no project. · The list has a similar one at {time}: the same amount, a different description. Check it before you create it again. · It isn't in the list · It's in the list — close the draft · It isn't — create it again · The server may have saved the transaction late. The list refreshes at {time} · The server may have saved the transaction late. A minute after the error the list refreshes by itself, and then you can create it again. · The list didn't refresh. You can create the transaction again only after it refreshes. · The list refreshed a minute after the error. If the transaction isn't in it, you can create it again. |             |
-| `confirms-r4.1`                | Confirms (r4)                      | Видалити транзакцію «{title}»? · {date}. Цю дію не можна скасувати. · {date}. Цю дію не можна скасувати; чек теж буде видалено.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Delete the transaction «{title}»? · {date}. This can't be undone. · {date}. This can't be undone; the receipt is deleted too.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |             |
-| `charts-r4.1`                  | Charts (r4)                        | Чистий прибуток · Прибуток · Збиток · Чистий · Виплати партнерам · тис. USD · {amount} тис. USD · ▲ {pct} до попер.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Net profit · Profit · Loss · Net · Partner payouts · k USD · {amount}k USD · ▲ {pct} vs prev.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |             |
+| `confirms-r4.1`                | Confirms (r4)                      | Видалити транзакцію «{title}»? · {date}. Цю дію не можна скасувати; чек теж буде видалено. | Delete the transaction «{title}»? · {date}. This can't be undone; the receipt is deleted too. |             |
+| `charts-r4.1`                  | Charts (r4)                        | Чистий прибуток · Прибуток · Збиток · Чистий · Виплати партнерам · тис. USD · {amount} тис. USD · ▲ {pct} до попереднього періоду | Net profit · Profit · Loss · Net · Partner payouts · k USD · {amount}k USD · ▲ {pct} vs the previous period |             |
+| `council-r6.1` | Council r6 | Видалено {n} сповіщення · Зміни не збережено · Немає з’єднання. Зміни залишились у формі. · Оновлення системи сьогодні о {time} · Системне сповіщення · У списку є збіг о {time}. Буде створено одну нову транзакцію: витрата, сьогодні, без проєкту. | {n} notifications deleted · Changes not saved · No connection. Your changes are still in the form. · System update today at {time} · System notice · The list has a match at {time}. One new transaction will be created: expense, today, no project. | |
+| `council-r6-a11y.1` | Council r6 (accessible names, announcements) | Позначити як прочитане: {title} · Не вдалося позначити сповіщення як прочитані · Попередній місяць · Наступний місяць | Mark as read: {title} · Couldn’t mark notifications as read · Previous month · Next month | interaction |
 
 The shipped catalog spells the last stage «Оффер»; the frames use «Офер» (the current orthography).
 Which one the product keeps is a copy-reviewer call in the Wave 0 implementation.
@@ -1291,4 +1298,48 @@ both directions and the uk <-> en pairing by the Strings `ID` column (R4-11).
 | R4-29 | rule-only | §12 Row menu: a key shows only when the registry binds one; none of the row actions has a key                                                                                                                                                               |
 | R4-30 | fixed     | the impersonation banner loses its bottom padding (`banner-stack-375`, `-768`, `-1440`)                                                                                                                                                                     |
 | R4-31 | fixed     | definite / offline save errors at ≥ 640 stay in the panel (`save-error-offline-768`, `save-error-definite-1024`; foundation §11)                                                                                                                            |
-| R4-32 | fixed     | the `_contact-sheet*` PNGs rebuilt with ImageMagick; §8 KB column refreshed                                                                                                                                                                                 |
+| R4-32 | fixed     | fixed, not rule-only (r6 wording): the `_contact-sheet*` PNGs rebuilt with ImageMagick; §8 KB column refreshed                                                                                                                                                                                 |
+
+## Council r6 ledger
+
+Every R5 id of the r5 consolidation (`mcfnd-r5-consolidated.md`): 30 fixed, 4 rule-only, 0 not fixed;
+D-1..D-8 stay as decided. New generator asserts, each shown to fail on the r5 output: `asserts.mjs`
+`closeWeight` (R5-01, run by `frames()`), `measure.mjs` `reach` over every sheet (R5-02) and `home`
+(R5-03), `strings.mjs` `two ways` (R5-18) and `dangling` (R5-28).
+
+| ID    | Status    | Where |
+| ----- | --------- | ----- |
+| R5-01 | fixed     | both exits of the unknown-outcome chooser stay neutral without a «збіг» row; the tablet / desktop recreate confirm over a «збіг» says «У списку є збіг» (`save-failure-unknown-similar-375`, `confirm-recreate-375`, `-768`, `-1440`; §5; foundation §11). Generator assert `asserts.mjs` `closeWeight`, run by `primitives.mjs` `frames()`: a filled «Є в списку — закрити чернетку» without a «збіг» row throws (it fails both r5 frames on the old generator) |
+| R5-02 | fixed     | the quick-add sheets scroll, their scrollport ends above the safe area (`quick-add-drafts-three-320`, new `quick-add-drafts-three-end-320`); `measure.mjs` `reach` now covers every control of every `.sheet` (it reports «Нова вакансія» on the old frame) |
+| R5-03 | fixed     | every scrolling sheet body ends its scrollport above the bottom safe area (`more-sheet-admin-375`, `picker-sheet-375`, `listrow-variants-375`; shell-v2 «Reachability», the one rule); new `measure.mjs` `home`: nothing interactive painted in the home-indicator band as drawn (it reports «Черга зовнішніх вакансій» on the old frame) |
+| R5-04 | fixed     | the inline title needs 120 px between the insets; a phone with «Редагувати» + «Інші дії» keeps the bar title-less on scroll and keeps both actions (iOS Contacts) instead of moving Edit into a menu (new `detail-txn-scrolled-320`; shell-v2 pushed screen; §3 points there) |
+| R5-05 | fixed     | deletes inside one window coalesce into one undoable batch; the pending set survives poll merges; another undoable action commits the batch and takes the slot (new `shell-v2/notifications-undo-batch-375`; shell-v2 Notifications «Collisions») |
+| R5-06 | fixed     | an unacknowledged money result never slides on scroll, on any tab (new `pill-scrolled-375`; shell-v2 «FAB and pill on scroll», the one rule; foundation points there). On Фінанси the pill and its pinned row may both show at rest by decision: the pill is the one live region and slot, hiding it by the row's position would make it flicker |
+| R5-07 | fixed     | a create success stacks above whatever draft pill holds the slot (new `upload-pill-saved-over-armed-375`; foundation §11 Success); a failed mark-read / read-all rolls back with one alert (shell-v2 Notifications) |
+| R5-08 | fixed     | sign-out at ≥ 640 draws the armed money pill «Збережеться −1 250,50 USD» / «62% · Відкрити чернетку» (`signout-confirm-768`, `-1440`); new `upload-pill-saved-over-failed-768`; the saved pill names another amount (−320,00 USD) in both saved-over frames; stack order in foundation §11 Success |
+| R5-09 | fixed     | the tapped month's value line is exact (net, then «Дохід» / «Витрати» amounts) with 44 px «Попередній місяць» / «Наступний місяць» (`chart-mobile-tapped-375`; §6) |
+| R5-10 | fixed     | an unread targetless notice is a `<button>` that marks it read in place, plain text once read, focus moves to the next row (`notif-board.mjs` NOTIFS; every notifications frame; shell-v2 «Open the target» and A11y) |
+| R5-11 | fixed     | coarse Cmd+K: no key caps, the footer is one 44 px «Клавіатурні скорочення» button; the shortcut sheet keeps its key caps; `?` stays bound with single-key shortcuts off (`desktop-cmdk-touch-1180`, `desktop-shortcuts-touch-1180`; shell-v2 Cmd+K and Shortcut sheet) |
+| R5-12 | fixed     | the keyboard / `visualViewport` rule extends to coarse desktop (new `shell-v2/desktop-cmdk-keyboard-1180`; shell-v2 §2 Keyboard open) |
+| R5-13 | fixed     | the notification popover and Cmd+K are bounded by the visual viewport minus their top offset; only list bodies scroll (`notif-board.mjs` `notifPop`, `desktop.mjs` `cmdk`; new `shell-v2/notifications-short-1024`) |
+| R5-14 | fixed     | column widths are one rule in §12 Board (290 touch tablet; `minmax(220px, 280px)` elsewhere, scrolling with the edge fade); §3 and §11 point there; `board-1440` re-rendered (five whole columns, names on one line) |
+| R5-15 | fixed     | the primary per case at every class: «Повторити збереження» offline / no field, «Зберегти» on a field error; the edit panel says «Зміни не збережено» (`save-error-offline-768`, `save-error-definite-1024`; foundation §11) |
+| R5-16 | fixed     | `TEXT_H` counted four gaps for five; the bar now sits on the keyboard's top edge (`form-keyboard-375`, `form-longtext-375`) |
+| R5-17 | fixed     | the interview form sheet uses the one chrome: «Скасувати» top-left, nothing top-right (`sheet-dirty-close-375`) |
+| R5-18 | fixed     | «Видалити» (no ellipsis) everywhere; form fields say «Ім’я та прізвище»; the phone edit title is «Редагувати транзакцію»; the phone delete confirm adds «чек теж буде видалено». `strings.mjs` `two ways` flags one string drawn two ways (it reports «Видалити» / «Видалити…» on the old frames) |
+| R5-19 | fixed     | `formfield-error-320` draws the «Додати» bottom bar |
+| R5-20 | fixed     | «Ми зберегли ці дані на цьому пристрої перед завершенням сесії. Перевірте поля й збережіть.» (`form-restored-375`; Strings `form-restored.1`) |
+| R5-21 | fixed     | the pinned desktop row uses the «Сума» slot of the tabular grid; the date column reads «11.11», the send time moves into «Опис» (`drafts-desktop-1440`) |
+| R5-22 | fixed     | only the first contiguous match is bold (`picker-combobox-1440`) |
+| R5-23 | fixed     | «Сьогодні» is a 44 px tonal button under touch (`datepicker-popover-768`, `-touch-1180`) |
+| R5-24 | rule-only | §7: pull-to-refresh is phone-only; rail and sidebar layouts refetch on focus, route entry and poll |
+| R5-25 | rule-only | shell-v2 rail «Ще»: the overflow trigger takes the active cue and the row `aria-current` when the current route moves into it |
+| R5-26 | fixed     | one rule for search when scrolled (shell-v2 Magnifier); Статистика and Дашборд draw no magnifier (`chart-mobile-*`, `quick-add-*`) |
+| R5-27 | fixed     | under a 600 px viewport the dock is a 44 px button in a 52 px strip (`tabbar-admin-320`, every 320 Фінанси frame) |
+| R5-28 | fixed     | «·» binds to the item after it (normal space before, NBSP after), so no line ends on «·» (§12.0, supersedes R3-14; `base.mjs` `sepNbsp`); `strings.mjs` `dangling` (75 frames on the old generator, 0 now) |
+| R5-29 | fixed     | `chart-mobile-320` draws the FAB (scrolled 96 px so the legend clears it) |
+| R5-30 | fixed     | «▲ 12% до попереднього періоду» in full on every class; hidden only while a month is selected (§6; `chart-mobile-375`, `-320`, `chart-desktop`) |
+| R5-31 | fixed     | §5 states the phone short form «2 чеки · 40%»; an upload row's name wraps to two lines before it ellipsizes (`upload-states-375`) |
+| R5-32 | fixed     | one banner anatomy at ≥ 640: the action on the right of the same line (`banner-stack-768`, `-1440`; §12 Banner stack) |
+| R5-33 | rule-only | §6: the partner-payouts card sits under the net-profit card at full width at 640–1023 |
+| R5-34 | rule-only | foundation §11: a saved pill's ✕ is a sibling of the pill button (the frames already draw it so: `upload-pill-saved-*`) |
