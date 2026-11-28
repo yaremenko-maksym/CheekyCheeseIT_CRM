@@ -18,6 +18,9 @@
 //   input    — under a coarse pointer, an input / textarea / input-looking control with text under 16 px
 //   reach    — r5 (R4-01): a list drawn `[data-reach="N"]` must hold N `[data-dest]` rows, and every row must be
 //              scrollable fully into view: inside its scroller's box, inside the viewport, above the home indicator.
+//   reach    — r6 (R5-02): also every control of every bottom sheet (`.sheet`), scroller or not.
+//   home     — r6 (R5-03): no interactive element painted inside the bottom safe area (`.device[data-safe-bottom]`)
+//              in the frame as drawn (its initial scroll position).
 //   scrim    — r5 (R4-02): every `[role=alertdialog]` has a scrim (its previous sibling) and nothing but the dialog
 //              paints above that scrim inside the scrim's box (a 16 px point grid, OS chrome exempt).
 // Coarse = the frame draws a touch device (`.touch`, every phone and tablet frame) or its name is in COARSE.
@@ -81,6 +84,7 @@ function probe(coarse) {
     input: [],
     reach: [],
     scrim: [],
+    home: [],
   }
   for (const sc of document.querySelectorAll('[data-reach]')) {
     const rows = [...sc.querySelectorAll('[data-dest]')]
@@ -101,6 +105,45 @@ function probe(coarse) {
         )
     }
     sc.scrollTop = keep
+  }
+  // r6 (R5-02): every bottom sheet (`.sheet`) is a reach list too: each control in it (rows, buttons, links) must
+  // be scrollable fully into view — inside its scroller (or, with no scroller, inside the sheet), inside the
+  // viewport and above the bottom safe area. A sheet that cuts its last row without a scroller fails here.
+  const dev = document.querySelector('.device[data-safe-bottom]')
+  const devBox = dev ? dev.getBoundingClientRect() : { bottom: innerHeight }
+  const band = Math.min(innerHeight, devBox.bottom) - Number(dev?.getAttribute('data-safe-bottom') || 0)
+  const CTL =
+    'button,a,[role=button],[role=option],[role=menuitem],[role=switch],[role=radio],[role=checkbox],[role=link],.lrow'
+  for (const sh of document.querySelectorAll('.sheet')) {
+    if (!vis(sh)) continue
+    const shb = sh.getBoundingClientRect()
+    const sc = [...sh.querySelectorAll('*')].find((e) => /auto|scroll/.test(getComputedStyle(e).overflowY))
+    const keep = sc ? sc.scrollTop : 0
+    for (const el of sh.querySelectorAll(CTL)) {
+      if (el.closest(OS) || !vis(el) || (el.parentElement && el.parentElement.closest(CTL))) continue
+      if (sc && sc.contains(el)) el.scrollIntoView({ block: 'nearest' })
+      const r = el.getBoundingClientRect()
+      const b = sc && sc.contains(el) ? sc.getBoundingClientRect() : shb
+      if (r.top < b.top - 1 || r.bottom > b.bottom + 1 || r.bottom > band + 1 || r.top < 0)
+        out.reach.push(
+          `sheet ${name(el)} unreachable (${Math.round(r.top)}–${Math.round(r.bottom)}, box ${Math.round(b.top)}–${Math.round(b.bottom)}, safe-area top ${Math.round(band)})`,
+        )
+    }
+    if (sc) sc.scrollTop = keep
+  }
+  // r6 (R5-03): nothing interactive is painted inside the bottom safe area (the home-indicator band) in the frame
+  // as drawn — the initial scroll position, not only a scrolled-to-the-end state. Sampled on an 8 px grid.
+  if (dev && band < devBox.bottom) {
+    const hits = new Set()
+    for (let y = band + 2; y < devBox.bottom - 1; y += 8)
+      for (let x = 4; x < innerWidth; x += 8) {
+        const hit = document.elementFromPoint(x, y)
+        const c = hit && !hit.closest(OS) && hit.closest(CTL + ',[data-dest],.srow,.chip,.fab')
+        if (c && !hits.has(c)) {
+          hits.add(c)
+          out.home.push(`${name(c)} painted in the home-indicator band (${Math.round(band)}–${Math.round(devBox.bottom)})`)
+        }
+      }
   }
   for (const dlg of document.querySelectorAll('[role="alertdialog"]')) {
     const sc = dlg.previousElementSibling
@@ -234,6 +277,7 @@ const totals = {
   input: 0,
   reach: 0,
   scrim: 0,
+  home: 0,
 }
 let examinedAll = 0
 for (const f of frames) {

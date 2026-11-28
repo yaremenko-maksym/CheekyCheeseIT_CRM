@@ -461,7 +461,7 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
     rows === 'none'
       ? `<div class="t-foot muted num" style="text-align:center">Збігів немає</div>`
       : ''
-  const footer = `<div style="display:grid;gap:8px;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)">${noMatch}<span class="btn ${rows === 'match' || rows === 'similar' ? 'primary' : 'secondary'}" role="button"${rows === 'match' ? '' : ' aria-haspopup="dialog"'} style="width:100%">${icon('check', { size: 18 })}Є в списку — закрити чернетку</span>${recreate}</div>`
+  const footer = `<div style="display:grid;gap:8px;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)">${noMatch}<span class="btn ${rows === 'match' ? 'primary' : 'secondary'}" role="button"${rows === 'match' ? '' : ' aria-haspopup="dialog"'} style="width:100%">${icon('check', { size: 18 })}Є в списку — закрити чернетку</span>${recreate}</div>`
   const sh = sheet({
     w,
     h,
@@ -769,7 +769,7 @@ export const confirmRecreate = (w, h) =>
     }),
   )
 
-/** A warning «схожа» and no «збіг»: «Є в списку — закрити чернетку» is the one filled primary (its named confirm stays). */
+/** R5-01: a warning «схожа» and no «збіг»: both exits stay neutral (secondary); «Є в списку — закрити чернетку» keeps its named confirm. */
 export const failureUnknownSimilar = (w, h) =>
   failureUnknownList(w, h, { ready: true, rows: 'similar' })
 

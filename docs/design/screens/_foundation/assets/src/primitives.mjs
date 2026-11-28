@@ -1,4 +1,5 @@
 // Primitives v2 frames. Rendered by `node render.mjs primitives [filter]` into ../primitives-v2/.
+import { assertFrames } from './asserts.mjs'
 import { page } from './base.mjs'
 import {
   moneyForm,
@@ -109,7 +110,8 @@ const D = (name, w, h, body, full = false) => ({
 })
 const C = (name, w, h, body) => ({ name, w, h, dpr: 2, full: true, html: page(body, { width: w }) })
 
-export function frames() {
+export const frames = () => assertFrames(allFrames())
+function allFrames() {
   return [
     M('sheet-medium-375', 375, 812, sheetMedium(375, 812)),
     M('sheet-medium-320', 320, 568, sheetMedium(320, 568)),
