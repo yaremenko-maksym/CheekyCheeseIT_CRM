@@ -21,6 +21,12 @@
 //   reach    — r6 (R5-02): also every control of every bottom sheet (`.sheet`), scroller or not.
 //   home     — r6 (R5-03): no interactive element painted inside the bottom safe area (`.device[data-safe-bottom]`)
 //              in the frame as drawn (its initial scroll position).
+//   band     — r7 (R6-04): no two text runs of different elements overlap inside the header band of a scrollport
+//              (the top 160 px of every `.content`, clipped to its box): an outgoing large title must never paint
+//              under the chips or the search. Found by the Range rects of each text node.
+//   hit      — r7 (R6-29): a `data-hit="44"` control is measured by its extended hit box (44 × 44 around its centre,
+//              or its own box when larger): that box must stay inside the viewport and must not overlap another
+//              control's box (the extension is real only where nothing else claims the same point).
 //   scrim    — r5 (R4-02): every `[role=alertdialog]` has a scrim (its previous sibling) and nothing but the dialog
 //              paints above that scrim inside the scrim's box (a 16 px point grid, OS chrome exempt).
 // Coarse = the frame draws a touch device (`.touch`, every phone and tablet frame) or its name is in COARSE.
@@ -85,6 +91,8 @@ function probe(coarse) {
     reach: [],
     scrim: [],
     home: [],
+    band: [],
+    hit: [],
   }
   for (const sc of document.querySelectorAll('[data-reach]')) {
     const rows = [...sc.querySelectorAll('[data-dest]')]
@@ -268,6 +276,67 @@ function probe(coarse) {
       if (f < 16) out.input.push(`${name(el)} ${f}px`)
     }
   }
+  // r7 (R6-04): text overlap in the header band of each scrollport.
+  for (const ct of document.querySelectorAll('.content')) {
+    const cb = ct.getBoundingClientRect()
+    const top = cb.top
+    const bot = Math.min(cb.bottom, cb.top + 160)
+    const runs = []
+    const tw = document.createTreeWalker(ct, NodeFilter.SHOW_TEXT)
+    for (let n = tw.nextNode(); n; n = tw.nextNode()) {
+      const el = n.parentElement
+      if (!n.textContent.trim() || !el || el.closest(OS) || !vis(el)) continue
+      const rg = document.createRange()
+      rg.selectNodeContents(n)
+      for (const r of rg.getClientRects()) {
+        const y0 = Math.max(r.top, top)
+        const y1 = Math.min(r.bottom, bot)
+        const x0 = Math.max(r.left, cb.left)
+        const x1 = Math.min(r.right, cb.right)
+        if (y1 - y0 > 2 && x1 - x0 > 2) runs.push({ el, x0, x1, y0, y1 })
+      }
+    }
+    const hits = new Set()
+    for (let i = 0; i < runs.length; i++)
+      for (let j = i + 1; j < runs.length; j++) {
+        const a = runs[i]
+        const b = runs[j]
+        if (a.el === b.el || a.el.contains(b.el) || b.el.contains(a.el)) continue
+        const w = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)
+        const hgt = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0)
+        if (w > 4 && hgt > 4) hits.add(`${name(a.el)} overlaps ${name(b.el)}`)
+      }
+    out.band.push(...hits)
+  }
+  // r7 (R6-29): extended hit boxes of `data-hit="44"` controls.
+  {
+    const CTL =
+      'button,a,input,select,textarea,[role=button],[role=option],[role=tab],[role=menuitem],[role=switch],[role=radio],[role=checkbox],[role=link],.tgt'
+    const boxOf = (el) => {
+      const r = el.getBoundingClientRect()
+      const w = Math.max(r.width, 44)
+      const h = Math.max(r.height, 44)
+      const cx = r.left + r.width / 2
+      const cy = r.top + r.height / 2
+      return { l: cx - w / 2, r: cx + w / 2, t: cy - h / 2, b: cy + h / 2 }
+    }
+    const ext = [...document.querySelectorAll('[data-hit="44"]')].filter(
+      (el) => !el.closest(OS) && vis(el),
+    )
+    const all = [...document.querySelectorAll(CTL)].filter((el) => !el.closest(OS) && vis(el))
+    for (const el of ext) {
+      const e = boxOf(el)
+      if (e.l < -0.5 || e.t < -0.5 || e.r > innerWidth + 0.5 || e.b > innerHeight + 0.5)
+        out.hit.push(`${name(el)} hit box leaves the viewport`)
+      for (const o of all) {
+        if (o === el || o.contains(el) || el.contains(o)) continue
+        const r = o.getBoundingClientRect()
+        const w = Math.min(e.r, r.right) - Math.max(e.l, r.left)
+        const hh = Math.min(e.b, r.bottom) - Math.max(e.t, r.top)
+        if (w > 1 && hh > 1) out.hit.push(`${name(el)} hit box overlaps ${name(o)}`)
+      }
+    }
+  }
   out.examined = examined
   return out
 }
@@ -286,6 +355,8 @@ const totals = {
   reach: 0,
   scrim: 0,
   home: 0,
+  band: 0,
+  hit: 0,
 }
 let examinedAll = 0
 for (const f of frames) {

@@ -224,6 +224,7 @@ function allFrames() {
     M('confirm-recreate-375', 375, 812, confirmRecreate(375, 812)),
     M('alert-session-expired-375', 375, 812, sessionExpired(375, 812)),
     M('form-restored-375', 375, 812, r3.formRestored(375, 812)),
+    M('form-restored-clear-375', 375, 812, r3.formRestoredClear(375, 812)),
     M('signout-confirm-375', 375, 812, r3.signOutConfirmPhone(375, 812)),
     D('signout-confirm-768', 768, 1024, r3.signOutConfirmTablet(768, 1024)),
     D('signout-confirm-1440', 1440, 900, r3.signOutConfirmDesktop(1440, 900)),
@@ -255,6 +256,7 @@ function allFrames() {
     M('chart-mobile-tapped-375', 375, 812, chartMobile(375, 812, { tapped: true })),
     // R5-29: the FAB is drawn at 320; scrolled 96 px so the legend clears it, as the live screen allows.
     M('chart-mobile-320', 320, 568, chartMobile(320, 568, { scrolled: 96 })),
+    M('chart-mobile-tapped-320', 320, 568, chartMobile(320, 568, { scrolled: 96, tapped: true })),
     C('chart-desktop', 1200, 420, chartDesktop()),
     ...['pulling', 'armed', 'refreshing', 'done'].map((s) =>
       M(`ptr-${s}-375`, 375, 480, ptr(375, 480, s)),
@@ -284,6 +286,7 @@ function allFrames() {
     M('formfield-error-320', 320, 568, r1.formfieldError320(320, 568)),
     M('toast-undo-320', 320, 568, toastUndo(320, 568)),
     D('chart-768', 768, 1024, r1.chartTablet(768, 1024)),
+    D('chart-tapped-768', 768, 1024, r1.chartTablet(768, 1024, { tapped: true })),
     D('list-footer-768', 768, 1024, r1.listFooterTablet(768, 1024)),
     D('list-footer-1440', 1440, 900, r1.listFooterDesktop(1440, 900)),
     D('row-menu-768', 768, 1024, r1.rowMenuTablet(768, 1024)),

@@ -467,26 +467,35 @@ the desktop the shell is real and only the table is skeletal); shimmer 1.2 s, of
 ## 6. Charts
 
 `chart-mobile-375` / `chart-mobile-320`: one question per viewport («Чистий прибуток»); bars in
-`--chart-1`; **negative months hatched with a `−` label below zero**; zero line `--chart-grid`; tap a bar
-for a tooltip with the exact value; **the tapped or focused bar is selected (R3-20):** full ink and a 2 px `--foreground` ring while the other bars dim to 45 %, and the tooltip never covers a bar, a value or a month label: above the plot when there is room, else centred under the axis (`chart-768`) (the hit area is the full-height column band; under 44 px, as in the
-12-bar «Рік», drag-scrub with a persistent value line above the chart, foundation §7.4); the period is a 44 px segmented control (swipe is an extra, not the
-only way). **R4-19:** on the touch tablet the same holds: a horizontal swipe on the plot area changes the
-period by one step, the segmented control is the primary way, and a swipe that starts on a bar scrubs
-instead (`chart-768`); a tapped bar keeps full ink and its ring, the others dim, and the card's value
-line reads that month exactly as the ≥ 640 tooltip does (R5-09): the signed net («+7 900,00 USD», a polite
-status), the month, and «Дохід» / «Витрати» with their exact amounts; two 44 px buttons «Попередній
-місяць» / «Наступний місяць» beside it step one month, so exact months stay reachable where the bands are
-under 44 px and drag-scrub replaces a tap (`chart-mobile-tapped-375`); a second tap or a tap outside the
-plot clears it. **Delta (R5-30, every class):** under the period value one line «▲ 12% до попереднього
-періоду» (`--positive`; ▼ and `--destructive` for a drop; it may wrap, never abbreviates); phone, tablet and
-desktop draw it (`chart-mobile-375`, `chart-mobile-320`, `chart-desktop`); it hides only while a month is
-selected (the value line or tooltip then reads the month: `chart-mobile-tapped-375`, `chart-768`). **Partner payouts at 640–1023 (R5-33):** the second card
-sits under the net-profit card at full width, as on a phone (below the fold), with the same quarter bars. Статистика creates nothing of its own: its FAB is the quick-add FAB (shell-v2 §4 «The start
-control»), which opens the quick-add sheet (`chart-mobile-375`; 320 draws it too, R5-29: `chart-mobile-320`). The second, smaller chart (partners) sits **below the fold** (`chart-mobile-scrolled-375`),
-with the partners' **initials** («ВК», «ОШ») directly under their bars, no legend, and the full
-names in the accessible summary. Bars and ticks carry bare numbers («4,2», «8»); the caption row states
-the unit once («тис. USD»), and the accessible summary says «тис. USD». `chart-desktop`: hover tooltip (values `white-space: nowrap`, min-width 176 px; it sits beside the bar, on the right when there is room and otherwise on the left, never over a bar), keyboard focus on bars (arrow keys), series swatches carry
-token names. The net-profit chart follows the period control and the table filters; the partner-payouts chart is a fixed calendar year by quarter, says so in its title («Виплати партнерам · 2026») and ignores the period control (R2-16).
+`--chart-1`; **negative months hatched with a `−` label below zero**; zero line `--chart-grid`; the period is a
+44 px segmented control (swipe is an extra, not the only way). **The heading and the value slot (R6-05, the one
+rule, every class):** the card heading always shows the **period total** («+25,9 тис. USD»), selected month or
+not. Under it sits **one value-line slot reserved at rest** (56 px; 76 px at 320, where its lines wrap), so a
+selection swaps the slot's content and never moves the plot, the bar under the finger or the legend. At rest the
+slot holds the delta «▲ 12% до попереднього періоду» (`--positive`; ▼ and `--destructive` for a drop; it may
+wrap, never abbreviates; R5-30) and the hint «Торкніться стовпця, щоб побачити місяць»; with a month selected it
+holds that month exactly (R5-09): «Жовтень 2026», the signed net «+7 900,00 USD», then «Дохід» / «Витрати» with
+their exact amounts, between two 44 px buttons «Попередній місяць» / «Наступний місяць» that step one month, so
+exact months stay reachable where the bands are under 44 px and drag-scrub replaces a tap. The slot is a polite
+status. **The tapped or focused bar is selected (R3-20):** full ink and a 2 px `--foreground` ring while the
+other bars dim to 45 % (the hit area is the full-height column band; under 44 px, as in the 12-bar «Рік»,
+drag-scrub drives the same slot, foundation §7.4); a second tap or a tap outside the plot clears it
+(`chart-mobile-375`, `chart-mobile-tapped-375`, `chart-mobile-320`, `chart-mobile-tapped-320`). **Touch tablet
+(R4-19, R6-06):** the same card and slot, no tooltip (`chart-768` at rest, `chart-tapped-768` selected); a
+horizontal swipe on the plot area changes the period by one step, the segmented control is the primary way, and
+a swipe that starts on a bar scrubs instead. **Partner payouts at 640–1023 (R5-33):** the second card sits under
+the net-profit card at full width, with the same quarter bars (`chart-768`). **Desktop (fine pointer):** a hover
+tooltip previews a month (values `white-space: nowrap`, min-width 176 px; beside the bar, on the right when there
+is room and otherwise on the left, never over a bar); a hover is a preview, not a selection, so the slot keeps
+the delta (`chart-desktop`); a click or arrow-key focus on a bar selects it and the slot reads the month as
+above. Статистика creates nothing of its own: its FAB is the quick-add FAB (shell-v2 §4 «The start control»),
+which opens the quick-add sheet (`chart-mobile-375`; 320 draws it too, R5-29). The second, smaller chart
+(partners) sits **below the fold** on a phone (`chart-mobile-scrolled-375`), with the partners' **initials**
+(«ВК», «ОШ») directly under their bars, no legend, and the full names in the accessible summary. Bars and ticks
+carry bare numbers («4,2», «8»); the caption row states the unit once («тис. USD»), and the accessible summary
+says «тис. USD». Series swatches carry token names on `chart-desktop`. The net-profit chart follows the period
+control and the table filters; the partner-payouts chart is a fixed calendar year by quarter, says so in its
+title («Виплати партнерам · 2026») and ignores the period control (R2-16).
 
 ---
 
@@ -799,7 +808,7 @@ In every class the real header, search and chips stay through loading, empty and
 
 ### Tablet and desktop cells (F0-17, F0-18)
 
-- **Chart:** `chart-768` (segmented «3 міс» / «6 міс» / «Рік», bars, legend); `chart-desktop` with the
+- **Chart:** `chart-768` / `chart-tapped-768` (segmented «3 міс» / «6 міс» / «Рік», the value slot, bars, legend, the partner card; §6); `chart-desktop` with the
   period control and the active filter as a removable chip above the charts (F0-39).
 - **List footer:** auto-load at every width; on failure an inline row «Не вдалося завантажити ще.
   Показано 50 з 312.» / «Повторити» (`list-footer-768`, `list-footer-1440`). **Paged search** at

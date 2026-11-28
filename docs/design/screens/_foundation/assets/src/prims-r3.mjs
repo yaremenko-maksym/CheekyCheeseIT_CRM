@@ -19,6 +19,20 @@ import { tablet } from './tablet.mjs'
 // The note is a polite status, not an alert, and never moves focus; «Очистити» drops the restored input.
 const restoreNote = `<div role="status" style="padding:12px 14px;border-radius:14px;background:var(--surface);border:1px solid var(--border)"><div class="row" style="gap:10px;align-items:flex-start"><span style="color:var(--primary);margin-top:1px">${icon('rotate-ccw', { size: 18 })}</span><div class="grow"><div style="font-size:15px;font-weight:600">Введене відновлено</div><div class="t-foot muted" style="margin-top:2px">Ми зберегли ці дані на цьому пристрої перед завершенням сесії. Перевірте поля й збережіть.</div></div><span class="btn ghost" role="button" aria-label="Очистити відновлене введене" style="height:44px;padding:0 8px;margin:-8px -6px -8px 0;font-size:15px;color:var(--primary)">Очистити</span></div></div>`
 export const formRestored = (w, h) => moneyForm({ w, h, receipt: 'done', alert: restoreNote })
+/** R6-03: «Очистити» deletes the restored values and receipt from this device, so it asks first, like the dirty-close guard. */
+export const formRestoredClear = (w, h) =>
+  overHome(
+    formRestored(w, h),
+    actionConfirm(w, {
+      id: 'rc',
+      title: 'Очистити відновлене?',
+      desc: 'Поля й вибраний чек буде видалено з цього пристрою.',
+      action: 'Очистити',
+      cancel: 'Залишити',
+      overSheet: true,
+      focusCancel: true,
+    }),
+  )
 
 // D-2: sign-out and the impersonation return run the same loss check as a 401. The dialog lists what would be lost
 // (an armed draft, a selected receipt); with nothing to lose there is no dialog. Focus lands on «Залишитися».

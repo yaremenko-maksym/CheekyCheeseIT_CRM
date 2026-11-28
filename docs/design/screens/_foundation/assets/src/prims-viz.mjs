@@ -417,7 +417,7 @@ const sumK = (a) => Math.round(a.reduce((x, y) => x + y, 0) * 10) / 10
 const usd = (k) => String(Math.round(k * 1000)).replace(/\B(?=(\d{3})+$)/g, ' ') + ',00'
 const kFmt = (v) => v.toFixed(1).replace('.', ',')
 const NET_K = sumK(NET)
-const PART_K = sumK(PART.flat())
+export const PART_K = sumK(PART.flat())
 if (NET_K !== 25.9 || PART_K !== 22.9)
   throw new Error(`chart fixture drift: net ${NET_K}, partners ${PART_K}`)
 // October (NET[4]) as the tooltip shows it: income − expenses = net, and net is the bar's value.
@@ -455,7 +455,7 @@ export function netBars(W, H, { labelSize = 11, pad = 28, selected = -1 } = {}) 
   return `<svg width="${W}" height="${H}" role="img" aria-label="Чистий прибуток за 6 місяців: найбільший у жовтні, +7,9 тис. USD; збиток у серпні, −1,4 тис. USD"><defs><pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="oklch(0.84 0.183 85.3 / 0.12)"/><line x1="0" y1="0" x2="0" y2="5" stroke="var(--chart-1)" stroke-width="1.4"/></pattern></defs>${grid}${bars}</svg>`
 }
 
-function partnerBars(W, H, { labelSize = 11, pad = 8 } = {}) {
+export function partnerBars(W, H, { labelSize = 11, pad = 8 } = {}) {
   const max = 4.5,
     top = 14,
     bottom = H - 38
@@ -486,17 +486,21 @@ export const legend = (items, unit = 'тис. USD') =>
 const STEP = (dir, label) =>
   `<button type="button" class="iconbtn" aria-label="${label}" style="flex:none;width:44px;height:44px;border-radius:12px;background:var(--secondary);color:var(--fg)">${icon(dir, { size: 20 })}</button>`
 const monthStepper = () =>
-  `<div class="row" style="flex-basis:100%;gap:8px;margin-top:6px;color:var(--fg);font-weight:400">${STEP('chevron-left', 'Попередній місяць')}<div class="grow col" style="gap:2px;min-width:0;align-items:center"><div class="t-foot" style="font-weight:600">Жовтень 2026</div><div class="row num" style="gap:6px 12px;flex-wrap:wrap;justify-content:center;font-size:13px"><span class="muted">Дохід</span><span style="white-space:nowrap">${money(OCT.income)} USD</span><span class="muted">Витрати</span><span style="white-space:nowrap">${money(OCT.expenses)} USD</span></div></div>${STEP('chevron-right', 'Наступний місяць')}</div>`
+  `<div class="row" style="gap:8px;color:var(--fg);font-weight:400">${STEP('chevron-left', 'Попередній місяць')}<div class="grow col" style="gap:2px;min-width:0;align-items:center"><div class="row t-foot num" style="gap:0 6px;flex-wrap:wrap;justify-content:center;font-weight:600"><span>Жовтень 2026</span><span style="white-space:nowrap">+${money(OCT.net)} USD</span></div><div class="row num" style="gap:0 12px;flex-wrap:wrap;justify-content:center;font-size:13px"><span class="row" style="gap:6px"><span class="muted">Дохід</span><span style="white-space:nowrap">${money(OCT.income)} USD</span></span><span class="row" style="gap:6px"><span class="muted">Витрати</span><span style="white-space:nowrap">${money(OCT.expenses)} USD</span></span></div></div>${STEP('chevron-right', 'Наступний місяць')}</div>`
+// R6-05: the value-line slot is reserved at rest (the period delta + a hint), so selecting a month swaps its
+// content and never moves the plot. The heading keeps the period total either way.
+export const valueSlot = (tapped, h) =>
+  `<div role="status" style="height:${h}px;margin-top:6px">${tapped ? monthStepper() : `<div class="t-foot num" style="color:var(--positive)">${DELTA}</div><div class="t-cap muted" style="margin-top:2px">Торкніться стовпця, щоб побачити місяць</div>`}</div>`
 // R4-19: `tapped` — a tapped bar (жовт) keeps full ink with its ring, the others dim; the card's value line
 // reads that month (a polite status), a second tap on it or a tap outside the plot clears it.
 export function chartMobile(w, h, { scrolled = 0, tapped = false } = {}) {
   const card = (title, value, sub, chart, leg) =>
-    `<div style="margin:0 16px 12px;padding:14px 14px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted">${title}</div><div class="row" style="gap:2px 8px;flex-wrap:wrap;align-items:baseline;margin-top:2px"><span class="num" style="font-size:24px;font-weight:700;letter-spacing:-0.02em;white-space:nowrap">${value}</span><span class="t-foot num" style="color:var(--positive);white-space:nowrap">${sub}</span></div><div style="margin-top:8px">${chart}</div>${leg}</div>`
+    `<div style="margin:0 16px 12px;padding:14px 14px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted">${title}</div><div class="row" style="gap:2px 8px;flex-wrap:wrap;align-items:baseline;margin-top:2px"><span class="num" style="font-size:24px;font-weight:700;letter-spacing:-0.02em;white-space:nowrap">${value}</span></div>${sub}<div style="margin-top:8px">${chart}</div>${leg}</div>`
   const body = `<div style="padding:0 16px 10px">${segmented(['3 міс', '6 міс', 'Рік'], 1, { fit: true })}</div>
   ${card(
     'Чистий прибуток · 6 міс',
-    tapped ? `<span role="status">+${money(OCT.net)} USD</span>` : `+${kFmt(NET_K)} тис. USD`,
-    tapped ? monthStepper() : DELTA,
+    `+${kFmt(NET_K)} тис. USD`,
+    valueSlot(tapped, w <= 320 ? 76 : 56),
     netBars(w - 60, w <= 320 ? 200 : 380, tapped ? { selected: 4 } : {}),
     legend([
       ['var(--chart-1)', 'Прибуток'],

@@ -23,7 +23,7 @@ import {
 } from './mobile-overlays.mjs'
 import { desktop, cmdk, deskToolbar, accountMenu, deskTable, ROWS } from './desktop.mjs'
 import { tablet, txnPane, txnGroups } from './tablet.mjs'
-import { listFooter, netBars, legend, usd, NET_K, chartTip } from './prims-viz.mjs'
+import { listFooter, netBars, legend, usd, NET_K, PART_K, partnerBars, valueSlot } from './prims-viz.mjs'
 import { detailTxnBody } from './prims-mobile.mjs'
 import { actionConfirm, KILL } from './money-form.mjs'
 import { interviewTable } from './prims-wide.mjs'
@@ -340,14 +340,18 @@ export function searchPagedPhone(w, h) {
 }
 
 // ---------- Tablet cells (F0-17) ----------
-export function chartTablet(w, h) {
-  const card = `<div style="position:relative;margin:0 16px;padding:14px 16px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted">Чистий прибуток · 6 міс</div><div class="num" style="font-size:24px;font-weight:700">+${usd(NET_K)} USD</div></div>${legend(
+// R6-06: the touch tablet follows §6 as the phone does: the heading keeps the period total, the reserved value-line
+// slot holds the delta at rest and the selected month (with the 44 px step buttons) when a bar is tapped; the
+// partner card sits under it at full width (R5-33). No tooltip on touch.
+export function chartTablet(w, h, { tapped = false } = {}) {
+  const card = `<div style="margin:0 16px 12px;padding:14px 16px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted">Чистий прибуток · 6 міс</div><div class="num" style="font-size:24px;font-weight:700">+${usd(NET_K)} USD</div></div>${legend(
     [
       ['var(--chart-1)', 'Прибуток'],
       ['', 'Збиток', 'hatch'],
     ],
-  )}</div><div style="margin-top:8px">${netBars(w - 80 - 64, 260, { labelSize: 12, pad: 34, selected: 4 })}</div>${chartTip('left:380px;top:336px', 'status')}</div>`
-  const list = `<section aria-label="Статистика" class="col grow" style="min-width:0">${paneHead('Статистика')}<div style="padding:0 16px 12px">${segmented(['3 міс', '6 міс', 'Рік'], 1, { fit: true })}</div>${card}</section>`
+  )}</div>${valueSlot(tapped, 56)}<div style="margin-top:8px">${netBars(w - 80 - 64, 300, { labelSize: 12, pad: 34, selected: tapped ? 4 : -1 })}</div></div>`
+  const partners = `<div style="margin:0 16px 12px;padding:14px 16px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted">Виплати партнерам · 2026</div><div class="num" style="font-size:24px;font-weight:700">${usd(PART_K)} USD</div><div style="margin:8px 0 6px">${partnerBars(w - 80 - 64, 170, { labelSize: 12 })}</div>${legend([])}</div>`
+  const list = `<section aria-label="Статистика" class="col grow" style="min-width:0">${paneHead('Статистика')}<div style="padding:0 16px 12px">${segmented(['3 міс', '6 міс', 'Рік'], 1, { fit: true })}</div>${card}${partners}</section>`
   return tablet({ w, h, list, active: '/stats' })
 }
 

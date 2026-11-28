@@ -254,12 +254,13 @@ All five series colours are ≥ 4.97:1 on every surface step. Chart rules:
   chart; label series directly (partner series by **initials** under their bars, e.g. «ВК» / «ОШ», no
   legend; the full names are in the chart's accessible summary).
 - **Negative values:** hatched fill + `−` label below the zero line. Sign, not colour, carries meaning.
-- Tap (any coarse pointer: a phone, a touch tablet) or hover (a fine pointer) a bar for a tooltip with the exact value; a tap opens the same breakdown as a `role="status"` popover beside the bar (`primitives-v2/chart-768`); the tooltip is also reachable
-  by keyboard (arrow keys over a focused chart). **A bar's hit area is its full-height column band**
-  (the whole slot from the top of the plot to the axis), not the painted bar, so a short bar is as
-  easy to hit as a tall one. When a band is narrower than 44 px (the 12-bar «Рік» on a phone), tap
-  targets give way to **drag-scrub**: a finger moving across the plot selects the band under it, and
-  the value shows in a persistent line above the chart (not a tooltip under the finger).
+- A tap (any coarse pointer) or a click / arrow-key focus selects a bar; the selected month shows in the card's
+  **value-line slot, reserved at rest** under the period total, so selecting never moves the plot; a hover on a
+  fine pointer only previews it in a tooltip. One rule: primitives-v2 §6 (R6-05). **A bar's hit area is its
+  full-height column band** (the whole slot from the top of the plot to the axis), not the painted bar, so a short
+  bar is as easy to hit as a tall one. When a band is narrower than 44 px (the 12-bar «Рік» on a phone), tap
+  targets give way to **drag-scrub**: a finger moving across the plot selects the band under it, and the same
+  slot reads it (never a tooltip under the finger).
 - Desktop: the net-profit chart follows the period control and the table filters on the same screen; the partner-payouts chart is a fixed calendar year by quarter and is titled as one (R2-16).
 
 ### 7.5 Brand-yellow discipline
@@ -510,7 +511,8 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
     `{ t: <timestamp>, phase: 'armed' | 'sent' | 'failed', amount, currency }` under a random key (D-5: the signed amount
     and the currency, never a payload, a description or a receipt), and the restore copy of an open form kept across a
     session expiry (D-1: the field values and the receipt, for the same user, on this device only). The restore copy is
-    deleted on a save, on «Очистити», on sign-out (D-2) and after 24 hours.
+    deleted on a save, on «Очистити» (only after its named confirm «Очистити відновлене?» · «Очистити» · «Залишити», focus on
+    «Залишити», as the dirty-close guard; R6-03, `form-restored-clear-375`), on sign-out (D-2) and after 24 hours.
   - **A marker has one meaning everywhere.** It exists while a save is pending or an unsaved
     draft could be lost by a page kill. It is written as `armed` on arm; it is **written at send for every money
     create** as `sent` (a plain save writes it then; an armed draft switches to it, `t` becoming the

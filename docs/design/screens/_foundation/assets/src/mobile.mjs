@@ -284,7 +284,10 @@ export function tabScreen({
     : topBar({ search: !NO_SEARCH.has(active) })
   // Tab-root lists end with tab bar + FAB clearance (FAB 56 + 16), so «+» never covers a value; money lists have no FAB (R1-04).
   // Banners sit in the slot under the top bar (F0-15), above the large title.
-  const inner = `${bar}${banner}<div class="content">${largeTitle(title, sub)}${body}<div style="height:${TABBAR_H + safeBottom(w) + (dockOn ? dockH(h) + 16 : 72)}px"></div></div>${tabBar(role, active, { w, moreBadge })}${dock}${showFab && !MONEY_LISTS.has(active) ? fab(role, w, active) : ''}`
+  // R6-04: a scroll offset moves the title and everything under it as ONE scrollport, clipped by .content, so the outgoing
+  // large title never paints over the chips. `scrolled` may be a number: the offset in px.
+  const off = typeof scrolled === 'number' ? scrolled : 0
+  const inner = `${bar}${banner}<div class="content">${off ? `<div style="transform:translateY(-${off}px)">` : ''}${largeTitle(title, sub)}${body}${off ? '</div>' : ''}<div style="height:${TABBAR_H + safeBottom(w) + (dockOn ? dockH(h) + 16 : 72)}px"></div></div>${tabBar(role, active, { w, moreBadge })}${dock}${showFab && !MONEY_LISTS.has(active) ? fab(role, w, active) : ''}`
   // The pill and the toast stack above the dock and span the width: no FAB slot beside them.
   if (dockOn)
     overlay = overlay.replace(

@@ -613,9 +613,9 @@ export const pillScrolled = (w, h) =>
     role: 'ADMIN',
     active: '/finance',
     title: 'Фінанси',
-    body: `<div style="transform:translateY(-190px)">${pinDrafts([DRAFT.failed])}</div>`,
+    body: pinDrafts([DRAFT.failed]),
     overlay: moneyPill(w, 'failed'),
-    scrolled: true,
+    scrolled: 190,
   })
 
 /** Sheet dismissed while armed: the global upload pill carries the save; a tap reopens the draft. */
