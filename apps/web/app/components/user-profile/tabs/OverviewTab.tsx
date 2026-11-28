@@ -480,7 +480,7 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
 
       {/* task-pending-share (position 5): the affected SENIOR, on their OWN
           profile, sees the actionable banner. Everyone else who can see the
-          share (ADMIN, or the senior viewed by ACCOUNTANT/HR-with-access)
+          share (ADMIN, or the senior viewed by HR-with-access)
           only gets the informational badge inside the "Доля" card below. */}
       {showsPendingBanner && user.pendingSeniorShare && (
         <PendingBaseShareBanner

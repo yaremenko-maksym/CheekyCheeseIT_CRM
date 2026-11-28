@@ -55,7 +55,7 @@ interface NavItem {
 
 // Drop role - phase 1: DROP sees only Profile / Team / Finance (spec §4).
 // No Dashboard, no Projects, no Interviews, no Documents. Existing role
-// visibilities for ADMIN / SENIOR / HR / ACCOUNTANT are unchanged.
+// visibilities for ADMIN / SENIOR / HR are unchanged.
 // Drop role - phase 3 (UT fix): DROP «Дашборд» консолидирован на корень /crm.
 //   Хаб роутинга рендерится роль-зависимо в index.tsx (DROP → DropDashboard).
 //   Отдельный пункт /routing для DROP удалён — теперь единый «Дашборд».
@@ -73,7 +73,7 @@ const NAV_ITEMS: NavItem[] = [
     // Единый «Дашборд» для всех ролей кроме JUNIOR.
     // DROP видит роль-зависимый хаб платёжного роутинга на этом же URL.
     // Route-иконка сохранена для позиционирования пункта первым для DROP
-    // (ADMIN/SENIOR/HR/ACCOUNTANT используют LayoutDashboard).
+    // (ADMIN/SENIOR/HR используют LayoutDashboard).
     // activeOptions.exact: true — «Дашборд» active ТОЛЬКО на /crm, не на /crm/*.
     // Без exact TanStack Router матчит / как prefix для всех дочерних роутов,
     // что приводит к двойной подсветке (Dashboard + текущий раздел).

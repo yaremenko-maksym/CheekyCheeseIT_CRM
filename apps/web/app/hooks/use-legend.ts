@@ -18,7 +18,7 @@ import { getApiErrorMessage, getAxiosStatus } from '@/lib/axios-utils'
  *
  * - 200 + null body → no legend yet → returns null (not an error; server-contract change)
  * - 404 → kept as fallback (real project-not-found still returns 404 on network errors)
- * - 403 → viewer lacks access (subject excluded / ACCOUNTANT etc.) → returns null silently
+ * - 403 → viewer lacks access (subject excluded etc.) → returns null silently
  */
 export function useLegend(projectId: string | undefined, enabled = true) {
   return useQuery<Legend | null>({
@@ -30,7 +30,7 @@ export function useLegend(projectId: string | undefined, enabled = true) {
         return legendResponseSchema.parse(res.data)
       } catch (err: unknown) {
         // 404 = project not found (real 404 from loadProject) — treat as null
-        // 403 = no permission (subject excluded / ACCOUNTANT) — silent
+        // 403 = no permission (subject excluded) — silent
         if (getAxiosStatus(err) === 404 || getAxiosStatus(err) === 403) return null
         throw err
       }

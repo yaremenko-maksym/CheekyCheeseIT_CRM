@@ -57,26 +57,23 @@ export function StatsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
 
-  // ACCOUNTANT joins ADMIN as a viewer on /stats. Both see the economic part
-  // (P&L + charts + monthly breakdown) AND the company + partner balances card
-  // (owner decision 2026-10-12). The server already backs this: `getSummary`
-  // returns `adminBalances` to ADMIN (`canSeeAdminBalances`), and
-  // GET /company-account is `@Roles('ADMIN', 'ACCOUNTANT')`. Only the HR/Команда/
-  // Проєкти placeholders stay ADMIN-only (`isAdmin`). Other roles are bounced to
-  // the dashboard at / (defense-in-depth over the route-access guard).
-  const isPrivilegedViewer = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
+  // /stats is ADMIN-only: the economic part (P&L + charts + monthly breakdown),
+  // the company + partner balances card and the HR/Команда/Проєкти placeholders.
+  // The server backs this (`getSummary` returns `adminBalances` to ADMIN only).
+  // Other roles are bounced to the dashboard at / (defense-in-depth over the
+  // route-access guard).
   const isAdmin = user?.role === 'ADMIN'
 
   useEffect(() => {
-    if (user && !isPrivilegedViewer) {
+    if (user && !isAdmin) {
       void navigate({ to: '/' })
     }
-  }, [user, isPrivilegedViewer, navigate])
+  }, [user, isAdmin, navigate])
 
   const { data: summary, isLoading } = useQuery({
     queryKey: ['finance-summary'],
     queryFn: financeApi.getSummary,
-    enabled: isPrivilegedViewer,
+    enabled: isAdmin,
   })
 
   // Every hook must run on every render regardless of the early return below
@@ -84,13 +81,10 @@ export function StatsPage() {
   // non-privileged viewer, which `computeExtraStats`'s ternary already covers.
   const extra = useMemo(() => (summary ? computeExtraStats(summary) : null), [summary])
 
-  if (!user || !isPrivilegedViewer) return null
+  if (!user || !isAdmin) return null
 
   return (
-    <div
-      className="flex flex-col h-full"
-      data-testid={isAdmin ? 'stats-page-admin' : 'stats-page-accountant'}
-    >
+    <div className="flex flex-col h-full" data-testid="stats-page-admin">
       <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
         <div className="space-y-8">
           {/* ── Finance section (economic — ADMIN) ── */}
@@ -209,8 +203,7 @@ export function StatsPage() {
           financial KPIs so the key P&L numbers are seen first. */}
           <IncomeComplianceSection />
 
-          {/* Future sections placeholder (ADMIN-only — HR/Команда/Проєкти analytics
-          are not part of the accountant's economic surface). */}
+          {/* Future sections placeholder (HR/Команда/Проєкти analytics). */}
           {isAdmin && (
             <section className="space-y-4" data-testid="stats-placeholders-section">
               <div className="flex items-center gap-2">

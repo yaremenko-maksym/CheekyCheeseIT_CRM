@@ -54,7 +54,7 @@ export function receiverInitials(name: string): string {
 //
 // task-compliance-overview-pending-types: `accruedCount` (a company-booked
 // obligation still awaiting the COMPANY's payout) is grouped with
-// `pendingCount` (self-declared income still awaiting the ACCOUNTANT) for THIS
+// `pendingCount` (self-declared income still awaiting validation) for THIS
 // coverage classification only — both mean "nothing left for the receiver to
 // do, not their fault", so neither should ever render as the red `lagging`
 // false alarm. The two stay separate NUMBERS everywhere else (badge text,
@@ -172,7 +172,7 @@ export function ComplianceReceiverRow({ receiver }: { receiver: IncomeCompliance
   // condition `receiverStatus()` requires to return 'pending' in the first
   // place. `accruedCount` (booked, awaiting the company's payout) still gets
   // its OWN wording within that branch — reusing «На валидации» would be a
-  // wrong claim (nobody is validating anything; the accountant has nothing
+  // wrong claim (nobody is validating anything; there is nothing
   // to check, the company just hasn't paid out yet).
   const badge: { text: React.ReactNode; cls: string } =
     status === 'complete'

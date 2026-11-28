@@ -73,7 +73,7 @@ function DocumentsPage() {
   // Drop role - phase 3 (UT finding 1): DROP now has a /documents page.
   // They see only their own docs (IDOR-scoped at service layer).
   // Sidebar link, route-access, and backend service all updated together.
-  useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
+  useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP'])
   const { user } = useAuth()
   if (!user) return null
 
@@ -108,8 +108,7 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   const [statusTab, setStatusTab] = useState<StatusTab>('ACTIVE')
   const [ownerFilter, setOwnerFilter] = useState<string>('ALL')
   // Category filter: 'ALL' = no category filter (show all accessible to role).
-  // ACCOUNTANT defaults to 'RECEIPT' (primary workflow: receipt validation).
-  // All other roles default to 'ALL'. An explicit `?category=` deep-link
+  // Every role defaults to 'ALL'. An explicit `?category=` deep-link
   // (e.g. from a notification → `/documents?category=INVOICE&openTx=…`)
   // always wins over the role-based default.
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>(() =>

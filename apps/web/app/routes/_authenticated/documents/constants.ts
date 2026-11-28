@@ -59,7 +59,8 @@ export const TAB_VISIBILITY: Record<Role, DocumentCategory[]> = {
   SENIOR: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'],
   JUNIOR: ['RESUME', 'SCAN', 'CONTRACT', 'INVOICE'],
   HR: ['RESUME', 'SCAN', 'CONTRACT'],
-  ACCOUNTANT: ['SCAN', 'RECEIPT', 'INVOICE'],
+  // Retired role: kept only because `Role` still lists it until PR 1d.
+  ACCOUNTANT: [],
   // Drop role - phase 1 (backend): documents UX for DROP ships in a later
   // phase. Mirror the SENIOR set so the page renders without runtime crash.
   DROP: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'],
@@ -67,14 +68,14 @@ export const TAB_VISIBILITY: Record<Role, DocumentCategory[]> = {
 
 /**
  * Which categories does this role actually upload through /documents?
- * (RECEIPT is uploaded from the Finance dialogs; ACCOUNTANT does not upload
- * at all from this page.)
+ * (RECEIPT is uploaded from the Finance dialogs.)
  */
 export const UPLOADABLE_PER_ROLE: Record<Role, DocumentCategory[]> = {
   ADMIN: ['RESUME', 'SCAN', 'CONTRACT'],
   SENIOR: ['RESUME', 'SCAN', 'CONTRACT'],
   JUNIOR: ['RESUME', 'SCAN'],
   HR: ['RESUME', 'SCAN'],
+  // Retired role: kept only because `Role` still lists it until PR 1d.
   ACCOUNTANT: [],
   // Drop role - phase 1 (backend): drop document UX ships in a later phase.
   DROP: ['RESUME', 'SCAN', 'CONTRACT'],
@@ -89,12 +90,7 @@ export function canSeeOwnerFilter(role: Role): boolean {
  *
  * Priority:
  *   1. Explicit deep-link `?category=<X>` — always wins.
- *   2. Role-based default: ACCOUNTANT → 'RECEIPT' (primary workflow: validating
- *      receipts as proof of income). All other roles → 'ALL'.
- *
- * Note: 'RECEIPT' is in TAB_VISIBILITY['ACCOUNTANT'], so the downstream
- * reset-to-ALL effect (which fires when the selected category is not in
- * availableCategories) will never override this default. No conflict.
+ *   2. Otherwise 'ALL' for every role.
  *
  * Exported for unit testing; no React dependencies.
  */
@@ -103,9 +99,8 @@ export function initialCategoryForRole(
   deepLinkCategory: DocumentCategory | undefined,
 ): CategoryFilter {
   if (deepLinkCategory !== undefined) return deepLinkCategory
-  // AC3: default = 'ALL' for ALL roles (including ACCOUNTANT).
-  // Previously ACCOUNTANT defaulted to 'RECEIPT'; now every role starts
-  // on "Все категории" and narrows down via the dropdown.
+  // AC3: default = 'ALL' for every role; each starts on "Все категории"
+  // and narrows down via the dropdown.
   void role // role kept in signature for possible future per-role defaults
   return 'ALL'
 }
