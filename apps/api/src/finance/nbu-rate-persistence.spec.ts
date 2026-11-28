@@ -604,6 +604,23 @@ describe("fix round 4 — today's NBU answer is date-checked too (SO-H-1)", () =
     // Nothing was cached, so the outage answer is the hardcoded constant.
     expect(await svc.getRates()).toEqual(LIVE_DOWN)
   })
+
+  it('a future day stays exempt from the date check, and is neither cached nor persisted', async () => {
+    PUBLISHED['20261121'] = { usd: 42.1, eur: 45.1 }
+    try {
+      answeredAsFor = { '20261121': { USD: '20.11.2026' } }
+      expect(await svc.getRates('20261121')).toMatchObject({
+        usdUah: '42.1000',
+        stale: false,
+        rateDate: '20261121',
+      })
+      expect(store.save).not.toHaveBeenCalled()
+      feedDown = true
+      expect(await svc.getRates()).toEqual(LIVE_DOWN)
+    } finally {
+      delete PUBLISHED['20261121']
+    }
+  })
 })
 
 describe('fix round 4 — a wrong-day exact answer does not short-circuit the fallbacks (SO-H-2)', () => {

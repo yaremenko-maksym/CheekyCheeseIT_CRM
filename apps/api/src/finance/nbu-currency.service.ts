@@ -421,11 +421,12 @@ export class NbuCurrencyService {
    *
    * Resolution order is FIXED and fully deterministic — the same inputs always
    * yield the same number:
-   *   1. the exact requested date, trying each source in `NBU_SOURCES` order;
+   *   1. the exact requested date, trying each source in `NBU_SOURCES` order; an answer dated
+   *      another day on every source does not stop here (fix round 4), it is kept for step 3;
    *   2. the previous calendar day, again trying each source in order;
    *   3. the last-known-good cache, but only if it is still fresh enough to
-   *      price money (otherwise it is returned for display WITHOUT a
-   *      `rateDate`, which makes every money path refuse);
+   *      price money (otherwise the step-1 wrong-day answer, if any, or the cache is
+   *      returned for display WITHOUT a `rateDate`, which makes every money path refuse);
    *   4. the hardcoded constant, never dated.
    * Date correctness outranks source preference: we would rather have the
    * right day from the third source than the wrong day from the first.
@@ -562,8 +563,9 @@ export class NbuCurrencyService {
   ): Promise<SourceHit | null> {
     let partial: SourceHit | null = null
     let wrongDay: SourceHit | null = null
-    // Security review PR #1523 (SR-M-1, fix round 3): a past day's answer must carry NBU's own
-    // date for THAT day on both the USD and the EUR row (`exchangedate` / `StartDate`). A source
+    // Security review PR #1523 (SR-M-1, fix rounds 3-4): an answer for a past day or today must
+    // carry NBU's own date for THAT day on both the USD and the EUR row (`exchangedate` /
+    // `StartDate`). A source
     // dated another day falls through to the next one; only when none is dated right is the first
     // such answer returned, flagged, for display.
     const asked = ymdToDotted(yyyymmdd)
