@@ -179,6 +179,7 @@ export function frames() {
     out.push(D('tablet-rail-768', 768, 1024, tablet({ w: 768, h: 1024 })))
     // A 768 × 700 window (Stage Manager / Split View): the destinations no longer fit, so «Ще» appears.
     out.push(D('tablet-rail-more-768', 768, 700, tablet({ w: 768, h: 700, more: true })))
+    out.push(D('tablet-rail-more-short-768', 768, 600, tablet({ w: 768, h: 600, more: 'end' })))
     // >= 900: rail 80 + list 360 + detail (560 at 1000); the selected row is marked only here.
     out.push(D('tablet-two-pane-1000', 1000, 768, tablet({ w: 1000, h: 768 })))
   }
@@ -208,6 +209,25 @@ export function frames() {
         1024,
         768,
         desktop({ w: 1024, h: 768, overlay: cmdk({ compact: true }) }),
+      ),
+    )
+    // R4-05: both overlays under a coarse pointer (iPad landscape); R4-06: the sheet of a teamless SENIOR.
+    const touch = { w: 1180, h: 820, touch: true }
+    out.push(D('desktop-cmdk-touch-1180', 1180, 820, desktop({ ...touch, overlay: cmdk({ coarse: true }) })))
+    out.push(
+      D('desktop-shortcuts-touch-1180', 1180, 820, desktop({ ...touch, overlay: shortcuts({ coarse: true }) })),
+    )
+    out.push(
+      D(
+        'desktop-shortcuts-senior-teamless-1440',
+        1440,
+        900,
+        desktop({
+          w: 1440,
+          h: 900,
+          role: 'SENIOR_TEAMLESS',
+          overlay: shortcuts({ role: 'SENIOR_TEAMLESS' }),
+        }),
       ),
     )
   }

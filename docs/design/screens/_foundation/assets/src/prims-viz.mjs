@@ -51,6 +51,7 @@ function sidePanel(width, { touch = false, modal = true } = {}) {
       receipt: 'done',
       expanded: true,
       note: 'Оренда офісу',
+      project: 'Альфа',
       pad: '16px 24px 24px',
     })
   }</div>

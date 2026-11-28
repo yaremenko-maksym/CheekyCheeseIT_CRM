@@ -99,7 +99,7 @@ export function amountBlock({ focus = false, amount = AMOUNT, cur = 'USD' } = {}
 export const defaultsRow = (project = '') =>
   `<div role="button" aria-expanded="false" class="row" style="justify-content:center;gap:6px;height:44px;font-size:15px;margin-top:6px"><span class="muted">${icon('calendar', { size: 16 })}</span><span>Сьогодні · ${project ? `Проєкт «${project}»` : 'без проєкту'} ·</span><span style="color:var(--primary);font-weight:600">змінити</span></div>`
 
-export function optionalFields({ focus = '', dateError = false, note = '' } = {}) {
+export function optionalFields({ focus = '', dateError = false, note = '', project = '' } = {}) {
   return [
     field({
       id: 'dt',
@@ -112,7 +112,8 @@ export function optionalFields({ focus = '', dateError = false, note = '' } = {}
     field({
       id: 'p',
       label: 'Проєкт',
-      value: 'Без проєкту',
+      // R4-03: an edit prefills the record's own project; «Без проєкту» only when it has none.
+      value: project || 'Без проєкту',
       suffix: `<span class="muted">${icon('chevron-down', { size: 18 })}</span>`,
     }),
     field({
@@ -144,7 +145,7 @@ export const moneyBody = ({
   const rest = locked
     ? sentFields()
     : expanded
-      ? `<div class="col" style="gap:16px">${optionalFields({ focus, dateError, note })}</div>`
+      ? `<div class="col" style="gap:16px">${optionalFields({ focus, dateError, note, project })}</div>`
       : defaultsRow(project)
   const fields = `${receiptCard(receipt, { narrow, cur })}${amountBlock({ focus: focus === 'amount', amount, cur })}${rest}`
   return `<div class="col" style="gap:14px;padding:${pad};transform:translateY(-${scroll}px)">${alert}${locked ? lockedFields(fields) : fields}</div>`

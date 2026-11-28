@@ -54,27 +54,30 @@ function detailPane() {
   <div style="flex:1;min-height:0;overflow:hidden;padding:12px 8px 24px">${detailTxnBody()}</div></section>`
 }
 
-function morePanel(role, h) {
+// R4-04: bounded to the safe viewport (24 px top and bottom); the list scrolls inside, the header stays.
+// It closes by its own controls only: ✕, a scrim tap (the dimmed «Ще» trigger is under the scrim, so a tap there
+// is a scrim tap), Esc, system back. measure.mjs `reach` asserts every overflow destination scrolls into view.
+function morePanel(role, h, end = false) {
   const items = railFit(role, h).overflow
   const groups = GROUPS.map((g) => ({
     ...g,
     items: g.items.filter((d) => items.includes(d)),
   })).filter((g) => g.items.length)
   return `<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>
-  <div role="dialog" aria-label="Ще" style="position:absolute;left:96px;bottom:24px;width:320px;z-index:70;background:var(--popover);border:1px solid var(--border);border-radius:18px;box-shadow:0 20px 60px oklch(0 0 0 / 0.6);padding:8px 0 10px">
-  <div class="row" style="height:48px;padding:0 16px"><div class="grow t-head">Ще</div><button type="button" class="iconbtn" aria-label="Закрити" style="margin-right:-10px">${icon('x', { size: 20 })}</button></div>
-  ${groups
+  <div role="dialog" aria-label="Ще" style="position:absolute;left:96px;bottom:24px;width:320px;max-height:calc(100% - 48px);display:flex;flex-direction:column;z-index:70;background:var(--popover);border:1px solid var(--border);border-radius:18px;box-shadow:0 20px 60px oklch(0 0 0 / 0.6);padding:8px 0 10px">
+  <div class="row" style="height:48px;padding:0 16px;flex:none"><div class="grow t-head">Ще</div><button type="button" class="iconbtn" aria-label="Закрити" style="margin-right:-10px">${icon('x', { size: 20 })}</button></div>
+  <div data-reach="${items.length}"${end ? ' data-scroll-end' : ''} style="flex:1;min-height:0;overflow:hidden auto;overscroll-behavior:contain">${groups
     .map(
       (g) =>
         `<div class="t-over" style="padding:10px 16px 4px">${g.title}</div>${g.items
           .map(
             (d) =>
-              `<div class="row" style="gap:12px;height:44px;padding:0 16px;${d === '/pending' ? '' : ''}"><span class="muted">${icon(DEST[d].icon, { size: 18 })}</span><span class="grow t-sub trunc">${DEST[d].label}</span>${d === '/pending' ? '<span class="pill y num" style="font-weight:700">3</span>' : ''}</div>`,
+              `<div class="row" data-dest="${d}" style="gap:12px;height:44px;padding:0 16px"><span class="muted">${icon(DEST[d].icon, { size: 18 })}</span><span class="grow t-sub trunc">${DEST[d].label}</span>${d === '/pending' ? '<span class="pill y num" style="font-weight:700">3</span>' : ''}</div>`,
           )
           .join('')}`,
     )
     .join('')}
-  </div>`
+  </div></div>${end ? `<script>document.querySelectorAll('[data-scroll-end]').forEach((e) => (e.scrollTop = e.scrollHeight))</script>` : ''}`
 }
 
 // R2-02: the ONE Фінанси list pane of a tablet: header, search, chips, then a body. A loaded list, a skeleton, an
@@ -131,6 +134,6 @@ export function tablet({
       list.replace(/style="width:\d+px;flex:none;/, 'style="flex:1;min-width:0;')
   return `<div class="device touch" style="width:${w}px;height:${h}px">
   <div class="row" style="height:24px;padding:0 20px;justify-content:space-between;font-size:13px;font-weight:600;flex:none"><span>9:41 вт 11 лист.</span><span class="row" style="gap:6px">${icon('wifi', { size: 14, stroke: 2.2 })}100%</span></div>
-  <div class="row grow" style="align-items:stretch;min-height:0;position:relative">${rail(role, active, h, more)}${listHtml}${twoPane ? detail || detailPane() : ''}${more ? morePanel(role, h) : ''}${overlay}</div>
+  <div class="row grow" style="align-items:stretch;min-height:0;position:relative">${rail(role, active, h, more)}${listHtml}${twoPane ? detail || detailPane() : ''}${more ? morePanel(role, h, more === 'end') : ''}${overlay}</div>
   <div class="homebar" style="width:180px"></div></div>`
 }

@@ -105,7 +105,14 @@ function table(contentW, { skeleton = false, headOnly = false, rows = ROWS, touc
   const tr = (headOnly ? [] : rows)
     .map(
       ([d, t, ty, p, att, a, pos, st], i) =>
-        `<tr ${i === 0 ? 'aria-selected="true" style="background:var(--raised)"' : ''}><td class="num muted">${d}</td><td><span class="row" style="gap:8px"><span class="trunc" title="${t}">${t}${!wide && p !== '—' ? `<span class="muted"> · ${p}</span>` : ''}</span>${st ? `<span class="pill warn" style="height:20px;font-size:11px">${st}</span>` : ''}</span></td><td class="muted">${ty}</td>${wide ? `<td class="muted trunc">${p}</td>` : ''}<td style="text-align:center" class="muted">${att ? icon('paperclip', { size: 14 }) : ''}</td><td class="num" style="text-align:right;font-weight:600;${pos ? 'color:var(--positive)' : ''}">${amt(a)}</td><td class="kcell">${kebab(t)}</td></tr>`,
+        `<tr ${i === 0 ? 'aria-selected="true" style="background:var(--raised)"' : ''}><td class="num muted">${d}</td><td><span class="row" style="gap:8px">${
+          // R4-28: the project is atomic: drawn whole after the description or not at all. Both sit in one
+          // wrapping line of fixed height, so a project that does not fit whole wraps out of sight and the
+          // description truncates alone (never «Опис · А…»). The project stays in the row's accessible name.
+          !wide && p !== '—'
+            ? `<span title="${t} · ${p}" aria-label="${t} · ${p}" style="display:flex;flex-wrap:wrap;min-width:0;height:20px;overflow:hidden"><span class="trunc" style="flex:0 1 auto;min-width:0">${t}</span><span class="muted" aria-hidden="true" style="flex:none;white-space:pre"> · ${p}</span></span>`
+            : `<span class="trunc" title="${t}">${t}</span>`
+        }${st ? `<span class="pill warn" style="height:20px;font-size:11px">${st}</span>` : ''}</span></td><td class="muted">${ty}</td>${wide ? `<td class="muted trunc">${p}</td>` : ''}<td style="text-align:center" class="muted">${att ? icon('paperclip', { size: 14 }) : ''}</td><td class="num" style="text-align:right;font-weight:600;${pos ? 'color:var(--positive)' : ''}">${amt(a)}</td><td class="kcell">${kebab(t)}</td></tr>`,
     )
     .join('')
   return `<table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:14px">${colgroup(head)}<thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`
@@ -205,11 +212,12 @@ const SCRIM = '<div style="position:absolute;inset:0;background:var(--scrim);z-i
  * role's quick-add actions; the match is bold. `empty`: no result — one line and the way out, never a blank box.
  * Opened by ⌘K on macOS and Ctrl+K elsewhere (one registry, shell-v2 §4).
  */
-export function cmdk({ compact = false, empty = false } = {}) {
+// R4-05: under a coarse pointer (touch at >= 1024) options are 44 px and their text 16 px; the query is 16 px always.
+export function cmdk({ compact = false, empty = false, coarse = false } = {}) {
   const q = empty ? 'квартальний звіт' : 'нов'
   const hl = (s) => s.replace(/^(Нов)/, '<b style="color:var(--fg)">$1</b>')
   const item = (ic, label, keys = [], on = false, sub = '') =>
-    `<div class="row" role="option" aria-selected="${on}" style="gap:12px;height:40px;padding:0 12px;margin:0 6px;border-radius:8px;font-size:14px;${on ? 'background:var(--raised)' : ''}"><span class="${on ? '' : 'muted'}" style="${on ? 'color:var(--primary)' : ''}">${icon(ic, { size: 16 })}</span><span class="grow trunc" style="color:var(--muted-fg)">${hl(label)}${sub ? ` <span class="muted">· ${sub}</span>` : ''}</span>${keys.length ? `<span style="display:inline-flex;gap:4px">${keys.map((k) => `<span class="kbdkey">${k}</span>`).join('')}</span>` : ''}</div>`
+    `<div class="row" role="option" aria-selected="${on}" style="gap:12px;height:${coarse ? 44 : 40}px;padding:0 12px;margin:0 6px;border-radius:8px;font-size:${coarse ? 16 : 14}px;${on ? 'background:var(--raised)' : ''}"><span class="${on ? '' : 'muted'}" style="${on ? 'color:var(--primary)' : ''}">${icon(ic, { size: 16 })}</span><span class="grow trunc" style="color:var(--muted-fg)">${hl(label)}${sub ? ` <span class="muted">· ${sub}</span>` : ''}</span>${keys.length ? `<span style="display:inline-flex;gap:4px">${keys.map((k) => `<span class="kbdkey">${k}</span>`).join('')}</span>` : ''}</div>`
   const grp = (t) => `<div class="t-over" style="font-size:11px;padding:10px 18px 4px">${t}</div>`
   const list = empty
     ? `<div role="status" class="col" style="align-items:center;gap:4px;padding:28px 24px 24px;text-align:center"><div style="font-size:15px;font-weight:600">Нічого не знайдено за «${q}»</div><div class="t-foot muted">Палітра шукає дії, розділи й рядки, завантажені на цій сторінці.</div></div>`
@@ -221,7 +229,17 @@ export function cmdk({ compact = false, empty = false } = {}) {
   <div class="row" style="gap:16px;height:40px;padding:0 18px;border-top:1px solid var(--border);font-size:12px;color:var(--muted-fg)"><span class="row" style="gap:5px"><span class="kbdkey">↑</span><span class="kbdkey">↓</span>вибір</span><span class="row" style="gap:5px"><span class="kbdkey">↵</span>виконати</span><span class="row" style="gap:5px"><span class="kbdkey">Esc</span>закрити</span><span class="grow"></span><span class="row" style="gap:5px"><span class="kbdkey">?</span>усі скорочення</span></div></div>`
 }
 
-export function shortcuts() {
+// R4-06: the «Перехід» column, the G-chord handler and the sidebar read ONE role-aware destination list
+// (allowed(role)); a chord to a destination the role lacks is neither drawn nor bound.
+const CHORDS = [
+  ['/finance', 'F'],
+  ['/stats', 'S'],
+  ['/users', 'U'],
+  ['/vacancies', 'V'],
+  ['/', 'H'],
+]
+// R4-05: under a coarse pointer the switch keeps its 44 × 26 track inside a 52 × 44 hit box.
+export function shortcuts({ role = 'ADMIN', coarse = false } = {}) {
   const row = (label, keys) =>
     `<div class="row" style="height:36px;gap:10px;font-size:14px;border-bottom:1px solid var(--separator)"><span class="grow">${label}</span><span style="display:inline-flex;gap:4px;align-items:center">${keys.map((k) => (k === 'потім' ? '<span class="t-cap muted">потім</span>' : `<span class="kbdkey">${k}</span>`)).join('')}</span></div>`
   const col = (t, rows) =>
@@ -231,9 +249,12 @@ export function shortcuts() {
   <span class="iconbtn" aria-label="Закрити">${icon('x', { size: 18 })}</span></div>
   <div class="row" style="gap:14px;margin:16px 24px 4px;padding:12px 14px;border-radius:12px;background:var(--card);border:1px solid var(--border)">
     <div class="grow"><div style="font-size:14px;font-weight:600">Односимвольні скорочення</div><div class="t-foot muted">Клавіші без ⌘/Ctrl. Ніколи не спрацьовують у текстовому полі. Налаштування зберігається на цьому пристрої.</div></div>
-    <span role="switch" aria-checked="true" aria-label="Односимвольні скорочення" style="width:44px;height:26px;border-radius:13px;background:var(--primary);position:relative;flex:none"><i style="position:absolute;right:3px;top:3px;width:20px;height:20px;border-radius:10px;background:var(--primary-fg)"></i></span></div>
+    <span role="switch" aria-checked="true" aria-label="Односимвольні скорочення" style="${coarse ? 'width:52px;height:44px;' : 'width:44px;height:26px;'}display:grid;place-items:center;flex:none"><span style="width:44px;height:26px;border-radius:13px;background:var(--primary);position:relative"><i style="position:absolute;right:3px;top:3px;width:20px;height:20px;border-radius:10px;background:var(--primary-fg)"></i></span></span></div>
   <div class="row" style="gap:32px;padding:12px 24px 24px;align-items:flex-start">
   ${col('Загальні', [row('Палітра команд', ['⌘ / Ctrl', 'K']), row('Пошук на сторінці', ['/']), row('Клавіатурні скорочення', ['?']), row('Закрити панель або діалог', ['Esc']), row('Згорнути бічну панель', ['[']), row('Зберегти форму', ['⌘ / Ctrl', '↵']), row('Скасувати останню дію', ['⌘ / Ctrl', 'Z'])])}
-  ${col('Перехід', [row('Фінанси', ['G', 'потім', 'F']), row('Статистика', ['G', 'потім', 'S']), row('Користувачі', ['G', 'потім', 'U']), row('Вакансії', ['G', 'потім', 'V']), row('Дашборд', ['G', 'потім', 'H'])])}
+  ${col(
+    'Перехід',
+    CHORDS.filter(([d]) => allowed(role).includes(d)).map(([d, k]) => row(DEST[d].label, ['G', 'потім', k])),
+  )}
   ${col('Списки', [row('Наступний рядок', ['J']), row('Попередній рядок', ['K']), row('Відкрити рядок', ['↵']), row('Створити', ['C']), row('Фільтр', ['F']), row('Змінити етап картки', ['M'])])}</div></div>`
 }

@@ -49,6 +49,8 @@ const COARSE = new Set([
   'shell-touch-1180',
   'shell-touch-collapsed-1180',
   'datepicker-popover-touch-1180',
+  'desktop-cmdk-touch-1180',
+  'desktop-shortcuts-touch-1180',
 ])
 // Diagrams of scaled-down screens, not UI at 1:1: the target and input checks do not apply.
 const DIAGRAM = new Set(['transition-storyboard'])
