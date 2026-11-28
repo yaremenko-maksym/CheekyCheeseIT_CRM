@@ -2,7 +2,6 @@ import { eq } from 'drizzle-orm'
 import * as schema from '../schema'
 import { JUNIOR_CONTRACT } from '../seed-templates/contract-junior'
 import { HR_CONTRACT } from '../seed-templates/contract-hr'
-import { ACCOUNTANT_CONTRACT } from '../seed-templates/contract-accountant'
 import { ContractPdfService } from '../../contracts/contract-pdf.service'
 import { PdfGenerationService } from '../../common/pdf/pdf-generation.service'
 import { CONTRACT_BODY, TOS_BODY } from './contract-bodies'
@@ -13,7 +12,6 @@ import {
   SOFIA_ID,
   ANNA_ID,
   KATERYNA_ID,
-  MYKOLA_ID,
   ARTEM_ID,
   NAZAR_ID,
   OKSANA_ID,
@@ -50,17 +48,16 @@ export async function seedOnboarding({ db }: SeedCtx): Promise<void> {
   const tosV1 = tosV1Rows[0]!
   console.log('  ✓ ToS v1 (active) inserted')
 
-  // Contract templates — 5 roles (not ADMIN)
+  // Contract templates — 4 roles (not ADMIN)
   const templateMap: Record<string, string> = {}
   const CONTRACT_CUSTOM_VARIABLES: Partial<
     Record<string, { key: string; label: string; defaultValue: string }[]>
   > = {
     JUNIOR: JUNIOR_CONTRACT.customVariables,
     HR: HR_CONTRACT.customVariables,
-    ACCOUNTANT: ACCOUNTANT_CONTRACT.customVariables,
   }
 
-  for (const role of ['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] as const) {
+  for (const role of ['SENIOR', 'JUNIOR', 'HR', 'DROP'] as const) {
     const tmplRows = await db
       .insert(schema.contractTemplates)
       .values({
@@ -75,12 +72,12 @@ export async function seedOnboarding({ db }: SeedCtx): Promise<void> {
     const tmpl = tmplRows[0]!
     templateMap[role] = tmpl.id
   }
-  console.log('  ✓ 5 contract templates (active) inserted')
+  console.log('  ✓ 4 contract templates (active) inserted')
 
   // Onboarded users (all except Dmytro + Ivan who are un-onboarded)
   interface OnboardUser {
     userId: string
-    role: 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
+    role: 'SENIOR' | 'JUNIOR' | 'HR' | 'DROP'
     legalName: string
     signedAt: Date
     contractNum: number
@@ -122,15 +119,6 @@ export async function seedOnboarding({ db }: SeedCtx): Promise<void> {
       signedAt: d(2025, 6, 5),
       contractNum: 4,
       payRequisite: 'UA213223130000026007233566003 (monobank)',
-      method: 'Bank UAH FOP',
-    },
-    {
-      userId: MYKOLA_ID,
-      role: 'ACCOUNTANT',
-      legalName: 'Савченко Микола Григорович',
-      signedAt: d(2025, 6, 5),
-      contractNum: 5,
-      payRequisite: 'UA213223130000026007233566004 (ПриватБанк)',
       method: 'Bank UAH FOP',
     },
     {
