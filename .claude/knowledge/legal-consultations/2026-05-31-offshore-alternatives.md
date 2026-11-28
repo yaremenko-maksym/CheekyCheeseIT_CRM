@@ -649,9 +649,9 @@ A realistic target: **9-15% total tax burden through a UA Diia City TOV. If addi
 
 **Internal:**
 
-- [docs/specs/legal-consultations/2026-05-31-usdt-payouts-phase8.md](2026-05-31-usdt-payouts-phase8.md) — UA crypto vacuum context
-- [docs/specs/legal-consultations/2026-05-31-tov-multi-channel-revenue.md](2026-05-31-tov-multi-channel-revenue.md) — multi-channel limits in UA
-- [docs/specs/legal-consultations/2026-05-31-diia-city-implementation-roadmap.md](2026-05-31-diia-city-implementation-roadmap.md) — Diia City deep-dive
+- [.claude/knowledge/legal-consultations/2026-05-31-usdt-payouts-phase8.md](2026-05-31-usdt-payouts-phase8.md) — UA crypto vacuum context
+- [.claude/knowledge/legal-consultations/2026-05-31-tov-multi-channel-revenue.md](2026-05-31-tov-multi-channel-revenue.md) — multi-channel limits in UA
+- [.claude/knowledge/legal-consultations/2026-05-31-diia-city-implementation-roadmap.md](2026-05-31-diia-city-implementation-roadmap.md) — Diia City deep-dive
 
 ### Disclaimer
 

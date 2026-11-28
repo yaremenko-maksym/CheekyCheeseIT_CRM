@@ -25,7 +25,7 @@ The User received 4 previous strategic consultations:
 3. [Diia City roadmap](2026-05-31-diia-city-implementation-roadmap.md)
 4. [Offshore alternatives](2026-05-31-offshore-alternatives.md) — **confirmed that cash/crypto in any jurisdiction for our profile is not really legitimate**
 
-Memory `docs/agents/memory/legal/lessons.md` already contains a [P0] lesson: "A multi-issuer scheme = a pattern of tax evasion, Art. 212 of the Criminal Code of Ukraine. Never recommend."
+Memory `.claude/agents/memory/legal/lessons.md` already contains a [P0] lesson: "A multi-issuer scheme = a pattern of tax evasion, Art. 212 of the Criminal Code of Ukraine. Never recommend."
 
 ## What the User described verbatim
 
@@ -487,7 +487,7 @@ The User said: "I won't give up cash and crypto, because it gives flexibility to
 
 1. **A TOV Diia City resident** is not obliged to publish detailed financial reporting if not a JSC (Law 996-IV). Only the owner + the capital are disclosed — not the turnover.
 2. **A holding structure:** a holding TOV (a privacy front) owns the operating TOV, where the activity is conducted. Only the UBO disclosure is mandatory (Art. 6 of the Law on the registration of legal entities) — not details.
-3. **A foreign holding entity** (Estonia/UAE/Cyprus) — subject to [CFC compliance](https://docs/specs/legal-consultations/2026-05-31-offshore-alternatives.md) — an additional privacy layer (with limitations).
+3. **A foreign holding entity** (Estonia/UAE/Cyprus) — subject to [CFC compliance](2026-05-31-offshore-alternatives.md) — an additional privacy layer (with limitations).
 
 **But:** privacy has limits. Your UBO **will always** be known to the DPS (CRS exchange, the UBO register Art. 6 of the Law on registration). Privacy from competitors = OK. Privacy from the DPS = impossible legally.
 
@@ -861,9 +861,9 @@ Diia City + WhiteBIT + Wise — this is your "flexibility" without 5-10 years of
 
 #### Internal knowledge base
 
-- `docs/legal/cross-cutting/escalation-zones.md` — § 1 the criminal-law zone
-- `docs/legal/cross-cutting/citation-rules.md` — the citations format
-- `docs/agents/memory/legal/lessons.md` — the previous [P0] lesson about the multi-issuer scheme = Art. 212
+- `.claude/knowledge/legal/cross-cutting/escalation-zones.md` — § 1 the criminal-law zone
+- `.claude/knowledge/legal/cross-cutting/citation-rules.md` — the citations format
+- `.claude/agents/memory/legal/lessons.md` — the previous [P0] lesson about the multi-issuer scheme = Art. 212
 
 #### Previous consultations in the series
 
