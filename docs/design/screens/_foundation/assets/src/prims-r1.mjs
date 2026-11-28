@@ -194,7 +194,7 @@ const fold = (n, m = '0 12px 4px') =>
   `<button type="button" aria-expanded="false" class="row" style="width:calc(100% - 24px);margin:${m};justify-content:space-between;min-height:44px;padding:0 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font:inherit;font-size:14px;color:var(--fg)"><span class="num">Ще ${n}: немає з’єднання</span><span style="color:var(--primary);font-weight:600">Показати</span></button>`
 // One order by severity: impersonation pinned, then the session alert (it never folds), then the newest of the rest;
 // two show, the others fold into one «Ще N» row.
-const stack = () => `${impersonationBanner()}${sessionBanner()}${fold(1)}`
+const stack = (wide = false) => `${impersonationBanner({ wide })}${sessionBanner()}${fold(1)}`
 void offlineBanner
 
 export const bannerStackPhone = (w, h) =>
@@ -223,7 +223,7 @@ export const bannerStackTablet = (w, h) =>
     h,
     role: 'HR',
     active: '/interviews',
-    list: hrPane(`<div style="flex:none">${stack()}</div>`),
+    list: hrPane(`<div style="flex:none">${stack(true)}</div>`),
   })
 
 // Desktop Співбесіди page: toolbar + the interview list (the screen spec owns its final table).
@@ -249,7 +249,7 @@ export const bannerStackDesktop = (w, h) =>
     active: '/interviews',
     crumb: ['Робота', 'Співбесіди'],
     cta: 'Нова співбесіда',
-    content: `<div class="col" style="margin:0 -12px">${stack()}</div>${interviewTable({ omit: '' })}`,
+    content: `<div class="col" style="margin:0 -12px">${stack(true)}</div>${interviewTable({ omit: '' })}`,
   })
 
 // ---------- System states per class (F0-16) ----------

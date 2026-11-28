@@ -214,7 +214,10 @@ export function sessionBanner() {
   <span style="color:var(--warning);display:grid">${icon('lock', { size: 16 })}</span><span class="grow">Сесія завершилася</span><a href="#" role="button" style="display:grid;place-items:center;min-height:44px;padding:0 10px;font-weight:600;color:var(--primary);text-decoration:none">Увійти знову</a></div>`
 }
 
-export function impersonationBanner() {
+export function impersonationBanner({ wide = false } = {}) {
+  // R5-32: at >= 640 the one banner anatomy — text left, the action right on the same line.
+  if (wide)
+    return `<div role="status" class="row" style="margin:0 12px 4px;gap:8px;min-height:44px;padding:0 4px 0 12px;border-radius:12px;background:var(--yellow-subtle);border:1px solid oklch(0.34 0.07 85);font-size:14px;line-height:18px"><span style="color:var(--primary);display:grid">${icon('triangle-alert', { size: 16 })}</span><span class="grow" style="color:var(--primary)">Ви увійшли як <b>«Оксана Бойко»</b> (HR)</span><span class="row" role="button" style="flex:none;gap:6px;height:44px;padding:0 10px;color:var(--fg);font-weight:600">${icon('undo-2', { size: 15 })}Повернутися до свого профілю</span></div>`
   // R4-30: no bottom padding: the 44 px return row already leaves ~13 px under its text (no ~20 px dead band).
   return `<div role="status" style="margin:0 12px 4px;padding:8px 12px 0;border-radius:12px;background:var(--yellow-subtle);border:1px solid oklch(0.34 0.07 85);font-size:14px;line-height:18px">
   <div class="row" style="gap:8px;color:var(--primary)">${icon('triangle-alert', { size: 16 })}<span class="grow">Ви увійшли як <b>«Оксана Бойко»</b> (HR)</span></div>

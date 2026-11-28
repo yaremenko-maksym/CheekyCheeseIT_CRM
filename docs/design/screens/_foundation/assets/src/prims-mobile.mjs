@@ -43,7 +43,7 @@ const pickerField = (id, label, value) =>
 /** Field states on a profile edit: filled, focus, error, a PickerSheet field, disabled with a reason. */
 export function formStates(w, h) {
   const f = [
-    field({ id: 'a', label: 'Ім’я', value: 'Ірина Мельник', attrs: KB.name }),
+    field({ id: 'a', label: 'Ім’я та прізвище', value: 'Ірина Мельник', attrs: KB.name }),
     field({
       id: 'c',
       label: 'Телефон',
@@ -77,7 +77,7 @@ export function formStates(w, h) {
 /** New user: name, email, role and team through the PickerSheet, primary «Додати». */
 export function formAddUser(w, h) {
   const f = [
-    field({ id: 'un', label: 'Ім’я', value: 'Ірина Мельник', attrs: KB.name }),
+    field({ id: 'un', label: 'Ім’я та прізвище', value: 'Ірина Мельник', attrs: KB.name }),
     field({
       id: 'ue',
       label: 'Email',
@@ -249,7 +249,7 @@ export const sheetLarge = (w, h) =>
   moneyForm({
     w,
     h,
-    title: 'Редагувати',
+    title: 'Редагувати транзакцію',
     receipt: 'done',
     expanded: true,
     footer: primaryBtn('Зберегти'),
@@ -260,7 +260,7 @@ export function sheetConfirm(w, h) {
   const overlay = actionConfirm(w, {
     id: 'cf',
     title: 'Видалити транзакцію «Оренда офісу»?',
-    desc: '−1 200,00 USD · 11.11.2026. Цю дію не можна скасувати.',
+    desc: '−1 200,00 USD · 11.11.2026. Цю дію не можна скасувати; чек теж буде видалено.',
     action: 'Видалити',
   })
   return tabScreen({
@@ -320,7 +320,7 @@ export function listSwipe(w, h) {
       .map(([i, t]) => sheetRow(i, t))
       .join(
         '',
-      )}${sheetRow('trash-2', 'Видалити…', 'var(--destructive)').replace('border-bottom:1px solid var(--separator);', '')}</div>
+      )}${sheetRow('trash-2', 'Видалити', 'var(--destructive)').replace('border-bottom:1px solid var(--separator);', '')}</div>
     <div role="button" style="background:var(--popover);border-radius:14px;border:1px solid var(--border);height:56px;display:grid;place-items:center;font-size:17px;font-weight:600">Скасувати</div></div>`
   const inner = `${topBar({ title: 'Свайп і меню', bell: false, search: false })}<div class="content">
   ${sec('Свайп ліворуч')}<div class="group">${txnRow(TXNS[1])}${swiped}${txnRow(TXNS[3])}</div>

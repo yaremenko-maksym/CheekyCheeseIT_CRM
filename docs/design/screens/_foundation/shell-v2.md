@@ -69,7 +69,11 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   screen has it) on the right. **Magnifier (R3-22):** on a screen with an inline search field the bar
   carries the magnifier at rest and collapsed, always left of the bell (the bell never leaves the bar); a
   tap scrolls the list to the top and focuses the inline field, so it is a shortcut to that one field, never
-  a second search (`listrow-sticky-320`, `ptr-pulling-375`).
+  a second search (`listrow-sticky-320`, `ptr-pulling-375`). **Where search lives when scrolled (R5-26, the
+  one rule):** the inline field scrolls with the list on every class (phone and tablet list pane); scrolled,
+  the way back is the bar's magnifier on a phone, and on a tablet a 44 px magnifier that appears in the
+  pane header left of the bell once the field has scrolled out; both «scroll to top + focus the field». A screen without an inline search (Статистика, Дашборд) draws no magnifier
+  (`chart-mobile-375`).
 - Pushed screen: 44 px bar, back chevron (44 × 44 `<button>`, `aria-label="Назад"`) + a 17/22 title
   **centred on the bar, not on the space left over** (iOS): the title is absolutely positioned and
   inset on both sides by the wider side, the back button or the trailing actions (`--topbar-side`,
@@ -81,7 +85,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 
 ### Quick-add FAB
 
-- 56 px yellow circle (context «+», §1), bottom right, inset 16, 16 px above the tab bar. **A money list has no FAB** (R1-04, D-8): on a Фінанси phone the one create entry is the docked 48 px «Нова транзакція» button in a 64 px strip above the tab bar, with the red dot or count when drafts need attention, so nothing floats over an amount (primitives-v2 §12 «Create entry»). Hidden while
+- 56 px yellow circle (context «+», §1), bottom right, inset 16, 16 px above the tab bar. **A money list has no FAB** (R1-04, D-8): on a Фінанси phone the one create entry is the docked 48 px «Нова транзакція» button in a 64 px strip above the tab bar (under a 600 px viewport a compact 44 px button in a 52 px strip, R5-27: `tabbar-admin-320`), with the red dot or count when drafts need attention, so nothing floats over an amount (primitives-v2 §12 «Create entry»). Hidden while
   the keyboard is open and while a sheet is open. **Never dimmed or disabled**, offline included.
 - **FAB and pill on scroll (the one rule; R5-06).** Scrolling down slides the FAB (where there is one) and a plain upload pill out below the tab bar;
   they come back on scroll-up or after **1 s** without scrolling. **An unacknowledged money result never
@@ -264,7 +268,10 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   and is trapped. **R4-04:** it is bounded to the safe viewport (24 px above and below) and its rows
   scroll inside it under a fixed header (`tablet-rail-more-short-768`, 768 × 600; `measure.mjs` `reach`).
   It closes by its own controls only: ✕, a scrim tap (a tap on the dimmed «Ще» lands on the scrim, so it
-  closes like any scrim tap), Esc and system back; focus returns to «Ще».
+  closes like any scrim tap), Esc and system back; focus returns to «Ще». **The current route inside «Ще»
+  (R5-25):** when the rail's height (a rotation, a short window) pushes the current destination into the
+  overflow, the «Ще» item takes the active cue (the same `--raised` tile and yellow icon) and the row
+  inside the dialog carries `aria-current="page"` and the selected-row bar.
 
 ---
 
