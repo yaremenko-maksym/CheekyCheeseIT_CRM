@@ -233,7 +233,7 @@ export function shortcuts() {
     <div class="grow"><div style="font-size:14px;font-weight:600">Односимвольні скорочення</div><div class="t-foot muted">Клавіші без ⌘/Ctrl. Ніколи не спрацьовують у текстовому полі. Налаштування зберігається на цьому пристрої.</div></div>
     <span role="switch" aria-checked="true" aria-label="Односимвольні скорочення" style="width:44px;height:26px;border-radius:13px;background:var(--primary);position:relative;flex:none"><i style="position:absolute;right:3px;top:3px;width:20px;height:20px;border-radius:10px;background:var(--primary-fg)"></i></span></div>
   <div class="row" style="gap:32px;padding:12px 24px 24px;align-items:flex-start">
-  ${col('Загальні', [row('Палітра команд', ['⌘ / Ctrl', 'K']), row('Пошук на сторінці', ['/']), row('Клавіатурні скорочення', ['?']), row('Закрити панель / діалог', ['Esc']), row('Згорнути бічну панель', ['[']), row('Зберегти форму', ['⌘ / Ctrl', '↵']), row('Скасувати останню дію', ['⌘ / Ctrl', 'Z'])])}
+  ${col('Загальні', [row('Палітра команд', ['⌘ / Ctrl', 'K']), row('Пошук на сторінці', ['/']), row('Клавіатурні скорочення', ['?']), row('Закрити панель або діалог', ['Esc']), row('Згорнути бічну панель', ['[']), row('Зберегти форму', ['⌘ / Ctrl', '↵']), row('Скасувати останню дію', ['⌘ / Ctrl', 'Z'])])}
   ${col('Перехід', [row('Фінанси', ['G', 'потім', 'F']), row('Статистика', ['G', 'потім', 'S']), row('Користувачі', ['G', 'потім', 'U']), row('Вакансії', ['G', 'потім', 'V']), row('Дашборд', ['G', 'потім', 'H'])])}
   ${col('Списки', [row('Наступний рядок', ['J']), row('Попередній рядок', ['K']), row('Відкрити рядок', ['↵']), row('Створити', ['C']), row('Фільтр', ['F']), row('Змінити етап картки', ['M'])])}</div></div>`
 }

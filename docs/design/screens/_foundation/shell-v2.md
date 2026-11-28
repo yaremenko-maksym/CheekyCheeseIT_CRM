@@ -282,7 +282,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   | Global | ⌘K / Ctrl+K                          | Палітра команд                                          | no                               |
   | Global | `/`                                  | Пошук на сторінці                                       | yes                              |
   | Global | `?`                                  | Клавіатурні скорочення                                  | yes                              |
-  | Global | Esc                                  | Закрити панель / діалог                                 | no                               |
+  | Global | Esc                                  | Закрити панель або діалог                               | no                               |
   | Global | `[`                                  | Згорнути бічну панель                                   | yes                              |
   | Global | `G` then `F` / `S` / `U` / `V` / `H` | Фінанси / Статистика / Користувачі / Вакансії / Дашборд | yes                              |
   | List   | `J` / `K`                            | Наступний / попередній рядок                            | yes                              |

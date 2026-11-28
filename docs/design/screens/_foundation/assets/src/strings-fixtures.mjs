@@ -5,6 +5,11 @@
 export const FIXTURE = new Set([
   // people (invented) and their avatar initials
   'Анна Бондар',
+  'Ігор Сидоренко',
+  'ІС',
+  'Олена Коваль',
+  'ОК',
+  'оренда',
   'АБ',
   'Богдан Ткач',
   'Віктор Кравець',

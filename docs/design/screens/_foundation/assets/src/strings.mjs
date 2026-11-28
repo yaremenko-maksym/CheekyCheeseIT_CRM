@@ -92,6 +92,7 @@ const isData = (t) =>
   DATE.test(t) ||
   KEY.test(t) ||
   FIXTURE.has(t) ||
+  /^\{\{\w+\}\}/.test(t) || // a document template with {{variables}} is record data, not copy
   NOTE.has(t) ||
   !/[A-Za-zА-Яа-яІіЇїЄєҐґ]/.test(t)
 
