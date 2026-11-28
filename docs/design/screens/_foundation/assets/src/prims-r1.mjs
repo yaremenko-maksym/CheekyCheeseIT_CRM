@@ -310,7 +310,7 @@ export function chartTablet(w, h) {
       ['var(--chart-1)', 'Прибуток'],
       ['', 'Збиток', 'hatch'],
     ],
-  )}</div><div style="margin-top:8px">${netBars(w - 80 - 64, 260, { labelSize: 12, pad: 34 })}</div>${chartTip('left:250px;top:150px', 'status')}</div>`
+  )}</div><div style="margin-top:8px">${netBars(w - 80 - 64, 260, { labelSize: 12, pad: 34, selected: 4 })}</div>${chartTip('left:380px;top:336px', 'status')}</div>`
   const list = `<section aria-label="Статистика" class="col grow" style="min-width:0">${paneHead('Статистика')}<div style="padding:0 16px 12px">${segmented(['3 міс', '6 міс', 'Рік'], 1, { fit: true })}</div>${card}</section>`
   return tablet({ w, h, list, active: '/stats' })
 }
@@ -320,7 +320,11 @@ export function listFooterTablet(w, h) {
   const list = txnPane(
     `${listFooter(w - 80, { menu: true }).replace(/width:\d+px;/, '')}${covered}`,
   )
-  return tablet({ w, h, list })
+  // R3-30: the covered line answers a query, so the field carries one (typed text, the clear button).
+  return tablet({ w, h, list }).replace(
+    /color:var\(--placeholder\);font-size:16px">(<svg[\s\S]*?<\/svg>)<span>Пошук транзакцій<\/span>/,
+    `color:var(--fg);font-size:16px">$1<span class="grow">оренда</span><span class="iconbtn" role="button" aria-label="Очистити пошук" style="margin-right:-10px;color:var(--muted-fg)">${icon('x', { size: 18 })}</span>`,
+  )
 }
 
 /** Desktop table end: the next page auto-loads at the end; failure keeps the rows and adds an inline retry row. */

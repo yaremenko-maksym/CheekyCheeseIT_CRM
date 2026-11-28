@@ -463,7 +463,7 @@ the desktop the shell is real and only the table is skeletal); shimmer 1.2 s, of
 
 `chart-mobile-375` / `chart-mobile-320`: one question per viewport («Чистий прибуток»); bars in
 `--chart-1`; **negative months hatched with a `−` label below zero**; zero line `--chart-grid`; tap a bar
-for a tooltip with the exact value (the hit area is the full-height column band; under 44 px, as in the
+for a tooltip with the exact value; **the tapped or focused bar is selected (R3-20):** full ink and a 2 px `--foreground` ring while the other bars dim to 45 %, and the tooltip never covers a bar, a value or a month label: above the plot when there is room, else centred under the axis (`chart-768`) (the hit area is the full-height column band; under 44 px, as in the
 12-bar «Рік», drag-scrub with a persistent value line above the chart, foundation §7.4); the period is a 44 px segmented control (swipe is an extra, not the
 only way). The second, smaller chart (partners) sits **below the fold** (`chart-mobile-scrolled-375`),
 with the partners' **initials** («ВК», «ОШ») directly under their bars, no legend, and the full

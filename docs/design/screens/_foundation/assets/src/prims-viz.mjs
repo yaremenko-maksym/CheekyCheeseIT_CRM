@@ -386,7 +386,8 @@ if (OCT.income - OCT.expenses !== OCT.net || OCT.net !== Math.round(NET[4] * 100
   throw new Error(`october tooltip drift: ${JSON.stringify(OCT)} vs bar ${NET[4]}`)
 const money = (n) => usd(n / 1000)
 
-export function netBars(W, H, { labelSize = 11, pad = 28 } = {}) {
+// R3-20: `selected` (a tapped or focused bar) keeps full ink with a 2 px ring; the other bars dim to 45 %.
+export function netBars(W, H, { labelSize = 11, pad = 28, selected = -1 } = {}) {
   const max = 8,
     min = -3.2,
     top = 18,
@@ -405,7 +406,9 @@ export function netBars(W, H, { labelSize = 11, pad = 28 } = {}) {
       y0 = y(0),
       y1 = y(v)
     const neg = v < 0
-    return `<rect x="${x}" y="${Math.min(y0, y1)}" width="${w}" height="${Math.abs(y1 - y0)}" rx="3" fill="${neg ? 'url(#hatch)' : 'var(--chart-1)'}" ${neg ? 'stroke="var(--chart-1)" stroke-width="1.2"' : ''}/>
+    const dim = selected >= 0 && i !== selected ? ' opacity="0.45"' : ''
+    const ring = i === selected ? ' stroke="var(--fg)" stroke-width="2"' : ''
+    return `<rect${dim}${ring} x="${x}" y="${Math.min(y0, y1)}" width="${w}" height="${Math.abs(y1 - y0)}" rx="3" fill="${neg ? 'url(#hatch)' : 'var(--chart-1)'}" ${neg ? 'stroke="var(--chart-1)" stroke-width="1.2"' : ''}/>
     <text x="${x + w / 2}" y="${neg ? y1 + 13 : y1 - 5}" text-anchor="middle" font-size="${labelSize}" font-weight="600" fill="var(--fg)" style="font-variant-numeric:tabular-nums">${neg ? '−' : '+'}${Math.abs(v).toFixed(1).replace('.', ',')}</text>
     <text x="${x + w / 2}" y="${H - 6}" text-anchor="middle" font-size="${labelSize}" fill="var(--muted-fg)">${MONTHS[i]}</text>`
   }).join('')
@@ -490,7 +493,7 @@ export function chartDesktop() {
       ['', 'Збиток', 'hatch'],
     ],
   )}</div><div style="margin-top:10px">${netBars(720, 260, { labelSize: 12, pad: 34 })}</div>${tooltip}</div>
-  <div style="flex:1;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Виплати партнерам</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">${usd(PART_K)} USD</div><div style="margin:10px 0 8px">${partnerBars(330, 252, { labelSize: 12 })}</div><div class="t-cap muted">тис. USD · ВК — Віктор Кравець · ОШ — Олена Шевчук</div></div></div>
+  <div style="flex:1;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Виплати партнерам · 2026</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">${usd(PART_K)} USD</div><div style="margin:10px 0 8px">${partnerBars(330, 252, { labelSize: 12 })}</div><div class="t-cap muted">тис. USD · ВК — Віктор Кравець · ОШ — Олена Шевчук</div></div></div>
   <div class="row" style="gap:10px;margin-top:16px;flex-wrap:wrap">${[
     ['--chart-1', 'chart-1 · primary'],
     ['--chart-2', 'chart-2'],
