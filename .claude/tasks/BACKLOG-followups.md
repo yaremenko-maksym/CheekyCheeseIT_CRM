@@ -8958,7 +8958,7 @@ AWAITING_CONFIRM" 24.1 s; the forward-DDL partial-index specs for `job_dirty_wor
 lock timeout into the service under test (or fake timers where no real DB wait is involved), which can
 change product defaults — not a gardener auto-fix.
 **Verify:** the verbose integration log lists none of these cases at ≥ 10 s, and each still asserts the
-same outcome (FAILED WRITER_UNAVAILABLE, lock refusal, RETRY).
+same outcome (FAILED WRITER_UNAVAILABLE, the `lock_timeout` refusal, RETRY).
 
 Sources: Codebase Gardener run 2026-11-28 (CI timing audit).
 
@@ -8981,28 +8981,18 @@ Sources: Codebase Gardener run 2026-11-28 (CI timing audit).
 no deadlock" takes 124.4 s per PR run; the count comes from `T3_CONCURRENCY_ITERATIONS` (default 1000).
 PR #1516 gives it its own integration leg so it no longer lengthens a hash shard. Whether every PR needs
 1000 iterations (versus a lower PR count and the full count nightly) is a coverage trade-off for the owner.
-**Verify:** `T3_CONCURRENCY_ITERATIONS` default and the CI env for that leg.
+**Verify:** the owner's choice is recorded on this entry; if the PR count is lowered, the ledger leg's
+log shows the lower iteration count and a nightly run still sets `T3_CONCURRENCY_ITERATIONS=1000`.
 
 Sources: Codebase Gardener run 2026-11-28 (CI timing audit).
 
-## 498. Hook refusal messages are printed to agents in Russian (2026-11-28)
+## 498. The legal knowledge files are still in Russian (2026-11-28)
 
-**Open (low, Architect).** The language policy makes every agent-facing text English, but the refusal and
-advisory messages of several hooks are Russian prose: `pre:bash:unbounded-wait`, `pre:bash:cross-agent-blast`
-(its Python analyzer), `pre:agent:dispatch-isolation`, `pre:bash:prettier-gate`, `pre:bash:coder-push-gate`,
-`pre:edit-write:zone-of-write`, `pre:bash:mutation-gate`. Translate the message text, keep every predicate
-ID (`BROADCAST-KILL`, `NO-ISOLATION`, …) verbatim, and update any hook test that matches message text.
-**Verify:** `grep -nE '[а-яА-Я]{3,}'` over `.claude/hooks/` matches only comments or patterns that must
-detect Cyrillic, and the hook test suites pass.
-
-Sources: Codebase Gardener run 2026-11-28 (meta audit).
-
-## 499. The legal knowledge files are still in Russian (2026-11-28)
-
-**Open (low, Legal).** `.claude/knowledge/legal/domain-lessons.md` and both `cross-cutting/` files
+**Open (low, owner; Legal reviews the translation).** `.claude/knowledge/legal/domain-lessons.md` and both `cross-cutting/` files
 (`citation-rules.md`, `escalation-zones.md`) are Russian prose the Legal agent reads as rules. The gardener
 translated only the README: these carry legal conclusions and citation rules where a translation slip
-changes meaning, so the Legal agent should translate them and keep Ukrainian statute names and quotes in
+changes meaning. The knowledge-base README makes the owner its maintainer (the Legal agent does not edit
+it), so the translation goes through an owner PR that the Legal agent reviews; keep Ukrainian statute names and quotes in
 the original.
 **Verify:** the Cyrillic left in those files is Ukrainian legal terms or quotations only.
 
