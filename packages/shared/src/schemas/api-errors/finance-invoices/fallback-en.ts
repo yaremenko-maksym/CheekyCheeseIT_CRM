@@ -59,8 +59,7 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
   FINANCE_INCOME_OWN_PROJECTS_ONLY: 'You can only declare income for your own project',
   FINANCE_ADMIN_INCOME_PROJECT_MUST_BE_ADMIN_OWNED:
     "Admin income can only be declared for an admin's project",
-  FINANCE_ADMIN_INCOME_RECEIVER_FIXED_FOR_ACCOUNTANT:
-    "An accountant can't choose who receives admin income",
+  FINANCE_ADMIN_INCOME_RECEIVER_FIXED_FOR_ACCOUNTANT: 'This section is not available for your role',
   FINANCE_INCOME_RECEIVER_MUST_BE_ACTIVE_ADMIN: 'The recipient must be an active admin',
   FINANCE_USDT_PROJECT_WRONG_INCOME_ROUTE:
     "Declare income on a USDT project as USDT income so the senior's and drop's shares are booked with it",
@@ -75,8 +74,7 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
   FINANCE_ADMIN_NO_SALARY: "An admin doesn't get a salary — admin income comes through shares",
   FINANCE_RECEIPT_ATTACH_FORBIDDEN:
     "You don't have permission to attach a receipt to this transaction",
-  FINANCE_RECEIPT_REPLACE_AFTER_PAID_FORBIDDEN:
-    'Only an admin or an accountant can replace a receipt after payment',
+  FINANCE_RECEIPT_REPLACE_AFTER_PAID_FORBIDDEN: 'Only an admin can replace a receipt after payment',
   FINANCE_RECEIPT_DOCUMENT_NOT_FOUND: 'Receipt document not found',
   FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY:
     'Only a document in the Receipt category can be attached to a transaction',
@@ -101,7 +99,7 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
   FINANCE_DERIVATIVE_ROW_TYPE_MISMATCH_FOR_REOPEN:
     "One of the shares was closed by an unusual transaction type — it can't return to pending payout",
   FINANCE_SALARY_ROLE_NOT_ELIGIBLE:
-    'Salary can only be created for a junior, HR, an accountant, a senior, or a drop',
+    'Salary can only be created for a junior, HR, a senior, or a drop',
   FINANCE_SALARY_RECEIVER_ARCHIVED: "The recipient is archived — a salary can't be created",
   FINANCE_SALARY_ALREADY_CREATED_FOR_MONTH:
     "This employee's salary for the selected month already exists",
@@ -143,24 +141,17 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
   FINANCE_DROP_SUMMARY_FORBIDDEN: 'Only a drop can see the drop summary',
   FINANCE_DROP_INCOMES_FORBIDDEN: 'Only a drop can see drop income',
   FINANCE_DROP_PAYMENTS_FORBIDDEN: 'Only a drop can see drop payouts',
-  FINANCE_SUMMARY_FORBIDDEN: 'Only an admin or an accountant can see the finance summary',
-  FINANCE_ACCOUNTANT_SUMMARY_FORBIDDEN:
-    'Only an admin or an accountant can see the accountant summary',
+  FINANCE_SUMMARY_FORBIDDEN: 'Only an admin can see the finance summary',
+  FINANCE_ACCOUNTANT_SUMMARY_FORBIDDEN: 'This section is not available for your role',
   FINANCE_SENIOR_SUMMARY_FORBIDDEN: 'Only an admin or a senior can see the senior summary',
-  FINANCE_INCOME_COMPLIANCE_FORBIDDEN:
-    'Only an admin or an accountant can see the income compliance overview',
-  FINANCE_SALARY_MONTH_GAP_FORBIDDEN:
-    'Only an admin or an accountant can see the missed salary months report',
+  FINANCE_INCOME_COMPLIANCE_FORBIDDEN: 'Only an admin can see the income compliance overview',
+  FINANCE_SALARY_MONTH_GAP_FORBIDDEN: 'Only an admin can see the missed salary months report',
   FINANCE_SALARY_MONTH_BACKFILL_FORBIDDEN: 'Only an admin can fill in missed salary months',
-  FINANCE_ADMIN_BALANCE_FORBIDDEN: "Only that admin or an accountant can see an admin's balance",
-  FINANCE_SENIOR_BALANCE_FORBIDDEN:
-    "Only an admin, an accountant, or the senior can see a senior's balance",
-  FINANCE_TOTAL_EARNED_FORBIDDEN:
-    'Only an admin or an accountant can see the “total earned” figure',
-  FINANCE_PENDING_OBLIGATIONS_FORBIDDEN:
-    'Only an admin, an accountant, or a senior can see pending obligations',
-  FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN:
-    'Only an admin or an accountant can see the company account',
+  FINANCE_ADMIN_BALANCE_FORBIDDEN: "Only that admin can see an admin's balance",
+  FINANCE_SENIOR_BALANCE_FORBIDDEN: "Only an admin or the senior can see a senior's balance",
+  FINANCE_TOTAL_EARNED_FORBIDDEN: 'Only an admin can see the “total earned” figure',
+  FINANCE_PENDING_OBLIGATIONS_FORBIDDEN: 'Only an admin or a senior can see pending obligations',
+  FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN: 'Only an admin can see the company account',
   FINANCE_COMPANY_WALLET_CHANGE_ADMIN_ONLY: 'Only an admin can change the company wallet',
   FINANCE_WALLET_ADDRESS_INVALID:
     'Invalid wallet address — it should be 0x followed by 40 hex characters',
@@ -169,19 +160,16 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
     'Company details must not exceed {maxChars, number} characters',
   FINANCE_COMPANY_DEPOSIT_FORBIDDEN: 'Only a senior or a drop can deposit to the company account',
   FINANCE_DEPOSIT_STATUS_ACCESS_FORBIDDEN:
-    'Only the person who made the deposit, an admin, or an accountant can see its status',
+    'Only the person who made the deposit or an admin can see its status',
   FINANCE_DIVIDEND_WITHDRAW_ADMIN_ONLY: 'Only an admin can withdraw dividends',
   FINANCE_DIVIDEND_AMOUNT_MUST_BE_POSITIVE: 'The dividend amount must be greater than zero',
   FINANCE_DIVIDEND_RECIPIENT_MUST_BE_ADMIN: "Dividends can only be withdrawn to an admin's account",
   FINANCE_DIVIDEND_RECEIVER_ARCHIVED: "The recipient is archived — dividends can't be paid",
   FINANCE_USDT_OBLIGATION_CLOSE_CURRENCY_UNSUPPORTED:
     "A USDT obligation can't be closed in {currency} — choose USD or USDT",
-  FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN:
-    'Only an admin, an accountant, or a senior can see pending obligations',
-  FINANCE_COMPANY_OBLIGATIONS_LIST_FORBIDDEN:
-    "Only an admin or an accountant can see the company's obligations",
-  FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN:
-    'Only an admin or an accountant can close a company obligation',
+  FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN: 'Only an admin or a senior can see pending obligations',
+  FINANCE_COMPANY_OBLIGATIONS_LIST_FORBIDDEN: "Only an admin can see the company's obligations",
+  FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN: 'Only an admin can close a company obligation',
   FINANCE_OBLIGATION_NOT_COMPANY_TYPE: "This isn't a company obligation",
   FINANCE_OBLIGATION_ALREADY_CLOSED: 'The obligation is already closed or cancelled',
   FINANCE_DROP_SHARE_NOT_VIA_COMPANY_ACCOUNT:

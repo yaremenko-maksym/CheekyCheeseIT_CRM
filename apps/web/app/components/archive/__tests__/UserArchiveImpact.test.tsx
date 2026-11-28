@@ -132,6 +132,28 @@ describe('UserArchiveImpact', () => {
     )
   })
 
+  it('SENIOR with a team: singular agreement when total affected HR and juniors is 1', async () => {
+    await loadCatalog('uk')
+    render(
+      <UserArchiveImpact
+        entityName="Олена"
+        impact={{
+          ...base,
+          role: 'SENIOR',
+          teamName: 'Alpha',
+          projectsCount: 1,
+          projectNames: ['P1'],
+          hrAccountantsOnTeam: 1,
+          juniorsAffected: 0,
+        }}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    const block = screen.getByTestId('archive-warning-senior')
+    const text = (block.textContent ?? '').replace(/\s+/g, ' ').trim()
+    expect(text).toContain('їхній профіль залишається активним, оплату вони отримують як і раніше.')
+  })
+
   it('HR/JUNIOR/ADMIN: each branch is role-unique, not confusable with a neighbour (mutation-gate round)', async () => {
     // mutation-gate survivors: a guard's role literal forced to `''`/its
     // condition forced `false`/its block emptied all fall through to the

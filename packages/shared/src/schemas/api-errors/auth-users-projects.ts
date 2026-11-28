@@ -315,7 +315,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   DROP_SHARE_OVERRIDE_FORBIDDEN: /* i18n */ {
     id: 'api-error.DROP_SHARE_OVERRIDE_FORBIDDEN',
-    message: 'Індивідуальну частку дропа за проєктом змінюють лише адміністратор і бухгалтер',
+    message: 'Індивідуальну частку дропа за проєктом змінює лише адміністратор',
   },
   DROP_TEAM_ID_REQUIRED: /* i18n */ {
     id: 'api-error.DROP_TEAM_ID_REQUIRED',
@@ -436,7 +436,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   PAYMENT_TYPE_CHANGE_FORBIDDEN: /* i18n */ {
     id: 'api-error.PAYMENT_TYPE_CHANGE_FORBIDDEN',
-    message: 'Тип оплати проєкту змінюють лише адміністратор і бухгалтер',
+    message: 'Тип оплати проєкту змінює лише адміністратор',
   },
   PERSONAL_EMAIL_ALREADY_VERIFIED: /* i18n */ {
     id: 'api-error.PERSONAL_EMAIL_ALREADY_VERIFIED',
@@ -460,7 +460,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   PROJECT_MEMBER_ROLE_RESTRICTED: /* i18n */ {
     id: 'api-error.PROJECT_MEMBER_ROLE_RESTRICTED',
-    message: 'До складу проєкту можна додати лише джуніора, HR або бухгалтера',
+    message: 'До складу проєкту можна додати лише джуніора або HR',
   },
   PROJECT_NOT_ACTIVE: /* i18n */ {
     id: 'api-error.PROJECT_NOT_ACTIVE',
@@ -500,7 +500,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   SENIOR_SHARE_OVERRIDE_FORBIDDEN: /* i18n */ {
     id: 'api-error.SENIOR_SHARE_OVERRIDE_FORBIDDEN',
-    message: 'Індивідуальну частку сеньйора за проєктом змінюють лише адміністратор і бухгалтер',
+    message: 'Індивідуальну частку сеньйора за проєктом змінює лише адміністратор',
   },
   SHARE_APPROVE_IMPERSONATION_FORBIDDEN: /* i18n */ {
     id: 'api-error.SHARE_APPROVE_IMPERSONATION_FORBIDDEN',
@@ -508,7 +508,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY: /* i18n */ {
     id: 'api-error.SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY',
-    message: 'Скасувати пропозицію частки можуть лише адміністратор і бухгалтер',
+    message: 'Скасувати пропозицію частки може лише адміністратор',
   },
   SHARE_CANCEL_ADMIN_ONLY: /* i18n */ {
     id: 'api-error.SHARE_CANCEL_ADMIN_ONLY',
@@ -524,7 +524,7 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   },
   TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT: /* i18n */ {
     id: 'api-error.TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT',
-    message: 'Бухгалтером команди може бути лише користувач із роллю бухгалтера',
+    message: 'Цей розділ недоступний для вашої ролі',
   },
   TEAM_HR_MEMBER_MUST_BE_HR: /* i18n */ {
     id: 'api-error.TEAM_HR_MEMBER_MUST_BE_HR',
@@ -597,8 +597,7 @@ export const AUTH_USERS_PROJECTS_ERROR_FALLBACK_EN: Record<AuthUsersProjectsErro
   DROP_NOT_FOUND: 'Drop not found',
   DROP_PROJECT_ACCESS_DENIED: 'Drop projects are only available to drops',
   DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT: "The role can't be changed to drop this way",
-  DROP_SHARE_OVERRIDE_FORBIDDEN:
-    "Only an admin or an accountant can change the drop's project share",
+  DROP_SHARE_OVERRIDE_FORBIDDEN: "Only an admin can change the drop's project share",
   DROP_TEAM_ID_REQUIRED: 'Choose the drop team to add the senior to',
   EMAIL_ALREADY_IN_USE: 'This email is already taken. Enter a different one',
   EMAIL_NOT_AUTHORIZED: "This email doesn't have access. Contact an admin",
@@ -631,16 +630,14 @@ export const AUTH_USERS_PROJECTS_ERROR_FALLBACK_EN: Record<AuthUsersProjectsErro
   LOGO_DOCUMENT_WRONG_PROJECT: 'This document belongs to another project',
   METHOD_DROP_ONLY: 'This action is only available for drops',
   NO_HR_CONTACT_ACCESS: 'No access to the HR contact',
-  PAYMENT_TYPE_CHANGE_FORBIDDEN:
-    "Only an admin or an accountant can change the project's payment type",
+  PAYMENT_TYPE_CHANGE_FORBIDDEN: "Only an admin can change the project's payment type",
   PERSONAL_EMAIL_ALREADY_VERIFIED:
     "The personal email is already verified — there's no need to send another invite",
   PERSONAL_EMAIL_MUST_DIFFER_FROM_WORK: 'The personal email must be different from the work email',
   PERSONAL_EMAIL_NOT_SET: 'The user has no personal email set',
   PROJECT_ALREADY_ARCHIVED: 'The project is already archived',
   PROJECT_HAS_ACTIVE_JUNIOR: 'The project already has an active junior member',
-  PROJECT_MEMBER_ROLE_RESTRICTED:
-    'Only a junior, an HR, or an accountant can be added to a project',
+  PROJECT_MEMBER_ROLE_RESTRICTED: 'Only a junior or an HR can be added to a project',
   PROJECT_NOT_ACTIVE: 'Income can only be declared for an active project',
   PROJECT_NOT_ARCHIVED: 'The project is not archived',
   PROJECT_NOT_FOUND: 'Project not found',
@@ -650,16 +647,15 @@ export const AUTH_USERS_PROJECTS_ERROR_FALLBACK_EN: Record<AuthUsersProjectsErro
   SENIOR_ADMIN_USDT_ONLY: 'Seniors and admins can only be paid to USDT ERC-20',
   SENIOR_MIN_ROLES: 'A senior needs at least one technical role',
   SENIOR_NOT_FOUND: 'Senior not found',
-  SENIOR_SHARE_OVERRIDE_FORBIDDEN:
-    "Only an admin or an accountant can change the senior's project share",
+  SENIOR_SHARE_OVERRIDE_FORBIDDEN: "Only an admin can change the senior's project share",
   SHARE_APPROVE_IMPERSONATION_FORBIDDEN:
     "You're signed in as another employee — only they can approve their share",
-  SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY: 'Only an admin or an accountant can cancel a share proposal',
+  SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY: 'Only an admin can cancel a share proposal',
   SHARE_CANCEL_ADMIN_ONLY: 'Only an admin can cancel a share proposal',
   SHARE_CHANGE_REQUESTER_REQUIRED: "Couldn't change the share. Try again",
   SHARE_REJECT_IMPERSONATION_FORBIDDEN:
     "You're signed in as another employee — only they can reject their share",
-  TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT: 'The team accountant must be a user with the accountant role',
+  TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT: 'This section is not available for your role',
   TEAM_HR_MEMBER_MUST_BE_HR: 'A team HR must be a user with the HR role',
   TECHNICAL_ROLES_SENIOR_ONLY: 'Technical roles can only be set for a senior',
   TELEGRAM_CHANNEL_SENIOR_ONLY: 'A Telegram channel can only be set for a senior',

@@ -86,15 +86,7 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
           {namesSuffix}). Вхід у CRM для цього акаунта буде закрито.
         </Trans>{' '}
         <Trans>
-          У команді{' '}
-          <Plural
-            value={impact.hrAccountantsOnTeam ?? 0}
-            one="# HR"
-            few="# HR"
-            many="# HR"
-            other="# HR"
-          />
-          , на її проєктах —{' '}
+          У команді {impact.hrAccountantsOnTeam ?? 0} HR, на її проєктах —{' '}
           <Plural
             value={impact.juniorsAffected ?? 0}
             one="# джуніор"
@@ -102,8 +94,15 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
             many="# джуніорів"
             other="# джуніора"
           />
-          : їхні профілі залишаються активними, оплату вони отримують як і раніше. Після відновлення
-          HR доведеться додати в команду заново.
+          :{' '}
+          <Plural
+            value={(impact.hrAccountantsOnTeam ?? 0) + (impact.juniorsAffected ?? 0)}
+            one="їхній профіль залишається активним, оплату вони отримують як і раніше"
+            few="їхні профілі залишаються активними, оплату вони отримують як і раніше"
+            many="їхні профілі залишаються активними, оплату вони отримують як і раніше"
+            other="їхні профілі залишаються активними, оплату вони отримують як і раніше"
+          />
+          . Після відновлення HR доведеться додати в команду заново.
         </Trans>{' '}
         <Trans>
           Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати

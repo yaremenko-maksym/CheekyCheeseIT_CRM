@@ -169,12 +169,6 @@ msgstr "Виберіть співробітника"
 msgid "Не вдалося змінити особисту адресу. Спробуйте ще раз"
 msgstr "Не вдалося змінити особисту адресу. Спробуйте ще раз"
 
-#. placeholder {0}: impact.membersAffected
-#. placeholder {1}: impact.seniorName || '—'
-#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "HR у команді ({0, plural, one {# HR} few {# HR} many {# HR} other {# HR}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується. Це еквівалентно архівації сеньйора <0>{1}</0>."
-msgstr "HR у команді ({0, plural, one {# HR} few {# HR} many {# HR} other {# HR}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується. Це еквівалентно архівації сеньйора <0>{1}</0>."
-
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Доступ лише для адміністратора"
 msgstr "Доступ лише для адміністратора"
@@ -263,6 +257,10 @@ msgstr "Готівка"
 #: apps/web/app/components/documents/document-labels.ts
 msgid "Файл буде видалено без можливості відновлення"
 msgstr "Файл буде видалено без можливості відновлення"
+
+#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+msgid "Змінювати може лише адмін."
+msgstr "Змінювати може лише адмін."
 
 #: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
 msgid "Гаманець компанії (USDT ERC-20)"
@@ -729,11 +727,6 @@ msgstr "немає підтвердженого першого запуску"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Вашу частку за замовчуванням пропонують змінити: зараз <0>{currentPercent}%</0>, пропонують <1>{0}%</1>. Поки ви не підтвердите, діє {currentPercent}%"
 msgstr "Вашу частку за замовчуванням пропонують змінити: зараз <0>{currentPercent}%</0>, пропонують <1>{0}%</1>. Поки ви не підтвердите, діє {currentPercent}%"
-
-#. placeholder {0}: impact.membersAffected
-#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "HR у команді ({0, plural, one {# HR} few {# HR} many {# HR} other {# HR}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується."
-msgstr "HR у команді ({0, plural, one {# HR} few {# HR} many {# HR} other {# HR}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується."
 
 #: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 msgid "Причина: {reasonText}."
@@ -2638,7 +2631,7 @@ msgstr "Змінити роль на «дроп» цим способом не �
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_SHARE_OVERRIDE_FORBIDDEN"
-msgstr "Індивідуальну частку дропа за проєктом змінюють лише адміністратор і бухгалтер"
+msgstr "Індивідуальну частку дропа за проєктом змінює лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -2673,12 +2666,12 @@ msgstr "Користувача архівовано — змінити роль 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_ACCOUNTANT_SUMMARY_FORBIDDEN"
-msgstr "Зведення бухгалтера бачать лише адміністратор і бухгалтер"
+msgstr "Цей розділ недоступний для вашої ролі"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_ADMIN_BALANCE_FORBIDDEN"
-msgstr "Баланс адміністратора бачать лише він сам і бухгалтер"
+msgstr "Баланс адміністратора бачить лише він сам"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
@@ -2688,7 +2681,7 @@ msgstr "Дохід адміністратора можна заявити лиш
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_ADMIN_INCOME_RECEIVER_FIXED_FOR_ACCOUNTANT"
-msgstr "Бухгалтер не обирає, хто отримує дохід адміністратора"
+msgstr "Цей розділ недоступний для вашої ролі"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
@@ -2708,7 +2701,7 @@ msgstr "Цим рядком закрито зобов’язання — йог�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN"
-msgstr "Рахунок компанії бачать лише адміністратор і бухгалтер"
+msgstr "Рахунок компанії бачить лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
@@ -2723,12 +2716,12 @@ msgstr "Поповнювати рахунок компанії можуть ли
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN"
-msgstr "Закривати зобов’язання компанії можуть лише адміністратор або бухгалтер"
+msgstr "Закривати зобов’язання компанії може лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_COMPANY_OBLIGATIONS_LIST_FORBIDDEN"
-msgstr "Зобов’язання компанії бачать лише адміністратор і бухгалтер"
+msgstr "Зобов’язання компанії бачить лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
@@ -2783,7 +2776,7 @@ msgstr "Видаляти транзакцію, яка є джерелом зоб
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_DEPOSIT_STATUS_ACCESS_FORBIDDEN"
-msgstr "Статус поповнення бачать лише його автор, адміністратор і бухгалтер"
+msgstr "Статус поповнення бачать лише його автор і адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
@@ -2883,7 +2876,7 @@ msgstr "Редагувати можна лише дохід сеньйора"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_INCOME_COMPLIANCE_FORBIDDEN"
-msgstr "Огляд відповідності доходів бачать лише адміністратор і бухгалтер"
+msgstr "Огляд відповідності доходів бачить лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
@@ -3028,12 +3021,12 @@ msgstr "Частину транзакцій уже включено до вип�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN"
-msgstr "Зобов’язання, що очікують виплати, бачать лише адміністратор, бухгалтер і сеньйор"
+msgstr "Зобов’язання, що очікують виплати, бачать лише адміністратор і сеньйор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_PENDING_OBLIGATIONS_FORBIDDEN"
-msgstr "Зобов’язання, що очікують виплати, бачать лише адміністратор, бухгалтер і сеньйор"
+msgstr "Зобов’язання, що очікують виплати, бачать лише адміністратор і сеньйор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
@@ -3058,7 +3051,7 @@ msgstr "Прикріпити до транзакції можна лише до�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_RECEIPT_REPLACE_AFTER_PAID_FORBIDDEN"
-msgstr "Замінити чек після оплати можуть лише адміністратор або бухгалтер"
+msgstr "Замінити чек після оплати може лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
@@ -3113,7 +3106,7 @@ msgstr "Заповнити пропущені місяці зарплати мо
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_SALARY_MONTH_GAP_FORBIDDEN"
-msgstr "Звіт про пропущені місяці зарплати бачать лише адміністратор і бухгалтер"
+msgstr "Звіт про пропущені місяці зарплати бачить лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
@@ -3133,12 +3126,12 @@ msgstr "Отримувача заархівовано — створити за�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_SALARY_ROLE_NOT_ELIGIBLE"
-msgstr "Зарплату можна створити лише для джуніора, HR, бухгалтера, сеньйора або дропа"
+msgstr "Зарплату можна створити лише для джуніора, HR, сеньйора або дропа"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_SENIOR_BALANCE_FORBIDDEN"
-msgstr "Баланс сеньйора бачать лише адміністратор, бухгалтер і сам сеньйор"
+msgstr "Баланс сеньйора бачать лише адміністратор і сам сеньйор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
@@ -3203,12 +3196,12 @@ msgstr "Симуляція: транзакцію не підтверджено"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_SUMMARY_FORBIDDEN"
-msgstr "Фінансове зведення бачать лише адміністратор і бухгалтер"
+msgstr "Фінансове зведення бачить лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TOTAL_EARNED_FORBIDDEN"
-msgstr "Показник «всього зароблено» бачать лише адміністратор і бухгалтер"
+msgstr "Показник «всього зароблено» бачить лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
@@ -3793,7 +3786,7 @@ msgstr "Ви увійшли як інший співробітник — нал�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PAYMENT_TYPE_CHANGE_FORBIDDEN"
-msgstr "Тип оплати проєкту змінюють лише адміністратор і бухгалтер"
+msgstr "Тип оплати проєкту змінює лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -3828,7 +3821,7 @@ msgstr "У проєкту вже є активний джуніор"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PROJECT_MEMBER_ROLE_RESTRICTED"
-msgstr "До складу проєкту можна додати лише джуніора, HR або бухгалтера"
+msgstr "До складу проєкту можна додати лише джуніора або HR"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -4133,7 +4126,7 @@ msgstr "Сеньйора не знайдено"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_SHARE_OVERRIDE_FORBIDDEN"
-msgstr "Індивідуальну частку сеньйора за проєктом змінюють лише адміністратор і бухгалтер"
+msgstr "Індивідуальну частку сеньйора за проєктом змінює лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -4143,7 +4136,7 @@ msgstr "Ви увійшли як інший співробітник — під�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY"
-msgstr "Скасувати пропозицію частки можуть лише адміністратор і бухгалтер"
+msgstr "Скасувати пропозицію частки може лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -4188,12 +4181,12 @@ msgstr "Резюме під вакансію не можна згенерува�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT"
-msgstr "Бухгалтером команди може бути лише користувач із роллю бухгалтера"
+msgstr "Цей розділ недоступний для вашої ролі"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE"
-msgstr "У команді має залишитися щонайменше один бухгалтер"
+msgstr "Цей розділ недоступний для вашої ролі"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -4263,7 +4256,7 @@ msgstr "Сеньйор уже перебуває в іншій активній 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN"
-msgstr "Змінити частку сеньйора на рівні команди можуть лише адміністратор і бухгалтер"
+msgstr "Змінити частку сеньйора на рівні команди може лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -8763,6 +8756,12 @@ msgstr "Перейменувати підключення"
 msgid "Створити"
 msgstr "Створити"
 
+#. placeholder {0}: impact.membersAffected
+#. placeholder {1}: impact.seniorName || '—'
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "{0, plural, one {# HR у команді залишається активним учасником і продовжує отримувати оплату} few {# HR у команді залишаються активними учасниками і продовжують отримувати оплату} many {# HR у команді залишаються активними учасниками і продовжують отримувати оплату} other {# HR у команді залишаються активними учасниками і продовжують отримувати оплату}} — архівація їх не стосується. Це еквівалентно архівації сеньйора <0>{1}</0>."
+msgstr "{0, plural, one {# HR у команді залишається активним учасником і продовжує отримувати оплату} few {# HR у команді залишаються активними учасниками і продовжують отримувати оплату} many {# HR у команді залишаються активними учасниками і продовжують отримувати оплату} other {# HR у команді залишаються активними учасниками і продовжують отримувати оплату}} — архівація їх не стосується. Це еквівалентно архівації сеньйора <0>{1}</0>."
+
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 msgid "Назад до списку"
 msgstr "Назад до списку"
@@ -11525,6 +11524,13 @@ msgstr "Додати користувача"
 msgid "Приймаємо…"
 msgstr "Приймаємо…"
 
+#. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
+#. placeholder {1}: impact.juniorsAffected ?? 0
+#. placeholder {2}: (impact.hrAccountantsOnTeam ?? 0) + (impact.juniorsAffected ?? 0)
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "У команді {0} HR, на її проєктах — {1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніора}}: {2, plural, one {їхній профіль залишається активним, оплату вони отримують як і раніше} few {їхні профілі залишаються активними, оплату вони отримують як і раніше} many {їхні профілі залишаються активними, оплату вони отримують як і раніше} other {їхні профілі залишаються активними, оплату вони отримують як і раніше}}. Після відновлення HR доведеться додати в команду заново."
+msgstr "У команді {0} HR, на її проєктах — {1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніора}}: {2, plural, one {їхній профіль залишається активним, оплату вони отримують як і раніше} few {їхні профілі залишаються активними, оплату вони отримують як і раніше} many {їхні профілі залишаються активними, оплату вони отримують як і раніше} other {їхні профілі залишаються активними, оплату вони отримують як і раніше}}. Після відновлення HR доведеться додати в команду заново."
+
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Гроші"
 msgstr "Гроші"
@@ -11542,6 +11548,11 @@ msgstr "Відкрити дошку"
 #: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 msgid "Змінити"
 msgstr "Змінити"
+
+#. placeholder {0}: impact.membersAffected
+#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+msgid "{0, plural, one {# HR у команді залишається активним учасником і продовжує отримувати оплату} few {# HR у команді залишаються активними учасниками і продовжують отримувати оплату} many {# HR у команді залишаються активними учасниками і продовжують отримувати оплату} other {# HR у команді залишаються активними учасниками і продовжують отримувати оплату}} — архівація їх не стосується."
+msgstr "{0, plural, one {# HR у команді залишається активним учасником і продовжує отримувати оплату} few {# HR у команді залишаються активними учасниками і продовжують отримувати оплату} many {# HR у команді залишаються активними учасниками і продовжують отримувати оплату} other {# HR у команді залишаються активними учасниками і продовжують отримувати оплату}} — архівація їх не стосується."
 
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Частка в проєкті тепер {percent}%"
@@ -12151,10 +12162,6 @@ msgstr "Підписи"
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Замінити секрет"
 msgstr "Замінити секрет"
-
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
-msgid "Змінювати може тільки адмін."
-msgstr "Змінювати може тільки адмін."
 
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Заповніть факти вручну або завантажте резюме — ми заповнимо з нього поля, а ви переглянете."
@@ -13455,12 +13462,6 @@ msgstr "Зміни збережено"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Транзакцію підтверджено"
 msgstr "Транзакцію підтверджено"
-
-#. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
-#. placeholder {1}: impact.juniorsAffected ?? 0
-#: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "У команді {0, plural, one {# HR} few {# HR} many {# HR} other {# HR}}, на її проєктах — {1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніора}}: їхні профілі залишаються активними, оплату вони отримують як і раніше. Після відновлення HR доведеться додати в команду заново."
-msgstr "У команді {0, plural, one {# HR} few {# HR} many {# HR} other {# HR}}, на її проєктах — {1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніора}}: їхні профілі залишаються активними, оплату вони отримують як і раніше. Після відновлення HR доведеться додати в команду заново."
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Надходження від компаній за цей місяць"

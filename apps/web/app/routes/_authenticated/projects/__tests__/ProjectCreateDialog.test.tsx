@@ -173,7 +173,7 @@ describe('ProjectCreateDialog + useCreateProjectForm', () => {
       'Створити',
       '— виберіть сеньйора —',
       '— не обрано —',
-      'Змінювати може тільки адмін.',
+      'Змінювати може лише адмін.',
     ]) {
       expect(screen.getByText(text)).toBeInTheDocument()
     }
@@ -303,7 +303,7 @@ describe('ProjectCreateDialog + useCreateProjectForm', () => {
   it('enables the payment type select and hides the hint for privileged viewers', () => {
     mount({ canEditPaymentType: true })
     expect(screen.getByTestId('project-payment-type-trigger')).not.toBeDisabled()
-    expect(screen.queryByText('Змінювати може тільки адмін.')).toBeNull()
+    expect(screen.queryByText('Змінювати може лише адмін.')).toBeNull()
   })
 
   it('shows the payment type placeholder when no type is selected', () => {
