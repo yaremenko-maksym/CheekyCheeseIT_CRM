@@ -17,7 +17,7 @@ export const Route = createFileRoute('/_authenticated/admin/contracts/')({
 })
 
 // All 5 possible roles (ADMIN excluded per spec)
-const ALL_ROLES: ContractTargetRole[] = ['HR', 'SENIOR', 'JUNIOR', 'DROP', 'ACCOUNTANT']
+const ALL_ROLES: ContractTargetRole[] = ['HR', 'SENIOR', 'JUNIOR', 'DROP']
 
 function ContractsListPage() {
   const { t, i18n } = useLingui()

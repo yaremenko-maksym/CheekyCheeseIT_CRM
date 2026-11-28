@@ -173,16 +173,11 @@ export function MembersCard({
                       const isJunior = member.role === 'JUNIOR'
                       const isLastHr =
                         member.role === 'HR' && membersByRole.HR && membersByRole.HR.length <= 1
-                      const isLastAccountant =
-                        member.role === 'ACCOUNTANT' &&
-                        membersByRole.ACCOUNTANT &&
-                        membersByRole.ACCOUNTANT.length <= 1
                       const isSelf = member.userId === viewerId
                       const canRemove =
                         !isSenior &&
                         !isJunior &&
                         !isLastHr &&
-                        !isLastAccountant &&
                         (viewerRole === 'ADMIN' ? true : isSelf)
                       return canRemove ? (
                         <Button

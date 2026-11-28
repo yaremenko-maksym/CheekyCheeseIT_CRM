@@ -126,7 +126,7 @@ function InterviewsPage() {
   // Drop role - phase 1 fix (AC4): DROP must not access /interviews —
   // sidebar already hides the link, but a direct URL navigation should also
   // redirect away. Mirrors the guard pattern used by /projects.
-  useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
+  useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR'])
   const { user } = useAuth()
   const queryClient = useQueryClient()
 

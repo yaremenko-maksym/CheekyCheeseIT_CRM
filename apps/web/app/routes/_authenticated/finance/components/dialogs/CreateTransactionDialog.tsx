@@ -86,17 +86,8 @@ export function CreateTransactionDialog({
   // dialog (mirrors SENIOR_INCOME from the senior path). Other roles never
   // reach this dialog (FinancePage guards them out).
   const isDrop = user?.role === 'DROP'
-  // task-accountant-create-transaction. ACCOUNTANT gets the SAME create set as
-  // ADMIN (income/expense/salary/transfer). Throughout this dialog the
-  // admin-only branches are widened to `isAdminSet` so the accountant renders
-  // an identical type list, project pool, user pool and transfer UI. The
-  // backend enforces the matching RBAC parity (ADMIN || ACCOUNTANT) per method.
-  const isAccountant = user?.role === 'ACCOUNTANT'
-  const isAdminSet = isAdmin || isAccountant
-
   // DIVIDEND (synthetic option) is ADMIN-only — dividends are withdrawn by an
-  // ADMIN partner, never by the ACCOUNTANT. So the accountant keeps the plain
-  // admin set while ADMIN additionally gets DIVIDEND.
+  // ADMIN partner.
   // task-admin-income-unified: the former separate `USDT_INCOME` type is gone
   // (see the DialogTxType comment) — ADMIN_INCOME is now the only admin-income
   // entry for both ADMIN; the USDT route inside it is further
@@ -104,18 +95,15 @@ export function CreateTransactionDialog({
   // (declareUsdtProjectIncome stays ADMIN-only server-side, unchanged).
   const availableTypes: DialogTxType[] = isAdmin
     ? ['ADMIN_INCOME', 'EXPENSE', 'SALARY', 'ADMIN_TRANSFER', 'DIVIDEND']
-    : isAccountant
-      ? ['ADMIN_INCOME', 'EXPENSE', 'SALARY', 'ADMIN_TRANSFER']
-      : isSenior
-        ? ['SENIOR_INCOME']
-        : isDrop
-          ? ['DROP_INCOME']
-          : []
+    : isSenior
+      ? ['SENIOR_INCOME']
+      : isDrop
+        ? ['DROP_INCOME']
+        : []
 
   const [type, setType] = useState<DialogTxType>(availableTypes[0] ?? 'SENIOR_INCOME')
   const [projectId, setProjectId] = useState('')
   const [receiverId, setReceiverId] = useState('')
-  const [transferSenderId, setTransferSenderId] = useState<string>('')
   const [amount, setAmount] = useState('')
   const [currency, setCurrency] = useState<Currency>('USD')
   const [category, setCategory] = useState('')
@@ -197,7 +185,7 @@ export function CreateTransactionDialog({
   const { data: projects = [] } = useQuery<ProjectOption[]>({
     queryKey: ['projects'],
     queryFn: () => api.get<ProjectOption[]>('/projects').then((r) => r.data),
-    enabled: open && (isAdmin || isSenior || isDrop || isAccountant),
+    enabled: open && (isAdmin || isSenior || isDrop),
   })
 
   // security-review (PR #522, LOW): the global QueryClient has a 60s
@@ -215,7 +203,7 @@ export function CreateTransactionDialog({
   const { data: allUsers = [] } = useQuery<UserOption[]>({
     queryKey: ['users-all'],
     queryFn: () => api.get<UserOption[]>('/users').then((r) => r.data),
-    enabled: open && isAdminSet,
+    enabled: open && isAdmin,
   })
 
   // Company account balance — needed for DIVIDEND (ADMIN-only) to display
@@ -224,7 +212,7 @@ export function CreateTransactionDialog({
   const { data: companyAccount } = useQuery({
     queryKey: ['company-account'],
     queryFn: companyAccountApi.getAccount,
-    enabled: open && isAdminSet,
+    enabled: open && isAdmin,
   })
   const companyBalance = companyAccount?.balance ?? 0
 
@@ -245,18 +233,12 @@ export function CreateTransactionDialog({
   // the former separate `usdtProjects` pool in here (ADR D3: the admin-USDT flow
   // was never limited to the caller's own projects) rather than filtering USDT
   // projects OUT, which is what created the hole this task closes (a USDT
-  // project silently missing from the list taught nobody why). ACCOUNTANT keeps
-  // registering on any admin-owned project — but NOT a USDT one:
-  // `declareUsdtProjectIncome` is ADMIN-only server-side (unchanged sibling), so
-  // offering a project only the endpoint itself will 403 on is a dead end, not
-  // a shorter list; the accountant-facing gate-hint below explains the absence.
+  // project silently missing from the list taught nobody why).
   const adminOwnProjects = isAdmin
     ? // Stryker disable next-line OptionalChaining: user is always defined once this dialog renders — see the identical note above.
       projects.filter((p) => p.seniorId === user?.id)
-    : isAccountant
-      ? projects.filter((p) => adminUserIds.has(p.seniorId))
-      : // Stryker disable next-line ArrayDeclaration: reached only by SENIOR/DROP, for whom `adminOwnProjects` feeds `adminProjects`'s non-admin branch further down — but THAT branch only renders for `type === 'ADMIN_INCOME'`, a type SENIOR/DROP never have in `availableTypes`. Computed, never read.
-        []
+    : // Stryker disable next-line ArrayDeclaration: reached only by SENIOR/DROP, for whom `adminOwnProjects` feeds `adminProjects`'s non-admin branch further down — but THAT branch only renders for `type === 'ADMIN_INCOME'`, a type SENIOR/DROP never have in `availableTypes`. Computed, never read.
+      []
   // Stryker disable next-line ArrayDeclaration: same reasoning as `adminOwnProjects` above — SENIOR/DROP never render the ADMIN_INCOME project pool that reads this.
   const adminUsdtProjects = isAdmin ? projects.filter((p) => p.paymentType === 'USDT') : []
   const adminProjects = isAdmin
@@ -293,16 +275,12 @@ export function CreateTransactionDialog({
       false
 
   // task-admin-income-unified (§2). ADMIN_INCOME's "is this routed to the
-  // shared pool" signal now lives in TWO different places depending on the
-  // caller — ADMIN picks a receiver (`receiverId === COMPANY_ACCOUNT_RECEIVER`,
-  // the flat Select below, same field the USDT route uses); ACCOUNTANT keeps
-  // the old binary `fundingSource` toggle (never a specific OTHER admin — the
-  // server rejects that for this role). One derived flag folds both shapes so
-  // every downstream USDT-lock / receipt / invalidation check reads ONE thing.
+  // shared pool" signal: ADMIN picks a receiver (`receiverId ===
+  // COMPANY_ACCOUNT_RECEIVER`, the flat Select below, same field the USDT route
+  // uses). Every downstream USDT-lock / receipt / invalidation check reads it.
   const isAdminIncomeCompanyFunded =
-    // Stryker disable next-line ConditionalExpression: empirically verified equivalent (full dialog suite, 112/112 tests, still green with this forced `true`) — the type-switch handler resets `fundingSource` to 'legacy' on EVERY type change, so `fundingSource === 'COMPANY_ACCOUNT'` can only be true while STILL on EXPENSE/ADMIN_INCOME; by the time `type` differs, fundingSource has already reverted. This guard is defence-in-depth against that reset invariant, not independently observable today.
-    type === 'ADMIN_INCOME' &&
-    (isAdmin ? receiverId === COMPANY_ACCOUNT_RECEIVER : fundingSource === 'COMPANY_ACCOUNT')
+    // Stryker disable next-line ConditionalExpression: the type-switch handler resets `receiverId` to '' on EVERY type change, so `receiverId === COMPANY_ACCOUNT_RECEIVER` can only be true while still on ADMIN_INCOME. This guard is defence-in-depth against that reset invariant, not independently observable today.
+    type === 'ADMIN_INCOME' && receiverId === COMPANY_ACCOUNT_RECEIVER
 
   // Derived: is the currency selector locked to USDT? True when the selected
   // project is itself USDT-payment (routes through declareUsdtProjectIncome,
@@ -312,7 +290,7 @@ export function CreateTransactionDialog({
   const isUsdtLocked =
     isSelectedProjectUsdt ||
     isAdminIncomeCompanyFunded ||
-    // Stryker disable next-line ConditionalExpression: empirically verified equivalent (full dialog suite, still green with the `type === 'EXPENSE'` half forced `true`) — for EXPENSE itself this half was already true, no change; for every OTHER type, `fundingSource` has already been reset to 'legacy' by the type-switch handler's own unconditional `setFundingSource(defaultFundingSource(t))` (defaultFundingSource ignores its argument, see the neighbouring suppression, and always returns 'legacy') before this line can ever see a stale 'COMPANY_ACCOUNT' — the ONE type that keeps that value alive across a mutation of this clause is ACCOUNTANT's ADMIN_INCOME toggle, and THAT case is already covered by `isAdminIncomeCompanyFunded` two lines up, independent of this clause.
+    // Stryker disable next-line ConditionalExpression: empirically verified equivalent (full dialog suite, still green with the `type === 'EXPENSE'` half forced `true`) — for EXPENSE itself this half was already true, no change; for every OTHER type, `fundingSource` has already been reset to 'legacy' by the type-switch handler's own unconditional `setFundingSource(defaultFundingSource(t))` (defaultFundingSource ignores its argument, see the neighbouring suppression, and always returns 'legacy') before this line can ever see a stale 'COMPANY_ACCOUNT'.
     (type === 'EXPENSE' && fundingSource === 'COMPANY_ACCOUNT')
 
   // task-receipts-frontend. Single discriminant for the receipt explorer-only
@@ -357,32 +335,20 @@ export function CreateTransactionDialog({
     (SALARY_ELIGIBLE_ROLES as ReadonlyArray<string>).includes(u.role),
   )
   // ADMIN_TRANSFER parties must BOTH be ADMIN. An ADMIN can only send from
-  // their own account (enforced by the API); ACCOUNTANT can record either
-  // direction between two admins. Exclude self from the ADMIN receiver pool.
-  const adminTargets = isAdmin ? adminUsers.filter((u) => u.id !== user?.id) : adminUsers
+  // their own account (enforced by the API). Exclude self from the receiver pool.
+  const adminTargets = adminUsers.filter((u) => u.id !== user?.id)
 
   // DIVIDEND receiver pool — any ADMIN partner; defaults to the calling admin.
   // Reuses the shared `receiverId` state; backend defaults to the caller when
   // adminId is omitted, but we always send an explicit one for auditability.
   const dividendReceiverId = receiverId || user?.id || ''
 
-  // Default the transfer sender to self for ADMIN; for ACCOUNTANT (not a party)
-  // default to the first admin so the transfer always has two ADMIN endpoints.
-  const defaultTransferSenderId = isAdmin ? (user?.id ?? '') : (adminUsers[0]?.id ?? '')
-  const effectiveTransferSenderId = isAdmin
-    ? defaultTransferSenderId
-    : transferSenderId || defaultTransferSenderId
+  // The transfer sender is always the calling ADMIN.
+  const effectiveTransferSenderId = user?.id ?? ''
   const transferReceiverId =
     receiverId || adminTargets.find((u) => u.id !== effectiveTransferSenderId)?.id || ''
   const transferSender = adminUsers.find((u) => u.id === effectiveTransferSenderId)
   const transferReceiver = adminUsers.find((u) => u.id === transferReceiverId)
-
-  function swapTransfer() {
-    const prevSender = effectiveTransferSenderId
-    const prevReceiver = transferReceiverId
-    setTransferSenderId(prevReceiver)
-    setReceiverId(prevSender)
-  }
 
   const validate = useCreateTransactionValidator({
     amount,
@@ -438,7 +404,6 @@ export function CreateTransactionDialog({
   function resetForm() {
     setProjectId('')
     setReceiverId('')
-    setTransferSenderId('')
     setAmount('')
     setCurrency('USD')
     setCategory('')
@@ -500,9 +465,6 @@ export function CreateTransactionDialog({
     setType(txType)
     setProjectId('')
     setReceiverId('')
-    // Also clear the ADMIN_TRANSFER sender so switching the type
-    // inside an open dialog never leaves a stale party selected.
-    setTransferSenderId('')
     setFieldErrors({})
     // Reset fundingSource to per-type default and restore the
     // default currency (any USDT-lock is re-derived from funding).
@@ -578,11 +540,9 @@ export function CreateTransactionDialog({
             adminProjects={adminProjects}
             dropProjects={dropProjects}
             myProjects={myProjects}
-            adminOwnProjects={adminOwnProjects}
             projects={projects}
             // Stryker disable next-line OptionalChaining: user is always defined once this dialog renders (gated by the authenticated route it lives on) — `?.` is a defensive no-op here, not an observable branch; same reasoning as the identical `user?.id` suppressions on the project pools above.
             userId={user?.id}
-            isAccountant={isAccountant}
             onProjectChange={handleProjectChange}
           />
 
@@ -620,8 +580,7 @@ export function CreateTransactionDialog({
           )}
 
           {/* Funding source selector — EXPENSE only (task-admin-income-unified
-              §2: ADMIN_INCOME's ADMIN branch is the flat receiver Select above;
-              its ACCOUNTANT branch is the constrained toggle right below).
+              §2: ADMIN_INCOME uses the flat receiver Select above).
               task-salary-pay-flow: SALARY has no funding selector here — chosen
               at pay time (PaySalaryDialog). */}
           {type === 'EXPENSE' &&
@@ -633,33 +592,10 @@ export function CreateTransactionDialog({
               companyDescription: t`Списується з рахунку компанії (USDT)`,
             })}
 
-          {/* task-admin-income-unified (§2, owner decision 2026-08-12).
-              ACCOUNTANT's CONSTRAINED "Рахунок отримувача" — reuses the EXACT
-              same `fundingSource` state/toggle shape EXPENSE uses above (no
-              new state), but "personal" always means the PROJECT OWNER
-              (never a picked admin, never the accountant — the server
-              rejects anything else for this role, see createAdminIncome).
-              The interface never offers what the server would reject. */}
-          {type === 'ADMIN_INCOME' &&
-            isAccountant &&
-            renderFundingSourceToggle({
-              ...fundingToggleProps,
-              sectionLabel: t`Рахунок отримувача`,
-              personalLabel: t`Власник проєкту`,
-              // Урок #702, п.9 — ім'я підставляється тільки в називному відмінку:
-              // «Дохід зарахується на рахунок адміністратора — {name}», не
-              // «адміністратору {name}» (це вимагало б давального відмінка).
-              personalDescription: selectedAdminProject?.seniorName
-                ? t`Дохід зарахується на рахунок адміністратора — ${selectedAdminProject.seniorName}`
-                : t`Дохід зарахується на рахунок адміністратора-власника проєкту`,
-              companyDescription: t`Зарахується на рахунок компанії (USDT)`,
-            })}
-
           {type === 'ADMIN_TRANSFER' && adminUsers.length >= 2 && (
             <TransferSwapField
               transferSender={transferSender}
               transferReceiver={transferReceiver}
-              swapTransfer={isAccountant ? swapTransfer : undefined}
             />
           )}
 
@@ -789,7 +725,7 @@ export function CreateTransactionDialog({
             data-track="transaction-create"
           >
             {
-              // Stryker disable next-line StringLiteral: the pending-state label — every test in this suite mocks `useMutation` with a fixed `isPending: false`, so this branch never renders to be observed; the idle-state label is pinned by `CreateTransactionDialog.accountant.test.tsx`'s footer-copy test.
+              // Stryker disable next-line StringLiteral: the pending-state label — every test in this suite mocks `useMutation` with a fixed `isPending: false`, so this branch never renders to be observed.
               mutation.isPending ? t`Створення…` : t`Створити транзакцію`
             }
           </Button>

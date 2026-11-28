@@ -58,7 +58,6 @@ function MemberPicker({
   selected,
   onAdd,
   onRemove,
-  single = false,
 }: {
   label: string
   roles: string[]
@@ -66,7 +65,6 @@ function MemberPicker({
   selected: UserOption[]
   onAdd: (u: UserOption) => void
   onRemove: (id: string) => void
-  single?: boolean
 }) {
   const { t } = useLingui()
   const available = allUsers.filter(
@@ -81,7 +79,7 @@ function MemberPicker({
           <UserChip key={u.id} user={u} onRemove={() => onRemove(u.id)} />
         ))}
       </div>
-      {(!single || selected.length === 0) && available.length > 0 && (
+      {available.length > 0 && (
         <select
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
           value=""
@@ -119,7 +117,6 @@ export function CreateProjectFromHiredDialog({
   const queryClient = useQueryClient()
 
   const [hrMembers, setHrMembers] = useState<UserOption[]>([])
-  const [accountants, setAccountants] = useState<UserOption[]>([])
   const [juniors, setJuniors] = useState<UserOption[]>([])
 
   const { data: allUsers = [] } = useQuery<UserOption[]>({
@@ -162,7 +159,7 @@ export function CreateProjectFromHiredDialog({
         startDate: new Date(value.startDate).toISOString(),
       })
 
-      const membersToAdd = [...hrMembers, ...accountants, ...juniors]
+      const membersToAdd = [...hrMembers, ...juniors]
       for (const member of membersToAdd) {
         await api.post(`/projects/${project.id}/members`, { userId: member.id })
       }
@@ -336,16 +333,6 @@ export function CreateProjectFromHiredDialog({
                 selected={hrMembers}
                 onAdd={(u) => setHrMembers((prev) => [...prev, u])}
                 onRemove={(id) => setHrMembers((prev) => prev.filter((u) => u.id !== id))}
-              />
-
-              <MemberPicker
-                label={t`Бухгалтер`}
-                roles={['ACCOUNTANT']}
-                allUsers={allUsers}
-                selected={accountants}
-                onAdd={(u) => setAccountants([u])}
-                onRemove={(id) => setAccountants((prev) => prev.filter((u) => u.id !== id))}
-                single
               />
 
               <MemberPicker

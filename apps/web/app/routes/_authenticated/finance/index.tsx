@@ -29,7 +29,7 @@ import { SettleSeniorPayoutDialog } from './components/dialogs/SettleSeniorPayou
 // CompanySharePayoutModal (batch payout) — re-activated by
 // feat/finance-payout-flow (#7), replaced task-company-share-cta. SENIOR
 // manually creates a payout request by selecting one or more VALIDATED
-// SENIOR_INCOME rows. The old auto-create path on ACCOUNTANT validate has been
+// SENIOR_INCOME rows. The old auto-create path on receipt validation has been
 // removed to eliminate duplicate payouts.
 import { CompanySharePayoutModal } from './components/dialogs/CompanySharePayoutModal'
 import { PayoutDetailDialog } from './components/dialogs/PayoutDetailDialog'
@@ -80,7 +80,7 @@ export const Route = createFileRoute('/_authenticated/finance/')({
 function FinancePage() {
   const { t, i18n } = useLingui()
   const locale = useLocale()
-  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'ACCOUNTANT', 'HR', 'DROP', 'JUNIOR'])
+  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'DROP', 'JUNIOR'])
   const { user } = useAuth()
   // Deep-link status filter (?status=PENDING).
   // useSearch is hook-order-safe (called before the early returns below).
@@ -92,10 +92,6 @@ function FinancePage() {
   const isSenior = role === 'SENIOR'
   const isJunior = role === 'JUNIOR'
   const isHr = role === 'HR'
-  // task-accountant-create-transaction. ACCOUNTANT may create transactions with
-  // the SAME set as ADMIN (income/expense/salary/transfer) — see business doc
-  // finance.md: «ACCOUNTANT — Все транзакции, валидация, расходы, выплаты».
-  const isAccountant = role === 'ACCOUNTANT'
   // Drop role - phase 2. DROP user reaches the normal finance table and
   // can register new income via «Новая транзакция» (which renders the
   // DROP_INCOME card from CreateTransactionDialog).
@@ -172,12 +168,12 @@ function FinancePage() {
     setSettleSeniorTx(tx)
   }, [])
 
-  const canCreate = isAdmin || isSenior || isDrop || isAccountant
+  const canCreate = isAdmin || isSenior || isDrop
   // task-soft-delete-and-money-audit (AC2/AC3). Only ADMIN may
   // ever request `includeDeleted` — the server ignores it for every other
   // role regardless, but gating the toggle's very existence here means a
   // SENIOR/JUNIOR/HR/DROP never even sees the affordance.
-  const canSeeDeleted = isAdmin || isAccountant
+  const canSeeDeleted = isAdmin
   const effectiveShowDeleted = canSeeDeleted && showDeleted
 
   // DROP has its own self-scoped API endpoints (drop-incomes / drop-payments)

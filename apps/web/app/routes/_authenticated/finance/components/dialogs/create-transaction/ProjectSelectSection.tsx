@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/select'
 import type { DialogTxType, ProjectOption } from './shared'
 
-// Project selector + the USDT gate hints (SENIOR / DROP / ACCOUNTANT).
+// Project selector + the USDT gate hints (SENIOR / DROP).
 export function ProjectSelectSection({
   type,
   projectId,
@@ -18,10 +18,8 @@ export function ProjectSelectSection({
   adminProjects,
   dropProjects,
   myProjects,
-  adminOwnProjects,
   projects,
   userId,
-  isAccountant,
   onProjectChange,
 }: {
   type: DialogTxType
@@ -30,10 +28,8 @@ export function ProjectSelectSection({
   adminProjects: ProjectOption[]
   dropProjects: ProjectOption[]
   myProjects: ProjectOption[]
-  adminOwnProjects: ProjectOption[]
   projects: ProjectOption[]
   userId: string | undefined
-  isAccountant: boolean
   onProjectChange: (v: string) => void
 }) {
   const { t } = useLingui()
@@ -115,24 +111,6 @@ export function ProjectSelectSection({
               На всіх ваших проєктах дохід декларує адміністратор (USDT). Звертайтеся до
               адміністратора.
             </Trans>
-          </p>
-        )}
-      {/* task-admin-income-unified. ACCOUNTANT-only hint: unlike ADMIN
-              (whose pool now includes every USDT project, unified — see
-              `adminProjects` above), the accountant's pool still excludes
-              them — `declareUsdtProjectIncome` is ADMIN-only server-side, so
-              offering a project that endpoint will 403 on is a dead end. Shown
-              only when it actually cost the accountant something (their
-              admin-owned pool is non-empty but every project in it is USDT). */}
-      {type === 'ADMIN_INCOME' &&
-        isAccountant &&
-        adminOwnProjects.length > 0 &&
-        adminProjects.length === 0 && (
-          <p
-            className="text-xs text-muted-foreground italic"
-            data-testid="admin-income-accountant-usdt-gate-hint"
-          >
-            <Trans>Дохід за USDT-проєктами може провести лише адміністратор.</Trans>
           </p>
         )}
     </>
